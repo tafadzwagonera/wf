@@ -19,29 +19,29 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 
-const MOCK_TICKET_RESPONSE = [
-  '# Heading: Test silent mode output',
-  '',
-  '**Type:** task',
-  '**Priority:** medium',
-  '',
-  '## Description',
-  '',
-  '### Summary',
-  'Test summary for silent mode verification.',
-  '',
-  '#### Technical Details',
-  'None',
-  '',
-  '### Acceptance Criteria',
-  '- None',
-  '',
-  '### Risks & Assumptions',
-  '- None',
-  '',
-  '#### Out of Scope',
-  '- None',
-].join('\n');
+const MOCK_TICKET_RESPONSE = JSON.stringify({
+  title: 'Test silent mode output',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'Test summary for silent mode verification.',
+    '',
+    '#### Technical Details',
+    'None',
+    '',
+    '### Acceptance Criteria',
+    '- None',
+    '',
+    '### Risks & Assumptions',
+    '- None',
+    '',
+    '#### Out of Scope',
+    '- None',
+  ].join('\n'),
+});
 
 const MOCK_CLARIFICATION_RESPONSE = JSON.stringify(['What is the target deployment environment?']);
 
@@ -85,7 +85,7 @@ async function testSilentAndClarification() {
     };
     (StageAgentService.prototype as any).generateFromPrompt = async () => {
       aiCallCount++;
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     let capturedOutput = '';
@@ -159,10 +159,10 @@ async function testSilentAndClarification() {
     (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       aiCallCount++;
       if (aiCallCount === 1) {
-        return MOCK_CLARIFICATION_RESPONSE;
+        return { content: MOCK_CLARIFICATION_RESPONSE };
       }
       lastPromptContent = prompt;
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     // Mock inquirer to auto-answer

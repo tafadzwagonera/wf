@@ -100,62 +100,26 @@ async function buildCommand(options?: { generateAgentEnabled?: boolean }): Promi
     getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
     getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
     execute: jest.fn().mockResolvedValue({
-      content: [
-        '# Generated Title',
-        '',
-        '**Type:** task',
-        '**Priority:** medium',
-        '',
-        '## Description',
-        '',
-        '### Summary',
-        'Generated summary',
-        '',
-        '#### Technical Details',
-        'None',
-        '',
-        '### Acceptance Criteria',
-        '- None',
-        '',
-        '### Risks & Assumptions',
-        '- None',
-        '',
-        '#### Out of Scope',
-        '- None',
-      ].join('\n'),
+      content: JSON.stringify({
+        title: 'Generated Title',
+        type: 'task',
+        priority: 'medium',
+        description: 'Generated summary',
+      }),
     }),
   };
   const mockStageAgentService = {
     isEnabledForStage: jest.fn((stage: string) =>
       stage === 'generate' ? options?.generateAgentEnabled === true : false,
     ),
-    generateFromPrompt: jest
-      .fn()
-      .mockResolvedValue(
-        [
-          '# Agent Generated Title',
-          '',
-          '**Type:** task',
-          '**Priority:** medium',
-          '',
-          '## Description',
-          '',
-          '### Summary',
-          'Agent generated summary',
-          '',
-          '#### Technical Details',
-          'None',
-          '',
-          '### Acceptance Criteria',
-          '- None',
-          '',
-          '### Risks & Assumptions',
-          '- None',
-          '',
-          '#### Out of Scope',
-          '- None',
-        ].join('\n'),
-      ),
+    generateFromPrompt: jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        title: 'Agent Generated Title',
+        type: 'task',
+        priority: 'medium',
+        description: 'Agent generated summary',
+      }),
+    }),
   };
   const module = await Test.createTestingModule({
     providers: [
@@ -374,9 +338,9 @@ describe('IssueGenerateCommand', () => {
       ]);
 
       expect(prompt).toContain(
-        'Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
+        'Use fenced Markdown code blocks (```lang) for code samples within the description string; never use Jira wiki {code} syntax.',
       );
-      expect(prompt).toContain('Use `- ` for every unordered bullet item; never use `* ` bullets.');
+      expect(prompt).toContain('Use `- ` for every unordered bullet item within the description string; never use `* ` bullets.');
     });
 
     it('instructs the model to follow formal writing conventions in the prompt', async () => {
@@ -1002,34 +966,17 @@ describe('IssueGenerateCommand', () => {
       const tempSourcePath = path.join(os.tmpdir(), 'wf-issue-generate-contraction-source.md');
 
       mockAiService.execute.mockResolvedValueOnce({
-        content: [
-          '# Generated Title That Don\'t Work',
-          '',
-          '**Type:** task',
-          '**Priority:** medium',
-          '',
-          '## Description',
-          '',
-          '### Summary',
-          'It\'s a summary that can\'t be used as-is',
-        ].join('\n'),
+        content: JSON.stringify({
+          title: "Generated Title That Don't Work",
+          type: 'task',
+          priority: 'medium',
+          description: "It's a summary that can't be used as-is and shouldn't stay.",
+        }),
       });
-      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
-        if (format === 'md') {
-          return {
-            parse: jest.fn(() => ({
-              title: 'Generated Title That Don\'t Work',
-              description: 'It\'s a summary that can\'t be used as-is and shouldn\'t stay.',
-              type: 'task',
-              priority: 'medium',
-            })),
-            serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
-          } as any;
-        }
-
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation((() => {
         return {
           parse: jest.fn(),
-          serialize: jest.fn(),
+          serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
         } as any;
       }) as any);
 
@@ -1053,30 +1000,29 @@ describe('IssueGenerateCommand', () => {
     });
 
     it('expands contractions in single-source imported tickets before writing --output files', async () => {
-      const { command } = await buildCommand();
+      const { command, mockAiService } = await buildCommand();
       const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
       const outputDir = createManagedTempDir('generated-output');
       const outputPath = path.join(outputDir, 'wf-generated-output.md');
       const tempSourcePath = path.join(outputDir, 'wf-imported-ticket-source.md');
-      const importedTicket = {
-        title: 'Imported ticket that don\'t comply',
-        description: 'Imported description that can\'t be used and it\'s long enough to bypass synthesis. '.repeat(3),
-        type: 'task',
-        priority: 'medium',
-      };
 
-      jest.spyOn(formatConverterService, 'detectFormat').mockReturnValue('md');
-      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
-        if (format === 'md') {
-          return {
-            parse: jest.fn(() => importedTicket),
-            serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
-          } as any;
-        }
-
+      jest.spyOn(mockAiService, 'execute').mockResolvedValue({
+        content: JSON.stringify({
+          title: "Imported ticket that don't comply",
+          type: 'task',
+          priority: 'medium',
+          description: "Imported description that can't be used and it's not formal.",
+        }),
+      });
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation((() => {
         return {
-          parse: jest.fn(),
-          serialize: jest.fn(),
+          parse: jest.fn(() => ({
+            title: 'Imported ticket title',
+            description: 'Imported description',
+            type: 'task',
+            priority: 'medium',
+          })),
+          serialize: jest.fn(ticket => [`# ${ticket.title}`, '', ticket.description].join('\n')),
         } as any;
       }) as any);
 
@@ -1405,29 +1351,12 @@ describe('IssueGenerateCommand', () => {
       });
       // Second AI call: synthesis
       mockAiService.execute.mockResolvedValueOnce({
-        content: [
-          '# Clarified Title',
-          '',
-          '**Type:** task',
-          '**Priority:** medium',
-          '',
-          '## Description',
-          '',
-          '### Summary',
-          'Clarified summary',
-          '',
-          '#### Technical Details',
-          'None',
-          '',
-          '### Acceptance Criteria',
-          '- None',
-          '',
-          '### Risks & Assumptions',
-          '- None',
-          '',
-          '#### Out of Scope',
-          '- None',
-        ].join('\n'),
+        content: JSON.stringify({
+          title: 'Clarified Title',
+          type: 'task',
+          priority: 'medium',
+          description: 'Clarified summary',
+        }),
       });
 
       promptMock.mockResolvedValueOnce({ answer: 'Web only' }).mockResolvedValueOnce({ answer: 'No' });
@@ -1473,29 +1402,12 @@ describe('IssueGenerateCommand', () => {
       });
       // Second AI call: synthesis
       mockAiService.execute.mockResolvedValueOnce({
-        content: [
-          '# Title',
-          '',
-          '**Type:** task',
-          '**Priority:** medium',
-          '',
-          '## Description',
-          '',
-          '### Summary',
-          'Summary',
-          '',
-          '#### Technical Details',
-          'None',
-          '',
-          '### Acceptance Criteria',
-          '- None',
-          '',
-          '### Risks & Assumptions',
-          '- None',
-          '',
-          '#### Out of Scope',
-          '- None',
-        ].join('\n'),
+        content: JSON.stringify({
+          title: 'Title',
+          type: 'task',
+          priority: 'medium',
+          description: 'Summary',
+        }),
       });
 
       const tempSourcePath = path.join(os.tmpdir(), 'wf-no-clarify-test.md');
@@ -1724,7 +1636,9 @@ describe('IssueGenerateCommand', () => {
         jest.fn(),
       );
 
-      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), expect.any(Function));
+      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(
+        expect.any(String), expect.any(Function), undefined
+      );
     });
 
     it('passes undefined onProgress to generateFromPrompt when silent', async () => {
@@ -1742,11 +1656,15 @@ describe('IssueGenerateCommand', () => {
         undefined,
       );
 
-      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), undefined);
+      expect(mockStageAgentService.generateFromPrompt).toHaveBeenCalledWith(expect.any(String), undefined, undefined);
     });
   });
 
   describe('synthesizeWithAI always invokes AI', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('calls AI even for a single source with a long description', async () => {
       const { command, mockAiService } = await buildCommand();
 
@@ -1767,6 +1685,109 @@ describe('IssueGenerateCommand', () => {
       await (command as any).synthesizeWithAI(sources, true, undefined, undefined);
 
       expect(mockAiService.execute).toHaveBeenCalled();
+    });
+
+    it('throws when AI returns valid JSON with an empty description', async () => {
+      const { command, mockAiService } = await buildCommand();
+      jest.spyOn(mockAiService, 'execute').mockResolvedValue({
+        content: JSON.stringify({ title: 'T', type: 'task', priority: 'medium', description: '' }),
+      });
+
+      await expect(
+        (command as any).synthesizeWithAI([{ type: 'file', source: 's', content: 'c' }], true)
+      ).rejects.toThrow();
+    });
+
+    it('throws when AI returns markdown instead of JSON', async () => {
+      const { command, mockAiService } = await buildCommand();
+      jest.spyOn(mockAiService, 'execute').mockResolvedValue({
+        content: '# Not JSON\n\n## Description\n\nSome body',
+      });
+
+      await expect(
+        (command as any).synthesizeWithAI([{ type: 'file', source: 's', content: 'c' }], true)
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('contraction gate ordering', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('persists the artifact before throwing the contraction gate error', async () => {
+      const { command } = await buildCommand();
+      const formatConverterService = (command as any).formatConverterService as jest.Mocked<FormatConverterService>;
+      const ticket = {
+        title: 'Generated Title',
+        type: 'task',
+        priority: 'medium',
+      } as any;
+
+      (fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>).mockReturnValue([]);
+      jest.spyOn(formatConverterService, 'getConverter').mockImplementation(((format: string) => {
+        return {
+          parse: jest.fn(),
+          serialize: jest.fn(() => "# Title\n\nIt's not working"),
+        } as any;
+      }) as any);
+
+      await expect(
+        (command as any).saveTicketLocally(ticket, 'jira', 'md', ['https://example.com'])
+      ).rejects.toThrow();
+
+      const artifactWrite = writeFileSpy.mock.calls.find(
+        ([filePath]) => String(filePath).endsWith('.md') && !String(filePath).endsWith('.sources.json')
+      );
+      expect(artifactWrite).toBeDefined();
+    });
+  });
+
+  describe('safeCall observability', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('logs WARN when the callback throws', async () => {
+      const { command } = await buildCommand();
+      const mockAppendToLogFile = jest.spyOn(
+        require('../shared/logger/log-file-writer'),
+        'appendToLogFile'
+      ).mockImplementation(() => {});
+
+      const result = (command as any).safeCall(() => {
+        throw new Error('boom');
+      });
+
+      expect(result).toBeUndefined();
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('boom'),
+        'generate'
+      );
+    });
+  });
+
+  describe('identifyClarifications parse warning', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('logs WARN when the AI returns a non-JSON clarification response', async () => {
+      const { command, mockAiService } = await buildCommand();
+      jest.spyOn(mockAiService, 'execute').mockResolvedValueOnce({ content: 'Not a JSON array' });
+      const mockAppendToLogFile = jest.spyOn(
+        require('../shared/logger/log-file-writer'),
+        'appendToLogFile'
+      ).mockImplementation(() => {});
+
+      await (command as any).identifyClarifications([{ type: 'file', source: 's', content: 'c' }]);
+
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('identifyClarifications'),
+        'generate'
+      );
     });
   });
 

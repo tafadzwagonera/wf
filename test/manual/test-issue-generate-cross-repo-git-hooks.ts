@@ -21,30 +21,29 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 
-const MOCK_TICKET = [
-  '# Hook Discovery',
-  '',
-  '**Type:** task',
-  '**Priority:** medium',
-  '',
-  '## Description',
-  '',
-  '### Summary',
-  'Hook discovery smoke test.',
-  '',
-  '#### Technical Details',
-  'None',
-  '',
-  '### Acceptance Criteria',
-  '- None',
-  '',
-  '### Risks & Assumptions',
-  '- None',
-  '',
-  '#### Out of Scope',
-  '- None',
-  '',
-].join('\n');
+const MOCK_TICKET = JSON.stringify({
+  title: 'Hook Discovery',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'Hook discovery smoke test.',
+    '',
+    '#### Technical Details',
+    'None',
+    '',
+    '### Acceptance Criteria',
+    '- None',
+    '',
+    '### Risks & Assumptions',
+    '- None',
+    '',
+    '#### Out of Scope',
+    '- None',
+  ].join('\n'),
+});
 
 let passed = 0;
 let failed = 0;
@@ -110,7 +109,7 @@ const capturePrompt = async (command: IssueGenerateCommand, args: string[], repo
   };
   stageAgentPrototype.generateFromPrompt = async (prompt: string) => {
     capturedPrompt = prompt;
-    return MOCK_TICKET;
+    return { content: MOCK_TICKET };
   };
 
   try {

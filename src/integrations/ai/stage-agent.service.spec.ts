@@ -786,10 +786,16 @@ describe('StageAgentService', () => {
     });
 
     it('logs when Codex emits multiple agent_message chunks', async () => {
+      const validTicket = JSON.stringify({
+        title: 'Fix login timeout',
+        type: 'bug',
+        priority: 'high',
+        description: 'The session expires prematurely.',
+      });
       async function* fakeSpawn() {
         yield { type: 'thread.started', thread_id: 'tid-123' };
         yield { type: 'item.completed', item: { type: 'agent_message', text: 'first chunk' } };
-        yield { type: 'item.completed', item: { type: 'agent_message', text: 'final chunk' } };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: validTicket } };
       }
       spawnCodex.mockReturnValue(fakeSpawn());
 
@@ -799,17 +805,23 @@ describe('StageAgentService', () => {
       const runner = (service as any).runCodexCliStagePrompt.bind(service);
       const result = await runner({ stage: 'generate', prompt: 'test', systemPrompt: 'sys' });
 
-      expect(result).toMatchObject({ content: 'final chunk' });
+      expect(result).toMatchObject({ content: validTicket });
       expect(logSpy.mock.calls.map(call => String(call[0])).join('\n')).toContain('agent_message chunks');
       logSpy.mockRestore();
     });
 
     it('emits Codex progress lines without extra indentation', async () => {
+      const validTicket = JSON.stringify({
+        title: 'Fix login timeout',
+        type: 'bug',
+        priority: 'high',
+        description: 'The session expires prematurely.',
+      });
       async function* fakeSpawn() {
         yield { type: 'thread.started', thread_id: 'tid-123' };
         yield { type: 'item.started', item: { type: 'command_execution', command: 'yarn build' } };
         yield { type: 'item.completed', item: { type: 'command_execution', command: 'yarn build', exit_code: 0 } };
-        yield { type: 'item.completed', item: { type: 'agent_message', text: 'final chunk' } };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: validTicket } };
       }
       spawnCodex.mockReturnValue(fakeSpawn());
 
@@ -823,7 +835,7 @@ describe('StageAgentService', () => {
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Session started: tid-123');
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Running: yarn build');
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Command completed: yarn build');
-      expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Agent: final chunk');
+      expect(onProgress).toHaveBeenCalledWith(`  [codex-cli] Agent: ${validTicket}`);
       expect(onProgress.mock.calls.some(call => String(call[0]).startsWith('  [codex-cli]'))).toBe(true);
 
       logSpy.mockRestore();
@@ -1311,7 +1323,7 @@ describe('StageAgentService', () => {
       );
     });
 
-    it('does not inject JSON Schema into the codex generate prompt', async () => {
+    it('injects JSON Schema into the codex generate prompt and returns schema-valid ticket JSON on a single pass', async () => {
       const createCodexGenerateConfigService = (): ConfigService =>
         ({
           get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -1326,9 +1338,14 @@ describe('StageAgentService', () => {
           }),
         }) as unknown as ConfigService;
 
-      const markdownContent = '# Generated\nSome content';
+      const validTicket = JSON.stringify({
+        title: 'Fix login timeout',
+        type: 'bug',
+        priority: 'high',
+        description: 'The session expires prematurely.',
+      });
       spawnCodex.mockImplementation(
-        makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: markdownContent } })
+        makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: validTicket } })
       );
 
       const service = new StageAgentService(createCodexGenerateConfigService());
@@ -1339,8 +1356,8 @@ describe('StageAgentService', () => {
 
       expect(spawnCodex).toHaveBeenCalledTimes(1);
       const promptArg = spawnCodex.mock.calls[0][2] as string;
-      expect(promptArg).not.toContain('Output contract');
-      expect(result.content).toBe(markdownContent);
+      expect(promptArg).toContain('Output contract');
+      expect(result.content).toBe(validTicket);
     });
 
     it('retries with the codex retry prompt when pass 1 emits a schema-invalid plan', async () => {
@@ -2341,10 +2358,15 @@ describe('StageAgentService', () => {
       expect(result.plan.summary).toBe('Retry success');
     });
 
-    it('returns content verbatim on a single pass when the stage has no JSON schema (Gate 1)', async () => {
-      const markdownContent = '# Generated\nSome content';
+    it('returns valid generate ticket JSON verbatim on a single pass without retrying (Gate 1)', async () => {
+      const validTicket = JSON.stringify({
+        title: 'Fix login timeout',
+        type: 'bug',
+        priority: 'high',
+        description: 'The session expires prematurely.',
+      });
       spawnCli.mockImplementationOnce(async function* () {
-        yield { type: 'result', subtype: 'success', result: markdownContent, session_id: 'sess-s12' };
+        yield { type: 'result', subtype: 'success', result: validTicket, session_id: 'sess-s12' };
       });
 
       const service = new StageAgentService(createClaudeCliGenerateSvc());
@@ -2354,7 +2376,7 @@ describe('StageAgentService', () => {
       const result = await runner({ stage: 'generate', prompt: 'write docs', systemPrompt: 'sys' });
 
       expect(spawnCli).toHaveBeenCalledTimes(1);
-      expect(result.content).toBe(markdownContent);
+      expect(result.content).toBe(validTicket);
     });
 
     it('accepts structured_output payload without re-validation (Gate 2)', async () => {
@@ -2370,6 +2392,75 @@ describe('StageAgentService', () => {
 
       expect(spawnCli).toHaveBeenCalledTimes(1);
       expect(result.plan.summary).toBe('SO plan');
+    });
+  });
+
+  describe('generate schema registration', () => {
+    beforeEach(() => {
+      spawnCli.mockReset();
+      buildCliArgs.mockReset();
+      buildCliArgs.mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('resolveStageJsonSchema returns a non-empty string for the generate stage', () => {
+      const service = new StageAgentService(createConfigService());
+      const schema = (service as unknown as { resolveStageJsonSchema: (s: string) => string | undefined })
+        .resolveStageJsonSchema('generate');
+      expect(typeof schema).toBe('string');
+      expect((schema as string).length).toBeGreaterThan(0);
+    });
+
+    it('rejects with a parse-category error whose message references "ticket" when both CLI passes emit schema-invalid content', async () => {
+      const invalidContent = JSON.stringify({ title: 'T' });
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: invalidContent, session_id: 'sess-gen-1' };
+        })
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: invalidContent, session_id: 'sess-gen-1' };
+        });
+
+      const createClaudeCliGenerateConfigService = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'cli',
+              'stages.generate.provider': 'anthropic',
+              'stages.generate.model': 'claude-sonnet-4-6',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-6',
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const service = new StageAgentService(createClaudeCliGenerateConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generateFromPrompt('Generate a ticket')
+      ).rejects.toMatchObject({
+        category: 'parse',
+        message: expect.stringContaining('Failed to parse ticket'),
+      });
+    });
+
+    it('forwards resumeProviderSessionId to runStagePrompt when provided', async () => {
+      const service = new StageAgentService(createConfigService());
+      const validContent = JSON.stringify({ title: 'T', type: 'task', priority: 'medium', description: 'D' });
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({ content: validContent, sessionId: 'sess_resumed' });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      const result = await service.generateFromPrompt('Generate a ticket', undefined, 'sess_prior');
+
+      expect(mockRunStagePrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ resumeProviderSessionId: 'sess_prior' })
+      );
+      expect(result.sessionId).toBe('sess_resumed');
     });
   });
 

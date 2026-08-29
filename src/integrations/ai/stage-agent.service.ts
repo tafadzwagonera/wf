@@ -50,6 +50,7 @@ import {
 } from './ai.service';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
+import { generateTicketSchema } from '../../shared/schemas/generate-ticket.schema';
 import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
 import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import type { TestInfraContext } from '../../shared/types/detection.types';
@@ -172,8 +173,9 @@ You may inspect repository files with read-only tools before answering.
 Ignore JSON or markdown files under .wf/ and tracker artifact directories.
 Return your response as a JSON object matching the CodeReview interface.`;
 
-const generateSystemPrompt = `Generate the requested ticket markdown, preserving the required heading structure exactly.
-You may inspect repository files with read-only tools before answering.`;
+const generateSystemPrompt = `You are a Jira ticket author. Return ONLY a valid JSON object matching the provided output schema.
+Use formal British English, active voice, and no contractions.
+Do not inspect local repository files in this run.`;
 
 const truncateCodexText = (text: string, maxLength: number): string =>
   text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
@@ -373,8 +375,11 @@ const anthropicReadOnlyToolGuard = async (
   return { behavior: 'allow' };
 };
 
+const NO_INSPECT_CLAUSE = 'Do not inspect local repository files in this run.';
 const resolveEffectiveSystemPrompt = (systemPrompt: string, allowInspection: boolean): string =>
-  allowInspection ? systemPrompt : `${systemPrompt}\nDo not inspect local repository files in this run; use the provided diff only.`;
+  allowInspection || systemPrompt.includes(NO_INSPECT_CLAUSE)
+    ? systemPrompt
+    : `${systemPrompt}\n${NO_INSPECT_CLAUSE}`;
 
 const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) => ({
   allowUnsandboxedCommands: false,
@@ -770,11 +775,13 @@ const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
 const STAGE_RESPONSE_SCHEMAS: Partial<Record<AgentStageName, string>> = {
   plan: buildSanitisedJsonSchema(z.toJSONSchema(resolutionPlanSchema)),
   review: buildSanitisedJsonSchema(z.toJSONSchema(codeReviewSchema)),
+  generate: buildSanitisedJsonSchema(z.toJSONSchema(generateTicketSchema)),
 };
 
 const STAGE_ZOD_SCHEMAS: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
   plan: resolutionPlanSchema,
   review: codeReviewSchema,
+  generate: generateTicketSchema,
 };
 
 const resolveStageResponseIssues = (stage: AgentStageName, content: string): string | null => {
@@ -803,6 +810,7 @@ const resolveStageZodIssues = (stage: AgentStageName, content: string): string |
 const STAGE_PARSE_ERROR_LABELS: Partial<Record<AgentStageName, string>> = {
   plan: 'resolution plan',
   review: 'code review',
+  generate: 'ticket',
 };
 
 const buildStageParseErrorMessage = (
@@ -1034,17 +1042,17 @@ export class StageAgentService {
     console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
   }
 
-  async generateFromPrompt(prompt: string, onProgress?: StageProgressCallback): Promise<string> {
-    const { content: response } = await this.runStagePrompt({
-      stage: 'generate',
-      prompt,
-      systemPrompt: generateSystemPrompt,
-      onProgress,
-    });
-    return requireAiResponseContent(
+  async generateFromPrompt(
+    prompt: string, onProgress?: StageProgressCallback, resumeProviderSessionId?: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    const { content: response, sessionId } = await this.runStagePrompt(
+      { stage: 'generate', prompt, systemPrompt: generateSystemPrompt, onProgress, resumeProviderSessionId }
+    );
+    const content = requireAiResponseContent(
       { content: response, provider: this.resolveStageProvider('generate'), model: this.resolveStageModel('generate') },
       'AI provider returned an empty generated content response'
     );
+    return { content, sessionId };
   }
 
   private resolveStageBackend(stage: AgentStageName): WfBackendMode {

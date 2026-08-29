@@ -46,7 +46,9 @@ export class MarkdownConverter implements FormatConverter {
   private parseTicketData(content: string): Partial<UniversalTicket> {
     const lines = content.split('\n');
     const data: Partial<UniversalTicket> = { ...this.parseTitleAndKey(lines) };
-    for (const line of lines) this.applyMetadataField(line, data);
+    const descriptionIndex = lines.findIndex(l => /^##\s+Description$/i.exec(l.trim()));
+    const headerLines = descriptionIndex >= 0 ? lines.slice(0, descriptionIndex) : lines;
+    for (const line of headerLines) this.applyMetadataField(line, data);
     if (!data.title) throw new WorkflowParseError('Markdown must contain a title');
     data.description = this.parseDescription(lines) || '';
     return data;

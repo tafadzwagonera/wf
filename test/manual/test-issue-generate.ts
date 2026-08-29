@@ -16,37 +16,33 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 
-const MOCK_AI_RESPONSE = `# Heading: Add rate limiting to the API gateway
-
-**Type:** task
-**Priority:** medium
-
-## Description
-
-### Summary
-The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.
-Add per-client rate limiting using a token-bucket algorithm.
-
-\`\`\`typescript
-// Example middleware hook
-app.use(rateLimit({ windowMs: 60_000, max: 100 }));
-\`\`\`
-
-#### Technical Details
-- Add a Redis-backed token-bucket middleware to the gateway.
-- Ensure backward compatibility by defaulting to 100 req/min per client.
-- No database migrations required.
-
-### Acceptance Criteria
-- API returns 429 when a client exceeds 100 requests per minute.
-- The rate limit is configurable via environment variable RATE_LIMIT_MAX.
-
-### Risks & Assumptions
-- Redis availability is assumed; a circuit breaker is out of scope.
-
-#### Out of Scope
-- Per-endpoint rate limits.
-`;
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Add rate limiting to the API gateway',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.',
+    'Add per-client rate limiting using a token-bucket algorithm.',
+    '',
+    '#### Technical Details',
+    '- Add a Redis-backed token-bucket middleware to the gateway.',
+    '- Ensure backward compatibility by defaulting to 100 req/min per client.',
+    '- No database migrations required.',
+    '',
+    '### Acceptance Criteria',
+    '- API returns 429 when a client exceeds 100 requests per minute.',
+    '- The rate limit is configurable via environment variable RATE_LIMIT_MAX.',
+    '',
+    '### Risks & Assumptions',
+    '- Redis availability is assumed; a circuit breaker is out of scope.',
+    '',
+    '#### Out of Scope',
+    '- Per-endpoint rate limits.',
+  ].join('\n'),
+});
 
 async function testIssueGenerate() {
   console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
@@ -81,7 +77,7 @@ async function testIssueGenerate() {
   (StageAgentService.prototype as any).generateFromPrompt = async () => {
     synthesisCallCount++;
     synthesisBackend = 'agent';
-    return MOCK_AI_RESPONSE;
+    return { content: MOCK_AI_RESPONSE };
   };
 
   // Two temp source files to bypass the single-source short-circuit in synthesizeWithAI:
@@ -180,7 +176,7 @@ async function testIssueGenerate() {
     };
     (StageAgentService.prototype as any).generateFromPrompt = async () => {
       stubSynthesisCallCount++;
-      return MOCK_AI_RESPONSE;
+      return { content: MOCK_AI_RESPONSE };
     };
 
     let stubOutput = '';

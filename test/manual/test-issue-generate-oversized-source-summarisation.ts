@@ -21,29 +21,29 @@ import { IssueGenerateCommand } from '../../src/commands/issue-generate.command'
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 
-const MOCK_TICKET_RESPONSE = [
-  '# Heading: Test oversized source summarisation',
-  '',
-  '**Type:** bug',
-  '**Priority:** highest',
-  '',
-  '## Description',
-  '',
-  '### Summary',
-  'NATS consumer wedge caused failed transactions.',
-  '',
-  '#### Technical Details',
-  'Consumer group stuck after deployment.',
-  '',
-  '### Acceptance Criteria',
-  '- Transactions resume after fix',
-  '',
-  '### Risks & Assumptions',
-  '- None',
-  '',
-  '#### Out of Scope',
-  '- None',
-].join('\n');
+const MOCK_TICKET_RESPONSE = JSON.stringify({
+  title: 'Test oversized source summarisation',
+  type: 'bug',
+  priority: 'highest',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'NATS consumer wedge caused failed transactions.',
+    '',
+    '#### Technical Details',
+    'Consumer group stuck after deployment.',
+    '',
+    '### Acceptance Criteria',
+    '- Transactions resume after fix',
+    '',
+    '### Risks & Assumptions',
+    '- None',
+    '',
+    '#### Out of Scope',
+    '- None',
+  ].join('\n'),
+});
 
 const MOCK_SUMMARY_BULLETS = [
   '- NATS consumer group wedged after deployment at 16:30 UTC',
@@ -98,7 +98,7 @@ async function testOversizedSourceSummarisation() {
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
       }
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     let capturedOutput = '';
@@ -152,9 +152,9 @@ async function testOversizedSourceSummarisation() {
       aiCallCount++;
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
-        return MOCK_SUMMARY_BULLETS;
+        return { content: MOCK_SUMMARY_BULLETS };
       }
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     let capturedOutput = '';
@@ -208,12 +208,12 @@ async function testOversizedSourceSummarisation() {
     (StageAgentService.prototype as any).generateFromPrompt = async (prompt: string) => {
       if (prompt.includes('Summarise the following source')) {
         summarisationCalled = true;
-        return MOCK_SUMMARY_BULLETS;
+        return { content: MOCK_SUMMARY_BULLETS };
       }
       if (prompt.includes('Analyze these sources and identify')) {
-        return '[]';
+        return { content: '[]' };
       }
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     // Mock inquirer to auto-accept all and type "done"
@@ -312,7 +312,7 @@ async function testOversizedSourceSummarisation() {
       if (prompt.includes('Sources to synthesize')) {
         synthesisPrompt = prompt;
       }
-      return MOCK_TICKET_RESPONSE;
+      return { content: MOCK_TICKET_RESPONSE };
     };
 
     let capturedOutput = '';

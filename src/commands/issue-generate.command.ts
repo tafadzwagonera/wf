@@ -18,7 +18,9 @@ import {
   buildGeneratedTicketSourceManifest,
   hashGeneratedTicketSources,
 } from '../shared/utils/generated-ticket-artifact';
-import { UniversalTicket, TicketType } from '../common/dto/universal-ticket.dto';
+import { UniversalTicket, TicketType, TicketPriority } from '../common/dto/universal-ticket.dto';
+import { generateTicketSchema } from '../shared/schemas/generate-ticket.schema';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
@@ -82,6 +84,17 @@ const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
   ['i\'ll', 'I will'],
   ['he\'s', 'he is'],
   ['she\'s', 'she is'],
+  ['didn\'t', 'did not'],
+  ['hasn\'t', 'has not'],
+  ['haven\'t', 'have not'],
+  ['hadn\'t', 'had not'],
+  ['we\'d', 'we would'],
+  ['i\'d', 'I would'],
+  ['they\'d', 'they would'],
+  ['you\'d', 'you would'],
+  ['shan\'t', 'shall not'],
+  ['mustn\'t', 'must not'],
+  ['needn\'t', 'need not'],
 ]);
 
 const CONTRACTION_PATTERN = new RegExp(
@@ -92,27 +105,13 @@ const CONTRACTION_PATTERN = new RegExp(
 );
 
 const SYNTHESIS_PROMPT_TEMPLATE = [
-  'Synthesize the following sources into a single, concise Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n',
-  'Output ONLY valid Markdown using this exact structure. Every heading MUST appear even when source material is sparse; use "None" for sections with no relevant information:\n',
-  '# Heading: <concise title>\n',
-  '**Type:** <task|bug|story|epic|subtask>',
-  '**Priority:** <high|medium|low>\n',
-  '## Description\n',
-  '### Summary',
-  '<concise issue description with code excerpts where applicable>\n',
-  '#### Technical Details',
-  '<implementation suggestions, backward compatibility concerns, required migrations, architectural alignment>\n',
-  '### Acceptance Criteria',
-  '- <criterion 1>\n',
-  '### Risks & Assumptions',
-  '- <risk or assumption or "None">\n',
-  '#### Out of Scope',
-  '- <out of scope item or "None">\n',
+  'Synthesize the following sources into a single Jira ticket. Every sentence must earn its place; omit filler, redundancy, and preamble.\n',
+  'Return ONLY a valid JSON object with no surrounding commentary or code fence. Do not wrap the output in markdown. The object must have exactly these fields:\n',
+  '  "title": "<concise title — a short imperative phrase>",',
+  '  "type": "<task|bug|story|epic|subtask>",',
+  '  "priority": "<highest|high|medium|low|lowest>",',
+  '  "description": "<full ticket body as a markdown string containing:\\n## Description\\n### Summary\\n...\\n#### Technical Details\\n...\\n### Acceptance Criteria\\n- criterion\\n### Risks & Assumptions\\n- risk\\n#### Out of Scope\\n- item>"\n',
   'Rules:',
-  '- Do not add, remove, or rename any heading.',
-  '- Do not wrap the output in a code fence.',
-  '- Use fenced Markdown code blocks (```lang) for code samples; never use Jira wiki {code} syntax.',
-  '- Use `- ` for every unordered bullet item; never use `* ` bullets.',
   '- Write in formal British English throughout.',
   '- Do not use contractions (e.g., write "do not" instead of "don\'t", "cannot" instead of "can\'t").',
   '- Use the active voice (e.g., "The system validates input" instead of "Input is validated by the system").',
@@ -120,7 +119,10 @@ const SYNTHESIS_PROMPT_TEMPLATE = [
   '- Use third-person perspective only (e.g., do not use "you", "we", "our").',
   '- Use British English spelling (e.g., "behaviour", "colour", "organisation", "serialise").',
   '- Be concise: prefer short, direct sentences; remove filler words, redundant qualifiers, and unnecessary preamble.',
-  '- The line "## Description" MUST appear exactly once.\n',
+  '- Use fenced Markdown code blocks (```lang) for code samples within the description string; never use Jira wiki {code} syntax.',
+  '- Use `- ` for every unordered bullet item within the description string; never use `* ` bullets.',
+  '- The description field must be non-empty and include all the listed sub-sections.',
+  '- JSON string values must not contain literal newline characters; use \\n for line breaks within strings.\n',
 ].join('\n');
 interface IssueGenerateOptions {
   format?: OutputFormat;
@@ -188,7 +190,7 @@ class UnresolvedSourceError extends Error {}
 @Command({
   name: 'issue:generate',
   description:
-    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or ticket keys. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions, including linter and formatter rules, and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
+    'Generate ticket descriptions from local files, repo-scoped artifacts via --repos, URLs, or ticket keys. Tracker browse URLs (e.g., https://<org>.atlassian.net/browse/<KEY>) are automatically detected and fetched via the tracker REST API instead of scraping HTML; self-hosted instances are supported when atlassian.baseUrl is configured. Local .md, .json, .yaml, and .yml files that parse as tickets are imported as tickets; files that are not recognized as ticket-formatted content remain plain file sources. Repo-scoped generation inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so synthesis prompts can reuse earlier implementation context. When multiple repos are supplied, the synthesis prompt also compares repo conventions, including linter and formatter rules, and git-hook tools across checkouts. AI synthesis always runs on every source to enrich and standardize the output. The AI is instructed to return a structured JSON object (title, type, priority, description) that is validated against the ticket schema before conversion to the requested output format. When agent or CLI backends are used, the provider session ID is threaded across oversized-source summarisation, clarification, and synthesis so all calls share coherent context. Generated output enforces formal writing conventions (concise prose, no contractions, active voice, British English) before display or save. Blank AI generate-stage responses fail fast with provider-aware diagnostics. Can use an agent backend when stages.generate.backend is set to agent',
   arguments: '<sources...>',
   options: { isDefault: false },
 })
@@ -315,31 +317,36 @@ export class IssueGenerateCommand extends CommandRunner {
 
     const sourceContents = await this.fetchAllSources(sources, options?.tracker, options?.repos, silent);
     this.assertSourcesAvailable(sourceContents, sources);
-    await this.summariseOversizedSources(sourceContents, silent, onProgress);
-    await this.gatherClarifications(sourceContents, silent, onProgress);
+    let generateSessionId = await this.summariseOversizedSources(sourceContents, silent, onProgress);
+    generateSessionId = await this.gatherClarifications(sourceContents, silent, onProgress, generateSessionId);
 
     const repoContext = await this.gatherRepoContext(options?.repos, sourceContents);
-    const synthesizedTicket = await this.synthesizeWithAI(sourceContents, silent, repoContext, onProgress);
+    const synthesizedTicket = await this.synthesizeWithAI(
+      sourceContents, silent, repoContext, onProgress, generateSessionId
+    );
 
     this.applyMetadataOverrides(synthesizedTicket, options);
     this.normalizeTicketTextFields(synthesizedTicket);
 
     const format = options?.format || this.configService.get<string>('stages.generate.outputFormat') || 'md';
-    const output = this.serializeTicketOutput(synthesizedTicket, format, 'stdout/file output');
+    const output = this.buildSerializedOutput(synthesizedTicket, format);
 
     await this.outputResults(synthesizedTicket, output, format, sources, silent, options);
+    this.assertNoContractionsInSerializedOutput(output, 'stdout/file output');
   }
 
   private async gatherClarifications(
-    sourceContents: SourceContent[], silent: boolean, onProgress?: (line: string) => void
-  ): Promise<void> {
-    if (silent || !this.isInteractiveSession()) return;
+    sourceContents: SourceContent[], silent: boolean,
+    onProgress?: (line: string) => void, resumeSessionId?: string
+  ): Promise<string | undefined> {
+    if (silent || !this.isInteractiveSession()) return resumeSessionId;
 
-    const clarifications = await this.identifyClarifications(sourceContents, onProgress);
-    if (clarifications.length === 0) return;
+    const { questions, sessionId } = await this.identifyClarifications(sourceContents, onProgress, resumeSessionId);
+    if (questions.length === 0) return sessionId;
 
-    const userResponses = await this.promptClarifications(clarifications);
+    const userResponses = await this.promptClarifications(questions);
     sourceContents.push({ type: 'file', source: 'user-clarifications', content: userResponses });
+    return sessionId;
   }
 
   private applyMetadataOverrides(ticket: UniversalTicket, options?: IssueGenerateOptions): void {
@@ -815,9 +822,10 @@ export class IssueGenerateCommand extends CommandRunner {
     const artifactPath = this.resolveArtifactPath(trackerDir, sources, format, timestamp);
 
     this.normalizeTicketTextFields(ticket);
-    const content = this.serializeTicketOutput(ticket, format, 'saved artifact for ' + trackerName);
+    const content = this.buildSerializedOutput(ticket, format);
     await fs.promises.writeFile(artifactPath, content, 'utf-8');
     await this.writeManifest(artifactPath, trackerName, format, sources, timestamp);
+    this.assertNoContractionsInSerializedOutput(content, 'saved artifact for ' + trackerName);
 
     return artifactPath;
   }
@@ -1166,17 +1174,20 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async summariseOversizedSources(
     sources: SourceContent[], silent: boolean, onProgress?: (line: string) => void
-  ): Promise<void> {
-    for (let i = 0; i < sources.length; i++) {
+  ): Promise<string | undefined> {
+    let lastSessionId: string | undefined;
+    for (let i = 0; i < sources.length; i += 1) {
       const raw = typeof sources[i].content === 'string' ? sources[i].content : JSON.stringify(sources[i].content);
       if (raw.length <= MAX_SOURCE_CONTENT_LENGTH) continue;
 
       this.warnOversizedSource(i, sources[i].source, raw.length, silent);
-      const summary = await this.summariseOversizedSource(sources[i], onProgress);
+      const { summary, sessionId } = await this.summariseOversizedSource(sources[i], onProgress, lastSessionId);
+      lastSessionId = sessionId;
       sources[i].content = (!silent && this.isInteractiveSession())
         ? await this.reviewSummaryBullets(summary, sources[i])
         : summary;
     }
+    return lastSessionId;
   }
 
   private warnOversizedSource(index: number, source: string, lengthInChars: number, silent: boolean): void {
@@ -1195,15 +1206,18 @@ export class IssueGenerateCommand extends CommandRunner {
    * @param onProgress - Optional callback for real-time progress lines from agent backends
    * @returns Bullet-point summary string
    */
-  private async summariseOversizedSource(source: SourceContent, onProgress?: (line: string) => void): Promise<string> {
+  private async summariseOversizedSource(
+    source: SourceContent, onProgress?: (line: string) => void, resumeSessionId?: string
+  ): Promise<{ summary: string; sessionId?: string }> {
     const prompt = this.buildOversizedSourcePrompt(source);
-    const responseContent = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
-      : await this.aiService.execute({ prompt, maxTokens: 2048, stage: 'generate' });
-
-    return typeof responseContent === 'string'
-      ? responseContent.trim()
-      : requireAiResponseContent(responseContent, 'AI provider returned an empty summary response');
+    if (this.stageAgentService.isEnabledForStage('generate')) {
+      const { content, sessionId } = await this.stageAgentService.generateFromPrompt(
+        prompt, onProgress, resumeSessionId
+      );
+      return { summary: content.trim(), sessionId };
+    }
+    const response = await this.aiService.execute({ prompt, maxTokens: 2048, stage: 'generate' });
+    return { summary: requireAiResponseContent(response, 'AI provider returned an empty summary response') };
   }
 
   private buildOversizedSourcePrompt(source: SourceContent): string {
@@ -1282,15 +1296,12 @@ export class IssueGenerateCommand extends CommandRunner {
       + 'Return ONLY new Markdown bullet points (- item) addressing the user\'s request. '
       + 'Do not repeat bullets already approved.';
 
-    const extra = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt)
-      : await this.aiService.execute({ prompt, maxTokens: 1024, stage: 'generate' });
-
-    const content = typeof extra === 'string'
-      ? extra
-      : requireAiResponseContent(extra, 'AI provider returned an empty summary response');
-
-    return this.parseBullets(content);
+    if (this.stageAgentService.isEnabledForStage('generate')) {
+      const { content } = await this.stageAgentService.generateFromPrompt(prompt);
+      return this.parseBullets(content);
+    }
+    const response = await this.aiService.execute({ prompt, maxTokens: 1024, stage: 'generate' });
+    return this.parseBullets(requireAiResponseContent(response, 'AI provider returned an empty summary response'));
   }
 
   /**
@@ -1302,28 +1313,33 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Clarification questions as plain strings
    */
   private async identifyClarifications(
-    sources: SourceContent[], onProgress?: (line: string) => void
-  ): Promise<string[]> {
+    sources: SourceContent[], onProgress?: (line: string) => void, resumeSessionId?: string
+  ): Promise<{ questions: string[]; sessionId?: string }> {
     try {
-      const content = await this.generateStageContent(
-        this.buildClarificationPrompt(sources), 1024, 'empty clarification response', onProgress
+      const { content, sessionId } = await this.generateStageContent(
+        this.buildClarificationPrompt(sources), 1024, 'empty clarification response', onProgress, resumeSessionId
       );
-      return this.parseStringArray(content);
+      return { questions: this.parseStringArray(content), sessionId };
     } catch (error) {
       if (isAiProviderErrorLike(error)) throw error;
-      return [];
+      appendToLogFile(
+        'WARN',
+        `identifyClarifications: parse failure — ${error instanceof Error ? error.message : String(error)}`,
+        'generate'
+      );
+      return { questions: [] };
     }
   }
 
   private async generateStageContent(
-    prompt: string, maxTokens: number, emptyMessage: string, onProgress?: (line: string) => void
-  ): Promise<string> {
-    const response = this.stageAgentService.isEnabledForStage('generate')
-      ? await this.stageAgentService.generateFromPrompt(prompt, onProgress)
-      : await this.aiService.execute({ prompt, maxTokens, stage: 'generate' });
-    return typeof response === 'string'
-      ? response
-      : requireAiResponseContent(response, 'AI provider returned an ' + emptyMessage);
+    prompt: string, maxTokens: number, emptyMessage: string,
+    onProgress?: (line: string) => void, resumeSessionId?: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    if (this.stageAgentService.isEnabledForStage('generate')) {
+      return this.stageAgentService.generateFromPrompt(prompt, onProgress, resumeSessionId);
+    }
+    const response = await this.aiService.execute({ prompt, maxTokens, stage: 'generate' });
+    return { content: requireAiResponseContent(response, 'AI provider returned an ' + emptyMessage) };
   }
 
   private parseStringArray(content: string): string[] {
@@ -1384,16 +1400,33 @@ export class IssueGenerateCommand extends CommandRunner {
    */
   private async synthesizeWithAI(
     sources: SourceContent[], silent = false,
-    repoContext?: RepoDiscoveryContext, onProgress?: (line: string) => void
+    repoContext?: RepoDiscoveryContext, onProgress?: (line: string) => void, resumeSessionId?: string
   ): Promise<UniversalTicket> {
     if (!silent) console.log(chalk.cyan('\n🤖 Using AI to synthesize content...\n'));
-
     const prompt = this.buildSynthesisPrompt(sources, repoContext);
-    const content = await this.generateStageContent(prompt, 4096, 'empty ticket synthesis response', onProgress);
-
-    const ticket = this.formatConverterService.getConverter('md').parse(content);
+    const { content } = await this.generateStageContent(prompt, 4096, 'empty ticket synthesis response', onProgress, resumeSessionId);
+    appendToLogFile('DEBUG', content, 'generate');
+    const ticket = new UniversalTicket(this.parseTicketJson(content));
     this.normalizeTicketTextFields(ticket);
     return ticket;
+  }
+
+  private parseTicketJson(
+    content: string
+  ): { title: string; type: TicketType; priority: TicketPriority; description: string } {
+    try {
+      const parsed = generateTicketSchema.parse(JSON.parse(content.trim()));
+      return {
+        title: parsed.title,
+        type: parsed.type as TicketType,
+        priority: parsed.priority as TicketPriority,
+        description: parsed.description,
+      };
+    } catch (err) {
+      throw new ValidationError(
+        `generate: AI response is not a valid ticket JSON — ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 
   /**
@@ -1437,7 +1470,12 @@ export class IssueGenerateCommand extends CommandRunner {
   private safeCall<T>(fn: () => T): T | undefined {
     try {
       return fn();
-    } catch {
+    } catch (error) {
+      appendToLogFile(
+        'WARN',
+        `safeCall: ${fn.name || '(anonymous)'} threw — ${error instanceof Error ? error.message : String(error)}`,
+        'generate'
+      );
       return undefined;
     }
   }
@@ -1529,20 +1567,9 @@ export class IssueGenerateCommand extends CommandRunner {
     });
   }
 
-  /**
-   * Serialize a generated ticket and reject any serialized form that still
-   * contains contractions.
-   *
-   * @param ticket - Ticket to serialize
-   * @param format - Output format requested by the caller
-   * @param targetDescription - Human-readable serialization target for errors
-   * @returns Serialized ticket content
-   */
-  private serializeTicketOutput(ticket: UniversalTicket, format: string, targetDescription: string): string {
+  private buildSerializedOutput(ticket: UniversalTicket, format: string): string {
     const converter = this.formatConverterService.getConverter(format);
-    const output = converter.serialize(ticket);
-    this.assertNoContractionsInSerializedOutput(output, targetDescription);
-    return output;
+    return converter.serialize(ticket);
   }
 
   /**

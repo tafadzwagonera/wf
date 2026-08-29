@@ -7,7 +7,7 @@ const catalog = getCommandHelpCatalog(commandsDir);
 describe('getCommandHelpCatalog', () => {
   it('restores the issue:review --session-id {UUID} example that the brace-splitting scrape dropped', () => {
     const examples = catalog['issue:review']?.examples ?? [];
-    expect(examples).toHaveLength(9);
+    expect(examples).toHaveLength(10);
     const uuidExample = examples.find(e => e.command.includes('--session-id {UUID}'));
     expect(uuidExample).toBeDefined();
     expect(uuidExample?.command).toBe('wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3');

@@ -13,11 +13,11 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
+import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 import { SlackService } from '../../src/integrations/slack/slack.service';
 
 const SLACK_PERMALINK = 'https://myworkspace.slack.com/archives/C01ABC123/p1711234567890000';
@@ -33,29 +33,30 @@ const MOCK_SLACK_MESSAGES = [
   { user: 'U222', ts: '1711234568.000000', text: 'And this is a reply.' },
 ];
 
-const MOCK_AI_RESPONSE = `# Heading: Add rate limiting to the API gateway
-
-**Type:** task
-**Priority:** medium
-
-## Description
-
-### Summary
-The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.
-Add per-client rate limiting using a token-bucket algorithm.
-
-#### Technical Details
-- Add a Redis-backed token-bucket middleware to the gateway.
-
-### Acceptance Criteria
-- API returns 429 when a client exceeds 100 requests per minute.
-
-### Risks & Assumptions
-- Redis availability is assumed.
-
-#### Out of Scope
-- Per-endpoint rate limits.
-`;
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Add rate limiting to the API gateway',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.',
+    'Add per-client rate limiting using a token-bucket algorithm.',
+    '',
+    '#### Technical Details',
+    '- Add a Redis-backed token-bucket middleware to the gateway.',
+    '',
+    '### Acceptance Criteria',
+    '- API returns 429 when a client exceeds 100 requests per minute.',
+    '',
+    '### Risks & Assumptions',
+    '- Redis availability is assumed.',
+    '',
+    '#### Out of Scope',
+    '- Per-endpoint rate limits.',
+  ].join('\n'),
+});
 
 async function testIssueGenerateSlack() {
   console.log('\n🧪 Manual Test: issue:generate with Slack thread permalink\n');
@@ -89,15 +90,20 @@ async function testIssueGenerateSlack() {
     };
   };
 
-  // Mock AiService.execute
+  // Mock both AI backends so the test is agnostic to the configured backend.
   const originalExecute = AiService.prototype.execute;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
   let aiCallCount = 0;
   (AiService.prototype as any).execute = async () => {
     aiCallCount++;
     return { content: MOCK_AI_RESPONSE };
   };
+  (StageAgentService.prototype as any).generateFromPrompt = async () => {
+    aiCallCount++;
+    return { content: MOCK_AI_RESPONSE };
+  };
 
-  // Capture stdout
+  // Capture stdout and intercept fs.promises.writeFile to capture the artifact path/content.
   let capturedOutput = '';
   const origWrite = process.stdout.write.bind(process.stdout);
   (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
@@ -105,10 +111,15 @@ async function testIssueGenerateSlack() {
     return true;
   };
 
-  // Derive expected artifact path
-  const threadId = EXPECTED_THREAD_TS.replace('.', '-');
-  const artifactDir = path.join(process.cwd(), '.wf', 'slack');
-  const artifactPath = path.join(artifactDir, `slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
+  const originalMkdir = fs.promises.mkdir;
+  const originalWriteFile = fs.promises.writeFile;
+  let artifactWritePath: string | null = null;
+  let artifactWriteContent: string | null = null;
+  (fs.promises as any).mkdir = async () => undefined;
+  (fs.promises as any).writeFile = async (filePath: string, content: string) => {
+    artifactWritePath = filePath;
+    artifactWriteContent = content;
+  };
 
   const command = app.get(IssueGenerateCommand);
 
@@ -120,6 +131,9 @@ async function testIssueGenerateSlack() {
     process.stdout.write = origWrite;
     SlackService.prototype.fetchThread = originalFetchThread;
     AiService.prototype.execute = originalExecute;
+    StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
+    fs.promises.mkdir = originalMkdir;
+    fs.promises.writeFile = originalWriteFile;
   }
 
   // Assertion 1: SlackService.fetchThread called with correct args
@@ -138,26 +152,28 @@ async function testIssueGenerateSlack() {
     fail('SlackService.fetchThread was NOT called');
   }
 
-  // Assertion 2: Artifact file written and contains formatted messages
-  let artifactContent = '';
-  try {
-    artifactContent = fs.readFileSync(artifactPath, 'utf-8');
-    const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
-    const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
-    if (artifactContent.includes(expectedLine0) && artifactContent.includes(expectedLine1)) {
-      pass(`Artifact file written at ${artifactPath} with formatted messages`);
-    } else {
-      fail('Artifact file missing expected formatted messages', `Content:\n    ${artifactContent}`);
-    }
-  } catch {
-    fail(`Artifact file not written at ${artifactPath}`);
+  // Assertion 2: Artifact write captured with formatted messages
+  const threadId = EXPECTED_THREAD_TS.replace('.', '-');
+  const artifactWritePathString = artifactWritePath ? String(artifactWritePath) : '';
+  const artifactWriteContentString = artifactWriteContent ? String(artifactWriteContent) : '';
+  const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
+  const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
+  const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
+  const hasExpectedArtifactContent = artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
+  if (hasExpectedArtifactPath && hasExpectedArtifactContent) {
+    pass(`Artifact write captured at ${artifactWritePath}`);
+  } else {
+    fail(
+      'Artifact write was not captured with expected content',
+      `Path: ${artifactWritePathString || 'null'}\n    Content:\n    ${artifactWriteContentString || 'null'}`
+    );
   }
 
-  // Assertion 3: AiService.execute was called
+  // Assertion 3: AI synthesis ran (either backend)
   if (aiCallCount > 0) {
-    pass(`AiService.execute was called (${aiCallCount} time(s))`);
+    pass(`AI synthesis ran (${aiCallCount} call(s))`);
   } else {
-    fail('AiService.execute was NOT called — synthesis did not run');
+    fail('AI synthesis did NOT run — both backends were idle');
   }
 
   // Assertion 4: Captured stdout contains "### Summary"
@@ -168,15 +184,6 @@ async function testIssueGenerateSlack() {
       'Output missing "### Summary" section',
       `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
     );
-  }
-
-  // Cleanup
-  try {
-    if (fs.existsSync(artifactPath)) {
-      fs.unlinkSync(artifactPath);
-    }
-  } catch {
-    // Best-effort cleanup
   }
 
   console.log('\n' + '━'.repeat(60));

@@ -17,28 +17,29 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 
-const MOCK_AI_RESPONSE = `# Enriched Ticket Title
-
-**Type:** bug
-**Priority:** high
-
-## Description
-
-### Summary
-AI-enriched summary of the tracker ticket.
-
-#### Technical Details
-- None
-
-### Acceptance Criteria
-- None
-
-### Risks & Assumptions
-- None
-
-#### Out of Scope
-- None
-`;
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Enriched Ticket Title',
+  type: 'bug',
+  priority: 'high',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'AI-enriched summary of the tracker ticket.',
+    '',
+    '#### Technical Details',
+    '- None',
+    '',
+    '### Acceptance Criteria',
+    '- None',
+    '',
+    '### Risks & Assumptions',
+    '- None',
+    '',
+    '#### Out of Scope',
+    '- None',
+  ].join('\n'),
+});
 
 const pass = (message: string): void => {
   console.log(`  \u2713 ${message}`);
@@ -185,7 +186,7 @@ async function main() {
     };
     commandStageAgentService.generateFromPrompt = async () => {
       aiCalled = true;
-      return MOCK_AI_RESPONSE;
+      return { content: MOCK_AI_RESPONSE };
     };
 
     try {

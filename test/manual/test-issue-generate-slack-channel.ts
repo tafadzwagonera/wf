@@ -18,6 +18,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
+import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 import { SlackService } from '../../src/integrations/slack/slack.service';
 
 const SLACK_CHANNEL_URL = 'https://myworkspace.slack.com/archives/C0AP5MMCP53';
@@ -37,28 +38,29 @@ const MOCK_SLACK_MESSAGES = [
   },
 ];
 
-const MOCK_AI_RESPONSE = `# Heading: Fix Slack channel issue generation
-
-**Type:** task
-**Priority:** medium
-
-## Description
-
-### Summary
-Issue generation now reads recent Slack channel messages for bare archive URLs.
-
-#### Technical Details
-- Route archive URLs to Slack conversations.history.
-
-### Acceptance Criteria
-- Bare Slack archive URLs synthesize from message text instead of page HTML.
-
-### Risks & Assumptions
-- Slack bot access is still required for real workspace runs.
-
-#### Out of Scope
-- Full channel export pagination.
-`;
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Fix Slack channel issue generation',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'Issue generation now reads recent Slack channel messages for bare archive URLs.',
+    '',
+    '#### Technical Details',
+    '- Route archive URLs to Slack conversations.history.',
+    '',
+    '### Acceptance Criteria',
+    '- Bare Slack archive URLs synthesize from message text instead of page HTML.',
+    '',
+    '### Risks & Assumptions',
+    '- Slack bot access is still required for real workspace runs.',
+    '',
+    '#### Out of Scope',
+    '- Full channel export pagination.',
+  ].join('\n'),
+});
 
 async function testIssueGenerateSlackChannel() {
   console.log('\n🧪 Manual Test: issue:generate with Slack channel archive URL\n');
@@ -91,8 +93,13 @@ async function testIssueGenerateSlackChannel() {
   };
 
   const originalExecute = AiService.prototype.execute;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
   let aiCallCount = 0;
   (AiService.prototype as any).execute = async () => {
+    aiCallCount++;
+    return { content: MOCK_AI_RESPONSE };
+  };
+  (StageAgentService.prototype as any).generateFromPrompt = async () => {
     aiCallCount++;
     return { content: MOCK_AI_RESPONSE };
   };
@@ -124,6 +131,7 @@ async function testIssueGenerateSlackChannel() {
     process.stdout.write = originalWrite;
     SlackService.prototype.fetchChannelHistory = originalFetchChannelHistory;
     AiService.prototype.execute = originalExecute;
+    StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
     fs.promises.mkdir = originalMkdir;
     fs.promises.writeFile = originalWriteFile;
   }
@@ -147,7 +155,8 @@ async function testIssueGenerateSlackChannel() {
   const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
   const artifactWritePathString = artifactWritePath ? String(artifactWritePath) : '';
   const artifactWriteContentString = artifactWriteContent ? String(artifactWriteContent) : '';
-  const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-channel-${EXPECTED_CHANNEL_ID}.md`);
+  const earliestTs = MOCK_SLACK_MESSAGES.map(m => m.ts).sort()[0].replace('.', '-');
+  const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-thread-${EXPECTED_CHANNEL_ID}-${earliestTs}.md`);
   const hasExpectedArtifactContent
     = artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
 

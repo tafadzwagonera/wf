@@ -59,5 +59,19 @@ Body`);
 
       expect(ticket.title).toBe('API Gateway: add rate limiting');
     });
+
+    it('does not overwrite type metadata from a bold field inside the description body', () => {
+      const ticket = converter.parse(
+        '# Fix Something\n\n**Type:** bug\n**Priority:** high\n\n## Description\n\n**Type:** task appears in description body'
+      );
+      expect(ticket.type).toBe('bug');
+    });
+
+    it('does not overwrite priority metadata from a bold field inside the description body', () => {
+      const ticket = converter.parse(
+        '# Add Feature\n\n**Type:** story\n**Priority:** medium\n\n## Description\n\n**Priority:** low appears in description'
+      );
+      expect(ticket.priority).toBe('medium');
+    });
   });
 });
