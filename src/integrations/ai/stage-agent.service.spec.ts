@@ -18,6 +18,7 @@ jest.mock('./adapters/codex-cli-runner', () => ({
 const { spawnCli }: { spawnCli: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
 const { spawnCodex }: { spawnCodex: jest.Mock } = jest.requireMock('./adapters/codex-cli-runner');
 const { buildCliArgs }: { buildCliArgs: jest.Mock } = jest.requireMock('./adapters/claude-cli-runner');
+const { buildCodexCliArgs }: { buildCodexCliArgs: jest.Mock } = jest.requireMock('./adapters/codex-cli-runner');
 const mockDiscoverDirAgentConfigs = discoverDirAgentConfigs as jest.MockedFunction<typeof discoverDirAgentConfigs>;
 
 jest.mock('./adapters/discover-dir-agent-configs', () => ({
@@ -532,8 +533,9 @@ describe('StageAgentService', () => {
 
     it('logs provider session ID when CLI backend returns one', async () => {
       const sessionId = 'sess_abc123';
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: sessionId };
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: sessionId };
       }
       spawnCli.mockReturnValue(fakeSpawn());
 
@@ -551,8 +553,9 @@ describe('StageAgentService', () => {
     });
 
     it('does not log provider session when sessionId is undefined', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}' };
+        yield { type: 'result', subtype: 'success', result: validResult };
       }
       spawnCli.mockReturnValue(fakeSpawn());
 
@@ -569,11 +572,12 @@ describe('StageAgentService', () => {
     });
 
     it('uses the minified JSON retry prompt after a blank first pass', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* firstPass() {
         yield { type: 'assistant', message: { content: [] }, session_id: 'sess_abc123' };
       }
       async function* secondPass() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: 'sess_abc123' };
       }
       buildCliArgs.mockClear();
       spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
@@ -588,7 +592,7 @@ describe('StageAgentService', () => {
         2,
         expect.objectContaining({
           prompt:
-            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.',
+            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the JSON schema provided in the original instructions. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.',
           sessionId: 'sess_abc123',
         })
       );
@@ -597,11 +601,12 @@ describe('StageAgentService', () => {
     });
 
     it('rejects assistant_text and retries', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* firstPass() {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Let me think about this...' }] }, session_id: 'sess_abc123' };
       }
       async function* secondPass() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: 'sess_abc123' };
       }
       spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
 
@@ -611,7 +616,7 @@ describe('StageAgentService', () => {
       const runner = (service as any).runCliStagePrompt.bind(service);
       const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
 
-      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(result).toMatchObject({ content: validResult });
       const demotedLogs = logSpy.mock.calls.filter(call => String(call[0]).includes('assistant_text demoted'));
       expect(demotedLogs.length).toBeGreaterThanOrEqual(1);
       expect(spawnCli).toHaveBeenCalledTimes(2);
@@ -705,7 +710,7 @@ describe('StageAgentService', () => {
       }
     });
 
-    it('review-stage stall error includes sessionId despite fresh-start reset', async () => {
+    it('review-stage stall error includes sessionId from the latest pass', async () => {
       async function* firstPass() {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_review_stall' };
       }
@@ -728,8 +733,9 @@ describe('StageAgentService', () => {
     });
 
     it('accepts structured_output on pass 1 without retry', async () => {
+      const validStructuredOutput = { action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' };
       async function* fakeSpawn() {
-        yield { type: 'result', subtype: 'success', structured_output: { action: 'fix' }, session_id: 'sess_abc123' };
+        yield { type: 'result', subtype: 'success', structured_output: validStructuredOutput, session_id: 'sess_abc123' };
       }
       spawnCli.mockReturnValue(fakeSpawn());
 
@@ -739,15 +745,16 @@ describe('StageAgentService', () => {
       const runner = (service as any).runCliStagePrompt.bind(service);
       const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
 
-      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(result).toMatchObject({ content: JSON.stringify(validStructuredOutput) });
       expect(spawnCli).toHaveBeenCalledTimes(1);
 
       logSpy.mockRestore();
     });
 
     it('accepts result on pass 1 without retry', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc123' };
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: 'sess_abc123' };
       }
       spawnCli.mockReturnValue(fakeSpawn());
 
@@ -757,7 +764,7 @@ describe('StageAgentService', () => {
       const runner = (service as any).runCliStagePrompt.bind(service);
       const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
 
-      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(result).toMatchObject({ content: validResult });
       expect(spawnCli).toHaveBeenCalledTimes(1);
 
       logSpy.mockRestore();
@@ -790,7 +797,7 @@ describe('StageAgentService', () => {
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const runner = (service as any).runCodexCliStagePrompt.bind(service);
-      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+      const result = await runner({ stage: 'generate', prompt: 'test', systemPrompt: 'sys' });
 
       expect(result).toMatchObject({ content: 'final chunk' });
       expect(logSpy.mock.calls.map(call => String(call[0])).join('\n')).toContain('agent_message chunks');
@@ -811,7 +818,7 @@ describe('StageAgentService', () => {
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const runner = (service as any).runCodexCliStagePrompt.bind(service);
-      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+      await runner({ stage: 'generate', prompt: 'test', systemPrompt: 'sys', onProgress });
 
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Session started: tid-123');
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Running: yarn build');
@@ -823,8 +830,9 @@ describe('StageAgentService', () => {
     });
 
     it('does not throw when stop_reason is absent', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
-        yield { type: 'result', result: '{"action":"fix"}' };
+        yield { type: 'result', result: validResult };
       }
       spawnCli.mockReturnValue(fakeSpawn());
 
@@ -833,7 +841,7 @@ describe('StageAgentService', () => {
 
       const runner = (service as any).runCliStagePrompt.bind(service);
       const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
-      expect(result).toMatchObject({ content: expect.any(String) });
+      expect(result).toMatchObject({ content: validResult });
     });
   });
 
@@ -847,7 +855,8 @@ describe('StageAgentService', () => {
       jest.restoreAllMocks();
     });
 
-    it('starts fresh session on review retry instead of resuming', async () => {
+    it('resumes session on review retry instead of starting fresh', async () => {
+      const validReview = JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true });
       async function* firstPass() {
         yield {
           type: 'assistant',
@@ -856,9 +865,11 @@ describe('StageAgentService', () => {
         };
       }
       async function* secondPass() {
-        yield { type: 'result', subtype: 'success', result: '{"comments":[]}' };
+        yield { type: 'result', subtype: 'success', result: validReview, session_id: 'sess_abc' };
       }
-      spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
+      spawnCli
+        .mockImplementationOnce(firstPass)
+        .mockImplementationOnce(secondPass);
 
       const service = new StageAgentService(createClaudeCliReviewConfigService());
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -869,22 +880,16 @@ describe('StageAgentService', () => {
       expect(buildCliArgs).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
-          prompt: 'original review prompt',
-          sessionId: undefined,
+          sessionId: 'sess_abc',
         })
       );
-      expect(result).toMatchObject({ content: '{"comments":[]}' });
-      expect(result.sessionId).toBeUndefined();
-
-      const freshStartLogs = logSpy.mock.calls.filter(call =>
-        String(call[0]).includes('Review retry starts fresh')
-      );
-      expect(freshStartLogs.length).toBeGreaterThanOrEqual(1);
+      expect(result).toMatchObject({ content: validReview, sessionId: 'sess_abc' });
 
       logSpy.mockRestore();
     });
 
     it('still resumes session on non-review stage retry', async () => {
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* firstPass() {
         yield {
           type: 'assistant',
@@ -893,7 +898,7 @@ describe('StageAgentService', () => {
         };
       }
       async function* secondPass() {
-        yield { type: 'result', subtype: 'success', result: '{"action":"fix"}', session_id: 'sess_abc' };
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: 'sess_abc' };
       }
       spawnCli.mockImplementationOnce(firstPass).mockImplementationOnce(secondPass);
 
@@ -921,16 +926,16 @@ describe('StageAgentService', () => {
         2,
         expect.objectContaining({
           prompt:
-            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.',
+            'Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the JSON schema provided in the original instructions. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \\n for line breaks within strings.',
           sessionId: 'sess_abc',
         })
       );
-      expect(result).toMatchObject({ content: '{"action":"fix"}' });
+      expect(result).toMatchObject({ content: validResult });
 
       logSpy.mockRestore();
     });
 
-    it('throws stall error after 2 fresh review attempts', async () => {
+    it('throws stall error after 2 review retry attempts', async () => {
       async function* firstPass() {
         yield {
           type: 'assistant',
@@ -1065,9 +1070,13 @@ describe('StageAgentService', () => {
     });
 
     it('review parse error includes sessionId in details', async () => {
-      spawnCli.mockImplementationOnce(async function* () {
-        yield { type: 'result', subtype: 'success', result: 'not valid json', session_id: 'sess_review_789' };
-      });
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: 'not valid json', session_id: 'sess_review_789' };
+        })
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: 'not valid json', session_id: 'sess_review_789' };
+        });
 
       const service = new StageAgentService(createClaudeCliReviewConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -1078,6 +1087,8 @@ describe('StageAgentService', () => {
       } catch (error: unknown) {
         expect((error as any).category).toBe('parse');
         expect((error as any).details?.sessionId).toBe('sess_review_789');
+        expect((error as any).message).toContain('Failed to parse code review from agent response');
+        expect((error as any).message).not.toContain('resolution plan');
       }
     });
 
@@ -1236,6 +1247,280 @@ describe('StageAgentService', () => {
       });
 
       expect(result.sessionId).toBeUndefined();
+    });
+  });
+
+  describe('Codex schema retry loop', () => {
+    const makeCodexStream = (...messages: object[]) =>
+      async function* () {
+        for (const m of messages) yield m;
+      };
+
+    const validPlanJson = JSON.stringify({
+      action: 'fix',
+      summary: 'Test summary',
+      steps: ['Step 1'],
+      estimatedComplexity: 'low',
+    });
+
+    const incidentShape = JSON.stringify({
+      action: 'fix',
+      summary: 'Test summary',
+      phases: [{ name: 'Phase 1', steps: ['Step 1'], verificationCheckpoint: 'verify' }],
+    });
+
+    const validReviewJson = JSON.stringify({
+      summary: 'Looks good',
+      issues: [],
+      suggestions: [],
+      approved: true,
+    });
+
+    beforeEach(() => {
+      spawnCodex.mockReset();
+      buildCodexCliArgs.mockReset();
+      buildCodexCliArgs.mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('injects JSON Schema into the codex plan prompt', async () => {
+      spawnCodex.mockImplementation(
+        makeCodexStream(
+          { type: 'thread.started', thread_id: 'tid-1' },
+          { type: 'item.completed', item: { type: 'agent_message', text: validPlanJson } }
+        )
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCodexCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      const promptArg = spawnCodex.mock.calls[0][2] as string;
+      expect(promptArg).toContain('Output contract');
+      expect(promptArg).toContain('"stepIndices"');
+      expect(promptArg).toContain('"phases"');
+
+      expect(buildCodexCliArgs).toHaveBeenNthCalledWith(
+        1,
+        expect.not.objectContaining({ sessionId: expect.anything() })
+      );
+    });
+
+    it('does not inject JSON Schema into the codex generate prompt', async () => {
+      const createCodexGenerateConfigService = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'cli',
+              'stages.generate.provider': 'openai',
+              'stages.generate.model': 'gpt-5.4-mini',
+              'ai.provider': 'openai',
+              'ai.model': 'gpt-5.4-mini',
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const markdownContent = '# Generated\nSome content';
+      spawnCodex.mockImplementation(
+        makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: markdownContent } })
+      );
+
+      const service = new StageAgentService(createCodexGenerateConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCodexCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'generate', prompt: 'write docs', systemPrompt: 'sys' });
+
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
+      const promptArg = spawnCodex.mock.calls[0][2] as string;
+      expect(promptArg).not.toContain('Output contract');
+      expect(result.content).toBe(markdownContent);
+    });
+
+    it('retries with the codex retry prompt when pass 1 emits a schema-invalid plan', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'tid-1' },
+            { type: 'item.completed', item: { type: 'agent_message', text: incidentShape } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'item.completed', item: { type: 'agent_message', text: validPlanJson } }
+          )
+        );
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.generatePlan({ action: 'fix', issueContent: 'Test issue' });
+
+      expect(spawnCodex).toHaveBeenCalledTimes(2);
+      expect(buildCodexCliArgs).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ sessionId: 'tid-1', model: 'gpt-5.4-mini' })
+      );
+      const retryPrompt = spawnCodex.mock.calls[1][2] as string;
+      expect(retryPrompt).toContain('did not validate');
+      expect(retryPrompt).toContain("Field: 'steps'");
+      expect(result.plan.summary).toBe('Test summary');
+      expect(result.sessionId).toBe('tid-1');
+    });
+
+    it('rejects with a parse-category error when both codex passes emit schema-invalid content', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'tid-1' },
+            { type: 'item.completed', item: { type: 'agent_message', text: incidentShape } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'item.completed', item: { type: 'agent_message', text: incidentShape } }
+          )
+        );
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test issue' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+        category: 'parse',
+        details: expect.objectContaining({
+          sessionId: 'tid-1',
+          zodIssues: expect.stringContaining("Field: 'steps'"),
+        }),
+      });
+    });
+
+    it('does not retry when no thread sessionId was received', async () => {
+      spawnCodex.mockImplementationOnce(
+        makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: incidentShape } })
+      );
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test issue' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+        category: 'parse',
+      });
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries codex review schema miss and still sends epilogue as a third call', async () => {
+      const wrongReview = JSON.stringify({ wrong: 'shape' });
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-tid-1' },
+            { type: 'item.completed', item: { type: 'agent_message', text: wrongReview } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'item.completed', item: { type: 'agent_message', text: validReviewJson } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: 'Summary.' } })
+        );
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(result.review.approved).toBe(true);
+      expect(spawnCodex).toHaveBeenCalledTimes(3);
+
+      const reviewPromptArg = spawnCodex.mock.calls[0][2] as string;
+      expect(reviewPromptArg).toContain('Output contract');
+    });
+
+    it('rejects with a review-flavored parse message when both codex review passes emit schema-invalid content', async () => {
+      const wrongReview = JSON.stringify({ wrong: 'shape' });
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-tid-2' },
+            { type: 'item.completed', item: { type: 'agent_message', text: wrongReview } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream({ type: 'item.completed', item: { type: 'agent_message', text: wrongReview } })
+        );
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(service.reviewCode('diff --git a/f b/f', [])).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse code review from agent response'),
+        category: 'parse',
+      });
+    });
+
+    it('surfaces a clean parse error using pass 1 content when the retry pass itself throws (e.g. stale resume)', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'tid-9' },
+            { type: 'item.completed', item: { type: 'agent_message', text: incidentShape } }
+          )
+        )
+        .mockImplementationOnce(async function* () {
+          throw new Error('Codex CLI failed: thread not found');
+          yield undefined;
+        });
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test issue' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+        category: 'parse',
+        details: expect.objectContaining({
+          response: incidentShape,
+          sessionId: 'tid-9',
+        }),
+      });
+      expect(spawnCodex).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates a stall error from the retry pass unretried instead of masking it as a parse failure', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'tid-10' },
+            { type: 'item.completed', item: { type: 'agent_message', text: incidentShape } }
+          )
+        )
+        .mockImplementationOnce(makeCodexStream());
+
+      const service = new StageAgentService(createCodexConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test issue' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Codex CLI finished without returning a result'),
+        category: 'stall',
+      });
+      expect(spawnCodex).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -1493,6 +1778,76 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('parse error diagnostics', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('includes Zod issue details in the plan parse error when response is valid JSON but wrong shape', async () => {
+      const wrongShapeResponse = JSON.stringify({
+        action: 'fix',
+        summary: 's',
+        phases: [{ name: 'p', steps: ['a'], verificationCheckpoint: 'v' }],
+      });
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: wrongShapeResponse,
+        sessionId: 'sess_zod_test',
+      });
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+        details: expect.objectContaining({
+          zodIssues: expect.stringContaining("Field: 'steps'"),
+        }),
+      });
+    });
+
+    it('omits zodIssues from the plan parse error when response is not JSON', async () => {
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: 'this is plain prose, not JSON',
+        sessionId: 'sess_syntax_test',
+      });
+
+      const error: unknown = await service.generatePlan({ action: 'fix', issueContent: 'Test' }).catch(e => e);
+      expect((error as any).message).toContain('Failed to parse resolution plan from agent response');
+      expect((error as any).details?.zodIssues).toBeUndefined();
+    });
+
+    it('includes Zod issue details in the review parse error when response is valid JSON but wrong shape', async () => {
+      const wrongShapeResponse = JSON.stringify({ wrong: 'shape' });
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: wrongShapeResponse,
+        sessionId: 'sess_review_zod_test',
+      });
+
+      await expect(
+        service.reviewCode('diff --git a/f b/f', [])
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse code review from agent response'),
+        details: expect.objectContaining({
+          zodIssues: expect.any(String),
+        }),
+      });
+    });
+
+    it('omits zodIssues from the review parse error when response is not JSON', async () => {
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: 'this is plain prose, not JSON',
+        sessionId: 'sess_review_syntax_test',
+      });
+
+      const error: unknown = await service.reviewCode('diff --git a/f b/f', []).catch(e => e);
+      expect((error as any).message).toContain('Failed to parse code review from agent response');
+      expect((error as any).details?.zodIssues).toBeUndefined();
+    });
+  });
+
   describe('stale resume fallback', () => {
     type StagePromptParams = {
       stage: string;
@@ -1665,12 +2020,18 @@ describe('StageAgentService', () => {
       stopReason: string | undefined;
     };
 
+    type CliPassOutcome
+      = { kind: 'completed'; content: string; sessionId?: string }
+        | { kind: 'schema-retry'; content: string; issues: string }
+        | { kind: 'no-result' };
+
     type FinalizeCliPass = (
       passResult: CliPassResultLike,
       stage: string,
       passNumber: number,
-      sessionId?: string
-    ) => { content: string; sessionId?: string } | undefined;
+      sessionId?: string,
+      validate?: boolean
+    ) => CliPassOutcome;
 
     const createClaudeCliPlanConfigService = (): ConfigService =>
       ({
@@ -1752,11 +2113,11 @@ describe('StageAgentService', () => {
       expect(jsonSchema).not.toContain('$schema');
     });
 
-    it('tryFinalizeCliPass accepts valid JSON result on plan stage', () => {
+    it('tryFinalizeCliPass returns completed outcome for a schema-valid plan result', () => {
       const service = new StageAgentService(createClaudeCliPlanConfigService());
       jest.spyOn(console, 'log').mockImplementation(() => {});
       const passResult: CliPassResultLike = {
-        result: JSON.stringify({ summary: 'test', steps: [] }),
+        result: JSON.stringify({ action: 'fix', summary: 'test', steps: ['Step 1'], estimatedComplexity: 'low' }),
         source: 'result',
         hadContent: true,
         diagnostics: [],
@@ -1766,9 +2127,254 @@ describe('StageAgentService', () => {
 
       const finalize = (service as unknown as { tryFinalizeCliPass: FinalizeCliPass }).tryFinalizeCliPass;
 
-      const result = finalize.call(service, passResult, 'plan', 1);
-      expect(result).toBeDefined();
-      expect(result?.content).toContain('"summary"');
+      const outcome = finalize.call(service, passResult, 'plan', 1, undefined, true);
+      expect(outcome.kind).toBe('completed');
+      if (outcome.kind === 'completed') {
+        expect(outcome.content).toContain('"summary"');
+      }
+    });
+
+    it('tryFinalizeCliPass returns schema-retry outcome for a schema-invalid plan result', () => {
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const passResult: CliPassResultLike = {
+        result: JSON.stringify({ action: 'fix' }),
+        source: 'result',
+        hadContent: true,
+        diagnostics: [],
+        sessionId: undefined,
+        stopReason: 'end_turn',
+      };
+
+      const finalize = (service as unknown as { tryFinalizeCliPass: FinalizeCliPass }).tryFinalizeCliPass;
+
+      const outcome = finalize.call(service, passResult, 'plan', 1, undefined, true);
+      expect(outcome.kind).toBe('schema-retry');
+      if (outcome.kind === 'schema-retry') {
+        expect(outcome.issues).toContain("Field: 'steps'");
+      }
+    });
+
+    it('tryFinalizeCliPass skips schema validation for structured_output source (Gate 2)', () => {
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const passResult: CliPassResultLike = {
+        result: JSON.stringify({ action: 'fix' }),
+        source: 'structured_output',
+        hadContent: true,
+        diagnostics: [],
+        sessionId: undefined,
+        stopReason: 'end_turn',
+      };
+
+      const finalize = (service as unknown as { tryFinalizeCliPass: FinalizeCliPass }).tryFinalizeCliPass;
+
+      const outcome = finalize.call(service, passResult, 'plan', 1, undefined, true);
+      expect(outcome.kind).toBe('completed');
+    });
+  });
+
+  describe('Claude schema retry', () => {
+    const createClaudeCliPlanSvc = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    const createClaudeCliGenerateSvc = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.generate.backend': 'cli',
+            'stages.generate.provider': 'anthropic',
+            'stages.generate.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    const validPlanResult = JSON.stringify({
+      action: 'fix',
+      summary: 'Retry success',
+      steps: ['Step 1'],
+      estimatedComplexity: 'low',
+    });
+
+    const schemaInvalidPlan = JSON.stringify({ action: 'fix', summary: 'bad' });
+
+    beforeEach(() => {
+      spawnCli.mockReset();
+      buildCliArgs.mockReset();
+      buildCliArgs.mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('retries with the cliRetryPrompt when pass 1 emits a schema-invalid plan', async () => {
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: schemaInvalidPlan, session_id: 'sess-s10' };
+        })
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: validPlanResult, session_id: 'sess-s10' };
+        });
+
+      const service = new StageAgentService(createClaudeCliPlanSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.generatePlan({ action: 'fix', issueContent: 'Issue content' });
+
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+      expect(buildCliArgs).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ sessionId: 'sess-s10' })
+      );
+      const retryPromptArg = (buildCliArgs.mock.calls[1][0] as Record<string, unknown>).prompt as string;
+      expect(retryPromptArg).toContain('JSON schema provided in the original instructions');
+      expect(result.plan.summary).toBe('Retry success');
+    });
+
+    it('rejects with a parse-category error when both passes emit schema-invalid content', async () => {
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: schemaInvalidPlan, session_id: 'sess-s11' };
+        })
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: schemaInvalidPlan, session_id: 'sess-s11' };
+        });
+
+      const service = new StageAgentService(createClaudeCliPlanSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Issue content' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('Failed to parse resolution plan from agent response'),
+        category: 'parse',
+        details: expect.objectContaining({
+          response: schemaInvalidPlan,
+          sessionId: 'sess-s11',
+        }),
+      });
+    });
+
+    it('accepts a schema-valid plan wrapped in a markdown code fence without retrying', async () => {
+      const fencedPlanResult = `\`\`\`json\n${validPlanResult}\n\`\`\``;
+      spawnCli.mockImplementationOnce(async function* () {
+        yield { type: 'result', subtype: 'success', result: fencedPlanResult, session_id: 'sess-s14' };
+      });
+
+      const service = new StageAgentService(createClaudeCliPlanSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.generatePlan({ action: 'fix', issueContent: 'Issue content' });
+
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(result.plan.summary).toBe('Retry success');
+    });
+
+    it('returns content verbatim on a single pass when the stage has no JSON schema (Gate 1)', async () => {
+      const markdownContent = '# Generated\nSome content';
+      spawnCli.mockImplementationOnce(async function* () {
+        yield { type: 'result', subtype: 'success', result: markdownContent, session_id: 'sess-s12' };
+      });
+
+      const service = new StageAgentService(createClaudeCliGenerateSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'generate', prompt: 'write docs', systemPrompt: 'sys' });
+
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(result.content).toBe(markdownContent);
+    });
+
+    it('accepts structured_output payload without re-validation (Gate 2)', async () => {
+      const validStructuredOutput = { action: 'fix', summary: 'SO plan', steps: ['Step 1'], estimatedComplexity: 'low' };
+      spawnCli.mockImplementationOnce(async function* () {
+        yield { type: 'result', subtype: 'success', structured_output: validStructuredOutput, session_id: 'sess-s13' };
+      });
+
+      const service = new StageAgentService(createClaudeCliPlanSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.generatePlan({ action: 'fix', issueContent: 'Issue content' });
+
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(result.plan.summary).toBe('SO plan');
+    });
+  });
+
+  describe('S1 diff threading', () => {
+    const minimalDiff = [
+      'diff --git a/src/foo.ts b/src/foo.ts',
+      'index 0000001..0000002 100644',
+      '--- a/src/foo.ts',
+      '+++ b/src/foo.ts',
+      '@@ -1,2 +1,3 @@',
+      ' line 1',
+      '+line 2 added',
+      ' line 2',
+    ].join('\n');
+
+    beforeEach(() => {
+      spawnCli.mockReset();
+      buildCliArgs.mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('preserves review issue line numbers when the actual diff is threaded to parseAndProcessReview', async () => {
+      const reviewWithIssue = JSON.stringify({
+        summary: 'Found an issue',
+        issues: [{ file: 'src/foo.ts', line: 2, message: 'Issue at line 2', severity: 'error' }],
+        suggestions: [],
+        approved: false,
+      });
+
+      spawnCli
+        .mockImplementationOnce(async function* () {
+          yield { type: 'result', subtype: 'success', result: reviewWithIssue, session_id: 'sess-s1' };
+        })
+        .mockImplementationOnce(async function* () {
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Summary.' }] } };
+        });
+
+      const createClaudeCliReviewSvc = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.review.backend': 'cli',
+              'stages.review.provider': 'anthropic',
+              'stages.review.model': 'claude-sonnet-4-5-20250514',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-5-20250514',
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const service = new StageAgentService(createClaudeCliReviewSvc());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await service.reviewCode(minimalDiff, []);
+
+      expect(result.review.issues).toHaveLength(1);
+      expect(result.review.issues[0].line).toBe(2);
     });
   });
 

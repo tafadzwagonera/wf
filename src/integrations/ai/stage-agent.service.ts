@@ -51,6 +51,7 @@ import {
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
+import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import type { TestInfraContext } from '../../shared/types/detection.types';
 import type { WfAiProviderName } from '../../shared/types/config.types';
 import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
@@ -115,7 +116,14 @@ const DEFAULT_CLI_WALL_CLOCK_TIMEOUT_MS = 30 * 60 * 1000;
 const CODEX_STAGE_LABEL = 'codex-cli';
 
 const cliRetryPrompt
-  = String.raw`Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the resolution plan schema. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \n for line breaks within strings.`;
+  = String.raw`Your previous response did not include a usable result. Please output ONLY a valid JSON object matching the JSON schema provided in the original instructions. Do not include commentary or markdown — IMPORTANT: raw, minified JSON only (no unnecessary whitespace or newlines). JSON string values must not contain literal newline characters — use \n for line breaks within strings.`;
+
+const MAX_CLI_SCHEMA_MISSES = 1;
+
+type CliPassOutcome
+  = { kind: 'completed'; content: string; sessionId?: string }
+    | { kind: 'schema-retry'; content: string; issues: string }
+    | { kind: 'no-result' };
 
 const cliChatRetryPrompt
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
@@ -575,7 +583,13 @@ const processCliPassMessages = async (
   return finalizeCliPass(acc);
 };
 
-type CliRetryState = { sessionId?: string; stalledPasses: number; passNumber: number; lastDiagnostics: string[] };
+type CliRetryState = {
+  sessionId?: string; stalledPasses: number; passNumber: number; lastDiagnostics: string[]; schemaMisses: number;
+};
+
+const makeCliRetryState = (sessionId?: string): CliRetryState => ({
+  sessionId, stalledPasses: 0, passNumber: 0, lastDiagnostics: [], schemaMisses: 0,
+});
 
 const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): void => {
   const madeProgress = passResult.hadContent && passResult.source !== 'assistant_text';
@@ -744,6 +758,115 @@ const extractAnthropicResultMessage = (
   return result.result;
 };
 
+const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
+  if (!zodSchema || typeof zodSchema !== 'object') return undefined;
+  const sanitised = { ...(zodSchema as Record<string, unknown>) };
+  delete sanitised['$schema'];
+  return JSON.stringify(sanitised);
+};
+
+const STAGE_RESPONSE_SCHEMAS: Partial<Record<AgentStageName, string>> = {
+  plan: buildSanitisedJsonSchema(z.toJSONSchema(resolutionPlanSchema)),
+  review: buildSanitisedJsonSchema(z.toJSONSchema(codeReviewSchema)),
+};
+
+const STAGE_ZOD_SCHEMAS: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
+  plan: resolutionPlanSchema,
+  review: codeReviewSchema,
+};
+
+const resolveStageResponseIssues = (stage: AgentStageName, content: string): string | null => {
+  const zodSchema = STAGE_ZOD_SCHEMAS[stage];
+  if (!zodSchema) return null;
+  try {
+    zodSchema.parse(parseJsonResponse(content));
+    return null;
+  } catch (err) {
+    if (isZodErrorLike(err)) return formatZodError(err);
+    return 'Response is not valid JSON';
+  }
+};
+
+const resolveStageZodIssues = (stage: AgentStageName, content: string): string | undefined => {
+  const zodSchema = STAGE_ZOD_SCHEMAS[stage];
+  if (!zodSchema) return undefined;
+  try {
+    zodSchema.parse(parseJsonResponse(content));
+    return undefined;
+  } catch (err) {
+    return isZodErrorLike(err) ? formatZodError(err) : undefined;
+  }
+};
+
+const STAGE_PARSE_ERROR_LABELS: Partial<Record<AgentStageName, string>> = {
+  plan: 'resolution plan',
+  review: 'code review',
+};
+
+const buildStageParseErrorMessage = (
+  stage: AgentStageName, content: string, zodIssues: string | undefined
+): string => {
+  const label = STAGE_PARSE_ERROR_LABELS[stage] ?? 'resolution plan';
+  const baseMessage = `Failed to parse ${label} from agent response`;
+  return zodIssues ? `${baseMessage}\n${zodIssues}` : baseMessage;
+};
+
+const throwStageParseFailure = (
+  stage: AgentStageName, response: string, sessionId: string | undefined, error: unknown
+): never => {
+  const zodIssues = resolveStageZodIssues(stage, response);
+  throw new AiProviderError(
+    buildStageParseErrorMessage(stage, response, zodIssues),
+    { response, error, sessionId, zodIssues },
+    true,
+    'parse'
+  );
+};
+
+const buildCodexSchemaSection = (stage: AgentStageName): string => {
+  const schemaJson = STAGE_RESPONSE_SCHEMAS[stage];
+  if (!schemaJson) return '';
+  return `\n\nOutput contract — your response MUST be a JSON object that validates against this schema:\n${schemaJson}`;
+};
+
+const buildCodexRetryPrompt = (issues: string): string =>
+  `Your previous response did not validate against the required JSON schema. Issues:\n${issues}\n\nPlease output ONLY a corrected JSON object. Raw, minified JSON only — no commentary or markdown.`;
+
+type CodexPassBase = {
+  stage: AgentStageName; model: string; repoDir: string;
+  onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+};
+
+const NON_RETRYABLE_CODEX_ERROR_CATEGORIES = new Set(['stall', 'truncation']);
+
+const isNonRetryableCodexError = (error: unknown): boolean =>
+  isAiProviderErrorLike(error) && NON_RETRYABLE_CODEX_ERROR_CATEGORIES.has(error.category ?? '');
+
+const throwCodexParseError = (
+  stage: AgentStageName, content: string, zodIssues: string, sessionId: string | undefined
+): never => {
+  throw new AiProviderError(
+    buildStageParseErrorMessage(stage, content, zodIssues),
+    { response: content, sessionId, zodIssues },
+    true, 'parse'
+  );
+};
+
+const applySchemaRetry = (
+  state: CliRetryState, stage: AgentStageName, outcome: { content: string; issues: string }
+): true => {
+  state.schemaMisses++;
+  if (state.schemaMisses > MAX_CLI_SCHEMA_MISSES || !state.sessionId) {
+    throw new AiProviderError(
+      buildStageParseErrorMessage(stage, outcome.content, outcome.issues),
+      { response: outcome.content, sessionId: state.sessionId, zodIssues: outcome.issues },
+      true, 'parse'
+    );
+  }
+  console.log(chalk.yellow(`  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: schema miss (${outcome.issues.slice(0, 120)}) — retrying`));
+  return true;
+};
+
 @Injectable()
 export class StageAgentService {
   constructor(private readonly configService: ConfigService) {}
@@ -789,11 +912,10 @@ export class StageAgentService {
 
   private parseStagePlanResponse(response: string, sessionId?: string): { plan: ResolutionPlan; sessionId?: string } {
     try {
-      const plan = this.parseAndValidatePlan(response);
-      return { plan, sessionId };
+      return { plan: this.parseAndValidatePlan(response), sessionId };
     } catch (error) {
       if (isAiProviderErrorLike(error)) throw error;
-      throw new AiProviderError('Failed to parse resolution plan from agent response', { response, error, sessionId }, true, 'parse');
+      return throwStageParseFailure('plan', response, sessionId, error);
     }
   }
 
@@ -846,31 +968,31 @@ export class StageAgentService {
       stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: reviewSystemPrompt,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
-    return this.parseStageReviewResponse(response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
+    return this.parseStageReviewResponse(diff, response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
   }
 
   private async parseStageReviewResponse(
-    response: string, sessionId: string | undefined, repoDir: string | undefined,
+    diff: string, response: string, sessionId: string | undefined, repoDir: string | undefined,
     systemPrompt: string, priorStageSummary: string | undefined
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     try {
-      const review = this.parseAndProcessReview(response);
+      const review = this.parseAndProcessReview(diff, response);
       const backend = this.resolveStageBackend('review');
       await this.trySendReviewEpilogue(backend, sessionId, repoDir, systemPrompt, priorStageSummary);
       return { review: { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' }, sessionId };
     } catch (error) {
       if (isAiProviderErrorLike(error)) throw error;
-      throw new AiProviderError('Failed to parse code review from agent response', { response, error, sessionId }, true, 'parse');
+      return throwStageParseFailure('review', response, sessionId, error);
     }
   }
 
-  private parseAndProcessReview(response: string): CodeReview {
+  private parseAndProcessReview(diff: string, response: string): CodeReview {
     const parsed = codeReviewSchema.parse(
       parseJsonResponse<CodeReview>(
         requireReviewResponseContent({ content: response, provider: this.resolveStageProvider('review'), model: this.resolveStageModel('review') })
       )
     );
-    return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, response), response).review;
+    return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff).review;
   }
 
   private async trySendReviewEpilogue(
@@ -945,15 +1067,7 @@ export class StageAgentService {
   }
 
   private resolveStageJsonSchema(stage: AgentStageName): string | undefined {
-    const schemaMap: Partial<Record<AgentStageName, unknown>> = {
-      plan: z.toJSONSchema(resolutionPlanSchema),
-      review: z.toJSONSchema(codeReviewSchema),
-    };
-    const schema = schemaMap[stage];
-    if (!schema || typeof schema !== 'object') return undefined;
-    const sanitised = { ...(schema as Record<string, unknown>) };
-    delete sanitised['$schema'];
-    return JSON.stringify(sanitised);
+    return STAGE_RESPONSE_SCHEMAS[stage];
   }
 
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
@@ -1172,12 +1286,12 @@ export class StageAgentService {
   }
 
   private async runGenericCliRetryLoop(
-    stage: AgentStageName, initialSessionId: string | undefined,
+    stage: AgentStageName, initialSessionId: string | undefined, validate: boolean,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
   ): Promise<{ content: string; sessionId?: string }> {
-    const state: CliRetryState = { sessionId: initialSessionId, stalledPasses: 0, passNumber: 0, lastDiagnostics: [] };
+    const state = makeCliRetryState(initialSessionId);
     try {
-      return await this.executeCliPasses(state, stage, runPass);
+      return await this.executeCliPasses(state, stage, validate, runPass);
     } catch (error) {
       if (state.sessionId && isAiProviderErrorLike(error)) {
         error.details = { ...error.details, sessionId: state.sessionId };
@@ -1187,17 +1301,17 @@ export class StageAgentService {
   }
 
   private async executeCliPasses(
-    state: CliRetryState, stage: AgentStageName,
+    state: CliRetryState, stage: AgentStageName, validate: boolean,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
   ): Promise<{ content: string; sessionId?: string }> {
     while (true) {
       state.passNumber++;
       const passResult = await runPass(state.sessionId, state.passNumber);
       if (passResult.sessionId) state.sessionId = passResult.sessionId;
-      const completed = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId);
-      if (completed) return completed;
+      const outcome = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId, validate);
+      if (outcome.kind === 'completed') return { content: outcome.content, sessionId: outcome.sessionId };
+      if (outcome.kind === 'schema-retry' && applySchemaRetry(state, stage, outcome)) continue;
       advanceCliRetryState(state, passResult);
-      this.handleReviewFreshStart(state, stage);
     }
   }
 
@@ -1205,26 +1319,23 @@ export class StageAgentService {
     passOpts: CliStagePassOpts, stage: AgentStageName, initialSessionId?: string
   ): Promise<{ content: string; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
-      stage, initialSessionId,
+      stage, initialSessionId, Boolean(passOpts.jsonSchema),
       (sessionId, passNumber) => this.runCliStagePass({ ...passOpts, sessionId, passNumber })
     );
   }
 
   private tryFinalizeCliPass(
-    passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string
-  ): { content: string; sessionId?: string } | undefined {
-    if (!passResult.result || passResult.source === 'assistant_text') return undefined;
+    passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string, validate?: boolean
+  ): CliPassOutcome {
+    if (!passResult.result || passResult.source === 'assistant_text') return { kind: 'no-result' };
     this.checkCliMaxTokens(passResult.stopReason, stage);
+    if (validate && passResult.source !== 'structured_output') {
+      const issues = resolveStageResponseIssues(stage, passResult.result);
+      if (issues) return { kind: 'schema-retry', content: passResult.result, issues };
+    }
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
-    return { content: passResult.result.trim(), sessionId };
-  }
-
-  private handleReviewFreshStart(state: CliRetryState, stage: AgentStageName): void {
-    if (stage === 'review') {
-      state.sessionId = undefined;
-      console.log(chalk.yellow(`  [${CLI_STAGE_LABEL}] Review retry starts fresh (no session resumption)`));
-    }
+    return { kind: 'completed', content: passResult.result.trim(), sessionId };
   }
 
   private checkCliMaxTokens(stopReason: string | undefined, stage: AgentStageName): void {
@@ -1256,15 +1367,65 @@ export class StageAgentService {
     const model = this.resolveStageModel(params.stage);
     const repoDir = params.repoDir ?? process.cwd();
     const preamble = buildPriorStagePreamble(params.priorStageSummary);
-    const fullPrompt = `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}`;
-    const args = buildCodexCliArgs({
-      prompt: fullPrompt, model, cwd: repoDir, sessionId: params.resumeProviderSessionId,
-    });
-    return processCodexStageResult(args, repoDir, fullPrompt, params.stage, {
-      sessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
+    const schemaSection = buildCodexSchemaSection(params.stage);
+    const basePrompt = `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}${schemaSection}`;
+    return this.runCodexRetryLoop({
+      stage: params.stage, model, repoDir, initialPrompt: basePrompt,
+      initialSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
     });
+  }
+
+  private async runCodexStagePass(opts: {
+    stage: AgentStageName; model: string; repoDir: string; prompt: string;
+    sessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+  }): Promise<{ content: string; sessionId?: string }> {
+    const args = buildCodexCliArgs({
+      prompt: opts.prompt, model: opts.model, cwd: opts.repoDir, sessionId: opts.sessionId,
+    });
+    return processCodexStageResult(args, opts.repoDir, opts.prompt, opts.stage, {
+      sessionId: opts.sessionId, onProgress: opts.onProgress,
+      timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs,
+    });
+  }
+
+  private async runCodexRetryLoop(opts: {
+    stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
+    initialSessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+  }): Promise<{ content: string; sessionId?: string }> {
+    const passBase: CodexPassBase = { stage: opts.stage, model: opts.model, repoDir: opts.repoDir,
+      onProgress: opts.onProgress, timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs };
+    let sessionId = opts.initialSessionId;
+    const pass1 = await this.runCodexStagePass({ ...passBase, prompt: opts.initialPrompt, sessionId });
+    if (pass1.sessionId) sessionId = pass1.sessionId;
+    if (!STAGE_RESPONSE_SCHEMAS[opts.stage]) return pass1;
+    const issues1 = resolveStageResponseIssues(opts.stage, pass1.content);
+    if (!issues1) return { content: pass1.content, sessionId };
+    if (!sessionId) return throwCodexParseError(opts.stage, pass1.content, issues1, sessionId);
+    return this.runCodexSchemaRetry(passBase, opts.stage, issues1, sessionId, pass1.content);
+  }
+
+  private async runCodexRetryPass(
+    passBase: CodexPassBase, issues1: string, sessionId: string, invalidContent: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    try {
+      return await this.runCodexStagePass({ ...passBase, prompt: buildCodexRetryPrompt(issues1), sessionId });
+    } catch (error) {
+      if (isNonRetryableCodexError(error)) throw error;
+      return { content: invalidContent, sessionId };
+    }
+  }
+
+  private async runCodexSchemaRetry(
+    passBase: CodexPassBase, stage: AgentStageName, issues1: string, sessionId: string, invalidContent: string
+  ): Promise<{ content: string; sessionId?: string }> {
+    console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Pass 1: schema miss — retrying`));
+    const pass2 = await this.runCodexRetryPass(passBase, issues1, sessionId, invalidContent);
+    const finalSessionId = pass2.sessionId ?? sessionId;
+    const issues2 = resolveStageResponseIssues(stage, pass2.content);
+    if (!issues2) return { content: pass2.content, sessionId: finalSessionId };
+    return throwCodexParseError(stage, pass2.content, issues2, finalSessionId);
   }
 
   private async sendCliReviewEpilogue(params: {
@@ -1321,7 +1482,7 @@ export class StageAgentService {
     passOpts: CliChatPassOpts, stage: AgentStageName, initialSessionId?: string
   ): Promise<{ content: string; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
-      stage, initialSessionId,
+      stage, initialSessionId, false,
       (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber })
     );
   }
