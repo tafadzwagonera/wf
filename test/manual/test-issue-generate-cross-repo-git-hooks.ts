@@ -54,7 +54,8 @@ const pass = (message: string): void => {
 };
 
 const fail = (message: string, detail?: string): void => {
-  console.error(chalk.red(`  ✗ ${message}${detail ? `\n    → ${detail}` : ''}`));
+  const suffix = detail ? `\n    → ${detail}` : '';
+  console.error(chalk.red(`  ✗ ${message}${suffix}`));
   failed += 1;
 };
 
@@ -122,7 +123,7 @@ const capturePrompt = async (command: IssueGenerateCommand, args: string[], repo
   return capturedPrompt;
 };
 
-const run = async (): Promise<void> => {
+async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n🧪 Manual Test: issue:generate cross-repo git-hooks discovery\n'));
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-cross-repo-git-hooks-'));
@@ -186,6 +187,9 @@ const run = async (): Promise<void> => {
   if (failed > 0) {
     process.exit(1);
   }
-};
+}
 
-void run();
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});

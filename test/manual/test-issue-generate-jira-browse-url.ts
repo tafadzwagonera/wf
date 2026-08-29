@@ -46,7 +46,8 @@ const pass = (message: string): void => {
 };
 
 const fail = (message: string, detail?: string): void => {
-  console.error(`  \u2717 ${message}${detail ? `\n    \u2192 ${detail}` : ''}`);
+  const suffix = detail ? `\n    \u2192 ${detail}` : '';
+  console.error(`  \u2717 ${message}${suffix}`);
 };
 
 async function main() {
@@ -62,8 +63,6 @@ async function main() {
   const command = app.get(IssueGenerateCommand);
 
   try {
-    // ── Test 1: parseTrackerSource routes *.atlassian.net/browse/<KEY> ──
-
     console.log('Test 1: parseTrackerSource detects Jira browse URLs');
     const result1 = (command as any).parseTrackerSource('https://touraxis.atlassian.net/browse/WBP-3371');
     if (result1?.ticketKey === 'WBP-3371') {
@@ -73,8 +72,6 @@ async function main() {
       fail('Expected ticketKey WBP-3371', `Got: ${JSON.stringify(result1)}`);
       failed++;
     }
-
-    // ── Test 2: parseTrackerSource returns null for Confluence URLs ──
 
     console.log('Test 2: parseTrackerSource rejects non-browse Atlassian URLs');
     const confluenceResult = (command as any).parseTrackerSource(
@@ -94,8 +91,6 @@ async function main() {
       failed++;
     }
 
-    // ── Test 3: parseTrackerSource rejects non-Atlassian URLs ──
-
     console.log('Test 3: parseTrackerSource rejects non-Atlassian URLs');
     const githubResult = (command as any).parseTrackerSource('https://github.com/org/repo/issues/42');
     if (githubResult === null) {
@@ -105,8 +100,6 @@ async function main() {
       fail('Expected null for GitHub URL', `Got: ${JSON.stringify(githubResult)}`);
       failed++;
     }
-
-    // ── Test 4: parseTrackerSource supports self-hosted with config ──
 
     console.log('Test 4: parseTrackerSource supports self-hosted Jira with atlassian.baseUrl config');
     const configService = (command as any).configService as ConfigService;
@@ -128,8 +121,6 @@ async function main() {
     } finally {
       (configService as any).get = originalGet;
     }
-
-    // ── Test 5: fetchSource routes browse URLs through fetchFromTracker ──
 
     console.log('Test 5: fetchSource routes Jira browse URLs to fetchFromTracker');
     const trackerCalls: string[] = [];
@@ -169,8 +160,6 @@ async function main() {
       (command as any).fetchFromTracker = originalFetchFromTracker;
       (command as any).fetchFromUrl = originalFetchFromUrl;
     }
-
-    // ── Test 6: synthesizeWithAI always runs AI (no bypass for long descriptions) ──
 
     console.log('Test 6: synthesizeWithAI always invokes AI even for single source with long description');
     const commandAiService = (command as any).aiService;

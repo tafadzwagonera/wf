@@ -12,9 +12,9 @@
  * 6. buildSynthesisPrompt and buildClarificationPrompt use MAX_SOURCE_CONTENT_LENGTH
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
@@ -52,7 +52,7 @@ const MOCK_SUMMARY_BULLETS = [
   '- Remediation: manual consumer group reset via nats-cli',
 ].join('\n');
 
-async function testOversizedSourceSummarisation() {
+async function main() {
   console.log('\n\u{1F9EA} Manual Test: issue:generate oversized source summarisation\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -68,7 +68,8 @@ async function testOversizedSourceSummarisation() {
   };
 
   const fail = (msg: string, detail?: string) => {
-    console.error(`  \u2717 ${msg}${detail ? `\n    \u2192 ${detail}` : ''}`);
+    const suffix = detail ? `\n    \u2192 ${detail}` : '';
+    console.error(`  \u2717 ${msg}${suffix}`);
     failed++;
   };
 
@@ -115,22 +116,21 @@ async function testOversizedSourceSummarisation() {
       console.log = origLog;
     }
 
-    if (!summarisationCalled) {
-      pass('Small source does not trigger AI summarisation');
-    } else {
+    if (summarisationCalled) {
       fail('Small source incorrectly triggered AI summarisation');
+    } else {
+      pass('Small source does not trigger AI summarisation');
     }
 
-    if (!capturedOutput.includes('Summarising')) {
-      pass('No summarisation warning for small source');
-    } else {
+    if (capturedOutput.includes('Summarising')) {
       fail('Unexpected summarisation warning for small source');
+    } else {
+      pass('No summarisation warning for small source');
     }
 
     fs.unlinkSync(tmpFile);
   }
 
-  // --- Test 2: Oversized source triggers summarisation in silent mode ---
   {
     const tmpFile = path.join(os.tmpdir(), `wf-oversized-source-${Date.now()}.txt`);
     // Create content exceeding 30,000 characters
@@ -177,17 +177,15 @@ async function testOversizedSourceSummarisation() {
       fail('Oversized source did not trigger AI summarisation');
     }
 
-    // Silent mode should not show the warning
-    if (!capturedOutput.includes('Summarising')) {
-      pass('Silent mode suppresses summarisation warning');
-    } else {
+    if (capturedOutput.includes('Summarising')) {
       fail('Silent mode leaked summarisation warning');
+    } else {
+      pass('Silent mode suppresses summarisation warning');
     }
 
     fs.unlinkSync(tmpFile);
   }
 
-  // --- Test 3: Non-silent mode shows summarisation warning ---
   {
     const tmpFile = path.join(os.tmpdir(), `wf-oversized-warn-${Date.now()}.txt`);
     const oversizedContent = 'y'.repeat(31_000);
@@ -216,7 +214,6 @@ async function testOversizedSourceSummarisation() {
       return { content: MOCK_TICKET_RESPONSE };
     };
 
-    // Mock inquirer to auto-accept all and type "done"
     const inquirerModule = await import('inquirer');
     const originalPrompt = inquirerModule.default.prompt;
     let promptCallCount = 0;
@@ -226,7 +223,7 @@ async function testOversizedSourceSummarisation() {
       if (q.type === 'confirm') {
         return { accept: true };
       }
-      // Input prompt — return "done" to exit chat loop
+
       return { input: 'done' };
     };
 
@@ -283,7 +280,6 @@ async function testOversizedSourceSummarisation() {
       fail('Interactive review prompt missing', `Output: ${capturedOutput.slice(0, 500)}`);
     }
 
-    // Bullets should be presented (4 confirm prompts + 1 "done" input)
     if (promptCallCount >= 5) {
       pass(`Inquirer prompted ${promptCallCount} times (4 bullets + done input)`);
     } else {
@@ -293,10 +289,8 @@ async function testOversizedSourceSummarisation() {
     fs.unlinkSync(tmpFile);
   }
 
-  // --- Test 4: Synthesis prompt uses MAX_SOURCE_CONTENT_LENGTH, not 2000 ---
   {
     const tmpFile = path.join(os.tmpdir(), `wf-truncation-check-${Date.now()}.txt`);
-    // Content between 2000 and 30000 chars — should NOT be truncated
     const midContent = 'z'.repeat(5_000);
     fs.writeFileSync(tmpFile, midContent, 'utf-8');
 
@@ -340,7 +334,6 @@ async function testOversizedSourceSummarisation() {
     fs.unlinkSync(tmpFile);
   }
 
-  // Cleanup
   AiService.prototype.execute = originalProtoExecute;
   StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
 
@@ -352,4 +345,7 @@ async function testOversizedSourceSummarisation() {
   }
 }
 
-testOversizedSourceSummarisation();
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});

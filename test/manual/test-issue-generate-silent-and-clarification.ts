@@ -10,9 +10,9 @@
  * 4. Clarification pass is skipped in silent mode
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
@@ -45,7 +45,7 @@ const MOCK_TICKET_RESPONSE = JSON.stringify({
 
 const MOCK_CLARIFICATION_RESPONSE = JSON.stringify(['What is the target deployment environment?']);
 
-async function testSilentAndClarification() {
+async function main() {
   console.log('\n🧪 Manual Test: issue:generate --silent output and clarification pass\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -61,7 +61,8 @@ async function testSilentAndClarification() {
   };
 
   const fail = (msg: string, detail?: string) => {
-    console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
+    const suffix = detail ? `\n    → ${detail}` : '';
+    console.error(`  ✗ ${msg}${suffix}`);
     failed++;
   };
 
@@ -76,7 +77,6 @@ async function testSilentAndClarification() {
 
   const command = app.get(IssueGenerateCommand);
 
-  // --- Test 1: Silent mode suppresses decorative output ---
   {
     let aiCallCount = 0;
     (AiService.prototype as any).execute = async () => {
@@ -105,28 +105,28 @@ async function testSilentAndClarification() {
       console.log = origLog;
     }
 
-    if (!capturedOutput.includes('Generating Ticket')) {
-      pass('Silent mode suppresses "Generating Ticket" banner');
-    } else {
+    if (capturedOutput.includes('Generating Ticket')) {
       fail('Silent mode leaked "Generating Ticket" banner');
+    } else {
+      pass('Silent mode suppresses "Generating Ticket" banner');
     }
 
-    if (!capturedOutput.includes('Fetching:')) {
-      pass('Silent mode suppresses "Fetching:" progress');
-    } else {
+    if (capturedOutput.includes('Fetching:')) {
       fail('Silent mode leaked "Fetching:" progress');
+    } else {
+      pass('Silent mode suppresses "Fetching:" progress');
     }
 
-    if (!capturedOutput.includes('Using AI to synthesize')) {
-      pass('Silent mode suppresses "Using AI to synthesize" banner');
-    } else {
+    if (capturedOutput.includes('Using AI to synthesize')) {
       fail('Silent mode leaked "Using AI to synthesize" banner');
+    } else {
+      pass('Silent mode suppresses "Using AI to synthesize" banner');
     }
 
-    if (!capturedOutput.includes('Tip:')) {
-      pass('Silent mode suppresses "Tip:" footer');
-    } else {
+    if (capturedOutput.includes('Tip:')) {
       fail('Silent mode leaked "Tip:" footer');
+    } else {
+      pass('Silent mode suppresses "Tip:" footer');
     }
 
     if (capturedOutput.includes('Test summary for silent mode')) {
@@ -135,7 +135,6 @@ async function testSilentAndClarification() {
       fail('Silent mode did not emit raw ticket content', `Got: ${capturedOutput.slice(0, 300)}`);
     }
 
-    // Only 1 AI call (synthesis), no clarification call
     if (aiCallCount === 1) {
       pass('Silent mode skips clarification AI call (1 call total)');
     } else {
@@ -143,7 +142,6 @@ async function testSilentAndClarification() {
     }
   }
 
-  // --- Test 2: Non-silent interactive mode triggers clarification ---
   {
     let aiCallCount = 0;
     let lastPromptContent = '';
@@ -240,4 +238,7 @@ async function testSilentAndClarification() {
   }
 }
 
-testSilentAndClarification();
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});

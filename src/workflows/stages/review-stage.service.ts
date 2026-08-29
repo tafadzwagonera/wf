@@ -22,7 +22,7 @@ import { resolveSkills } from '../../skills';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 
-const DEFAULT_REVIEW_GUIDELINES = [
+const defaultReviewGuidelines = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
   'Clarity: Verify every changed line is immediately understandable without author context.',
   'Contracts: Flag changes to function signatures, return types, event payloads, or public APIs that break existing callers or tests.',
@@ -75,7 +75,7 @@ export class ReviewStageService {
     return options.replaceCriteria
       ? [...contextSections, ...(options.extraCriteria ?? [])]
       : [
-          ...DEFAULT_REVIEW_GUIDELINES,
+          ...defaultReviewGuidelines,
           `Relevancy: Does the feature or fix work? (This is very important — context: ${contextSections.join('\n\n')})`,
           ...(options.extraCriteria ?? []),
         ];

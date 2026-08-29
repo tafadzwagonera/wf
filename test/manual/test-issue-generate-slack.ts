@@ -12,7 +12,7 @@
  * No real API calls are made — both SlackService and AiService are mocked.
  */
 
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
@@ -58,7 +58,7 @@ const MOCK_AI_RESPONSE = JSON.stringify({
   ].join('\n'),
 });
 
-async function testIssueGenerateSlack() {
+async function main() {
   console.log('\n🧪 Manual Test: issue:generate with Slack thread permalink\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -74,11 +74,11 @@ async function testIssueGenerateSlack() {
   };
 
   const fail = (msg: string, detail?: string) => {
-    console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
+    const suffix = detail ? `\n    → ${detail}` : '';
+    console.error(`  ✗ ${msg}${suffix}`);
     failed++;
   };
 
-  // Mock SlackService.fetchThread
   let slackFetchCallArgs: [string, string] | null = null;
   const originalFetchThread = SlackService.prototype.fetchThread;
   (SlackService.prototype as any).fetchThread = async (channelId: string, threadTs: string) => {
@@ -90,7 +90,6 @@ async function testIssueGenerateSlack() {
     };
   };
 
-  // Mock both AI backends so the test is agnostic to the configured backend.
   const originalExecute = AiService.prototype.execute;
   const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
   let aiCallCount = 0;
@@ -125,8 +124,8 @@ async function testIssueGenerateSlack() {
 
   try {
     await command.run([SLACK_PERMALINK], {} as any);
-  } catch (_) {
-    // Ignore — assertions are made on side effects
+  } catch {
+    // Ignore
   } finally {
     process.stdout.write = origWrite;
     SlackService.prototype.fetchThread = originalFetchThread;
@@ -136,8 +135,9 @@ async function testIssueGenerateSlack() {
     fs.promises.writeFile = originalWriteFile;
   }
 
-  // Assertion 1: SlackService.fetchThread called with correct args
-  if (slackFetchCallArgs !== null) {
+  if (slackFetchCallArgs === null) {
+    fail('SlackService.fetchThread was NOT called');
+  } else {
     const channelId = (slackFetchCallArgs as string[])[0];
     const threadTs = (slackFetchCallArgs as string[])[1];
     if (channelId === EXPECTED_CHANNEL_ID && threadTs === EXPECTED_THREAD_TS) {
@@ -148,18 +148,16 @@ async function testIssueGenerateSlack() {
         `Expected ('${EXPECTED_CHANNEL_ID}', '${EXPECTED_THREAD_TS}') but got ('${channelId}', '${threadTs}')`
       );
     }
-  } else {
-    fail('SlackService.fetchThread was NOT called');
   }
 
-  // Assertion 2: Artifact write captured with formatted messages
   const threadId = EXPECTED_THREAD_TS.replace('.', '-');
   const artifactWritePathString = artifactWritePath ? String(artifactWritePath) : '';
   const artifactWriteContentString = artifactWriteContent ? String(artifactWriteContent) : '';
   const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
   const expectedLine1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
   const hasExpectedArtifactPath = artifactWritePathString.endsWith(`slack-thread-${EXPECTED_CHANNEL_ID}-${threadId}.md`);
-  const hasExpectedArtifactContent = artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
+  const hasExpectedArtifactContent
+    = artifactWriteContentString.includes(expectedLine0) && artifactWriteContentString.includes(expectedLine1);
   if (hasExpectedArtifactPath && hasExpectedArtifactContent) {
     pass(`Artifact write captured at ${artifactWritePath}`);
   } else {
@@ -169,14 +167,12 @@ async function testIssueGenerateSlack() {
     );
   }
 
-  // Assertion 3: AI synthesis ran (either backend)
   if (aiCallCount > 0) {
     pass(`AI synthesis ran (${aiCallCount} call(s))`);
   } else {
     fail('AI synthesis did NOT run — both backends were idle');
   }
 
-  // Assertion 4: Captured stdout contains "### Summary"
   if (capturedOutput.includes('### Summary')) {
     pass('Output contains "### Summary" section');
   } else {
@@ -195,4 +191,7 @@ async function testIssueGenerateSlack() {
   if (failed > 0) process.exit(1);
 }
 
-testIssueGenerateSlack();
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});

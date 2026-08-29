@@ -7,9 +7,9 @@
  * template sections when the AI response is mocked. No real API calls are made.
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
@@ -44,7 +44,7 @@ const MOCK_AI_RESPONSE = JSON.stringify({
   ].join('\n'),
 });
 
-async function testIssueGenerate() {
+async function main() {
   console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -60,7 +60,8 @@ async function testIssueGenerate() {
   };
 
   const fail = (msg: string, detail?: string) => {
-    console.error(`  ✗ ${msg}${detail ? `\n    → ${detail}` : ''}`);
+    const suffix = detail ? `\n    → ${detail}` : '';
+    console.error(`  ✗ ${msg}${suffix}`);
     failed++;
   };
 
@@ -98,8 +99,8 @@ async function testIssueGenerate() {
 
   try {
     await command.run([tmpFile1, tmpFile2], { repos: [] });
-  } catch (_) {
-    // Ignore — assertions are made on captured stdout
+  } catch {
+    // Ignore
   } finally {
     process.stdout.write = origWrite;
     fs.unlinkSync(tmpFile1);
@@ -124,9 +125,6 @@ async function testIssueGenerate() {
     }
   }
 
-  // --- Fix 1: trailing-dash regression ---
-  // "plan-tripcom-tour-sync-manual-" would have been produced before the fix.
-  // We verify by synthesizing a mock title that would truncate to a trailing dash.
   {
     const longTitle = 'Plan: Tripcom Tour Sync Manual Test Script';
     const sanitized = longTitle
@@ -134,23 +132,19 @@ async function testIssueGenerate() {
       .replaceAll(/[^a-z0-9]+/g, '-')
       .slice(0, 30)
       .replace(/-+$/, '');
-    if (!sanitized.endsWith('-')) {
-      pass('sanitizedTitle does not end with a trailing dash');
-    } else {
+    if (sanitized.endsWith('-')) {
       fail('sanitizedTitle still ends with a trailing dash', `Got: "${sanitized}"`);
+    } else {
+      pass('sanitizedTitle does not end with a trailing dash');
     }
   }
 
-  // --- Fix 2: AI synthesis bypass regression ---
-  // Verifies aiService.execute was called at least once during the two-source run above.
-  // This is a direct call-count spy — immune to false positives from source content.
   if (synthesisCallCount > 0) {
     pass(`AI synthesis was invoked through the ${synthesisBackend} backend (${synthesisCallCount} call(s))`);
   } else {
     fail('AI synthesis was NOT invoked — both synthesis backends were idle');
   }
 
-  // The rendered ticket should start with a normal markdown heading after parsing/serialization.
   if (/^# .+/m.test(capturedOutput)) {
     pass('Output contains a non-empty markdown heading line');
   } else {
@@ -160,9 +154,6 @@ async function testIssueGenerate() {
     );
   }
 
-  // --- Fix 3: single-source stub-description forces AI synthesis ---
-  // A ticket with a description shorter than MIN_DESCRIPTION_LENGTH must go through AI.
-  // Uses a single .md source with a 20-char description — should NOT be short-circuited.
   {
     const stubFile = path.join(os.tmpdir(), `wf-gen-stub-${Date.now()}.md`);
     fs.writeFileSync(stubFile, '# Plan: Quick Stub Feature\n\nShort stub description.\n', 'utf-8');
@@ -188,8 +179,8 @@ async function testIssueGenerate() {
 
     try {
       await command.run([stubFile], { repos: [] });
-    } catch (_) {
-      // Ignore — assertion is on stubAiCallCount
+    } catch {
+      // Ignore
     } finally {
       process.stdout.write = origWriteStub;
       fs.unlinkSync(stubFile);
@@ -213,4 +204,7 @@ async function testIssueGenerate() {
   if (failed > 0) process.exit(1);
 }
 
-testIssueGenerate();
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});
