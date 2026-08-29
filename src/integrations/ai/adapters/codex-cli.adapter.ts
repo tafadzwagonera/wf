@@ -78,7 +78,7 @@ const buildCodexImplementPrompt = (params: GenerateAndVerifyParams, repoDir: str
 const logCommandStarted = (message: CodexCliMessage): boolean => {
   if (message.type !== 'item.started') return false;
   if (message.item?.type !== 'command_execution' || !message.item.command) return false;
-  const raw = message.item.command;
+  const raw = message.item.command.replaceAll('\r', '\\r').replaceAll('\n', '\\n');
   const cmd = raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
   console.log(chalk.cyan(`  [${CODEX_ADAPTER_LABEL}] Running: ${cmd}`));
   return true;
@@ -87,7 +87,7 @@ const logCommandStarted = (message: CodexCliMessage): boolean => {
 const logCommandCompleted = (message: CodexCliMessage): boolean => {
   if (message.type !== 'item.completed') return false;
   if (message.item?.type !== 'command_execution') return false;
-  const raw = message.item.command ?? 'unknown';
+  const raw = (message.item.command ?? 'unknown').replaceAll('\r', '\\r').replaceAll('\n', '\\n');
   const shortCmd = raw.length > 60 ? `${raw.slice(0, 57)}...` : raw;
   if (message.item.exit_code === 0) {
     console.log(chalk.green(`  [${CODEX_ADAPTER_LABEL}] Command completed: ${shortCmd}`));
