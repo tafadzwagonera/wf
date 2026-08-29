@@ -133,4 +133,19 @@ describe('ReviewPresenter', () => {
     expect(output).toContain('Execution mode: cli');
     expect(output).toContain('Provenance: evidence-based');
   });
+
+  it('labels repaired reviews in the provenance output', () => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const presenter = new ReviewPresenter();
+
+    presenter.displayReview({
+      ...mockReview,
+      executionMode: 'standard',
+      repairStrategy: 'validation',
+      traceProvenance: 'best-effort',
+    } as any);
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n');
+    expect(output).toContain('Repair strategy: validation');
+  });
 });

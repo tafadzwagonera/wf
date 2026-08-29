@@ -444,7 +444,7 @@
     ]
   },
   "issue:review": {
-    "description": "AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.",
+    "description": "AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact.",
     "usage": "wf issue:review [pr-url] [options]",
     "options": [
       {
@@ -510,6 +510,10 @@
         "command": "wf issue:review"
       },
       {
+        "comment": "Replace the default review guidelines while keeping ticket context and Sonar findings",
+        "command": "wf issue:review --ticket-key WBP-2971 --replace-criteria review-guidelines.md --sonar"
+      },
+      {
         "comment": "Review a ticket and associated pull requests from credentialed adapters using a remote repo hint",
         "command": "wf issue:review --ticket-key WBP-3057 -r service-bookingv3"
       },
@@ -526,7 +530,7 @@
         "command": "wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment"
       },
       {
-        "comment": "Review ticket changes and run the SonarQube CLI regardless of config",
+        "comment": "Review ticket changes with SonarQube and continue on recoverable failures",
         "command": "wf issue:review --ticket-key WBP-2971 --sonar"
       },
       {
@@ -538,7 +542,7 @@
         "command": "wf issue:review --ticket-key WBP-2971 --skip-verification"
       },
       {
-        "comment": "Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail",
+        "comment": "Resume a provider-backed review session; CLI review sessions fork the epilogue session so manual resume stays readable",
         "command": "wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3"
       }
     ]

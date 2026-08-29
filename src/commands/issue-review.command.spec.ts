@@ -636,6 +636,7 @@ describe('IssueReviewCommand', () => {
       const { command } = await buildCommand();
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockClear();
+      mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
       const target = { repoDir: '/tmp/repo', diff: '', title: '', context: '' } as any;
 
       await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, undefined);
@@ -1354,7 +1355,7 @@ describe('IssueReviewCommand', () => {
     it.each([
       ['ConfigurationError', new ConfigurationError('SonarQube CLI not found.')],
       ['ExecutionError', new ExecutionError('SonarQube analyze exited with code 2.')],
-    ])('contains a %s from the SonarQube CLI to one target instead of aborting the batch', async (_name, sonarError) => {
+    ])('continues the batch when one target hits a %s from the SonarQube CLI', async (_name, sonarError) => {
       const { command, reviewStageService } = await buildCommand();
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockRejectedValueOnce(sonarError).mockResolvedValueOnce({ status: 'clean', steps: [] });
@@ -1369,10 +1370,33 @@ describe('IssueReviewCommand', () => {
 
       const reviewed = await (command as any).executeReviews(targets, null, { sonar: true });
 
-      expect(reviewed).toHaveLength(1);
-      expect(reviewed[0].title).toBe('PR #2');
-      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('SonarQube CLI error for PR #1'));
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('SonarQube CLI error'));
+      expect(reviewed).toHaveLength(2);
+      expect(loggerWarnSpy).toHaveBeenCalledWith(expect.stringContaining('continuing without SonarQube findings for PR #1'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('continuing review for PR #1 without Sonar findings'));
+    });
+
+    it('threads Sonar findings into reviewDiff context for a target', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockResolvedValue({
+        status: 'findings',
+        findingsText: 'SonarQube analyze findings:\nRule hit',
+        steps: [{ step: 'analyze', status: 'findings', exitCode: 51, output: 'Rule hit' }],
+      });
+      reviewStageService.reviewDiff.mockResolvedValue({ review: mockReview });
+
+      await (command as any).reviewSingleTarget(
+        { title: 'PR #1', diff: 'diff-1', context: 'ctx-1', repoDir: '/tmp/repo' },
+        null,
+        { sonar: true }
+      );
+
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'diff-1',
+        expect.objectContaining({
+          additionalContextSections: ['SonarQube analyze findings:\nRule hit'],
+        })
+      );
     });
 
     it('does not contain non-sonar errors raised while resolving sonar output', async () => {
@@ -1653,6 +1677,28 @@ describe('IssueReviewCommand', () => {
         })
       );
     });
+
+    it('loads prior stage summary and forks the session when --session-id is provided', async () => {
+      const { command, reviewStageService, sessionService } = await buildCommand();
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      sessionService.findByProviderSessionId.mockResolvedValue({
+        stages: {
+          plan: { summary: 'Plan summary from prior stage' },
+        },
+      });
+
+      await command.run([], { sessionId: 'sess-abc-123' });
+
+      expect(sessionService.findByProviderSessionId).toHaveBeenCalledWith('sess-abc-123', 'plan');
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'diff content',
+        expect.objectContaining({
+          priorStageSummary: 'Plan summary from prior stage',
+          forkSession: true,
+          resumeProviderSessionId: 'sess-abc-123',
+        })
+      );
+    });
   });
 
   describe('saved output', () => {
@@ -1678,6 +1724,46 @@ describe('IssueReviewCommand', () => {
 
       expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining(process.cwd()));
       expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining('current repo'));
+    });
+
+    it('previews the CLI backend instead of a platform POST when review backend is cli', async () => {
+      const { command, dryRunPreview } = await buildCommand();
+      (command as any).configService.get = jest.fn((key: string, fallback?: unknown) => {
+        if (key === 'stages.review.backend') return 'cli';
+        if (key === 'stages.review.provider') return 'openai';
+        if (key === 'ai.provider') return 'openai';
+        return fallback;
+      });
+
+      await command.run([], { dryRun: true, sessionId: 'sess-123' });
+
+      expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'CLI',
+          endpoint: 'codex exec/resume --json --fork-session',
+          platform: 'Codex CLI',
+        })
+      );
+    });
+
+    it('previews a fresh CLI review when no session is supplied', async () => {
+      const { command, dryRunPreview } = await buildCommand();
+      (command as any).configService.get = jest.fn((key: string, fallback?: unknown) => {
+        if (key === 'stages.review.backend') return 'cli';
+        if (key === 'stages.review.provider') return 'openai';
+        if (key === 'ai.provider') return 'openai';
+        return fallback;
+      });
+
+      await command.run([], { dryRun: true });
+
+      expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: 'CLI',
+          endpoint: 'codex exec --json',
+          platform: 'Codex CLI',
+        })
+      );
     });
 
     it('shows a cached ticket review as skipped during dry run', async () => {

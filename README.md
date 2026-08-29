@@ -428,11 +428,14 @@ When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/*
 #### `wf issue:review [pr-url]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:review -->
-AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.
+AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact.
 
 ```bash
 # Review current repo changes
 wf issue:review
+
+# Replace the default review guidelines while keeping ticket context and Sonar findings
+wf issue:review --ticket-key WBP-2971 --replace-criteria review-guidelines.md --sonar
 
 # Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
 wf issue:review --ticket-key WBP-3057 -r service-bookingv3
@@ -446,7 +449,7 @@ wf issue:review --ticket-key WBP-2971 --force --tracker jira -r service-bookingv
 # Review a pull request and post review comments with diff-aligned inline anchors
 wf issue:review https://bitbucket.org/workspace/repo/pull-requests/160 --comment
 
-# Review ticket changes and run the SonarQube CLI regardless of config
+# Review ticket changes with SonarQube and continue on recoverable failures
 wf issue:review --ticket-key WBP-2971 --sonar
 
 # Sonar-review a chained implement→review run, recovering the source branch from that session
@@ -455,7 +458,7 @@ wf issue:review --ticket-key WBP-2971 --session-id {providerSessionId} --sonar
 # Skip pre-review verification (lint, typecheck, test) in the target repository
 wf issue:review --ticket-key WBP-2971 --skip-verification
 
-# Resume a provider-backed review session; CLI review sessions leave a human-readable summary as the resume tail
+# Resume a provider-backed review session; CLI review sessions fork the epilogue session so manual resume stays readable
 wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3
 ```
 
@@ -500,7 +503,9 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-The SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) runs when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. The scan scopes to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order; a bare `--ticket-key` with no matching local session — or any run where no base branch can be resolved at all — falls back to an unscoped `sonar analyze`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration skips review for that target with a warning — when a ticket has multiple associated pull requests, the remaining targets are still reviewed.
+When `--replace-criteria` is supplied, wf replaces only the default review guidelines. Ticket context and any Sonar findings are still threaded into the review prompt so the replacement path does not discard the review signal that was gathered earlier in the run.
+
+The SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) runs when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. The scan scopes to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order; a bare `--ticket-key` with no matching local session — or any run where no base branch can be resolved at all — falls back to an unscoped `sonar analyze`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings — when a ticket has multiple associated pull requests, the remaining targets are still reviewed.
 
 The current review output keeps `Call Stack` and `State Transition` in the same order before any trailing unmatched `Suggestions`, with `Approval Status` after `Suggestions`. Paired model suggestions now render directly under their corresponding issues in terminal output, exported text, workflow artifacts, and PR summary comments. Each trace section includes explicit provenance text so the output says whether the trace is evidence-based from an agent or CLI backend, best-effort from the standard completion path, or unavailable. The `Call Stack` section renders as a nested tree of concrete frames, and `State Transition` shows the variable changes observed at each frame.
 
@@ -1084,7 +1089,7 @@ Session continuity enables context awareness across workflow stages. It operates
 - **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, AI-generated summaries, and saved workflow defaults such as `ticketKey`, `from`, `to`, `action`, and source metadata. Persisted to `~/.wf/state/sessions/<ticketKey>-<sessionId>.json`.
 - **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
 
-For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then sends a final summary-only epilogue to the same provider session. This keeps wf's downstream behavior JSON-driven while ensuring a later manual provider resume such as `claude --resume <provider-session-id>` or `codex exec resume <provider-session-id>` replays a short human-readable summary instead of the raw review JSON.
+For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then forks a final summary-only epilogue session from the provider session. This keeps wf's downstream behavior JSON-driven while ensuring the original review session stays intact and a later manual provider resume of the epilogue session replays a short human-readable summary instead of the raw review JSON.
 
 Structured plan and review payloads also explicitly request minified single-line JSON in their prompt epilogues so CLI-backed retries and downstream consumers see the same compact shape consistently.
 

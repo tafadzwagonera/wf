@@ -48,16 +48,52 @@ export class ReviewPresenter {
    * @returns Supporting note lines for the trace section
    */
   formatTraceSectionNotes(review: CodeReview, colorized: boolean, sectionLabel: SectionLabel): readonly string[] {
+    return this.buildTraceSectionNotes(review, colorized, sectionLabel);
+  }
+
+  private buildTraceSectionNotes(
+    review: CodeReview,
+    colorized: boolean,
+    sectionLabel: SectionLabel
+  ): readonly string[] {
+    return this.composeTraceSectionNotes(review, colorized, sectionLabel);
+  }
+
+  private composeTraceSectionNotes(
+    review: CodeReview,
+    colorized: boolean,
+    sectionLabel: SectionLabel
+  ): readonly string[] {
     const provenance = this.resolveTraceProvenance(review);
+    const baseNotes = this.buildTraceSectionBaseNotes(review, colorized);
+    return provenance === 'best-effort'
+      ? this.buildBestEffortTraceSectionNotes(baseNotes, sectionLabel, colorized)
+      : this.buildStandardTraceSectionNotes(baseNotes, provenance, sectionLabel, colorized);
+  }
+
+  private buildTraceSectionBaseNotes(review: CodeReview, colorized: boolean): string[] {
+    const repairNote = this.formatRepairStrategyNote(review, colorized);
     const provenanceNote = this.formatTraceProvenanceNote(review, colorized);
-    if (provenance === 'best-effort') {
-      return [provenanceNote, this.formatBestEffortNote(
-        BEST_EFFORT_TEXT[sectionLabel], HINDRANCE_TEXT[sectionLabel], colorized,
-      )];
-    }
-    const detail = TRACE_DETAIL_LINES[provenance](sectionLabel);
-    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
-    return [provenanceNote, colorized ? colorFn('  ' + detail) : '  ' + detail];
+    return repairNote ? [repairNote, provenanceNote] : [provenanceNote];
+  }
+
+  private buildBestEffortTraceSectionNotes(
+    baseNotes: string[],
+    sectionLabel: SectionLabel,
+    colorized: boolean
+  ): readonly string[] {
+    return [...baseNotes, this.formatBestEffortNote(
+      BEST_EFFORT_TEXT[sectionLabel], HINDRANCE_TEXT[sectionLabel], colorized,
+    )];
+  }
+
+  private buildStandardTraceSectionNotes(
+    baseNotes: string[],
+    provenance: TraceProvenance,
+    sectionLabel: SectionLabel,
+    colorized: boolean
+  ): readonly string[] {
+    return [...baseNotes, this.formatTraceDetailNote(provenance, sectionLabel, colorized)];
   }
 
   private displayIssueRows(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): void {
@@ -203,6 +239,20 @@ export class ReviewPresenter {
 
     const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
     return rendered.map(l => colorFn(l)).join('\n');
+  }
+
+  private formatTraceDetailNote(
+    provenance: TraceProvenance, sectionLabel: SectionLabel, colorized: boolean
+  ): string {
+    const detail = TRACE_DETAIL_LINES[provenance](sectionLabel);
+    const colorFn = PROVENANCE_COLORS[provenance] ?? chalk.gray;
+    return colorized ? colorFn('  ' + detail) : '  ' + detail;
+  }
+
+  private formatRepairStrategyNote(review: CodeReview, colorized: boolean): string | undefined {
+    if (!review.repairStrategy) return undefined;
+    const line = '  Repair strategy: ' + review.repairStrategy;
+    return colorized ? chalk.yellow(line) : line;
   }
 
   private formatBestEffortNote(bestEffortText: string, hindranceText: string, colorized: boolean): string {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const apiCallPreviewSchema = z.object({
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'CLI']),
   endpoint: z.string(),
   platform: z.string(),
   description: z.string(),

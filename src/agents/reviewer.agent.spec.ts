@@ -475,11 +475,13 @@ describe('ReviewerAgent', () => {
   it.each([
     ['ConfigurationError', new ConfigurationError('SonarQube CLI not found.')],
     ['ExecutionError', new ExecutionError('SonarQube analyze exited with code 2.')],
-  ])('contains a %s from runSonarScan to this repo\'s review instead of throwing', async (_name, sonarError) => {
+  ])('continues the review when runSonarScan raises a %s', async (_name, sonarError) => {
     type SonarFn = typeof sonarScanner.runSonarScan;
     const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
     mockRunSonar.mockRejectedValue(sonarError);
-    const mockReviewDiff = jest.fn();
+    const mockReviewDiff = jest.fn().mockResolvedValue({
+      review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+    });
     const presenter = createMockPresenter();
 
     const module = await Test.createTestingModule({
@@ -508,9 +510,62 @@ describe('ReviewerAgent', () => {
       { repoDir: '/tmp/repo' }
     );
 
-    expect(result).toBeNull();
-    expect(mockReviewDiff).not.toHaveBeenCalled();
-    expect(presenter.outcome).toHaveBeenCalledWith('warning', expect.stringContaining('SonarQube CLI error'));
+    expect(result).not.toBeNull();
+    expect(mockReviewDiff).toHaveBeenCalled();
+    expect(presenter.outcome).toHaveBeenCalledWith('warning', expect.stringContaining('continuing review'));
+  });
+
+  it('threads Sonar findings text into reviewDiff context when findings are returned', async () => {
+    type SonarFn = typeof sonarScanner.runSonarScan;
+    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
+    mockRunSonar.mockResolvedValue({
+      status: 'findings',
+      findingsText: 'SonarQube analyze findings:\nRule hit',
+      steps: [{ step: 'analyze', status: 'findings', exitCode: 51, output: 'Rule hit' }],
+    });
+    const mockReviewDiff = jest.fn().mockResolvedValue({
+      review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+    });
+
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewerAgent,
+        { provide: CliPresenter, useValue: createMockPresenter() },
+        {
+          provide: GitService,
+          useValue: {
+            getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+            stageAll: jest.fn().mockResolvedValue(undefined),
+            getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+          },
+        },
+        {
+          provide: ReviewStageService,
+          useValue: {
+            reviewDiff: mockReviewDiff,
+            buildReviewArtifact: jest.fn().mockReturnValue({
+              review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+              approved: true,
+            }),
+          },
+        },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+      ],
+    }).compile();
+
+    const agent = module.get(ReviewerAgent);
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo' }
+    );
+
+    expect(mockReviewDiff).toHaveBeenCalledWith(
+      'diff --git a/file b/file',
+      expect.objectContaining({
+        additionalContextSections: ['SonarQube analyze findings:\nRule hit'],
+      })
+    );
   });
 
   it('does not contain non-sonar errors raised while running the SonarQube CLI scan', async () => {

@@ -16,10 +16,12 @@ export type SonarStepOutcome = {
   step: 'secrets' | 'analyze';
   status: 'clean' | 'findings' | 'skipped';
   exitCode: number | null;
+  output?: string;
 };
 
 export type SonarScanResult = {
   status: 'clean' | 'findings';
+  findingsText?: string;
   steps: SonarStepOutcome[];
 };
 
@@ -106,18 +108,49 @@ const classifyExitCode = (
 const handleSonarStepCallback = (
   step: 'secrets' | 'analyze',
   err: Error | null,
+  stdout: string,
   stderr: string,
   timeoutMs: number,
   onProgress?: StageProgressCallback
 ): SonarStepOutcome => {
-  if (isTimeoutError(err as ExecFileError | null)) {
-    throw new ExecutionError(`SonarQube ${step} timed out after ${timeoutMs}ms`);
-  }
+  assertNotTimedOut(step, err as ExecFileError | null, timeoutMs);
   const code = (err as ExecFileError | null)?.code ?? 0;
-  const status = classifyExitCode(step, code, stderr);
-  if (status === 'findings') onProgress?.(`SonarQube ${step}: findings detected`);
-  return { step, status, exitCode: code };
+  const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+  return buildSonarStepOutcome(step, code, output, onProgress);
 };
+
+const assertNotTimedOut = (
+  step: 'secrets' | 'analyze',
+  err: ExecFileError | null,
+  timeoutMs: number
+): void => {
+  if (!isTimeoutError(err)) return;
+  throw new ExecutionError(`SonarQube ${step} timed out after ${timeoutMs}ms`);
+};
+
+const buildSonarStepOutcome = (
+  step: 'secrets' | 'analyze',
+  code: number,
+  output: string,
+  onProgress?: StageProgressCallback
+): SonarStepOutcome => {
+  const status = classifyExitCode(step, code, output);
+  if (status === 'findings') onProgress?.(`SonarQube ${step}: findings detected`);
+  return { step, status, exitCode: code, output: output || undefined };
+};
+
+const executeSonarStep = (
+  args: string[],
+  repoDir: string,
+  timeoutMs: number,
+): Promise<{ err: Error | null; stdout: string; stderr: string }> => new Promise(resolve => {
+  execFile(
+    'sonar',
+    args,
+    { cwd: repoDir, timeout: timeoutMs, maxBuffer: SONAR_MAX_BUFFER },
+    (err, stdout, stderr) => resolve({ err, stdout: stdout || '', stderr: stderr || '' })
+  );
+});
 
 const runSonarStep = async (
   step: 'secrets' | 'analyze',
@@ -125,15 +158,17 @@ const runSonarStep = async (
   repoDir: string,
   timeoutMs: number,
   onProgress?: StageProgressCallback
-): Promise<SonarStepOutcome> => new Promise((resolve, reject) => {
-  execFile('sonar', args, { cwd: repoDir, timeout: timeoutMs, maxBuffer: SONAR_MAX_BUFFER }, (err, _stdout, stderr) => {
-    try {
-      resolve(handleSonarStepCallback(step, err, stderr || '', timeoutMs, onProgress));
-    } catch (e) {
-      reject(e instanceof Error ? e : new Error(String(e)));
-    }
-  });
-});
+): Promise<SonarStepOutcome> => {
+  const { err, stdout, stderr } = await executeSonarStep(args, repoDir, timeoutMs);
+  return handleSonarStepCallback(step, err, stdout, stderr, timeoutMs, onProgress);
+};
+
+const buildFindingsText = (steps: SonarStepOutcome[]): string | undefined => {
+  const findings = steps
+    .filter(step => step.status === 'findings' && step.output)
+    .map(step => `SonarQube ${step.step} findings:\n${step.output}`);
+  return findings.length > 0 ? findings.join('\n\n') : undefined;
+};
 
 const runSecretsStep = async (
   repoDir: string,
@@ -175,15 +210,42 @@ const runAnalyzeStep = async (
 export async function runSonarScan(options: SonarScanOptions): Promise<SonarScanResult> {
   ensureSonarCliAvailable();
   const timeoutMs = options.timeoutMs ?? SONAR_TIMEOUT_MS;
+  const { steps, status } = await collectScanSteps(options, timeoutMs);
+  return finalizeSonarScan(options, steps, status);
+}
+
+const collectScanSteps = async (
+  options: SonarScanOptions,
+  timeoutMs: number
+): Promise<{ steps: SonarStepOutcome[]; status: 'clean' | 'findings' }> => {
   const secretsResult = await runSecretsStep(options.repoDir, options.secretPaths, timeoutMs, options.onProgress);
-  const analyzeResult = await runAnalyzeStep(
-    options.repoDir, options.scope, options.depth, timeoutMs, secretsResult.hasFindings, options.onProgress
-  );
+  const analyzeResult = await runAnalyzeAfterSecrets(options, timeoutMs, secretsResult.hasFindings);
   const steps = [...secretsResult.steps, ...analyzeResult.steps];
-  const status = analyzeResult.hasFindings ? 'findings' : 'clean';
+  return { steps, status: analyzeResult.hasFindings ? 'findings' : 'clean' };
+};
+
+const runAnalyzeAfterSecrets = (
+  options: SonarScanOptions,
+  timeoutMs: number,
+  secretsHasFindings: boolean
+): Promise<{ steps: SonarStepOutcome[]; hasFindings: boolean }> => runAnalyzeStep(
+  options.repoDir,
+  options.scope,
+  options.depth,
+  timeoutMs,
+  secretsHasFindings,
+  options.onProgress
+);
+
+const finalizeSonarScan = (
+  options: SonarScanOptions,
+  steps: SonarStepOutcome[],
+  status: 'clean' | 'findings'
+): SonarScanResult => {
+  const findingsText = buildFindingsText(steps);
   logScanOutcome(status, options.repoDir, options.scope, steps);
   if (status === 'clean') {
     options.onProgress?.(`SonarQube scan: clean — no issues found (scope=${options.scope.kind})`);
   }
-  return { status, steps };
-}
+  return { status, steps, findingsText };
+};

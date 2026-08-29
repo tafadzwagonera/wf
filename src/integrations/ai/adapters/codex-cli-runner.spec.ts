@@ -72,6 +72,19 @@ describe('codex-cli-runner', () => {
       expect(args.indexOf('--json')).toBeLessThan(args.indexOf('resume'));
     });
 
+    it('includes --fork-session for resumed sessions when requested', () => {
+      const args = buildCodexCliArgs({
+        prompt: 'test',
+        model: 'gpt-5.4-mini',
+        cwd: '/repo',
+        sessionId: 'sess-123',
+        forkSession: true,
+      });
+
+      expect(args).toContain('--fork-session');
+      expect(args.indexOf('--fork-session')).toBeGreaterThan(args.indexOf('sess-123'));
+    });
+
     it('includes model when specified', () => {
       const args = buildCodexCliArgs({
         prompt: 'test',

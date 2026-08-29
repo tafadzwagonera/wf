@@ -1,4 +1,4 @@
-import { codeIssueSchema } from './review.schema';
+import { codeIssueSchema, codeReviewSchema } from './review.schema';
 
 describe('codeIssueSchema', () => {
   afterEach(() => {
@@ -86,6 +86,20 @@ describe('codeIssueSchema', () => {
       expect(() =>
         codeIssueSchema.parse({ severity: 'error', message: 'x', line: 'not-a-number' })
       ).toThrow();
+    });
+  });
+
+  describe('review repair metadata', () => {
+    it('accepts repairStrategy "validation" on a review payload', () => {
+      const result = codeReviewSchema.safeParse({
+        summary: 'ok',
+        issues: [],
+        suggestions: [],
+        approved: true,
+        repairStrategy: 'validation',
+      });
+
+      expect(result.success).toBe(true);
     });
   });
 });

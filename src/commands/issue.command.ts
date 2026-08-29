@@ -1551,13 +1551,36 @@ export class IssueCommand extends CommandRunner {
     const reviewContext = this.createReviewRepoContext(
       ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey
     );
-    let reviewArtifact: ReviewArtifact | null = null;
+    const reviewArtifacts = await this.collectReviewArtifacts(repos, reviewContext);
+    return reviewArtifacts.at(-1) ?? null;
+  }
 
+  private async collectReviewArtifacts(
+    repos: (string | undefined)[],
+    reviewContext: ReviewRepoContext
+  ): Promise<ReviewArtifact[]> {
+    const reviewArtifacts: ReviewArtifact[] = [];
     for (const repo of repos) {
-      reviewArtifact = await this.runReviewForRepo(repo, reviewContext);
+      try {
+        const reviewArtifact = await this.runReviewForRepo(repo, reviewContext);
+        if (reviewArtifact) reviewArtifacts.push(reviewArtifact);
+      } catch (error) {
+        this.handleReviewLoopError(error, repo, repos, reviewContext.options);
+      }
     }
+    return reviewArtifacts;
+  }
 
-    return reviewArtifact;
+  private handleReviewLoopError(
+    error: unknown,
+    repo: string | undefined,
+    repos: (string | undefined)[],
+    options: IssueOptions
+  ): void {
+    if (repos.length <= 1) throw error;
+    const repoLabel = repo ?? path.basename(process.cwd());
+    const message = `Review failed for ${repoLabel}: ${error instanceof Error ? error.message : String(error)}`;
+    if (!options?.silent) console.log(chalk.yellow(`⚠ ${message}`));
   }
 
   private async runReviewForRepo(

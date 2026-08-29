@@ -2318,6 +2318,13 @@ describe('IssueCommand', () => {
             path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
           }),
         },
+        planner: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            action: 'fix',
+            path: planPath,
+            plan: JSON.parse(planJson),
+          }),
+        },
         implementer: {
           execute: jest.fn().mockResolvedValue({
             type: 'implementation', hasChanges: true, branchName: null,
@@ -2396,6 +2403,49 @@ describe('IssueCommand', () => {
       expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
         expect.any(Object), 'review', 'review-sess-abc',
       );
+    });
+
+    it('continues multi-repo review after one repo fails and keeps the last successful artifact', async () => {
+      const mockReviewerExecute = jest.fn()
+        .mockRejectedValueOnce(new Error('repo 1 failed'))
+        .mockResolvedValueOnce({
+          review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+          path: '/tmp/review-2.md',
+          approved: true,
+          sessionId: 'review-sess-2',
+        });
+      const mockPersistArtifact = jest.fn();
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest',
+            path: path.join('/tmp/consumer-app', 'jira', 'WBP-SKIP.md'),
+          }),
+        },
+        implementer: {
+          execute: jest.fn().mockResolvedValue({
+            type: 'implementation', hasChanges: true, branchName: null,
+            sessionId: undefined, verificationOutcomes: [],
+          }),
+        },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: mockPersistArtifact },
+      };
+
+      const command = await buildTestCommand(mockOrchestrator);
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const result = await (command as any).runReviewLoop(
+        { ticketKey: 'WBP-SKIP', content: '# WBP-SKIP\n\nTest', path: '/tmp/consumer-app/jira/WBP-SKIP.md' },
+        { plan: { estimatedComplexity: 'high' } },
+        ['repo-1', 'repo-2'],
+        {},
+        { resumeProviderSessionId: 'review-sess-1', forkSession: true },
+        'WBP-SKIP'
+      );
+
+      expect(result).toEqual(expect.objectContaining({ path: '/tmp/review-2.md', sessionId: 'review-sess-2' }));
+      expect(mockReviewerExecute).toHaveBeenCalledTimes(2);
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review failed for repo-1'));
+      expect(mockPersistArtifact).toHaveBeenCalledWith(expect.objectContaining({ path: '/tmp/review-2.md' }), 'WBP-SKIP');
     });
   });
 

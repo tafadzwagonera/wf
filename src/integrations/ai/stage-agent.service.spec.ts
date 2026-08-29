@@ -1653,8 +1653,64 @@ describe('StageAgentService', () => {
           permissionMode: 'plan',
           tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'],
           jsonSchema: undefined,
+          forkSession: true,
         })
       );
+    });
+
+    it('forks the resumed Codex session for the review epilogue', async () => {
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-session-42' },
+            { type: 'item.completed', item: { type: 'agent_message', text: validReviewJson } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream({
+            type: 'item.completed',
+            item: { type: 'agent_message', text: 'Approved. No major issues found.' },
+          })
+        );
+
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(buildCodexCliArgs).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          sessionId: 'review-session-42',
+          forkSession: true,
+        })
+      );
+    });
+
+    it('reports epilogue failure instead of false success when the CLI yields an error message', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'error',
+            is_error: true,
+            result: 'timed out',
+          })
+        );
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(expect.stringContaining('Review epilogue sent'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review epilogue failed'));
     });
 
     it('returns review even when Codex epilogue fails', async () => {

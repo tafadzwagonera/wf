@@ -83,6 +83,7 @@ export const codeReviewSchema = z.object({
   summary: z.string(),
   issues: z.array(codeIssueSchema),
   executionMode: z.enum(['standard', 'agent', 'cli']).optional(),
+  repairStrategy: z.enum(['validation']).optional(),
   traceProvenance: z.enum(['evidence-based', 'best-effort', 'unavailable']).optional(),
   callStack: z.array(reviewTraceCallStackNodeSchema).optional(),
   stateTransition: reviewTraceStateTransitionSchema.optional(),

@@ -238,6 +238,27 @@ describe('ReviewStageService', () => {
     }
   );
 
+  it('keeps ticket and Sonar context when replaceCriteria is enabled', async () => {
+    const { service, aiService } = await buildService();
+
+    await service.reviewDiff('diff --git a/file b/file', {
+      context: 'ticket WBP-200: Smoke test',
+      additionalContextSections: ['SonarQube analyze findings:\nRule hit'],
+      extraCriteria: ['Only check this'],
+      replaceCriteria: true,
+    });
+
+    expect(aiService.reviewCode).toHaveBeenCalledWith(
+      'diff --git a/file b/file',
+      expect.arrayContaining([
+        expect.stringContaining('ticket WBP-200: Smoke test'),
+        expect.stringContaining('SonarQube analyze findings'),
+        'Only check this',
+      ]),
+      undefined
+    );
+  });
+
   it('writes a markdown review artifact for workflow review stage consumers', async () => {
     const { service } = await buildService();
     const tempDir = createManagedTempDir('review');
@@ -491,6 +512,41 @@ describe('ReviewStageService', () => {
     expect(onProgress).toHaveBeenCalledWith(expect.stringMatching(/Summarising changes in/));
   });
 
+  it('logs and reports a failed diff summarisation attempt before continuing with the raw patch', async () => {
+    const { service, aiService } = await buildService({ agentEnabled: false });
+    const onProgress = jest.fn();
+    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    (aiService.execute as jest.Mock).mockRejectedValueOnce(new Error('summary offline'));
+    const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+
+    await service.reviewDiff(diff, { context: 'test context', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('Review diff summarisation failed for file'));
+    expect(appendSpy).toHaveBeenCalledWith(
+      'WARN',
+      expect.stringContaining('Review diff summarisation failed for file (original='),
+      'review-stage'
+    );
+    expect(aiService.reviewCode).toHaveBeenCalledWith(expect.stringContaining('diff --git a/file b/file'), expect.any(Array), onProgress);
+  });
+
+  it('reports when the diff remains oversized after summarisation', async () => {
+    const { service, aiService } = await buildService({ agentEnabled: false });
+    const onProgress = jest.fn();
+    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    (aiService.execute as jest.Mock).mockResolvedValue({ content: '- ' + 'y'.repeat(90000) });
+    const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+
+    await service.reviewDiff(diff, { context: 'test context', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('Review diff remains oversized after summarisation'));
+    expect(appendSpy).toHaveBeenCalledWith(
+      'WARN',
+      expect.stringContaining('Review diff remains oversized after summarisation'),
+      'review-stage'
+    );
+  });
+
   it('should forward onProgress to stageAgentService.reviewCode when agent backend is enabled', async () => {
     const { service, stageAgentService } = await buildService({ agentEnabled: true });
     const onProgress = jest.fn();
@@ -532,6 +588,7 @@ describe('ReviewStageService', () => {
       const recoveredReview = {
         ...mockReview,
         executionMode: 'standard' as const,
+        repairStrategy: 'validation' as const,
       };
       const { service, stageAgentService, aiService } = await buildService({
         agentEnabled: true,
@@ -555,7 +612,8 @@ describe('ReviewStageService', () => {
         repoDir: '/tmp/repo',
       });
 
-      expect(review.executionMode).toBe('agent');
+      expect(review.executionMode).toBe('standard');
+      expect(review.repairStrategy).toBe('validation');
       expect(svc.validateReviewJson).toHaveBeenCalledWith(
         expect.any(String),
         'diff --git a/file b/file'

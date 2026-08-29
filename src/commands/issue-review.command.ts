@@ -41,7 +41,7 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
-import { runSonarScan } from '../review/sonar-scanner';
+import { runSonarScan, type SonarScanResult } from '../review/sonar-scanner';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
@@ -63,6 +63,8 @@ interface IssueReviewOptions {
   estimatedComplexity?: string;
   passCount?: number;
   resumeSessionId?: string;
+  priorStageSummary?: string;
+  forkSession?: boolean;
 }
 
 interface ReviewTarget {
@@ -133,8 +135,8 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
-    + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration skips review for that target with a warning, leaving other targets in the same run unaffected. '
-    + 'CLI-backed review sessions also send a final human-readable summary so manual provider resume replays readable text instead of raw JSON.',
+    + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session is treated as a remotely-implemented change and runs an unscoped `sonar analyze` instead, as does any run where no base branch can be resolved. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
+    + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -173,14 +175,15 @@ export class IssueReviewCommand extends CommandRunner {
   private async executeReviewWorkflow(
     source: string | undefined, repoInputs: string[], options?: IssueReviewOptions
   ): Promise<void> {
-    const criteriaPath = options?.replaceCriteria ?? options?.criteria;
+    const runtimeOptions = await this.enrichReviewOptions(options);
+    const criteriaPath = runtimeOptions?.replaceCriteria ?? runtimeOptions?.criteria;
     const extraCriteria: string[] | null = criteriaPath ? loadCriteriaFromFile(criteriaPath) : null;
 
-    if (options?.dryRun) {
-      return this.previewReviewDryRun(source, repoInputs, options);
+    if (runtimeOptions?.dryRun) {
+      return this.previewReviewDryRun(source, repoInputs, runtimeOptions);
     }
 
-    await this.runLiveReview(source, repoInputs, extraCriteria, options);
+    await this.runLiveReview(source, repoInputs, extraCriteria, runtimeOptions);
   }
 
   private previewReviewDryRun(
@@ -191,7 +194,7 @@ export class IssueReviewCommand extends CommandRunner {
 
     const ctx = this.resolveReviewDryRunContext(source, repoInputs, options);
     this.previewReviewSourceApis(source, repoDirs, ctx, options);
-    if (ctx.shouldPreview) this.previewAiReviewCall();
+    if (ctx.shouldPreview) this.previewAiReviewCall(options);
     if (ctx.willPostComment && ctx.shouldPreview) this.previewCommentPost();
     const fileCount = this.previewReviewOutputFiles(ctx, repoInputs, options);
     this.showReviewDryRunSummary(source, ctx, fileCount, options);
@@ -265,12 +268,52 @@ export class IssueReviewCommand extends CommandRunner {
     return true;
   }
 
-  private previewAiReviewCall(): void {
+  private previewAiReviewCall(options?: IssueReviewOptions): void {
+    const backend = this.configService.get<string>('stages.review.backend', 'standard');
+    if (backend === 'cli') return this.previewCliReviewCall(options);
+    this.previewStandardReviewCall();
+  }
+
+  private previewCliReviewCall(options?: IssueReviewOptions): void {
+    const provider = this.configService.get<string>(
+      'stages.review.provider',
+      this.configService.get<string>('ai.provider', 'anthropic')
+    );
+    const isOpenAi = provider === 'openai';
+    const sessionId = options?.sessionId;
     this.dryRunPreview.previewApiCall({
-      method: 'POST', endpoint: this.aiService.getProviderEndpoint('review'), platform: this.aiService.getProviderDisplayName('review'),
+      method: 'CLI',
+      endpoint: this.buildCliReviewEndpoint(isOpenAi, sessionId),
+      platform: isOpenAi ? 'Codex CLI' : 'Claude CLI',
+      description: 'Perform CLI-backed code review',
+      estimatedResponse: '{\n  "summary": "<review summary>",\n  "approved": true,\n  "issues": [],\n  "suggestions": ["..."]\n}',
+      payloadPreviewLines: this.buildCliReviewPayloadPreview(sessionId),
+    });
+  }
+
+  private buildCliReviewEndpoint(isOpenAi: boolean, sessionId: string | undefined): string {
+    if (sessionId) {
+      return isOpenAi
+        ? 'codex exec/resume --json --fork-session'
+        : 'claude -p --resume <session> --fork-session';
+    }
+    return isOpenAi ? 'codex exec --json' : 'claude -p';
+  }
+
+  private previewStandardReviewCall(): void {
+    this.dryRunPreview.previewApiCall({
+      method: 'POST',
+      endpoint: this.aiService.getProviderEndpoint('review'),
+      platform: this.aiService.getProviderDisplayName('review'),
       description: 'Perform AI-powered code review',
       estimatedResponse: '{\n  "summary": "<review summary>",\n  "approved": true,\n  "issues": [],\n  "suggestions": ["..."]\n}',
     });
+  }
+
+  private buildCliReviewPayloadPreview(sessionId: string | undefined): string[] {
+    return sessionId
+      ? [`Resume session: ${sessionId}`, 'Fork session before review turn']
+      : ['Start a fresh CLI review session'];
   }
 
   private previewCommentPost(): void {
@@ -349,10 +392,18 @@ export class IssueReviewCommand extends CommandRunner {
     if (!options?.silent) console.log(chalk.cyan('🤖 Analyzing changes with AI...\n'));
 
     const reviewed = await this.executeReviews(reviewable, extraCriteria, options);
+    this.ensureReviewBatchSucceeded(reviewable, reviewed);
     this.cacheReviewArtifact(result.reviewPath, reviewed, options);
     await this.offerInteractiveChat(reviewed, options);
     if (!options?.silent) console.log(chalk.green('✔ Code review complete\n'));
     this.saveReviewOutput(reviewed, repoInputs, options);
+  }
+
+  private async enrichReviewOptions(options?: IssueReviewOptions): Promise<IssueReviewOptions | undefined> {
+    if (!options?.sessionId) return options;
+    const session = await this.sessionService.findByProviderSessionId(options.sessionId, 'plan');
+    const priorStageSummary = options.priorStageSummary ?? session?.stages?.['plan']?.summary ?? undefined;
+    return { ...options, priorStageSummary, forkSession: true };
   }
 
   private async buildReviewTargets(
@@ -580,31 +631,51 @@ export class IssueReviewCommand extends CommandRunner {
     target: ReviewTarget, extraCriteria: string[] | null, options?: IssueReviewOptions
   ): Promise<CodeReview | null> {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
-    if (await this.sonarStageAborted(target, options, onProgress)) return null;
+    const sonarResult = await this.resolveSonarResultForTarget(target, options, onProgress);
     const context = await buildPreReviewContext(target, {
       ticketKey: options?.ticketKey,
       silent: options?.silent,
       skipVerification: options?.skipVerification,
     });
-    const { review } = await this.reviewStageService.reviewDiff(target.diff, {
-      context, extraCriteria: extraCriteria ?? undefined,
-      replaceCriteria: Boolean(options?.replaceCriteria),
-      repoDir: target.repoDir, resumeProviderSessionId: options?.sessionId, onProgress });
+    const { review } = await this.reviewStageService.reviewDiff(
+      target.diff,
+      this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, sonarResult)
+    );
     return review;
+  }
+
+  private buildReviewDiffOptions(
+    target: ReviewTarget,
+    context: string,
+    extraCriteria: string[] | null,
+    options: IssueReviewOptions | undefined,
+    onProgress: ((line: string) => void) | undefined,
+    sonarResult: SonarScanResult | undefined
+  ): Parameters<ReviewStageService['reviewDiff']>[1] {
+    return {
+      context,
+      extraCriteria: extraCriteria ?? undefined,
+      replaceCriteria: Boolean(options?.replaceCriteria),
+      additionalContextSections: this.buildAdditionalContextSections(sonarResult),
+      repoDir: target.repoDir,
+      resumeProviderSessionId: options?.sessionId,
+      priorStageSummary: options?.priorStageSummary,
+      forkSession: options?.forkSession,
+      onProgress,
+    };
   }
 
   private async resolveSonarOutputForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<void> {
+  ): Promise<SonarScanResult | undefined> {
     const configEnabled = this.configService.get<boolean>('stages.review.sonar') === true;
-    if (!options?.sonar && !configEnabled) return;
+    if (!options?.sonar && !configEnabled) return undefined;
     const repoDir = target.repoDir ?? process.cwd();
     const { staged } = await this.gitService.getStatus(repoDir);
     if (staged.length) {
-      await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
-      return;
+      return runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
     }
-    await this.runSonarAgainstMergeBase(repoDir, options, onProgress);
+    return this.runSonarAgainstMergeBase(repoDir, options, onProgress);
   }
 
   /**
@@ -725,7 +796,7 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private async runSonarAgainstMergeBase(
     repoDir: string, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<void> {
+  ): Promise<SonarScanResult> {
     if (options?.ticketKey && !options?.sessionId) {
       return this.runSonarForTicketKeyOnly(repoDir, options.ticketKey, onProgress);
     }
@@ -740,7 +811,7 @@ export class IssueReviewCommand extends CommandRunner {
       return this.runBareAnalyze(repoDir, onProgress);
     }
     const changedFiles = await this.gitService.getChangedFilesSince(mergeBase, repoDir);
-    await runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
+    return runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
   }
 
   /** Recorded source branch when one resolves, else the development-branch/upstream heuristic. */
@@ -762,7 +833,7 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private async runSonarForTicketKeyOnly(
     repoDir: string, ticketKey: string, onProgress?: (line: string) => void
-  ): Promise<void> {
+  ): Promise<SonarScanResult> {
     const session = await this.sessionService.findByTicketKey(ticketKey);
     if (!session?.sourceBranch) {
       return this.runBareAnalyze(repoDir, onProgress);
@@ -773,34 +844,33 @@ export class IssueReviewCommand extends CommandRunner {
       return this.runBareAnalyze(repoDir, onProgress);
     }
     const changedFiles = await this.gitService.getChangedFilesSince(mergeBase, repoDir);
-    await runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
+    return runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
   }
 
   /** Runs a bare `sonar analyze` with no scope-narrowing flag — the terminal fallback when
    * there's no local artifact to compute a merge-base diff scope from. */
-  private async runBareAnalyze(repoDir: string, onProgress?: (line: string) => void): Promise<void> {
-    await runSonarScan({ repoDir, scope: { kind: 'branch' }, secretPaths: [], onProgress });
+  private async runBareAnalyze(repoDir: string, onProgress?: (line: string) => void): Promise<SonarScanResult> {
+    return runSonarScan({ repoDir, scope: { kind: 'branch' }, secretPaths: [], onProgress });
   }
 
   /**
    * Runs the SonarQube CLI scan for one review target, containing failures to this
    * target's review rather than letting them escape into the AI review that follows.
-   * @returns true when the scan failed (CLI missing/misconfigured or execution error)
-   * and this target's review should be skipped
+   * @returns Sonar scan results when the CLI run succeeds, or undefined when a handled
+   * CLI failure should continue the review without Sonar findings
    */
-  private async sonarStageAborted(
+  private async resolveSonarResultForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<boolean> {
+  ): Promise<SonarScanResult | undefined> {
     try {
-      await this.resolveSonarOutputForTarget(target, options, onProgress);
-      return false;
+      return await this.resolveSonarOutputForTarget(target, options, onProgress);
     } catch (error) {
       if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
-      this.logger.warn(`Review target skipped — SonarQube CLI error for ${target.title}: ${error.message}`);
+      this.logger.warn(`Review target continuing without SonarQube findings for ${target.title}: ${error.message}`);
       if (!options?.silent) {
-        console.log(chalk.yellow(`\n⚠ SonarQube CLI error — skipping review for ${target.title}: ${error.message}\n`));
+        console.log(chalk.yellow(`\n⚠ SonarQube CLI error — continuing review for ${target.title} without Sonar findings: ${error.message}\n`));
       }
-      return true;
+      return undefined;
     }
   }
 
@@ -810,6 +880,17 @@ export class IssueReviewCommand extends CommandRunner {
     if (options?.silent) return;
     console.log(chalk.yellow('\n⚠ Review JSON could not be fully validated. Dumping raw payload for manual inspection.\n'));
     console.log(error.details?.response ?? '');
+  }
+
+  private buildAdditionalContextSections(sonarResult?: SonarScanResult): string[] | undefined {
+    if (!sonarResult?.findingsText) return undefined;
+    return [sonarResult.findingsText];
+  }
+
+  private ensureReviewBatchSucceeded(targets: ReviewTarget[], reviewed: ReviewedTarget[]): void {
+    if (targets.length > 0 && reviewed.length === 0) {
+      throw new ExecutionError('Review failed for every target; no review artifact was produced.');
+    }
   }
 
   private cacheReviewArtifact(

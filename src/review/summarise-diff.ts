@@ -8,6 +8,16 @@ import type { DiffSegment } from '../shared/types/review.types';
 export type { DiffSegment } from '../shared/types/review.types';
 
 export const MAX_REVIEW_DIFF_LENGTH = 80_000;
+export type SummariseDiffFailure = {
+  error: unknown;
+  file: string;
+  originalLength: number;
+  resultLength: number;
+};
+
+interface SummariseDiffOptions {
+  onError?: (failure: SummariseDiffFailure) => void;
+}
 
 /**
  * Split a unified diff on `diff --git` boundaries into per-file segments.
@@ -33,15 +43,26 @@ export const splitDiffByFile = (diff: string): DiffSegment[] => {
 
 const summariseSegment = async (
   segment: DiffSegment & { index: number },
-  summariseFn: (patch: string, file: string) => Promise<string>
+  summariseFn: (patch: string, file: string) => Promise<string>,
+  options?: SummariseDiffOptions
 ): Promise<string> => {
   try {
-    const summary = await summariseFn(segment.patch, segment.file);
-    return `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
-  } catch {
+    return buildSummarisedPatch(segment, await summariseFn(segment.patch, segment.file));
+  } catch (error) {
+    options?.onError?.(buildSummariseFailure(segment, error));
     return segment.patch;
   }
 };
+
+const buildSummarisedPatch = (segment: DiffSegment, summary: string): string =>
+  `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
+
+const buildSummariseFailure = (segment: DiffSegment, error: unknown): SummariseDiffFailure => ({
+  file: segment.file,
+  error,
+  originalLength: segment.patch.length,
+  resultLength: segment.patch.length,
+});
 
 const indexedSegments = (segments: DiffSegment[]) =>
   [...segments.map((s, i) => ({ ...s, index: i }))].sort((a, b) => b.patch.length - a.patch.length);
@@ -49,26 +70,28 @@ const indexedSegments = (segments: DiffSegment[]) =>
 const processSegment = async (
   segment: DiffSegment & { index: number }, threshold: number,
   results: string[], currentLength: number,
-  summariseFn: (patch: string, file: string) => Promise<string>
+  summariseFn: (patch: string, file: string) => Promise<string>,
+  options?: SummariseDiffOptions
 ): Promise<number> => {
   if (currentLength <= threshold) {
     results[segment.index] = segment.patch;
     return currentLength;
   }
-  const processed = await summariseSegment(segment, summariseFn);
+  const processed = await summariseSegment(segment, summariseFn, options);
   results[segment.index] = processed;
   return currentLength - segment.patch.length + processed.length;
 };
 
 const summariseSegments = async (
   segments: DiffSegment[], threshold: number,
-  summariseFn: (patch: string, file: string) => Promise<string>
+  summariseFn: (patch: string, file: string) => Promise<string>,
+  options?: SummariseDiffOptions
 ): Promise<string[]> => {
   const sorted = indexedSegments(segments);
   const results: string[] = new Array(segments.length);
   let currentLength = segments.reduce((sum, s) => sum + s.patch.length, 0);
   for (const segment of sorted) {
-    currentLength = await processSegment(segment, threshold, results, currentLength, summariseFn);
+    currentLength = await processSegment(segment, threshold, results, currentLength, summariseFn, options);
   }
   return results;
 };
@@ -85,9 +108,10 @@ const summariseSegments = async (
 export const summariseDiff = async (
   segments: DiffSegment[],
   threshold: number,
-  summarise: (patch: string, file: string) => Promise<string>
+  summarise: (patch: string, file: string) => Promise<string>,
+  options?: SummariseDiffOptions
 ): Promise<string> => {
   const totalLength = segments.reduce((sum, s) => sum + s.patch.length, 0);
   if (totalLength <= threshold) return segments.map(s => s.patch).join('\n');
-  return (await summariseSegments(segments, threshold, summarise)).join('\n');
+  return (await summariseSegments(segments, threshold, summarise, options)).join('\n');
 };

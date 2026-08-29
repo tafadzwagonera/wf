@@ -132,6 +132,7 @@ type CliPassResult = {
   diagnostics: string[];
   hadContent: boolean;
   result: string;
+  schemaExpected?: boolean;
   sessionId: string | undefined;
   source: 'structured_output' | 'result' | 'assistant_text' | undefined;
   stopReason: string | undefined;
@@ -606,6 +607,7 @@ const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): voi
     `pass=${state.passNumber}`,
     `stalledPasses=${state.stalledPasses}`,
     `source=${passResult.source ?? 'none'}`,
+    `schemaExpected=${passResult.schemaExpected === true}`,
     `hadContent=${passResult.hadContent}`,
     `resultChars=${passResult.result?.length ?? 0}`,
     `session=${state.sessionId ?? 'none'}`,
@@ -1000,15 +1002,36 @@ export class StageAgentService {
     systemPrompt: string, priorStageSummary: string | undefined
   ): Promise<void> {
     if (backend !== 'cli' || !sessionId) return;
-    const label = this.resolveStageProvider('review') === 'openai' ? CODEX_STAGE_LABEL : CLI_STAGE_LABEL;
+    const label = this.resolveReviewEpilogueLabel();
     try {
-      await this.sendCliReviewEpilogue({
-        sessionId, repoDir: repoDir ?? process.cwd(), systemPrompt, priorStageSummary,
-      });
-      console.log(chalk.gray(`  [${label}] Review epilogue sent`));
+      const sent = await this.sendCliReviewEpilogue(
+        this.buildReviewEpilogueParams(sessionId, repoDir, systemPrompt, priorStageSummary)
+      );
+      this.logReviewEpilogueOutcome(label, sent);
     } catch {
-      console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
+      this.logReviewEpilogueOutcome(label, false);
     }
+  }
+
+  private resolveReviewEpilogueLabel(): string {
+    return this.resolveStageProvider('review') === 'openai' ? CODEX_STAGE_LABEL : CLI_STAGE_LABEL;
+  }
+
+  private buildReviewEpilogueParams(
+    sessionId: string,
+    repoDir: string | undefined,
+    systemPrompt: string,
+    priorStageSummary: string | undefined
+  ): { sessionId: string; repoDir: string; systemPrompt: string; priorStageSummary?: string } {
+    return { sessionId, repoDir: repoDir ?? process.cwd(), systemPrompt, priorStageSummary };
+  }
+
+  private logReviewEpilogueOutcome(label: string, sent: boolean): void {
+    if (sent) {
+      console.log(chalk.gray(`  [${label}] Review epilogue sent`));
+      return;
+    }
+    console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
   }
 
   async generateFromPrompt(prompt: string, onProgress?: StageProgressCallback): Promise<string> {
@@ -1327,15 +1350,48 @@ export class StageAgentService {
   private tryFinalizeCliPass(
     passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string, validate?: boolean
   ): CliPassOutcome {
+    passResult.schemaExpected = Boolean(validate);
+    logCliPassOutcome({ sessionId, passNumber, stalledPasses: 0, lastDiagnostics: [], schemaMisses: 0 }, passResult);
     if (!passResult.result || passResult.source === 'assistant_text') return { kind: 'no-result' };
     this.checkCliMaxTokens(passResult.stopReason, stage);
-    if (validate && passResult.source !== 'structured_output') {
-      const issues = resolveStageResponseIssues(stage, passResult.result);
-      if (issues) return { kind: 'schema-retry', content: passResult.result, issues };
+    const retryOutcome = this.resolveCliSchemaRetry(passResult, stage, passNumber, sessionId, validate);
+    if (retryOutcome) {
+      return retryOutcome;
     }
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
     return { kind: 'completed', content: passResult.result.trim(), sessionId };
+  }
+
+  private resolveCliSchemaRetry(
+    passResult: CliPassResult,
+    stage: AgentStageName,
+    passNumber: number,
+    sessionId: string | undefined,
+    validate: boolean | undefined
+  ): CliPassOutcome | null {
+    if (!validate || passResult.source === 'structured_output') return null;
+    this.logStructuredOutputMissing(passNumber, passResult.source, sessionId);
+    return this.buildCliSchemaRetryOutcome(stage, passResult.result);
+  }
+
+  private logStructuredOutputMissing(
+    passNumber: number,
+    source: CliPassResult['source'],
+    sessionId: string | undefined
+  ): void {
+    const message = `cli.structured_output_missing pass=${passNumber} `
+      + `source=${source ?? 'none'} session=${sessionId ?? 'none'}`;
+    appendToLogFile('WARN', message, CLI_STAGE_LABEL);
+  }
+
+  private buildCliSchemaRetryOutcome(
+    stage: AgentStageName,
+    result: string | undefined
+  ): CliPassOutcome | null {
+    const content = result ?? '';
+    const issues = resolveStageResponseIssues(stage, content);
+    return issues ? { kind: 'schema-retry', content, issues } : null;
   }
 
   private checkCliMaxTokens(stopReason: string | undefined, stage: AgentStageName): void {
@@ -1348,18 +1404,52 @@ export class StageAgentService {
   }
 
   private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
-    const isResume = (opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId);
+    const isResume = this.isCliResumePass(opts);
     const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
     const prompt = isResume && opts.passNumber > 1 ? retryPrompt : opts.prompt;
-    const args = buildCliArgs({
-      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
-      tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [],
-      permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined, jsonSchema: opts.jsonSchema,
+    const args = this.buildCliStagePassArgs(opts, prompt, isResume);
+    const result = await this.processCliStagePassMessages(opts, args, prompt);
+    result.schemaExpected = Boolean(opts.jsonSchema);
+    return result;
+  }
+
+  private isCliResumePass(opts: CliStagePassOpts & { passNumber: number }): boolean {
+    return Boolean((opts.passNumber > 1 && opts.sessionId) || (opts.passNumber === 1 && opts.resumeProviderSessionId));
+  }
+
+  private buildCliStagePassArgs(
+    opts: CliStagePassOpts & { passNumber: number }, prompt: string, isResume: boolean
+  ): ReturnType<typeof buildCliArgs> {
+    return buildCliArgs({
+      prompt,
+      appendSystemPrompt: opts.systemPrompt,
+      model: opts.model,
+      cwd: opts.resolvedRepoDir,
+      tools: this.resolveCliInspectionTools(opts.allowInspection),
+      permissionMode: 'plan',
+      sessionId: isResume ? opts.sessionId : undefined,
+      jsonSchema: opts.jsonSchema,
       forkSession: opts.passNumber === 1 ? opts.forkSession : undefined,
     });
-    const timeoutMs = this.resolveStageTimeoutMs(opts.stage);
-    const inactivityTimeoutMs = this.resolveStageInactivityTimeoutMs(opts.stage);
-    return processCliPassMessages(args, opts.resolvedRepoDir, prompt, timeoutMs, inactivityTimeoutMs, opts.onProgress);
+  }
+
+  private resolveCliInspectionTools(allowInspection: boolean): string[] {
+    return allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [];
+  }
+
+  private async processCliStagePassMessages(
+    opts: CliStagePassOpts & { passNumber: number },
+    args: ReturnType<typeof buildCliArgs>,
+    prompt: string
+  ): Promise<CliPassResult> {
+    return processCliPassMessages(
+      args,
+      opts.resolvedRepoDir,
+      prompt,
+      this.resolveStageTimeoutMs(opts.stage),
+      this.resolveStageInactivityTimeoutMs(opts.stage),
+      opts.onProgress
+    );
   }
 
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
@@ -1433,7 +1523,7 @@ export class StageAgentService {
     repoDir: string;
     systemPrompt: string;
     priorStageSummary?: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
     if (provider === 'openai') {
@@ -1444,27 +1534,61 @@ export class StageAgentService {
     );
   }
 
-  private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<void> {
-    const args = buildCodexCliArgs({ prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir });
-    const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    for await (const _ of stream) { /* drain */ }
+  private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<boolean> {
+    const args = buildCodexCliArgs({
+      prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir, forkSession: true,
+    });
+    const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
+    for await (const message of stream) {
+      if (message.is_error) return false;
+    }
+    return true;
   }
 
   private async sendClaudeEpilogue(
     sessionId: string, repoDir: string, model: string, systemPrompt: string, priorStageSummary?: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     const preamble = buildPriorStagePreamble(priorStageSummary);
-    const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
-    const allowInspection = Boolean(repoDir);
-    const args = buildCliArgs({
-      prompt: cliEpiloguePrompt, appendSystemPrompt: `${preambleWithNewline}${systemPrompt}`,
-      model, sessionId, cwd: repoDir, permissionMode: 'plan',
-      tools: allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], jsonSchema: undefined,
-    });
-    const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined, CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    for await (const _ of stream) { /* drain */ }
+    const appendSystemPrompt = this.buildClaudeEpilogueSystemPrompt(systemPrompt, preamble);
+    const args = this.buildClaudeEpilogueArgs({ sessionId, repoDir, model, appendSystemPrompt });
+    const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
+    for await (const message of stream) {
+      if (message.is_error) return false;
+    }
+    return true;
+  }
+
+  private buildClaudeEpilogueArgs(opts: {
+    sessionId: string;
+    repoDir: string;
+    model: string;
+    appendSystemPrompt: string;
+  }): ReturnType<typeof buildCliArgs> {
+    return buildCliArgs(this.buildClaudeEpilogueArgOptions(opts));
+  }
+
+  private buildClaudeEpilogueSystemPrompt(systemPrompt: string, preamble: string): string {
+    return preamble ? `${preamble}\n\n${systemPrompt}` : systemPrompt;
+  }
+
+  private buildClaudeEpilogueArgOptions(
+    opts: { sessionId: string; repoDir: string; model: string; appendSystemPrompt: string }
+  ): Parameters<typeof buildCliArgs>[0] {
+    return {
+      prompt: cliEpiloguePrompt,
+      appendSystemPrompt: opts.appendSystemPrompt,
+      model: opts.model,
+      sessionId: opts.sessionId,
+      cwd: opts.repoDir,
+      permissionMode: 'plan',
+      tools: this.resolveCliInspectionTools(Boolean(opts.repoDir)),
+      jsonSchema: undefined,
+      forkSession: true,
+    };
+  }
+
+  private resolveReviewEpilogueTimeoutMs(): number {
+    return this.configService.get<number>('stages.review.epilogueTimeoutMs', CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
   }
 
   private async cliChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {

@@ -9,7 +9,7 @@ import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
-import { runSonarScan } from '../review/sonar-scanner';
+import { runSonarScan, type SonarScanResult } from '../review/sonar-scanner';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
@@ -54,9 +54,9 @@ export class ReviewerAgent {
 
     const repoDir = options.repoDir ?? process.cwd();
     await this.gitService.stageAll(repoDir);
-    if (await this.sonarStageAborted(repoDir, options, onProgress)) return null;
+    const sonarResult = await this.runSonarStage(repoDir, options, onProgress);
 
-    const { review, sessionId } = await this.stageAndReview(ticket, repoDir, options, onProgress);
+    const { review, sessionId } = await this.stageAndReview(ticket, repoDir, options, onProgress, sonarResult);
 
     return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId);
   }
@@ -95,12 +95,17 @@ export class ReviewerAgent {
   }
 
   private async stageAndReview(
-    ticket: TicketArtifact, repoDir: string, options: ReviewerOptions, onProgress?: (line: string) => void
+    ticket: TicketArtifact,
+    repoDir: string,
+    options: ReviewerOptions,
+    onProgress?: (line: string) => void,
+    sonarResult?: SonarScanResult
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
 
     return this.reviewStageService.reviewDiff(diff, {
       context: this.buildReviewContext(ticket.ticketKey, repoDir),
+      additionalContextSections: this.buildAdditionalContextSections(sonarResult),
       repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
@@ -112,23 +117,27 @@ export class ReviewerAgent {
   /**
    * Runs the SonarQube CLI scan for the REVIEW stage, containing failures to this
    * repository's review rather than letting them escape to the caller's workflow.
-   * @returns true when the scan failed (CLI missing/misconfigured or execution error)
-   * and the REVIEW stage for this repo should be skipped
+   * @returns Sonar scan results when the CLI run succeeds, or undefined when a handled
+   * CLI failure should continue the review without Sonar findings
    */
-  private async sonarStageAborted(
+  private async runSonarStage(
     repoDir: string, options: ReviewerOptions, onProgress?: (line: string) => void
-  ): Promise<boolean> {
-    if (this.configService.get<boolean>('stages.review.sonar') !== true) return false;
+  ): Promise<SonarScanResult | undefined> {
+    if (this.configService.get<boolean>('stages.review.sonar') !== true) return undefined;
     try {
       const { staged } = await this.gitService.getStatus(repoDir);
-      await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
-      return false;
+      return await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
     } catch (error) {
       if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
-      const message = `SonarQube CLI error — skipping review for ${path.basename(repoDir)}: ${error.message}`;
+      const message = `SonarQube CLI error — continuing review for ${path.basename(repoDir)} without Sonar findings: ${error.message}`;
       if (!options.silent) this.presenter.outcome('warning', message);
-      return true;
+      return undefined;
     }
+  }
+
+  private buildAdditionalContextSections(sonarResult?: SonarScanResult): string[] | undefined {
+    if (!sonarResult?.findingsText) return undefined;
+    return [sonarResult.findingsText];
   }
 
   private buildReviewContext(ticketKey: string, repoDir: string): string {

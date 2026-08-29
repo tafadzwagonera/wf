@@ -20,6 +20,7 @@ import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveSkills } from '../../skills';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
+import { appendToLogFile } from '../../shared/logger/log-file-writer';
 
 const DEFAULT_REVIEW_GUIDELINES = [
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
@@ -38,6 +39,7 @@ const DEFAULT_REVIEW_GUIDELINES = [
 ];
 
 interface ReviewDiffOptions {
+  additionalContextSections?: string[];
   context: string;
   extraCriteria?: string[];
   replaceCriteria?: boolean;
@@ -61,16 +63,20 @@ export class ReviewStageService {
     const guidelines = this.buildReviewGuidelines(options);
     const segments = splitDiffByFile(diff);
     const summariseCallback = this.createSummariseCallback(options);
-    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback);
+    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback, {
+      onError: failure => this.handleSummariseFailure(failure, options.onProgress),
+    });
+    this.signalOversizedSummarisedDiff(processedDiff, options.onProgress);
     return this.executeReview(processedDiff, guidelines, options);
   }
 
   private buildReviewGuidelines(options: ReviewDiffOptions): string[] {
+    const contextSections = [options.context, ...(options.additionalContextSections ?? [])].filter(Boolean);
     return options.replaceCriteria
-      ? [...(options.extraCriteria ?? [])]
+      ? [...contextSections, ...(options.extraCriteria ?? [])]
       : [
           ...DEFAULT_REVIEW_GUIDELINES,
-          `Relevancy: Does the feature or fix work? (This is very important — context: ${options.context})`,
+          `Relevancy: Does the feature or fix work? (This is very important — context: ${contextSections.join('\n\n')})`,
           ...(options.extraCriteria ?? []),
         ];
   }
@@ -81,13 +87,35 @@ export class ReviewStageService {
     return async (patch: string, file: string) => {
       options.onProgress?.(`Summarising changes in ${file}...`);
       const prompt = this.buildSummarisationPrompt(file, patch);
-      const response = await this.aiService.execute({
-        prompt,
-        maxTokens: 2048,
-        stage: 'review',
-      });
-      return requireAiResponseContent(response, 'AI provider returned an empty review summary response');
+      return this.executeSummarisePrompt(prompt, options);
     };
+  }
+
+  private async executeSummarisePrompt(prompt: string, options: ReviewDiffOptions): Promise<string> {
+    if (this.shouldUseCliSummarisation()) {
+      return this.runCliSummarisation(prompt, options.repoDir);
+    }
+    const response = await this.aiService.execute({
+      prompt,
+      maxTokens: 2048,
+      stage: 'review',
+    });
+    return requireAiResponseContent(response, 'AI provider returned an empty review summary response');
+  }
+
+  private shouldUseCliSummarisation(): boolean {
+    const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
+    return backend === 'cli' && this.stageAgentService.isEnabledForStage('review');
+  }
+
+  private async runCliSummarisation(prompt: string, repoDir: string | undefined): Promise<string> {
+    const result = await this.stageAgentService.chatTurn({
+      stage: 'review',
+      userMessage: prompt,
+      systemPrompt: 'Summarize diffs as concise Markdown bullets. Do not return JSON or commentary.',
+      repoDir,
+    });
+    return result.content.trim();
   }
 
   private buildSummarisationPrompt(file: string, patch: string): string {
@@ -145,9 +173,7 @@ export class ReviewStageService {
 
   private async recoverReviewFromValidation(error: unknown, diff: string): Promise<CodeReview> {
     if (!isAiProviderErrorLike(error) || error.category !== 'parse' || !error.details?.response) throw error;
-    const review = await this.aiService.validateReviewJson(error.details.response as string, diff);
-    const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
-    return { ...review, executionMode: backend === 'cli' ? 'cli' : 'agent' };
+    return this.aiService.validateReviewJson(error.details.response as string, diff);
   }
 
   private isInteractiveSession(): boolean {
@@ -257,7 +283,9 @@ export class ReviewStageService {
       return 'unavailable';
     }
 
-    if (review.executionMode === 'agent' || review.executionMode === 'cli') return 'evidence-based';
+    if ((review.executionMode === 'agent' || review.executionMode === 'cli') && !review.repairStrategy) {
+      return 'evidence-based';
+    }
 
     if (review.traceProvenance) {
       return review.traceProvenance;
@@ -269,38 +297,60 @@ export class ReviewStageService {
   private formatTraceProvenance(review: CodeReview): string {
     const provenance = this.resolveTraceProvenance(review);
     const executionMode = review.executionMode ?? 'standard';
+    const repairLine = review.repairStrategy ? `> Repair strategy: ${review.repairStrategy}.` : null;
 
     if (provenance === 'evidence-based') {
-      return this.formatEvidenceBasedTrace(executionMode);
+      return this.formatEvidenceBasedTrace(executionMode, repairLine);
     }
 
     return provenance === 'best-effort'
-      ? this.formatBestEffortTrace(executionMode)
-      : this.formatUnavailableTrace(executionMode);
+      ? this.formatBestEffortTrace(executionMode, repairLine)
+      : this.formatUnavailableTrace(executionMode, repairLine);
   }
 
-  private formatEvidenceBasedTrace(executionMode: string): string {
+  private formatEvidenceBasedTrace(executionMode: string, repairLine: string | null): string {
     return [
       `> Execution mode: ${executionMode}.`,
+      repairLine,
       '> Provenance: evidence-based (code-path trace backed by the execution backend).',
       '> Evidence: the trace is grounded in the changed code path.',
-    ].join('\n');
+    ].filter((line): line is string => Boolean(line)).join('\n');
   }
 
-  private formatBestEffortTrace(executionMode: string): string {
+  private formatBestEffortTrace(executionMode: string, repairLine: string | null): string {
     return [
       `> Execution mode: ${executionMode}.`,
+      repairLine,
       '> Provenance: best-effort (code-path trace inferred from the diff and AI output).',
       '> Hindrance: there is no runtime execution trace backend in this path.',
-    ].join('\n');
+    ].filter((line): line is string => Boolean(line)).join('\n');
   }
 
-  private formatUnavailableTrace(executionMode: string): string {
+  private formatUnavailableTrace(executionMode: string, repairLine: string | null): string {
     return [
       `> Execution mode: ${executionMode}.`,
+      repairLine,
       '> Provenance: unavailable (no concrete code-path trace could be inferred from the diff).',
       '> Hindrance: the review pipeline did not return a code-path trace payload.',
-    ].join('\n');
+    ].filter((line): line is string => Boolean(line)).join('\n');
+  }
+
+  private handleSummariseFailure(
+    failure: { file: string; originalLength: number; resultLength: number; error: unknown },
+    onProgress?: StageProgressCallback
+  ): void {
+    const message = `Review diff summarisation failed for ${failure.file} `
+      + `(original=${failure.originalLength}, result=${failure.resultLength}): `
+      + `${failure.error instanceof Error ? failure.error.message : String(failure.error)}`;
+    appendToLogFile('WARN', message, 'review-stage');
+    onProgress?.(message);
+  }
+
+  private signalOversizedSummarisedDiff(diff: string, onProgress?: StageProgressCallback): void {
+    if (diff.length <= MAX_REVIEW_DIFF_LENGTH) return;
+    const message = `Review diff remains oversized after summarisation (${diff.length}/${MAX_REVIEW_DIFF_LENGTH} chars)`;
+    appendToLogFile('WARN', message, 'review-stage');
+    onProgress?.(message);
   }
 
   private formatCallStackMarkdown(callStack?: CodeReview['callStack']): string {

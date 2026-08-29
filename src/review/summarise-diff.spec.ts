@@ -139,6 +139,28 @@ describe('summariseDiff', () => {
     // Summarisation did not throw — the review still completes
     expect(result).toBeDefined();
   });
+
+  it('reports summarisation failures via onError without aborting the diff', async () => {
+    const failure = new Error('AI unavailable');
+    const onError = jest.fn();
+
+    const result = await summariseDiff(
+      [{ file: 'fail.ts', patch: 'diff --git a/fail.ts b/fail.ts\n' + 'f'.repeat(200) }],
+      100,
+      async () => {
+        throw failure;
+      },
+      { onError }
+    );
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      file: 'fail.ts',
+      originalLength: expect.any(Number),
+      resultLength: expect.any(Number),
+      error: failure,
+    }));
+    expect(result).toContain('diff --git a/fail.ts b/fail.ts');
+  });
 });
 
 describe('MAX_REVIEW_DIFF_LENGTH', () => {

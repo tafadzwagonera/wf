@@ -1310,7 +1310,7 @@ export class AiService {
   private parseAndProcessReviewContent(content: string, diff: string): CodeReview {
     const parsed = codeReviewSchema.parse(parseJsonResponse<CodeReview>(content));
     const processedReview = postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff);
-    return { ...processedReview.review, executionMode: 'standard' };
+    return { ...processedReview.review, executionMode: 'standard', repairStrategy: 'validation' };
   }
 
   private parsePlanValidationContent(content: string): ResolutionPlan {

@@ -37,6 +37,7 @@ export interface CodexCliRunnerParams {
   appendSystemPrompt?: string;
   model: string;
   sessionId?: string;
+  forkSession?: boolean;
   cwd: string;
   tools?: string[];
   permissionMode?: string;
@@ -161,6 +162,7 @@ const resolveAutoApprovalArgs = (version?: { minor: number }): string[] =>
 export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
   if (params.sessionId) {
     const args = ['exec', '--json', 'resume', params.sessionId];
+    if (params.forkSession) args.push('--fork-session');
     if (params.model) args.push('--model', params.model);
     return args;
   }

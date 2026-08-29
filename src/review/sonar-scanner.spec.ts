@@ -407,13 +407,14 @@ describe('runSonarScan', () => {
         const fn = callback as ExecFileCallback;
         // Analyze step - return 51
         const err = Object.assign(new Error(), { code: 51 });
-        fn(err, '', '');
+        fn(err, 'Rule hit', '');
         return {} as any;
       });
 
       const result = await runSonarScan({ ...defaultOptions, onProgress: mockOnProgress });
 
       expect(result.status).toBe('findings');
+      expect(result.findingsText).toContain('SonarQube analyze findings:');
       expect(mockOnProgress).toHaveBeenCalledWith(expect.stringMatching(/finding/i));
     });
 
@@ -423,6 +424,18 @@ describe('runSonarScan', () => {
         const fn = callback as ExecFileCallback;
         const err = Object.assign(new Error(), { code: 1 });
         fn(err, '', 'Not authenticated');
+        return {} as any;
+      });
+
+      await expect(runSonarScan(defaultOptions)).rejects.toThrow(ConfigurationError);
+    });
+
+    it('throws ConfigurationError for setup errors emitted on stdout', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        const err = Object.assign(new Error(), { code: 1 });
+        fn(err, 'Not authenticated', '');
         return {} as any;
       });
 
