@@ -111,11 +111,10 @@ async function main() {
     console.log('Test 4: parseTrackerSource supports self-hosted Jira with atlassian.baseUrl config');
     const configService = (command as any).configService as ConfigService;
     const originalGet = configService.get.bind(configService);
-    const getSpy = (key: string, defaultValue?: string) => {
+    (configService as any).get = (key: string, defaultValue?: string) => {
       if (key === 'atlassian.baseUrl') return 'https://jira.mycompany.com';
       return originalGet(key, defaultValue);
     };
-    (configService as any).get = getSpy;
 
     try {
       const selfHostedResult = (command as any).parseTrackerSource('https://jira.mycompany.com/browse/PROJ-1');
@@ -139,7 +138,7 @@ async function main() {
     const originalFetchFromTracker = (command as any).fetchFromTracker.bind(command);
     const originalFetchFromUrl = (command as any).fetchFromUrl.bind(command);
 
-    (command as any).fetchFromTracker = async (ticketKey: string, tracker?: string, repo?: string) => {
+    (command as any).fetchFromTracker = async (ticketKey: string) => {
       trackerCalls.push(ticketKey);
       return {
         type: 'tracker',

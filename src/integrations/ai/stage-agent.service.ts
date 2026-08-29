@@ -140,24 +140,22 @@ type CliPassResult = {
 };
 
 type CliChatPassOpts = {
-  allowInspection: boolean;
   initialSessionId?: string;
   model: string;
-  resolvedRepoDir: string;
+  repoDir?: string;
   stage: AgentStageName;
   systemPrompt: string;
   userMessage: string;
 };
 
 type CliStagePassOpts = {
-  allowInspection: boolean;
   forkSession?: boolean;
   jsonSchema?: string;
   model: string;
   onProgress?: StageProgressCallback;
   passNumber?: number;
   prompt: string;
-  resolvedRepoDir: string;
+  repoDir?: string;
   resumeProviderSessionId?: string;
   sessionId?: string;
   stage: AgentStageName;
@@ -376,18 +374,18 @@ const anthropicReadOnlyToolGuard = async (
 };
 
 const NO_INSPECT_CLAUSE = 'Do not inspect local repository files in this run.';
-const resolveEffectiveSystemPrompt = (systemPrompt: string, allowInspection: boolean): string =>
-  allowInspection || systemPrompt.includes(NO_INSPECT_CLAUSE)
+const resolveEffectiveSystemPrompt = (systemPrompt: string, repoDir?: string): string =>
+  repoDir || systemPrompt.includes(NO_INSPECT_CLAUSE)
     ? systemPrompt
     : `${systemPrompt}\n${NO_INSPECT_CLAUSE}`;
 
-const buildAnthropicSandboxConfig = (repoDir: string, allowInspection: boolean) => ({
+const buildAnthropicSandboxConfig = (repoDir?: string) => ({
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: true,
   enabled: true,
   failIfUnavailable: true,
   filesystem: {
-    allowRead: allowInspection ? [repoDir] : [],
+    allowRead: repoDir ? [repoDir] : [],
     allowWrite: [],
   },
 });
@@ -398,31 +396,30 @@ const buildPriorStagePreamble = (priorStageSummary?: string): string => {
 };
 
 type AnthropicStageOpts = {
-  allowInspection: boolean;
   anthropicContext: string;
   apiKey: string;
   model: string;
   priorStageSummary?: string;
   prompt: string;
-  resolvedRepoDir: string;
+  repoDir?: string;
   resumeProviderSessionId?: string;
   systemPrompt: string;
 };
 
 const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
-  const tools = opts.allowInspection ? [...ANTHROPIC_STAGE_TOOLS] : [];
+  const tools = opts.repoDir ? [...ANTHROPIC_STAGE_TOOLS] : [];
   return {
     canUseTool: anthropicReadOnlyToolGuard,
-    cwd: opts.resolvedRepoDir, model: opts.model, tools, allowedTools: tools,
+    cwd: opts.repoDir ?? process.cwd(), model: opts.model, tools, allowedTools: tools,
     env: { ...process.env, ANTHROPIC_API_KEY: opts.apiKey },
     permissionMode: 'acceptEdits' as const,
-    sandbox: buildAnthropicSandboxConfig(opts.resolvedRepoDir, opts.allowInspection),
+    sandbox: buildAnthropicSandboxConfig(opts.repoDir),
     systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
   };
 };
 
 const buildAnthropicStageQueryOptions = (opts: AnthropicStageOpts) => {
-  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.allowInspection);
+  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.repoDir);
   const systemAppend = [buildPriorStagePreamble(opts.priorStageSummary), opts.anthropicContext, effectiveSystemPrompt].filter(Boolean).join('\n\n');
   const resumeOption = opts.resumeProviderSessionId ? { resume: opts.resumeProviderSessionId } : {};
   return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
@@ -632,18 +629,17 @@ const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastD
 };
 
 type AnthropicChatOpts = {
-  allowInspection: boolean;
   anthropicContext: string;
   apiKey: string;
   model: string;
   prompt: string;
-  resolvedRepoDir: string;
+  repoDir?: string;
   resumeSessionId?: string;
   systemPrompt: string;
 };
 
 const buildAnthropicChatQueryOptions = (opts: AnthropicChatOpts) => {
-  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.allowInspection);
+  const effectiveSystemPrompt = resolveEffectiveSystemPrompt(opts.systemPrompt, opts.repoDir);
   const systemAppend = [opts.anthropicContext, effectiveSystemPrompt].filter(Boolean).join('\n\n');
   const resumeOption = opts.resumeSessionId ? { resume: opts.resumeSessionId } : {};
   return { ...buildAnthropicBaseOptions(opts, systemAppend), ...resumeOption };
@@ -655,11 +651,11 @@ const buildAnthropicChatOptions = (opts: AnthropicChatOpts) => ({
 });
 
 const buildOpenAiSystemPrompt = (
-  systemPrompt: string, priorStageSummary?: string, allowInspection?: boolean
+  systemPrompt: string, priorStageSummary?: string, repoDir?: string
 ): string => {
   const preamble = buildPriorStagePreamble(priorStageSummary);
   const preambleWithNewline = preamble ? `${preamble}\n\n` : '';
-  return `${preambleWithNewline}${resolveEffectiveSystemPrompt(systemPrompt, Boolean(allowInspection))}`;
+  return `${preambleWithNewline}${resolveEffectiveSystemPrompt(systemPrompt, repoDir)}`;
 };
 
 const createOpenAiReadFileTool = () => tool({
@@ -778,14 +774,14 @@ const STAGE_RESPONSE_SCHEMAS: Partial<Record<AgentStageName, string>> = {
   generate: buildSanitisedJsonSchema(z.toJSONSchema(generateTicketSchema)),
 };
 
-const STAGE_ZOD_SCHEMAS: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
+const stageZodSchemas: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
   plan: resolutionPlanSchema,
   review: codeReviewSchema,
   generate: generateTicketSchema,
 };
 
 const resolveStageResponseIssues = (stage: AgentStageName, content: string): string | null => {
-  const zodSchema = STAGE_ZOD_SCHEMAS[stage];
+  const zodSchema = stageZodSchemas[stage];
   if (!zodSchema) return null;
   try {
     zodSchema.parse(parseJsonResponse(content));
@@ -797,7 +793,7 @@ const resolveStageResponseIssues = (stage: AgentStageName, content: string): str
 };
 
 const resolveStageZodIssues = (stage: AgentStageName, content: string): string | undefined => {
-  const zodSchema = STAGE_ZOD_SCHEMAS[stage];
+  const zodSchema = stageZodSchemas[stage];
   if (!zodSchema) return undefined;
   try {
     zodSchema.parse(parseJsonResponse(content));
@@ -1156,7 +1152,7 @@ export class StageAgentService {
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicStageOptions({
       prompt: params.prompt, model: this.resolveStageModel(params.stage), apiKey,
-      resolvedRepoDir: params.repoDir ?? process.cwd(), allowInspection: Boolean(params.repoDir),
+      repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, priorStageSummary: params.priorStageSummary,
       anthropicContext, resumeProviderSessionId: params.resumeProviderSessionId,
     });
@@ -1202,13 +1198,12 @@ export class StageAgentService {
     stage: AgentStageName; systemPrompt: string; repoDir?: string; priorStageSummary?: string; apiKey: string;
   }): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
     const openAiContext = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true);
-    const allowInspection = Boolean(opts.repoDir);
-    const instructions = [openAiContext, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, allowInspection)].filter(Boolean).join('\n\n');
+    const instructions = [openAiContext, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, opts.repoDir)].filter(Boolean).join('\n\n');
     const agent = new Agent<OpenAiStageContext>({
       name: `wf ${opts.stage} openai agent backend`,
       handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
       instructions, model: this.resolveStageModel(opts.stage),
-      tools: allowInspection ? buildOpenAiStageTools() : [], toolUseBehavior: 'run_llm_again', resetToolChoice: true,
+      tools: opts.repoDir ? buildOpenAiStageTools() : [], toolUseBehavior: 'run_llm_again', resetToolChoice: true,
     });
     const runner = new Runner({ modelProvider: new OpenAIProvider({ apiKey: opts.apiKey }) });
     return { agent, runner, context: { repoDir: opts.repoDir ?? process.cwd() } };
@@ -1253,7 +1248,7 @@ export class StageAgentService {
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicChatOptions({
       prompt: params.userMessage, model: this.resolveStageModel(params.stage), apiKey,
-      resolvedRepoDir: params.repoDir ?? process.cwd(), allowInspection: Boolean(params.repoDir),
+      repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, anthropicContext, resumeSessionId: params.session?.sessionId,
     });
     const { query } = await loadAnthropicAgentSdk();
@@ -1307,8 +1302,7 @@ export class StageAgentService {
     const systemPrompt = preamble ? `${preamble}\n\n${params.systemPrompt}` : params.systemPrompt;
     const passOpts: CliStagePassOpts = {
       stage: params.stage, prompt: params.prompt, systemPrompt,
-      model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
-      allowInspection: Boolean(params.repoDir),
+      model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
       jsonSchema: this.resolveStageJsonSchema(params.stage),
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       forkSession: params.forkSession,
@@ -1395,9 +1389,8 @@ export class StageAgentService {
 
   private buildCliSchemaRetryOutcome(
     stage: AgentStageName,
-    result: string | undefined
+    content = ''
   ): CliPassOutcome | null {
-    const content = result ?? '';
     const issues = resolveStageResponseIssues(stage, content);
     return issues ? { kind: 'schema-retry', content, issues } : null;
   }
@@ -1432,8 +1425,8 @@ export class StageAgentService {
       prompt,
       appendSystemPrompt: opts.systemPrompt,
       model: opts.model,
-      cwd: opts.resolvedRepoDir,
-      tools: this.resolveCliInspectionTools(opts.allowInspection),
+      cwd: opts.repoDir ?? process.cwd(),
+      tools: this.resolveCliInspectionTools(opts.repoDir),
       permissionMode: 'plan',
       sessionId: isResume ? opts.sessionId : undefined,
       jsonSchema: opts.jsonSchema,
@@ -1441,8 +1434,8 @@ export class StageAgentService {
     });
   }
 
-  private resolveCliInspectionTools(allowInspection: boolean): string[] {
-    return allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [];
+  private resolveCliInspectionTools(repoDir?: string): string[] {
+    return repoDir ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [];
   }
 
   private async processCliStagePassMessages(
@@ -1452,7 +1445,7 @@ export class StageAgentService {
   ): Promise<CliPassResult> {
     return processCliPassMessages(
       args,
-      opts.resolvedRepoDir,
+      opts.repoDir ?? process.cwd(),
       prompt,
       this.resolveStageTimeoutMs(opts.stage),
       this.resolveStageInactivityTimeoutMs(opts.stage),
@@ -1589,7 +1582,7 @@ export class StageAgentService {
       sessionId: opts.sessionId,
       cwd: opts.repoDir,
       permissionMode: 'plan',
-      tools: this.resolveCliInspectionTools(Boolean(opts.repoDir)),
+      tools: this.resolveCliInspectionTools(opts.repoDir),
       jsonSchema: undefined,
       forkSession: true,
     };
@@ -1603,8 +1596,8 @@ export class StageAgentService {
     assertClaudeCliAvailable();
     const chatPassOpts: CliChatPassOpts = {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
-      model: this.resolveStageModel(params.stage), resolvedRepoDir: params.repoDir ?? process.cwd(),
-      allowInspection: Boolean(params.repoDir), initialSessionId: params.session?.sessionId,
+      model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
+      initialSessionId: params.session?.sessionId,
     };
     const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
     return { content: result.content, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
@@ -1624,12 +1617,13 @@ export class StageAgentService {
   ): Promise<CliPassResult> {
     const isResume = opts.passNumber > 1 && opts.sessionId;
     const prompt = isResume ? cliChatRetryPrompt : opts.userMessage;
+    const resolvedRepoDir = opts.repoDir ?? process.cwd();
     const args = buildCliArgs({
-      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.resolvedRepoDir,
+      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: resolvedRepoDir,
       sessionId: isResume ? opts.sessionId : opts.initialSessionId,
-      tools: opts.allowInspection ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [], permissionMode: 'plan',
+      tools: this.resolveCliInspectionTools(opts.repoDir), permissionMode: 'plan',
     });
-    return processCliPassMessages(args, opts.resolvedRepoDir, prompt,
+    return processCliPassMessages(args, resolvedRepoDir, prompt,
       this.resolveStageTimeoutMs(opts.stage), this.resolveStageInactivityTimeoutMs(opts.stage));
   }
 }
