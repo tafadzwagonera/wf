@@ -10,10 +10,6 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
-import {
-  buildPlanArtifactManifestPath,
-  readPlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
@@ -34,7 +30,9 @@ const STEP_ASSESSOR_RULES = [
   '- not-done: not implemented at all (requires missing field)',
   '- not-applicable: step requires no code change or cannot be proven by a diff (e.g. run-the-tests steps, confirm-existing-behavior steps) — use instead of not-done for such steps',
   '',
-  'Produce exactly one entry per step index in this shape:',
+  'Index each step ONLY by its [Plan step N] tag. A step\'s own text may contain other numbers '
+  + '(e.g. an internal "Step N (RED)/(GREEN)" label) — those are part of that step\'s content, not separate steps to assess.',
+  'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
   '{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}',
   'Do not assume changes you cannot see.',
 ];
@@ -70,8 +68,20 @@ const buildEvidenceText = (diff: string, untrackedSections: string[], truncated:
 export interface PlanStepVerificationRunParams {
   steps: string[];
   planSummary: string;
-  planArtifactPath: string;
   repoDir: string;
+  /**
+   * The commit HEAD was at before the implement stage ran, captured by
+   * `ImplementerAgent.captureCommitBaseline`. `enforceCommitPolicy` soft-resets
+   * back to this commit whenever the implement stage committed despite a
+   * blocked commit policy — but that reset is skipped for a few safety cases
+   * (branch changed, merge commits, commits already pushed). Diffing against
+   * this fixed commit (rather than a moving `HEAD`) captures the full,
+   * cumulative changeset in both cases: after a successful reset HEAD equals
+   * this commit anyway, and when the reset is skipped this is the only ref
+   * that still sees the committed-and-not-reset work. Falls back to `'HEAD'`
+   * when there's no prior commit to anchor to (e.g. a brand-new repo).
+   */
+  baseRef?: string;
   sessionId: string;
   maxRounds: number;
   silent?: boolean;
@@ -102,7 +112,7 @@ export const buildStepAssessorPrompt = (
   untrackedSections: string[],
   truncated: boolean,
 ): string => {
-  const numbered = steps.map((s, i) => `Step ${i}: ${s}`).join('\n');
+  const numbered = steps.map((s, i) => `[Plan step ${i}]\n${s}`).join('\n\n');
   const evidence = buildEvidenceText(diff, untrackedSections, truncated);
   const body = ['', '## Changed files diff', evidence, ''].join('\n');
   return [...STEP_ASSESSOR_PREAMBLE, numbered, body, ...STEP_ASSESSOR_RULES].join('\n');
@@ -170,14 +180,27 @@ export class PlanStepVerificationService {
   ): Promise<{ outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number }> {
     this.logEvent('INFO', `step-verify.round.start round=${round}/${params.maxRounds}`, params.silent);
     const statusMap = await this.assessSteps(params, target);
-    if (!statusMap) return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
+    if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount);
     const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
-    const fallback: PlanStepVerificationOutcome = { sessionId, summary: undefined, extraPassCount };
-    const fixPrompt = buildPlanStepVerificationPrompt(nowPending, round, params.maxRounds);
     const outcome = this.resolveRoundOutcome(nowPending, round, params, sessionId, n, extraPassCount);
-    if (outcome || !sessionId) return { outcome: outcome ?? fallback, extraPassCount };
+    if (outcome || !sessionId) return this.finalizeRound(outcome, sessionId, extraPassCount);
+    const fixPrompt = buildPlanStepVerificationPrompt(nowPending, round, params.maxRounds);
     const fix = await params.runFixRound(fixPrompt, sessionId);
     return { sessionId: fix.sessionId, extraPassCount: extraPassCount + (fix.passCount ?? 0) };
+  }
+
+  private finalizeRound(
+    outcome: PlanStepVerificationOutcome | null, sessionId: string | undefined, extraPassCount: number,
+  ): { outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number } {
+    return { outcome: outcome ?? { sessionId, summary: undefined, extraPassCount }, extraPassCount };
+  }
+
+  private handleAssessmentFailure(
+    round: number, params: PlanStepVerificationRunParams, sessionId: string | undefined, extraPassCount: number,
+  ): { outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number } {
+    if (round < params.maxRounds) return { sessionId, extraPassCount };
+    this.logEvent('WARN', 'step-verify.exhausted reason=assessment-invalid', params.silent);
+    return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
   }
 
   private resolveRoundOutcome(
@@ -188,12 +211,18 @@ export class PlanStepVerificationService {
       this.logEvent('INFO', `step-verify.complete rounds=${round}`, params.silent);
       return { sessionId, summary: { rounds: round, done: n, pending: 0 }, extraPassCount };
     }
-    const exhausted = round === params.maxRounds || !sessionId;
-    if (!exhausted) return null;
-    const pending = nowPending.length;
-    const reason = sessionId ? `step-verify.exhausted pending=${pending}` : 'step-verify.session.missing';
+    if (round !== params.maxRounds && sessionId) return null;
+    const reason = sessionId ? `step-verify.exhausted pending=${nowPending.length}` : 'step-verify.session.missing';
     this.logEvent('WARN', reason, params.silent);
+    this.logMissedSteps(nowPending, params.silent);
+    const pending = nowPending.length;
     return { sessionId, summary: { rounds: round, done: n - pending, pending }, extraPassCount };
+  }
+
+  private logMissedSteps(nowPending: StepAssessment[], silent?: boolean): void {
+    for (const p of nowPending) {
+      this.logEvent('WARN', `step-verify.missed index=${p.index} status=${p.status} missing=${p.missing ?? 'n/a'}`, silent);
+    }
   }
 
   private async assessSteps(
@@ -201,15 +230,27 @@ export class PlanStepVerificationService {
     target: { provider: string; model: string },
   ): Promise<Map<number, StepAssessment> | undefined> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.runSingleAssessmentAttempt(params, target).catch(() => undefined);
-      if (typeof result === 'string') {
-        this.logEvent('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
-      } else if (result) {
-        return this.logPendingStatuses(result, params.silent);
-      }
+      const result = await this.attemptAssessment(params, target);
+      if (result) return this.logPendingStatuses(result, params.silent);
     }
     this.logEvent('ERROR', 'step-verify.assess.invalid', params.silent);
     return undefined;
+  }
+
+  private async attemptAssessment(
+    params: PlanStepVerificationRunParams,
+    target: { provider: string; model: string },
+  ): Promise<Map<number, StepAssessment> | undefined> {
+    const result = await this.runSingleAssessmentAttempt(params, target).catch(error => {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('ERROR', `step-verify.assess.attempt-failed cause=${cause}`, 'step-verification');
+      return undefined;
+    });
+    if (typeof result === 'string') {
+      this.logEvent('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
+      return undefined;
+    }
+    return result;
   }
 
   private async runSingleAssessmentAttempt(
@@ -223,9 +264,18 @@ export class PlanStepVerificationService {
       temperature: 0, maxTokens: 4096,
       provider: target.provider, model: target.model,
     });
-    const parsed = parseJsonResponse<unknown>(response.content);
-    const validated = stepAssessmentResponseSchema.parse(parsed);
-    return validateStepAssessments(validated.statuses, params.steps.length);
+    const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
+    const result = validateStepAssessments(validated.statuses, params.steps.length);
+    return this.logInvalidAssessmentBody(result, response.content);
+  }
+
+  private logInvalidAssessmentBody(
+    result: Map<number, StepAssessment> | string, responseBody: string,
+  ): Map<number, StepAssessment> | string {
+    if (typeof result === 'string') {
+      appendToLogFile('DEBUG', `step-verify.assess.raw-response body=${responseBody}`, 'step-verification');
+    }
+    return result;
   }
 
   private logPendingStatuses(
@@ -262,8 +312,7 @@ export class PlanStepVerificationService {
   private async captureEvidence(
     params: PlanStepVerificationRunParams,
   ): Promise<{ diff: string; untrackedSections: string[]; truncated: boolean }> {
-    const baseRef = this.resolveBaseRef(params);
-    const rawDiff = await this.getDiff(params.repoDir, baseRef);
+    const rawDiff = await this.getDiff(params.repoDir, params.baseRef ?? 'HEAD');
     const untrackedSections = await this.collectUntrackedSections(params.repoDir);
     const combined = rawDiff + untrackedSections.join('\n\n');
     if (combined.length <= MAX_ASSESSOR_EVIDENCE_CHARS) {
@@ -271,15 +320,6 @@ export class PlanStepVerificationService {
     }
     this.logEvent('WARN', `step-verify.diff.truncated original=${combined.length}`, params.silent);
     return { diff: combined.slice(0, MAX_ASSESSOR_EVIDENCE_CHARS), untrackedSections: [], truncated: true };
-  }
-
-  private resolveBaseRef(params: PlanStepVerificationRunParams): string {
-    const manifestPath = buildPlanArtifactManifestPath(params.planArtifactPath);
-    const manifest = readPlanArtifactManifest(manifestPath);
-    if (!manifest?.sourceBranch) {
-      this.logEvent('WARN', 'step-verify.source-branch.missing fallback=HEAD', params.silent);
-    }
-    return manifest?.sourceBranch ?? 'HEAD';
   }
 
   private async getDiff(repoDir: string, baseRef: string): Promise<string> {

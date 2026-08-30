@@ -24,11 +24,6 @@ jest.mock('node:fs', () => ({
   readFileSync: jest.fn(() => ''),
 }));
 
-jest.mock('../shared/utils/plan-artifact', () => ({
-  buildPlanArtifactManifestPath: jest.fn(() => '/tmp/plan.manifest.json'),
-  readPlanArtifactManifest: jest.fn(() => null),
-}));
-
 jest.mock('../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
@@ -73,8 +68,8 @@ describe('buildStepAssessorPrompt', () => {
 
   it('numbers steps from 0', () => {
     const prompt = buildStepAssessorPrompt(['Step A', 'Step B'], 'diff text', [], false);
-    expect(prompt).toContain('Step 0');
-    expect(prompt).toContain('Step 1');
+    expect(prompt).toContain('[Plan step 0]');
+    expect(prompt).toContain('[Plan step 1]');
   });
 
   it('includes not-applicable rule', () => {
@@ -136,7 +131,6 @@ describe('PlanStepVerificationService', () => {
   const makeRunParams = (overrides: Partial<Parameters<PlanStepVerificationService['run']>[0]> = {}) => ({
     steps: ['Step A'],
     planSummary: 'summary',
-    planArtifactPath: '/tmp/plan.json',
     repoDir: '/repo',
     sessionId: 'sess-1',
     maxRounds: 3,

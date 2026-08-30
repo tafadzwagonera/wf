@@ -98,8 +98,9 @@ export class ImplementerAgent {
     const filteredSteps = this.filterStepsForRepo(planArtifact.plan.steps, resolved.repoFiles, resolved.repoName);
     this.logPlanSteps(filteredSteps);
     const scopedPlan = { ...planArtifact, plan: { ...planArtifact.plan, steps: filteredSteps } };
-    const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved);
-    return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result);
+    const baseline = await this.captureCommitBaseline(options.repoDir);
+    const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved, baseline);
+    return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
   }
 
   private printImplementationHeader(options: ImplementerOptions): void {
@@ -160,10 +161,10 @@ export class ImplementerAgent {
     ticket: TicketArtifact, planArtifact: PlanArtifact,
     options: ImplementerOptions,
     branchName: string | null,
-    resolved: FileResolution
+    resolved: FileResolution,
+    baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
-    const baseline = await this.captureCommitBaseline(options.repoDir);
     const { adapterResult, error } = await this.runAdapterCaptureError(ticket, planArtifact, options, resolved);
     await this.enforceCommitPolicy(policy, baseline, options.repoDir);
     if (error !== undefined) throw error instanceof Error ? error : new ExecutionError('adapter failed with non-Error value');
@@ -177,9 +178,10 @@ export class ImplementerAgent {
     ticket: TicketArtifact, scopedPlan: PlanArtifact,
     options: ImplementerOptions, resolved: FileResolution,
     filteredSteps: string[], result: ImplementerResult,
+    baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     try {
-      return await this.runPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result);
+      return await this.runPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
       appendToLogFile('ERROR', `step-verify.unexpected cause=${cause}`, 'step-verification');
@@ -191,15 +193,25 @@ export class ImplementerAgent {
     ticket: TicketArtifact, scopedPlan: PlanArtifact,
     options: ImplementerOptions, resolved: FileResolution,
     filteredSteps: string[], result: ImplementerResult,
+    baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     const cfg = this.configService.get<{ enabled?: boolean; maxRounds?: number }>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
-    if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options)) return result;
+    const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
+    if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
     const maxRounds = Math.max(1, cfg?.maxRounds ?? 3);
-    const params = this.buildVerificationRunParams(
-      ticket, scopedPlan, options, resolved, assessedSteps, result.sessionId, maxRounds);
+    const params = this.buildVerificationRunParams({
+      ticket, scopedPlan, options, resolved, assessedSteps, sessionId: result.sessionId, maxRounds, baseline,
+    });
     const outcome = await this.planStepVerification.run(params);
+    return this.mergeVerificationOutcome(result, outcome);
+  }
+
+  private mergeVerificationOutcome(
+    result: Extract<ImplementerResult, { type: 'implementation' }>,
+    outcome: Awaited<ReturnType<PlanStepVerificationService['run']>>,
+  ): ImplementerResult {
     return {
       ...result,
       sessionId: outcome.sessionId ?? result.sessionId,
@@ -219,28 +231,38 @@ export class ImplementerAgent {
     return assessedSteps;
   }
 
+  /**
+   * Plan-step verification only earns its cost when the implement stage left
+   * uncommitted work for a separate review to audit (commit policy blocked,
+   * i.e. medium/high estimated complexity). Low-complexity, stage-and-commit
+   * changesets carry smaller downside risk and skip verification entirely.
+   */
   private shouldSkipPlanStepVerification(
     cfg: { enabled?: boolean } | undefined,
     result: { hasChanges: boolean },
     assessedSteps: string[],
     options: ImplementerOptions,
+    policy: CommitPolicy,
   ): boolean {
     return (cfg?.enabled ?? true) === false
       || !result.hasChanges
       || assessedSteps.length === 0
-      || Boolean(options.isNewRepo);
+      || Boolean(options.isNewRepo)
+      || policy.allowsCommit;
   }
 
-  private buildVerificationRunParams(
-    ticket: TicketArtifact, scopedPlan: PlanArtifact,
-    options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: string[], sessionId: string, maxRounds: number,
-  ): PlanStepVerificationRunParams {
+  private buildVerificationRunParams(args: {
+    ticket: TicketArtifact; scopedPlan: PlanArtifact;
+    options: ImplementerOptions; resolved: FileResolution;
+    assessedSteps: string[]; sessionId: string; maxRounds: number;
+    baseline: { sha: string; branch: string } | null;
+  }): PlanStepVerificationRunParams {
+    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, maxRounds, baseline } = args;
     return {
-      steps: filteredSteps,
+      steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
-      planArtifactPath: scopedPlan.path,
       repoDir: options.repoDir ?? process.cwd(),
+      baseRef: baseline?.sha,
       sessionId,
       maxRounds,
       silent: options.silent,

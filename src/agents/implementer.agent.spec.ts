@@ -2162,6 +2162,21 @@ describe('ImplementerAgent', () => {
       expect(planStepVerificationService.run).not.toHaveBeenCalled();
     });
 
+    it('skips service.run when commit policy allows commits (low estimated complexity)', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low' }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.run).not.toHaveBeenCalled();
+    });
+
     it('attaches stepVerification to result when summary is present', async () => {
       setupWithChanges();
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({

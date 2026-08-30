@@ -604,7 +604,14 @@ const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): 
   console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result${sourceHint} — resuming session`));
 };
 
+/**
+ * Logs a pass's outcome fields. Only genuinely unusable passes (no result, or
+ * result demoted from assistant_text) are labeled `cli.pass_unusable` at WARN —
+ * a usable pass logs as `cli.pass_outcome` at DEBUG so successful passes don't
+ * read as failures in the log.
+ */
 const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): void => {
+  const unusable = !passResult.result || passResult.source === 'assistant_text';
   const fields = [
     `pass=${state.passNumber}`,
     `stalledPasses=${state.stalledPasses}`,
@@ -615,7 +622,8 @@ const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): voi
     `session=${state.sessionId ?? 'none'}`,
   ].join(' ');
   const diagnostics = passResult.diagnostics.length ? ` diagnostics=${passResult.diagnostics.join(' | ')}` : '';
-  appendToLogFile('WARN', `cli.pass_unusable ${fields}${diagnostics}`, CLI_STAGE_LABEL);
+  const label = unusable ? 'cli.pass_unusable' : 'cli.pass_outcome';
+  appendToLogFile(unusable ? 'WARN' : 'DEBUG', `${label} ${fields}${diagnostics}`, CLI_STAGE_LABEL);
 };
 
 const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
