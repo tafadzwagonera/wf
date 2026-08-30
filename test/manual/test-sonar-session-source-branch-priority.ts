@@ -135,7 +135,7 @@ async function main(): Promise<void> {
 
   capturedRefs.length = 0;
   await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
   });
 
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {

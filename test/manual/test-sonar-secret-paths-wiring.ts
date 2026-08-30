@@ -17,10 +17,10 @@
  * Run: nr test:manual -- test-sonar-secret-paths-wiring
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { execSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { SonarStageService } from '../../src/review/sonar-stage.service';
@@ -79,9 +79,7 @@ async function testIssueReviewCommandDoesNotStageUntracked(
   try {
     await sonarStageService.scanIfEnabled({ repoDir: tempDir, force: true, allowPrompt: true, onProgress: () => {} });
 
-    if (calls.length !== 1) {
-      fail(`Expected exactly 1 runSonarScan call, got ${calls.length}`);
-    } else {
+    if (calls.length === 1) {
       const secretPaths = [...(calls[0].secretPaths ?? [])].sort();
       const expected = ['auth.ts', 'secrets.env'];
       if (JSON.stringify(secretPaths) === JSON.stringify(expected)) {
@@ -89,6 +87,8 @@ async function testIssueReviewCommandDoesNotStageUntracked(
       } else {
         fail(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(secretPaths)}`);
       }
+    } else {
+      fail(`Expected exactly 1 runSonarScan call, got ${calls.length}`);
     }
   } finally {
     (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;

@@ -16,10 +16,10 @@
  * Run: nr test:manual -- test-sonar-unrecovered-branch-warn-log
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { execFileSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
@@ -35,7 +35,8 @@ const pass = (message: string) => {
 };
 
 const fail = (message: string, detail?: string) => {
-  console.error(chalk.red(`  FAIL  ${message}${detail ? `\n    → ${detail}` : ''}`));
+  const suffix = detail ? `\n    → ${detail}` : '';
+  console.error(chalk.red(`  FAIL  ${message}${suffix}`));
   failed++;
 };
 
@@ -53,11 +54,6 @@ async function main(): Promise<void> {
   const originalWfHome = process.env.WF_HOME;
   process.env.WF_HOME = wfHome;
 
-  // A repo with no dev-like or main-like branch and no upstream: the heuristic resolves a
-  // baseRef ('solo') that shares no common history-free ancestor concept here since it *is*
-  // the only branch — instead we force the "no base at all" case by using a single branch
-  // with no development/main match and no upstream, so getUpstreamRef and the development
-  // check both come up empty and baseRef is undefined outright.
   git(repoDir, ['init', '-q', '-b', 'solo']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
   git(repoDir, ['config', 'user.name', 'Test']);

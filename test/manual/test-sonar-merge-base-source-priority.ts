@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   writePlanArtifactManifest({ ...manifest, sourceBranch: 'release/2026', branchName: 'feature/WBP-1-thing' });
 
   await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
   });
 
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {

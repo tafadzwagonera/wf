@@ -89,8 +89,7 @@ async function main(): Promise<void> {
     artifactPath,
     JSON.stringify({ action: 'feature', summary: 'x', steps: [], estimatedComplexity: 'low' })
   );
-  // Legacy manifest: no sourceBranch field at all. branchName lets it be found by the
-  // current branch, since --ticket-key now bypasses manifest lookup entirely (Tier B).
+
   writePlanArtifactManifest({
     ...buildPlanArtifactManifest({ artifactPath: artifactPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date() }),
     branchName: 'feature/WBP-1-thing',
@@ -107,9 +106,8 @@ async function main(): Promise<void> {
   const expectedMergeBase = git(repoDir, ['merge-base', 'release/2026', 'feature/WBP-1-thing']);
   const target = { repoDir, diff: '', title: '', context: '' };
 
-  // No inquirer wiring at all in this process — if the code required a prompt, it would hang or throw.
   await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
   });
 
   if (capturedRefs.at(-1) === expectedMergeBase) {
@@ -132,7 +130,7 @@ async function main(): Promise<void> {
 
   capturedRefs.length = 0;
   await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
   });
 
   const afterSecondRun = readPlanArtifactManifest(manifestPath);

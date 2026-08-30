@@ -96,26 +96,28 @@ describe('SonarStageService', () => {
 
     it('does not call the prompt when allowPrompt is false even in a TTY', async () => {
       setInteractiveSession();
-      const { service, mockConfigService } = await buildService();
+      const { service, mockConfigService, mockGitService } = await buildService();
       mockConfigService.get.mockReturnValue(true);
+      mockGitService.getStatus.mockResolvedValue({ staged: [] });
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
       const mockPrompt = promptForSourceBranch as jest.MockedFunction<typeof promptForSourceBranch>;
 
-      await service.scanIfEnabled({ repoDir: '/repo', ticketKey: 'WBP-1', allowPrompt: false });
+      await service.scanIfEnabled({ repoDir: '/repo', allowPrompt: false });
 
       expect(mockPrompt).not.toHaveBeenCalled();
     });
 
     it('defaults allowPrompt to false (no prompt even with TTY when field omitted)', async () => {
       setInteractiveSession();
-      const { service, mockConfigService } = await buildService();
+      const { service, mockConfigService, mockGitService } = await buildService();
       mockConfigService.get.mockReturnValue(true);
+      mockGitService.getStatus.mockResolvedValue({ staged: [] });
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
       const mockPrompt = promptForSourceBranch as jest.MockedFunction<typeof promptForSourceBranch>;
 
-      await service.scanIfEnabled({ repoDir: '/repo', ticketKey: 'WBP-1' });
+      await service.scanIfEnabled({ repoDir: '/repo' });
 
       expect(mockPrompt).not.toHaveBeenCalled();
     });
@@ -281,8 +283,8 @@ describe('SonarStageService', () => {
       });
     });
 
-    it('Tier B: runs a bare analyze immediately when the ticket key has no matching session', async () => {
-      const { service, mockGitService, mockSessionService } = await buildService();
+    it('Tier B: runs a bare analyze with a warn log when the ticket key has no matching session', async () => {
+      const { service, mockGitService, mockSessionService, mockLoggerService } = await buildService();
       const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
       mockRunSonar.mockClear();
       mockSessionService.findByTicketKey.mockResolvedValue(null);
@@ -301,6 +303,32 @@ describe('SonarStageService', () => {
       expect(mockGitService.getBranchCreationSource).not.toHaveBeenCalled();
       expect(mockGitService.getMergeBase).not.toHaveBeenCalled();
       expect(mockPrompt).not.toHaveBeenCalled();
+      expect(mockLoggerService.warn).toHaveBeenCalledWith(
+        expect.stringContaining('bare analyze'), 'sonar-stage'
+      );
+      expect(mockRunSonar).toHaveBeenCalledWith({
+        repoDir: '/tmp/repo', scope: { kind: 'branch' }, secretPaths: [], onProgress: undefined,
+      });
+    });
+
+    it('Tier B: runs a bare analyze with a warn log when session exists but yields no merge-base', async () => {
+      const { service, mockGitService, mockSessionService, mockLoggerService } = await buildService();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      mockSessionService.findByTicketKey.mockResolvedValue({ sourceBranch: 'release/2026' });
+      mockGitService.getStatus.mockResolvedValue({ staged: [] });
+      mockGitService.getBranchInfo.mockResolvedValue({
+        current: 'master', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      mockGitService.getMergeBase.mockResolvedValue(null);
+
+      await service.scanIfEnabled({ repoDir: '/tmp/repo', force: true, ticketKey: 'WBP-1', allowPrompt: true });
+
+      expect(mockSessionService.findByTicketKey).toHaveBeenCalledWith('WBP-1');
+      expect(mockGitService.getMergeBase).toHaveBeenCalledWith('release/2026', 'master', '/tmp/repo');
+      expect(mockLoggerService.warn).toHaveBeenCalledWith(
+        expect.stringContaining('bare analyze'), 'sonar-stage'
+      );
       expect(mockRunSonar).toHaveBeenCalledWith({
         repoDir: '/tmp/repo', scope: { kind: 'branch' }, secretPaths: [], onProgress: undefined,
       });

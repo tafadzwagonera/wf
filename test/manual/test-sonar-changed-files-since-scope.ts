@@ -81,10 +81,10 @@ async function main(): Promise<void> {
   }
 
   console.log(chalk.bold.cyan('\nTest 2: untracked-new.txt (never git add\'ed) is excluded'));
-  if (!actualFiles.includes('untracked-new.txt')) {
-    pass('untracked-new.txt correctly absent — git diff blind spot confirmed');
-  } else {
+  if (actualFiles.includes('untracked-new.txt')) {
     fail('untracked-new.txt should not appear in the changed-files list');
+  } else {
+    pass('untracked-new.txt correctly absent — git diff blind spot confirmed');
   }
   if (actualFiles.includes('tracked.txt') && actualFiles.includes('staged-new.txt')) {
     pass('tracked.txt (unstaged mod) and staged-new.txt (staged new file) are both included');
@@ -93,12 +93,7 @@ async function main(): Promise<void> {
   }
 
   console.log(chalk.bold.cyan('\nTest 3: resolveSonarOutputForTarget forwards this exact list as secretPaths'));
-  // Commit the tracked/staged changes so `git status` is clean and the command takes the
-  // merge-base fallback path (a non-empty `staged` list would short-circuit to the staged
-  // scope instead) — untracked-new.txt is deliberately left untouched and still untracked.
   git(repoDir, ['commit', '-q', '-am', 'feature work']);
-  // This repo has no dev-like branch or upstream, so the branch-name/upstream heuristic
-  // can't resolve a base on its own — record it via manifest so the merge-base path proceeds.
   const trackerDir = resolveArtifactDir(repoDir, 'jira');
   fs.mkdirSync(trackerDir, { recursive: true });
   const artifactPath = path.join(trackerDir, '2026-08-25-abc123-feature-plan.json');
@@ -106,8 +101,7 @@ async function main(): Promise<void> {
     artifactPath,
     JSON.stringify({ action: 'feature', summary: 'x', steps: [], estimatedComplexity: 'low' })
   );
-  // branchName lets it be found by the current branch — --ticket-key now bypasses manifest
-  // lookup entirely (Tier B), so this exercises the no-ticket-key branch-name path.
+
   writePlanArtifactManifest({
     ...buildPlanArtifactManifest({ artifactPath: artifactPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date() }),
     sourceBranch: 'master',
@@ -122,7 +116,7 @@ async function main(): Promise<void> {
 
   const target = { repoDir, diff: '', title: '', context: '' };
   await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
   });
 
   const capturedSorted = (capturedSecretPaths ?? []).slice().sort();

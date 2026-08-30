@@ -56,9 +56,6 @@ async function main(): Promise<void> {
   const originalWfHome = process.env.WF_HOME;
   process.env.WF_HOME = wfHome;
 
-  // Real checkout -b with an explicit start-point -> a real, resolvable reflog entry
-  // exists on this branch. If Tier B's bare-analyze path were reached only because
-  // reflog also failed, this setup would catch that — it must never even be tried.
   git(repoDir, ['init', '-q', '-b', 'master']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
   git(repoDir, ['config', 'user.name', 'Test']);

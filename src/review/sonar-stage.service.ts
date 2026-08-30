@@ -65,7 +65,7 @@ export class SonarStageService {
 
   private async runSonarAgainstMergeBase(options: SonarStageOptions): Promise<SonarScanResult> {
     if (options.ticketKey && !options.providerSessionId) {
-      return this.runSonarForTicketKeyOnly(options.repoDir, options.ticketKey, options.onProgress);
+      return this.runSonarForTicketKeyOnly(options.ticketKey, options);
     }
     const branchInfo = await this.gitService.getBranchInfo(options.repoDir);
     const baseRef = await this.resolveMergeBaseRef(options.repoDir, branchInfo, options);
@@ -172,19 +172,18 @@ export class SonarStageService {
   }
 
   private async runSonarForTicketKeyOnly(
-    repoDir: string, ticketKey: string, onProgress?: (line: string) => void
+    ticketKey: string, options: SonarStageOptions
   ): Promise<SonarScanResult> {
     const session = await this.sessionService.findByTicketKey(ticketKey);
     if (!session?.sourceBranch) {
-      return this.runBareAnalyze(repoDir, onProgress);
+      return this.logAndRunBareAnalyze(options);
     }
-    const branchInfo = await this.gitService.getBranchInfo(repoDir);
-    const mergeBase = await this.gitService.getMergeBase(session.sourceBranch, branchInfo.current, repoDir);
+    const branchInfo = await this.gitService.getBranchInfo(options.repoDir);
+    const mergeBase = await this.gitService.getMergeBase(session.sourceBranch, branchInfo.current, options.repoDir);
     if (!mergeBase) {
-      return this.runBareAnalyze(repoDir, onProgress);
+      return this.logAndRunBareAnalyze(options);
     }
-    const changedFiles = await this.gitService.getChangedFilesSince(mergeBase, repoDir);
-    return runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
+    return this.runSonarWithMergeBase(mergeBase, options);
   }
 
   private async runBareAnalyze(

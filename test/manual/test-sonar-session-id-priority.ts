@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     fail('Expected the newer session with sourceBranch release/2026', JSON.stringify(found));
   }
 
-  console.log(chalk.bold.cyan('\nTest 2: resolveSonarOutputForTarget uses --session-id, bypassing manifest/reflog'));
+  console.log(chalk.bold.cyan('\nTest 2: scanIfEnabled uses --session-id, bypassing manifest/reflog'));
   const capturedScopes: unknown[] = [];
   const originalRunSonarScan = sonarScannerModule.runSonarScan;
   (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = async (opts: { scope: unknown }) => {

@@ -93,8 +93,7 @@ async function main(): Promise<void> {
     artifactPath,
     JSON.stringify({ action: 'fix', summary: 'x', steps: [], estimatedComplexity: 'low' })
   );
-  // No ticketKey, no customArtifactName — only sourceName. sourceBranch is deliberately
-  // set to the "wrong" answer (develop) so the test can prove the session wins.
+
   writePlanArtifactManifest({
     ...buildPlanArtifactManifest({
       artifactPath, action: 'fix', format: 'json', hash: 'abc123',
@@ -131,7 +130,6 @@ async function main(): Promise<void> {
   };
 
   const target = { repoDir, diff: '', title: '', context: '' };
-  // No --ticket-key at all — custom plans have nothing to pass as one.
   await sonarStageService.scanIfEnabled({
     repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
   });
