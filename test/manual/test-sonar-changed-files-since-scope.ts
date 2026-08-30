@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { GitService } from '../../src/integrations/git/git.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: getChangedFilesSince real diff scope\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const gitService = app.get(GitService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-changed-files-'));
@@ -121,7 +121,9 @@ async function main(): Promise<void> {
   };
 
   const target = { repoDir, diff: '', title: '', context: '' };
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   const capturedSorted = (capturedSecretPaths ?? []).slice().sort();
   if (JSON.stringify(capturedSorted) === JSON.stringify(expectedFiles)) {

@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
 import { resolveArtifactDir } from '../../src/agents/utils';
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: sonar merge-base scope source-branch priority\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-priority-'));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-priority-home-'));
@@ -91,7 +91,9 @@ async function main(): Promise<void> {
   const target = { repoDir, diff: '', title: '', context: '' };
 
   console.log(chalk.bold.cyan('\nTest 1: heuristic picks develop when no manifest is recorded'));
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   if (capturedRefs.at(-1) === expectedDevelopMergeBase) {
     pass(`Heuristic resolved base ref to develop's real merge-base: ${expectedDevelopMergeBase}`);
@@ -112,7 +114,9 @@ async function main(): Promise<void> {
   // manifest lookup entirely (Tier B), so this exercises the no-ticket-key branch-name path.
   writePlanArtifactManifest({ ...manifest, sourceBranch: 'release/2026', branchName: 'feature/WBP-1-thing' });
 
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {
     pass(`Manifest's sourceBranch used release/2026's real merge-base instead: ${expectedReleaseMergeBase}`);

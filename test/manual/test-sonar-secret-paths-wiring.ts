@@ -23,7 +23,7 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { ReviewerAgent } from '../../src/agents/reviewer.agent';
 import { ConfigService } from '@nestjs/config';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
@@ -58,7 +58,7 @@ function forceSonarConfig(configService: ConfigService, enabled: boolean): () =>
 }
 
 async function testIssueReviewCommandDoesNotStageUntracked(
-  command: IssueReviewCommand, configService: ConfigService
+  sonarStageService: SonarStageService,
 ): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 1: resolveSonarOutputForTarget forwards only pre-staged files'));
 
@@ -75,11 +75,9 @@ async function testIssueReviewCommandDoesNotStageUntracked(
     calls.push(opts);
     return { status: 'clean' as const, steps: [] };
   };
-  const restoreConfig = forceSonarConfig(configService, true);
 
   try {
-    const resolveFn = (command as unknown as Record<string, (...a: unknown[]) => Promise<void>>)['resolveSonarOutputForTarget'];
-    await resolveFn.call(command, { repoDir: tempDir, diff: '', title: '', context: '' }, { sonar: true }, () => {});
+    await sonarStageService.scanIfEnabled({ repoDir: tempDir, force: true, allowPrompt: true, onProgress: () => {} });
 
     if (calls.length !== 1) {
       fail(`Expected exactly 1 runSonarScan call, got ${calls.length}`);
@@ -94,7 +92,6 @@ async function testIssueReviewCommandDoesNotStageUntracked(
     }
   } finally {
     (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;
-    restoreConfig();
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 }
@@ -153,11 +150,11 @@ async function run(): Promise<void> {
   console.log('Manual smoke: secretPaths wiring into runSonarScan\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const agent = app.get(ReviewerAgent);
   const configService = app.get(ConfigService);
 
-  await testIssueReviewCommandDoesNotStageUntracked(command, configService);
+  await testIssueReviewCommandDoesNotStageUntracked(sonarStageService);
   await testReviewerAgentStagesEverythingFirst(agent, configService);
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -100,6 +100,7 @@ interface IssueOptions {
   repos?: string[];
   sessionId?: string;
   silent?: boolean;
+  sonar?: boolean;
   ticketKey?: string;
   to?: string;
   tracker?: string;
@@ -269,6 +270,14 @@ export class IssueCommand extends CommandRunner {
     description: 'Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping',
   })
   parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--sonar',
+    description: 'Enable the SonarQube CLI scan during the REVIEW stage, overriding stages.review.sonar config',
+  })
+  parseSonar(): boolean {
     return true;
   }
 
@@ -1591,7 +1600,7 @@ export class IssueCommand extends CommandRunner {
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
     const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
-      suppressHeader: isMultiRepo, silent: options?.silent, ...sessionContext,
+      suppressHeader: isMultiRepo, silent: options?.silent, sonar: options?.sonar, ...sessionContext,
     });
     if (!reviewArtifact) return null;
 

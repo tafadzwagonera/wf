@@ -1,17 +1,15 @@
 import { Test } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import { ReviewerAgent } from './reviewer.agent';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { SonarStageService } from '../review/sonar-stage.service';
 import * as fs from 'fs';
-import * as sonarScanner from '../review/sonar-scanner';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 
-jest.mock('../review/sonar-scanner');
 jest.mock('../shared/utils/post-pull-install');
 jest.mock('../shared/utils/implement-verification');
 jest.mock('../shared/utils/detect-repo-conventions');
@@ -20,6 +18,10 @@ const mockRunPostPullDependencyInstall = jest.mocked(runPostPullDependencyInstal
 const mockResolveVerificationSummary = jest.mocked(resolveVerificationSummary);
 const mockDetectRepoConventions = jest.mocked(detectRepoConventions);
 const mockFormatRepoConventionsPromptSection = jest.mocked(formatRepoConventionsPromptSection);
+
+const createMockSonarStageService = () => ({
+  scanIfEnabled: jest.fn().mockResolvedValue(undefined),
+});
 
 describe('ReviewerAgent', () => {
   const createMockPresenter = () => ({
@@ -80,10 +82,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn().mockReturnValue(undefined),
-          },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -136,10 +136,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn().mockReturnValue(undefined),
-          },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -181,10 +179,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn().mockReturnValue(undefined),
-          },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -244,8 +240,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: { get: jest.fn().mockReturnValue(undefined) },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -304,8 +300,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: { get: jest.fn().mockReturnValue(undefined) },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -322,15 +318,8 @@ describe('ReviewerAgent', () => {
     expect(presenter.progress).not.toHaveBeenCalledWith('Synthesizing review...');
   });
 
-  it('calls runSonarScan before reviewDiff', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-
+  it('delegates sonar scan to SonarStageService before reviewDiff', async () => {
     const callOrder: string[] = [];
-    mockRunSonar.mockImplementation(async () => {
-      callOrder.push('sonar');
-      return { status: 'clean', steps: [] };
-    });
     const mockReviewDiff = jest.fn().mockImplementation(async () => {
       callOrder.push('review');
       return { review: { summary: 'ok', issues: [], suggestions: [], approved: true } };
@@ -359,9 +348,15 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockImplementation(async () => {
+      callOrder.push('sonar');
+      return { status: 'clean', steps: [] };
+    });
 
     const agent = module.get(ReviewerAgent);
     await agent.execute(
@@ -369,17 +364,13 @@ describe('ReviewerAgent', () => {
       { repoDir: '/tmp/repo' }
     );
 
-    expect(mockRunSonar).toHaveBeenCalledWith(
-      expect.objectContaining({ repoDir: '/tmp/repo', scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
+    expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: '/tmp/repo', ticketKey: 'WBP-123', allowPrompt: false })
     );
     expect(callOrder).toEqual(['sonar', 'review']);
   });
 
-  it('passes fork context to runSonarScan', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
-
+  it('passes ticketKey and allowPrompt:false to SonarStageService', async () => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewerAgent,
@@ -405,9 +396,12 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockResolvedValue({ status: 'clean', steps: [] });
 
     const agent = module.get(ReviewerAgent);
     await agent.execute(
@@ -421,15 +415,12 @@ describe('ReviewerAgent', () => {
       }
     );
 
-    expect(mockRunSonar).toHaveBeenCalledWith(
-      expect.objectContaining({ repoDir: '/tmp/repo', scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
+    expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: '/tmp/repo', ticketKey: 'WBP-123', allowPrompt: false })
     );
   });
 
   it('falls back to the current working directory when review repoDir is undefined', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
     const cwd = process.cwd();
 
     const module = await Test.createTestingModule({
@@ -457,9 +448,12 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockResolvedValue({ status: 'clean', steps: [] });
 
     const agent = module.get(ReviewerAgent);
     await agent.execute(
@@ -467,18 +461,15 @@ describe('ReviewerAgent', () => {
       {}
     );
 
-    expect(mockRunSonar).toHaveBeenCalledWith(
-      expect.objectContaining({ repoDir: cwd, scope: { kind: 'staged' }, secretPaths: ['src/auth.ts'] })
+    expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: cwd })
     );
   });
 
   it.each([
     ['ConfigurationError', new ConfigurationError('SonarQube CLI not found.')],
     ['ExecutionError', new ExecutionError('SonarQube analyze exited with code 2.')],
-  ])('continues the review when runSonarScan raises a %s', async (_name, sonarError) => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockRejectedValue(sonarError);
+  ])('continues the review when SonarStageService raises a %s', async (_name, sonarError) => {
     const mockReviewDiff = jest.fn().mockResolvedValue({
       review: { summary: 'ok', issues: [], suggestions: [], approved: true },
     });
@@ -500,9 +491,12 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: { reviewDiff: mockReviewDiff, buildReviewArtifact: jest.fn() },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockRejectedValue(sonarError);
 
     const agent = module.get(ReviewerAgent);
     const result = await agent.execute(
@@ -516,13 +510,6 @@ describe('ReviewerAgent', () => {
   });
 
   it('threads Sonar findings text into reviewDiff context when findings are returned', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockResolvedValue({
-      status: 'findings',
-      findingsText: 'SonarQube analyze findings:\nRule hit',
-      steps: [{ step: 'analyze', status: 'findings', exitCode: 51, output: 'Rule hit' }],
-    });
     const mockReviewDiff = jest.fn().mockResolvedValue({
       review: { summary: 'ok', issues: [], suggestions: [], approved: true },
     });
@@ -550,9 +537,16 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockResolvedValue({
+      status: 'findings',
+      findingsText: 'SonarQube analyze findings:\nRule hit',
+      steps: [{ step: 'analyze', status: 'findings', exitCode: 51, output: 'Rule hit' }],
+    });
 
     const agent = module.get(ReviewerAgent);
     await agent.execute(
@@ -569,10 +563,7 @@ describe('ReviewerAgent', () => {
   });
 
   it('does not contain non-sonar errors raised while running the SonarQube CLI scan', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
     const unrelatedError = new Error('unexpected failure');
-    mockRunSonar.mockRejectedValue(unrelatedError);
 
     const module = await Test.createTestingModule({
       providers: [
@@ -590,9 +581,12 @@ describe('ReviewerAgent', () => {
           provide: ReviewStageService,
           useValue: { reviewDiff: jest.fn(), buildReviewArtifact: jest.fn() },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(true) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
+
+    const sonarStageService = module.get(SonarStageService);
+    (sonarStageService.scanIfEnabled as jest.Mock).mockRejectedValue(unrelatedError);
 
     const agent = module.get(ReviewerAgent);
     await expect(agent.execute(
@@ -601,12 +595,7 @@ describe('ReviewerAgent', () => {
     )).rejects.toThrow(unrelatedError);
   });
 
-  it('skips the SonarQube CLI scan when review sonar config is undefined', async () => {
-    type SonarFn = typeof sonarScanner.runSonarScan;
-    const mockRunSonar = sonarScanner.runSonarScan as jest.MockedFunction<SonarFn>;
-    mockRunSonar.mockClear();
-    mockRunSonar.mockResolvedValue({ status: 'clean', steps: [] });
-
+  it('always delegates to SonarStageService and forwards options.sonar as force', async () => {
     const module = await Test.createTestingModule({
       providers: [
         ReviewerAgent,
@@ -632,17 +621,29 @@ describe('ReviewerAgent', () => {
             }),
           },
         },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+        { provide: SonarStageService, useValue: createMockSonarStageService() },
       ],
     }).compile();
 
+    const sonarStageService = module.get(SonarStageService);
     const agent = module.get(ReviewerAgent);
+
+    await agent.execute(
+      { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+      { repoDir: '/tmp/repo', sonar: true }
+    );
+    expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true })
+    );
+
+    (sonarStageService.scanIfEnabled as jest.Mock).mockClear();
     await agent.execute(
       { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
       { repoDir: '/tmp/repo' }
     );
-
-    expect(mockRunSonar).not.toHaveBeenCalled();
+    expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ force: undefined })
+    );
   });
 
   it('suppresses progress when silent is true and no onProgress is provided', async () => {
@@ -687,8 +688,8 @@ describe('ReviewerAgent', () => {
           },
         },
         {
-          provide: ConfigService,
-          useValue: { get: jest.fn().mockReturnValue(undefined) },
+          provide: SonarStageService,
+          useValue: createMockSonarStageService(),
         },
       ],
     }).compile();
@@ -739,7 +740,7 @@ describe('ReviewerAgent', () => {
               }),
             },
           },
-          { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
         ],
       }).compile();
 

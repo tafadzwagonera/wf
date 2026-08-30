@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: --session-id priority via findByProviderSessionId\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-session-id-'));
@@ -115,20 +115,25 @@ async function main(): Promise<void> {
 
   let reflogCalls = 0;
   let manifestCalls = 0;
-  (command as any).gitService.getBranchCreationSource = async () => {
+  (sonarStageService as any).gitService.getBranchCreationSource = async () => {
     reflogCalls++;
     return null;
   };
-  const originalFindByBranchName = (command as any).findManifestByBranchName.bind(command);
-  (command as any).findManifestByBranchName = (...args: unknown[]) => {
+  const originalFindByBranchName = (sonarStageService as any).findManifestByBranchName.bind(sonarStageService);
+  (sonarStageService as any).findManifestByBranchName = (...args: unknown[]) => {
     manifestCalls++;
     return originalFindByBranchName(...args);
   };
 
   const target = { repoDir, diff: '', title: '', context: '' };
-  await (command as any).resolveSonarOutputForTarget(
-    target, { sonar: true, ticketKey: 'WBP-1', sessionId: 'provider-abc' }, () => {}
-  );
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir,
+    force: true,
+    ticketKey: 'WBP-1',
+    providerSessionId: 'provider-abc',
+    allowPrompt: true,
+    onProgress: () => {},
+  });
 
   if (reflogCalls === 0 && manifestCalls === 0) {
     pass('Neither git reflog nor the plan-manifest lookup was called — Tier A short-circuited before Tier C');

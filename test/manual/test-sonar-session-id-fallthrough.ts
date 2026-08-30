@@ -20,7 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: --session-id miss falls through to Tier C\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-session-id-fallthrough-'));
@@ -103,8 +103,8 @@ async function main(): Promise<void> {
   };
 
   let manifestCalls = 0;
-  const originalFindByBranchName = (command as any).findManifestByBranchName.bind(command);
-  (command as any).findManifestByBranchName = (...args: unknown[]) => {
+  const originalFindByBranchName = (sonarStageService as any).findManifestByBranchName.bind(sonarStageService);
+  (sonarStageService as any).findManifestByBranchName = (...args: unknown[]) => {
     manifestCalls++;
     return originalFindByBranchName(...args);
   };
@@ -113,9 +113,13 @@ async function main(): Promise<void> {
   const target = { repoDir, diff: '', title: '', context: '' };
 
   // No inquirer wiring at all in this process — if the code required a prompt, it would hang or throw.
-  await (command as any).resolveSonarOutputForTarget(
-    target, { sonar: true, sessionId: 'provider-does-not-exist' }, () => {}
-  );
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir,
+    force: true,
+    providerSessionId: 'provider-does-not-exist',
+    allowPrompt: true,
+    onProgress: () => {},
+  });
 
   if (manifestCalls > 0) {
     pass('findManifestByBranchName was called — Tier C was engaged after the Tier A miss');

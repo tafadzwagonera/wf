@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { GitService } from '../../src/integrations/git/git.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import {
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: git reflog source-branch recovery\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const gitService = app.get(GitService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-reflog-'));
@@ -108,7 +108,9 @@ async function main(): Promise<void> {
   const target = { repoDir, diff: '', title: '', context: '' };
 
   // No inquirer wiring at all in this process — if the code required a prompt, it would hang or throw.
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   if (capturedRefs.at(-1) === expectedMergeBase) {
     pass(`Recovered release/2026 via reflog with no prompt; merge-base matches: ${expectedMergeBase}`);
@@ -129,7 +131,9 @@ async function main(): Promise<void> {
   writePlanArtifactManifest({ ...(persisted as NonNullable<typeof persisted>), sourceBranch: 'develop' });
 
   capturedRefs.length = 0;
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   const afterSecondRun = readPlanArtifactManifest(manifestPath);
   if (afterSecondRun?.sourceBranch === 'develop') {

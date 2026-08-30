@@ -23,7 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: custom-plan session lookup by sourceName\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-custom-session-'));
@@ -125,14 +125,16 @@ async function main(): Promise<void> {
   };
 
   let reflogCalls = 0;
-  (command as any).gitService.getBranchCreationSource = async () => {
+  (sonarStageService as any).gitService.getBranchCreationSource = async () => {
     reflogCalls++;
     return null;
   };
 
   const target = { repoDir, diff: '', title: '', context: '' };
   // No --ticket-key at all — custom plans have nothing to pass as one.
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   if (reflogCalls === 0) {
     pass('git reflog was never called — the session-by-sourceName lookup resolved it first');

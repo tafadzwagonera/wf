@@ -600,6 +600,10 @@
         "description": "Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping"
       },
       {
+        "flags": "--sonar",
+        "description": "Enable the SonarQube CLI scan during the REVIEW stage, overriding stages.review.sonar config"
+      },
+      {
         "flags": "-k, --ticket-key <key>",
         "description": "Ticket key to run the full workflow for (e.g. WBP-2971)"
       },

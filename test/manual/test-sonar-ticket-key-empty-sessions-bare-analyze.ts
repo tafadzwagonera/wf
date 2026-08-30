@@ -23,7 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: bare --ticket-key with an empty session directory\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-empty-sessions-'));
@@ -92,21 +92,23 @@ async function main(): Promise<void> {
 
   let reflogCalls = 0;
   let mergeBaseCalls = 0;
-  const originalGetBranchCreationSource = (command as any).gitService.getBranchCreationSource.bind(
-    (command as any).gitService
+  const originalGetBranchCreationSource = (sonarStageService as any).gitService.getBranchCreationSource.bind(
+    (sonarStageService as any).gitService
   );
-  const originalGetMergeBase = (command as any).gitService.getMergeBase.bind((command as any).gitService);
-  (command as any).gitService.getBranchCreationSource = async (...args: unknown[]) => {
+  const originalGetMergeBase = (sonarStageService as any).gitService.getMergeBase.bind(
+    (sonarStageService as any).gitService
+  );
+  (sonarStageService as any).gitService.getBranchCreationSource = async (...args: unknown[]) => {
     reflogCalls++;
     return originalGetBranchCreationSource(...args);
   };
-  (command as any).gitService.getMergeBase = async (...args: unknown[]) => {
+  (sonarStageService as any).gitService.getMergeBase = async (...args: unknown[]) => {
     mergeBaseCalls++;
     return originalGetMergeBase(...args);
   };
 
   const target = { repoDir, diff: '', title: '', context: '' };
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true, ticketKey: 'WBP-1' }, () => {});
+  await sonarStageService.scanIfEnabled({ repoDir: target.repoDir, force: true, ticketKey: 'WBP-1', allowPrompt: true, onProgress: () => {} });
 
   if (reflogCalls === 0 && mergeBaseCalls === 0) {
     pass('Neither git reflog nor getMergeBase was called — bare analyze ran immediately on the session miss');

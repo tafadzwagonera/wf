@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: session sourceBranch priority over manifest\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-session-priority-'));
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
     fail('Expected the session to be found with sourceBranch release/2026', JSON.stringify(ticketSession));
   }
 
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true, ticketKey: 'WBP-1' }, () => {});
+  await sonarStageService.scanIfEnabled({ repoDir: target.repoDir, force: true, ticketKey: 'WBP-1', allowPrompt: true, onProgress: () => {} });
 
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {
     pass(`Tier B used the session's sourceBranch — real merge-base: ${expectedReleaseMergeBase}`);
@@ -134,7 +134,9 @@ async function main(): Promise<void> {
   });
 
   capturedRefs.length = 0;
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, () => {});
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir, force: true, allowPrompt: true, onProgress: () => {},
+  });
 
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {
     pass(`Tier C preferred the session's sourceBranch over the manifest field — real merge-base: ${expectedReleaseMergeBase}`);

@@ -20,17 +20,11 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { ConfigService } from '@nestjs/config';
 import { runSonarScan } from '../../src/review/sonar-scanner';
 import { ConfigurationError } from '../../src/shared/errors/app.error';
 import chalk from 'chalk';
-
-type ResolveFn = (
-  target: Record<string, unknown>,
-  options: Record<string, unknown>,
-  onProgress: (m: string) => void
-) => Promise<void>;
 
 function initGitRepoWithStagedFile(dir: string): void {
   execSync('git init -q', { cwd: dir });
@@ -47,7 +41,7 @@ async function run(): Promise<void> {
     logger: ['error'],
   });
 
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
   const configService = app.get(ConfigService);
 
   let passed = 0;
@@ -61,9 +55,6 @@ async function run(): Promise<void> {
     failed++;
   };
 
-  const cmd = command as unknown as Record<string, ResolveFn>;
-  const resolve: ResolveFn = cmd['resolveSonarOutputForTarget'].bind(command);
-
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-gate-'));
   initGitRepoWithStagedFile(tempDir);
 
@@ -71,11 +62,12 @@ async function run(): Promise<void> {
 
   const msgs1: string[] = [];
   try {
-    await resolve(
-      { repoDir: tempDir, diff: '', title: '', context: '' },
-      { sonar: true },
-      (m: string) => msgs1.push(m)
-    );
+    await sonarStageService.scanIfEnabled({
+      repoDir: tempDir,
+      force: true,
+      allowPrompt: true,
+      onProgress: (m: string) => msgs1.push(m),
+    });
     // runSonarScan only calls onProgress for findings, not for a clean result, so a clean
     // authenticated scan legitimately resolves with zero progress messages and no error.
     pass(
@@ -99,11 +91,11 @@ async function run(): Promise<void> {
     return originalGet(key, ...rest);
   };
 
-  await resolve(
-    { repoDir: tempDir, diff: '', title: '', context: '' },
-    {},
-    (m: string) => msgs2.push(m)
-  );
+  await sonarStageService.scanIfEnabled({
+    repoDir: tempDir,
+    allowPrompt: true,
+    onProgress: (m: string) => msgs2.push(m),
+  });
 
   (configService as unknown as Record<string, unknown>)['get'] = originalGet;
 
@@ -113,11 +105,11 @@ async function run(): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 2b: stages.review.sonar: undefined (default) bypasses scan'));
 
   const msgs2b: string[] = [];
-  await resolve(
-    { repoDir: tempDir, diff: '', title: '', context: '' },
-    {},
-    (m: string) => msgs2b.push(m)
-  );
+  await sonarStageService.scanIfEnabled({
+    repoDir: tempDir,
+    allowPrompt: true,
+    onProgress: (m: string) => msgs2b.push(m),
+  });
 
   if (msgs2b.length === 0) pass('No progress emitted when config sonar is undefined');
   else fail(`Expected no messages, got: ${JSON.stringify(msgs2b)}`);

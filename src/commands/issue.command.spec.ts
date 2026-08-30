@@ -2425,6 +2425,36 @@ describe('IssueCommand', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review failed for repo-1'));
       expect(mockPersistArtifact).toHaveBeenCalledWith(expect.objectContaining({ path: '/tmp/review-2.md' }), 'WBP-SKIP');
     });
+
+    it('forwards --sonar flag to reviewer.execute', async () => {
+      const mockReviewerExecute = jest.fn().mockResolvedValue(null);
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-123', content: '# WBP-123\n\nTest',
+            path: '/tmp/consumer-app/jira/WBP-123.md',
+          }),
+        },
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
+      };
+
+      const command = await buildTestCommand(mockOrchestrator);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await (command as any).runReviewForRepo(undefined, {
+        isMultiRepo: false,
+        options: { sonar: true },
+        planArtifact: undefined,
+        repos: [undefined],
+        sessionContext: {},
+        ticketArtifact: { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/consumer-app/jira/WBP-123.md' },
+      });
+
+      expect(mockReviewerExecute).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ sonar: true })
+      );
+    });
   });
 
   describe('resolveCustomPlanToken action mismatch', () => {

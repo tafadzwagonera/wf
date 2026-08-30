@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
@@ -9,7 +8,8 @@ import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
-import { runSonarScan, type SonarScanResult } from '../review/sonar-scanner';
+import type { SonarScanResult } from '../review/sonar-scanner';
+import { SonarStageService } from '../review/sonar-stage.service';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
@@ -20,7 +20,7 @@ export class ReviewerAgent {
   constructor(
     private readonly gitService: GitService,
     private readonly reviewStageService: ReviewStageService,
-    private readonly configService: ConfigService,
+    private readonly sonarStageService: SonarStageService,
     private readonly presenter: CliPresenter
   ) {}
 
@@ -54,7 +54,7 @@ export class ReviewerAgent {
 
     const repoDir = options.repoDir ?? process.cwd();
     await this.gitService.stageAll(repoDir);
-    const sonarResult = await this.runSonarStage(repoDir, options, onProgress);
+    const sonarResult = await this.runSonarStage(repoDir, ticket, options, onProgress);
 
     const { review, sessionId } = await this.stageAndReview(ticket, repoDir, options, onProgress, sonarResult);
 
@@ -115,18 +115,21 @@ export class ReviewerAgent {
   }
 
   /**
-   * Runs the SonarQube CLI scan for the REVIEW stage, containing failures to this
-   * repository's review rather than letting them escape to the caller's workflow.
-   * @returns Sonar scan results when the CLI run succeeds, or undefined when a handled
-   * CLI failure should continue the review without Sonar findings
+   * Delegates SonarQube scan for the REVIEW stage to SonarStageService (gating, scope
+   * selection, and source-branch fallback live there). Contains CLI failures so that
+   * a scan error continues the review without Sonar findings rather than aborting.
    */
   private async runSonarStage(
-    repoDir: string, options: ReviewerOptions, onProgress?: (line: string) => void
+    repoDir: string, ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
   ): Promise<SonarScanResult | undefined> {
-    if (this.configService.get<boolean>('stages.review.sonar') !== true) return undefined;
     try {
-      const { staged } = await this.gitService.getStatus(repoDir);
-      return await runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
+      return await this.sonarStageService.scanIfEnabled({
+        repoDir,
+        force: options.sonar,
+        ticketKey: ticket.ticketKey,
+        allowPrompt: false,
+        onProgress,
+      });
     } catch (error) {
       if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
       const message = `SonarQube CLI error — continuing review for ${path.basename(repoDir)} without Sonar findings: ${error.message}`;

@@ -22,6 +22,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { SlackService } from '../integrations/slack/slack.service';
 import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
 import { SessionModule } from '../shared/session/session.module';
+import { ReviewModule } from '../review/review.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { SessionModule } from '../shared/session/session.module';
     ConvertersModule,
     WorkflowStagesModule,
     SessionModule,
+    ReviewModule,
   ],
   providers: [
     ConfigCommand,

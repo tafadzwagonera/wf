@@ -29,19 +29,14 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext } from '../shared/types/conversation.types';
 import { SessionService } from '../shared/session/session.service';
-import type { SessionState } from '../shared/types/session.types';
-import {
-  deriveReviewArtifactPath, findPlanArtifactManifestByBranchName,
-  updatePlanArtifactManifestSourceBranch, type PlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
-import { promptForSourceBranch } from '../shared/utils/source-branch-prompt';
-import type { BranchInfo } from '../shared/types/git.types';
+import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import { retryOnTransient } from '../shared/utils/retry-on-transient';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
-import { runSonarScan, type SonarScanResult } from '../review/sonar-scanner';
+import type { SonarScanResult } from '../review/sonar-scanner';
+import { SonarStageService } from '../review/sonar-stage.service';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
@@ -152,7 +147,8 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly reviewStageService: ReviewStageService,
     private readonly conversationService: ConversationService,
     private readonly reviewPresenter: ReviewPresenter,
-    private readonly sessionService: SessionService
+    private readonly sessionService: SessionService,
+    private readonly sonarStageService: SonarStageService
   ) {
     super();
   }
@@ -665,194 +661,6 @@ export class IssueReviewCommand extends CommandRunner {
     };
   }
 
-  private async resolveSonarOutputForTarget(
-    target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<SonarScanResult | undefined> {
-    const configEnabled = this.configService.get<boolean>('stages.review.sonar') === true;
-    if (!options?.sonar && !configEnabled) return undefined;
-    const repoDir = target.repoDir ?? process.cwd();
-    const { staged } = await this.gitService.getStatus(repoDir);
-    if (staged.length) {
-      return runSonarScan({ repoDir, scope: { kind: 'staged' }, secretPaths: staged, onProgress });
-    }
-    return this.runSonarAgainstMergeBase(repoDir, options, onProgress);
-  }
-
-  /**
-   * Resolves the branch to diff against without re-guessing from branch-name heuristics,
-   * which can't disambiguate between multiple long-lived branches (e.g. both `master` and
-   * `develop` present in the same repo).
-   *
-   * When `--session-id` names an AI-provider session, the persisted `wf` session that ran
-   * that plan stage is the point of origin and takes priority; on a miss this falls through
-   * to the chain below rather than failing outright, since the provider session ID may simply
-   * be unrelated to any local session.
-   *
-   * Otherwise: find the plan manifest by the current branch's recorded name (the only way to
-   * find a custom plan's manifest, since custom plans have no ticket key to search by); use
-   * its own ticket key/custom name/source name to look up the session that recorded this
-   * branch's fork point (a more reliable anchor than the manifest's own `sourceBranch` field,
-   * since it's written by whatever ran the unified `wf issue` orchestrator regardless of
-   * invocation path); fall back to the manifest's own field; then git's reflog record of the
-   * branch's creation; then an interactive prompt.
-   */
-  private async resolveRecordedSourceBranch(
-    repoDir: string, branchInfo: BranchInfo, options?: IssueReviewOptions
-  ): Promise<string | undefined> {
-    try {
-      if (options?.sessionId) {
-        const originSession = await this.sessionService.findByProviderSessionId(options.sessionId, 'plan');
-        if (originSession?.sourceBranch) return originSession.sourceBranch;
-      }
-      return await this.resolveSourceBranchFromManifestChain(repoDir, branchInfo, options);
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** Tier C: manifest (by branch name) → its recorded session → its own field → reflog → prompt. */
-  private async resolveSourceBranchFromManifestChain(
-    repoDir: string, branchInfo: BranchInfo, options?: IssueReviewOptions
-  ): Promise<string | undefined> {
-    const manifest = this.findManifestByBranchName(repoDir, branchInfo.current, options);
-    const manifestSession = await this.findSessionForManifest(manifest);
-    if (manifestSession?.sourceBranch) return manifestSession.sourceBranch;
-    if (manifest?.sourceBranch) return manifest.sourceBranch;
-
-    const reflogSource = await this.gitService.getBranchCreationSource(branchInfo.current, repoDir);
-    if (reflogSource) {
-      this.persistSourceBranch(manifest, reflogSource, branchInfo.current);
-      return reflogSource;
-    }
-
-    return await this.promptForMissingSourceBranch(branchInfo, manifest);
-  }
-
-  /** Looks up the session recorded for a manifest's own identifier, if the manifest has one. */
-  private async findSessionForManifest(manifest: PlanArtifactManifest | undefined): Promise<SessionState | null> {
-    const identifier = manifest?.ticketKey ?? manifest?.customArtifactName ?? manifest?.sourceName;
-    if (!identifier) return null;
-    return this.sessionService.findByTicketKey(identifier);
-  }
-
-  /**
-   * Looks up the plan manifest recorded for the current branch by name, across both the
-   * custom-plan directory and the tracker directory — the only way to find a custom plan's
-   * manifest, since custom plans have no ticket key to look them up by.
-   */
-  private findManifestByBranchName(
-    repoDir: string, branchName: string, options?: IssueReviewOptions
-  ): PlanArtifactManifest | undefined {
-    const trackerName = this.resolveTicketAdapter(options?.tracker)?.getTrackerName();
-    const artifactDirs = [resolveCustomArtifactDir(repoDir)];
-    if (trackerName) artifactDirs.push(resolveArtifactDir(repoDir, trackerName));
-    return findPlanArtifactManifestByBranchName(branchName, artifactDirs);
-  }
-
-  /** Persists a recovered source branch onto `manifest`, when one exists to persist onto. */
-  private persistSourceBranch(
-    manifest: PlanArtifactManifest | undefined, sourceBranch: string, branchName: string
-  ): void {
-    if (manifest) updatePlanArtifactManifestSourceBranch(manifest.artifactPath, sourceBranch, branchName);
-  }
-
-  /**
-   * Prompts the user to disambiguate the source branch when nothing else could resolve it —
-   * reusing the same interactive disambiguation the implementer uses at branch-creation time.
-   * Always prompts when a TTY is available, ignoring `--silent` — an unrecovered source branch
-   * risks silently scanning the wrong diff scope, which is worse than a decorative-output
-   * suppression flag skipping one interactive prompt. Skipped only when there's truly no TTY
-   * to prompt on (e.g. CI), where the caller falls back to the branch-name heuristic instead.
-   * When a manifest is available, the answer is persisted so future runs don't need to ask.
-   */
-  private async promptForMissingSourceBranch(
-    branchInfo: BranchInfo, manifest: PlanArtifactManifest | undefined
-  ): Promise<string | undefined> {
-    if (!this.isInteractiveSession()) return undefined;
-    const devBranches = this.gitService.detectDevelopmentBranches(branchInfo.all);
-    const mainBranch = this.gitService.detectMainBranch(branchInfo.all);
-    const selected = devBranches.length > 1
-      ? await promptForSourceBranch(devBranches, mainBranch)
-      : devBranches[0] ?? mainBranch;
-    if (!selected) return undefined;
-    this.persistSourceBranch(manifest, selected, branchInfo.current);
-    return selected;
-  }
-
-  /**
-   * Falls back to diffing against the branch's merge-base when nothing is staged — true for
-   * any commit-as-you-go branch (this project's convention — see git-workflow) by the time
-   * review runs, which would otherwise leave a staged-only scope silently no-op-ing forever.
-   *
-   * `sonar analyze --base <ref>` diffs the working tree against <ref>'s current tip (two-dot),
-   * not the merge-base (three-dot). If the base branch has moved since this branch forked,
-   * passing its name directly scans an unrelated, noisy file set and misses this branch's real
-   * changes. Passing the merge-base sha instead makes that same two-dot diff equivalent to the
-   * three-dot diff actually wanted, with no history rewrite.
-   *
-   * When there is no separate base branch to compare against — trunk-based development, or
-   * working directly on `main`/`develop` — the branch's own remote-tracking ref stands in for
-   * the base instead, so committed-but-unpushed work still gets scanned.
-   */
-  private async runSonarAgainstMergeBase(
-    repoDir: string, options?: IssueReviewOptions, onProgress?: (line: string) => void
-  ): Promise<SonarScanResult> {
-    if (options?.ticketKey && !options?.sessionId) {
-      return this.runSonarForTicketKeyOnly(repoDir, options.ticketKey, onProgress);
-    }
-
-    const branchInfo = await this.gitService.getBranchInfo(repoDir);
-    const baseRef = await this.resolveMergeBaseRef(repoDir, branchInfo, options);
-    const mergeBase = baseRef ? await this.gitService.getMergeBase(baseRef, branchInfo.current, repoDir) : null;
-    if (!mergeBase) {
-      const message = 'SonarQube CLI: no base branch to diff against — running a bare analyze instead';
-      onProgress?.(message);
-      this.logger.warn(message, 'issue-review:sonar');
-      return this.runBareAnalyze(repoDir, onProgress);
-    }
-    const changedFiles = await this.gitService.getChangedFilesSince(mergeBase, repoDir);
-    return runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
-  }
-
-  /** Recorded source branch when one resolves, else the development-branch/upstream heuristic. */
-  private async resolveMergeBaseRef(
-    repoDir: string, branchInfo: BranchInfo, options?: IssueReviewOptions
-  ): Promise<string | null> {
-    const recordedSourceBranch = await this.resolveRecordedSourceBranch(repoDir, branchInfo, options);
-    if (recordedSourceBranch) return recordedSourceBranch;
-    if (branchInfo.development && branchInfo.development !== branchInfo.current) return branchInfo.development;
-    return this.gitService.getUpstreamRef(branchInfo.current, repoDir);
-  }
-
-  /**
-   * Tier B: a ticket key with no local session to anchor it to is the "implemented remotely"
-   * signal — there's certainly no local git history to diff against, so this skips straight
-   * to a bare analyze with no reflog/prompt/manifest fallback attempted. A ticket key that
-   * *does* resolve to a session (e.g. `--to review` chained right after a local implement, in
-   * the same run that just wrote it) still gets the normal merge-base scoping.
-   */
-  private async runSonarForTicketKeyOnly(
-    repoDir: string, ticketKey: string, onProgress?: (line: string) => void
-  ): Promise<SonarScanResult> {
-    const session = await this.sessionService.findByTicketKey(ticketKey);
-    if (!session?.sourceBranch) {
-      return this.runBareAnalyze(repoDir, onProgress);
-    }
-    const branchInfo = await this.gitService.getBranchInfo(repoDir);
-    const mergeBase = await this.gitService.getMergeBase(session.sourceBranch, branchInfo.current, repoDir);
-    if (!mergeBase) {
-      return this.runBareAnalyze(repoDir, onProgress);
-    }
-    const changedFiles = await this.gitService.getChangedFilesSince(mergeBase, repoDir);
-    return runSonarScan({ repoDir, scope: { kind: 'base', ref: mergeBase }, secretPaths: changedFiles, onProgress });
-  }
-
-  /** Runs a bare `sonar analyze` with no scope-narrowing flag — the terminal fallback when
-   * there's no local artifact to compute a merge-base diff scope from. */
-  private async runBareAnalyze(repoDir: string, onProgress?: (line: string) => void): Promise<SonarScanResult> {
-    return runSonarScan({ repoDir, scope: { kind: 'branch' }, secretPaths: [], onProgress });
-  }
-
   /**
    * Runs the SonarQube CLI scan for one review target, containing failures to this
    * target's review rather than letting them escape into the AI review that follows.
@@ -863,15 +671,29 @@ export class IssueReviewCommand extends CommandRunner {
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
   ): Promise<SonarScanResult | undefined> {
     try {
-      return await this.resolveSonarOutputForTarget(target, options, onProgress);
+      return await this.sonarStageService.scanIfEnabled({
+        repoDir: target.repoDir ?? process.cwd(),
+        force: options?.sonar,
+        ticketKey: options?.ticketKey,
+        providerSessionId: options?.sessionId,
+        trackerName: this.resolveTrackerNameSafely(options?.tracker),
+        allowPrompt: true,
+        onProgress,
+      });
     } catch (error) {
       if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
-      this.logger.warn(`Review target continuing without SonarQube findings for ${target.title}: ${error.message}`);
-      if (!options?.silent) {
-        console.log(chalk.yellow(`\n⚠ SonarQube CLI error — continuing review for ${target.title} without Sonar findings: ${error.message}\n`));
-      }
-      return undefined;
+      return this.warnAndSkipSonar(error, target, options?.silent);
     }
+  }
+
+  private warnAndSkipSonar(
+    error: ConfigurationError | ExecutionError, target: ReviewTarget, silent?: boolean
+  ): undefined {
+    this.logger.warn(`Review target continuing without SonarQube findings for ${target.title}: ${error.message}`);
+    if (!silent) {
+      console.log(chalk.yellow(`\n⚠ SonarQube CLI error — continuing review for ${target.title} without Sonar findings: ${error.message}\n`));
+    }
+    return undefined;
   }
 
   private handleReviewParseError(error: unknown, options?: IssueReviewOptions): void {
@@ -1067,6 +889,14 @@ export class IssueReviewCommand extends CommandRunner {
 
   private resolveTicketAdapter(tracker?: string) {
     return tracker ? this.issueTrackerService.getAdapter(tracker) : this.issueTrackerService.getDefaultAdapter();
+  }
+
+  private resolveTrackerNameSafely(tracker?: string): string | undefined {
+    try {
+      return this.resolveTicketAdapter(tracker)?.getTrackerName();
+    } catch {
+      return undefined;
+    }
   }
 
   private buildTicketContext(ticket: UniversalTicket): string {

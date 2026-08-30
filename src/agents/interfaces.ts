@@ -63,6 +63,8 @@ export interface ReviewerOptions {
   onProgress?: (line: string) => void;
   estimatedComplexity?: string;
   passCount?: number;
+  /** Force the SonarQube scan on, overriding `stages.review.sonar` config (CLI `--sonar`). */
+  sonar?: boolean;
 }
 
 /**

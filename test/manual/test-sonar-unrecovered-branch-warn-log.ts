@@ -23,7 +23,7 @@ import { execFileSync } from 'child_process';
 import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
-import { IssueReviewCommand } from '../../src/commands/issue-review.command';
+import { SonarStageService } from '../../src/review/sonar-stage.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 
 let passed = 0;
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   console.log('Manual smoke: unrecovered source branch WARN log\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const command = app.get(IssueReviewCommand);
+  const sonarStageService = app.get(SonarStageService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-warn-log-'));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-warn-log-home-'));
@@ -76,7 +76,12 @@ async function main(): Promise<void> {
   const progressMessages: string[] = [];
 
   console.log(chalk.bold.cyan('\nTest 1: falls back to a bare analyze instead of skipping'));
-  await (command as any).resolveSonarOutputForTarget(target, { sonar: true }, (m: string) => progressMessages.push(m));
+  await sonarStageService.scanIfEnabled({
+    repoDir: target.repoDir,
+    force: true,
+    allowPrompt: true,
+    onProgress: (m: string) => progressMessages.push(m),
+  });
 
   if (
     capturedRefs.length === 1
