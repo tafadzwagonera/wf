@@ -199,4 +199,20 @@ describe('CodexCliAdapter', () => {
       expect.objectContaining({ codexVersion: { major: 0, minor: 147, patch: 0 } }),
     );
   });
+
+  it('uses initialPromptOverride as the prompt when set', async () => {
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 'codex-session', num_turns: 1 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify({
+      ...createBaseParams(),
+      options: { trackerName: 'jira', repoDir: '/repo', initialPromptOverride: 'custom override' },
+    });
+
+    expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toBe('custom override');
+  });
 });

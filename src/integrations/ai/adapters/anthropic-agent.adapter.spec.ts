@@ -1122,6 +1122,27 @@ describe('AnthropicAgentAdapter', () => {
     });
   });
 
+  it('uses initialPromptOverride as the prompt when set', async () => {
+    const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+    mockLoadAnthropicAgentSdk.mockResolvedValue({
+      query: mockQuery,
+    } as never);
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const adapter = new AnthropicAgentAdapter(makeConfigService());
+    const params = {
+      ...makeParams(),
+      options: {
+        ...makeParams().options,
+        initialPromptOverride: 'custom override',
+      },
+    };
+    await adapter.generateAndVerify(params);
+
+    const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string };
+    expect(queryArgs.prompt).toBe('custom override');
+  });
+
   describe('buildSystemPrompt', () => {
     const baseArgs = {
       repoDir: '/tmp/repo-a',

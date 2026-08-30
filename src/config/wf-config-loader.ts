@@ -191,6 +191,13 @@ const implementStageSchema = z
     inactivityTimeoutMs: z.number().int().min(0).optional(),
     skills: z.array(z.string()).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
+    planStepVerification: z
+      .object({
+        enabled: z.boolean().optional(),
+        maxRounds: z.number().int().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -794,18 +801,19 @@ const omitModel = (
   return rest as Omit<NormalizedAiStageTargetConfig, 'model'>;
 };
 
-const normalizeImplementStageConfig = ({
-  implementStageConfig,
-  implementTarget,
-}: ImplementStageInput): NormalizedImplementStageConfig | undefined => {
+const normalizeImplementStageConfig = (
+  { implementStageConfig, implementTarget }: ImplementStageInput,
+): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
   const targetWithoutModel = omitModel(implementTarget);
+  const psv = implementStageConfig.planStepVerification;
   return {
     ...(implementStageConfig.model !== undefined && implementStageConfig.models === undefined
       ? implementTarget
       : targetWithoutModel),
     ...(implementStageConfig.models && { models: implementStageConfig.models }),
     verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
+    ...(psv && { planStepVerification: psv }),
   };
 };
 

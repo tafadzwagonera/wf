@@ -54,11 +54,17 @@ export const wfImplementStageModelsConfigSchema = z.object({
   mechanical: z.string().optional(),
 });
 
+export const wfPlanStepVerificationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  maxRounds: z.number().int().min(1).optional(),
+});
+
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   maxStalledPasses: z.number().int().min(1).optional(),
   models: wfImplementStageModelsConfigSchema.optional(),
   skills: z.array(wfImplementSkillNameSchema).optional(),
   verificationConditions: wfVerificationConditionsConfigSchema.optional(),
+  planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
 });
 
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
@@ -184,6 +190,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   inactivityTimeoutMs: z.number().int().min(0).optional(),
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
+  planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
 });
 
 export const normalizedCreateStageConfigSchema = z.object({

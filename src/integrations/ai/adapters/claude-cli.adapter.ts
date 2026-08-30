@@ -332,7 +332,7 @@ const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFil
 
 const buildImplementCliArgs = (p: CliSessionParams) =>
   buildCliArgs({
-    prompt: buildInitialUserPrompt(p.taskBriefParams),
+    prompt: p.options.initialPromptOverride ?? buildInitialUserPrompt(p.taskBriefParams),
     appendSystemPrompt: p.appendSystemPrompt,
     model: p.model,
     cwd: p.repoDir,
@@ -469,7 +469,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
-    const prompt = buildInitialUserPrompt(p.taskBriefParams);
+    const prompt = p.options.initialPromptOverride ?? buildInitialUserPrompt(p.taskBriefParams);
     return spawnCli(buildImplementCliArgs(p), p.repoDir, prompt, undefined, timeoutMs, inactivityTimeoutMs);
   }
 

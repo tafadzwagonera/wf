@@ -1,0 +1,315 @@
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
+import { GitService } from '../integrations/git/git.service';
+import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
+import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
+import {
+  buildPlanArtifactManifestPath,
+  readPlanArtifactManifest,
+} from '../shared/utils/plan-artifact';
+
+const execFileAsync = promisify(execFile);
+const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
+
+const STEP_ASSESSOR_SYSTEM_PROMPT
+  = 'You are a meticulous implementation auditor. Judge only from the evidence provided. Output ONLY valid JSON.';
+
+const STEP_ASSESSOR_PREAMBLE = [
+  STEP_ASSESSOR_SYSTEM_PROMPT,
+  '',
+  '## Steps to assess',
+];
+
+const STEP_ASSESSOR_RULES = [
+  '## Status rules',
+  '- done: fully implemented in the evidence',
+  '- partially-done: started but incomplete (requires missing field)',
+  '- not-done: not implemented at all (requires missing field)',
+  '- not-applicable: step requires no code change or cannot be proven by a diff (e.g. run-the-tests steps, confirm-existing-behavior steps) — use instead of not-done for such steps',
+  '',
+  'Produce exactly one entry per step index in this shape:',
+  '{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}',
+  'Do not assume changes you cannot see.',
+];
+
+const VERIFICATION_PROMPT_FOOTER = [
+  '',
+  'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
+  'After all edits are complete, run each verification command exactly as written.',
+  'Do not output any text or plan before making your first tool call.',
+];
+
+const findDuplicateOrOutOfRange = (statuses: StepAssessment[], stepCount: number): string | undefined => {
+  const seen = new Set<number>();
+  for (const s of statuses) {
+    if (s.index < 0 || s.index >= stepCount) return `index ${s.index} out of range 0..${stepCount - 1}`;
+    if (seen.has(s.index)) return `duplicate index ${s.index}`;
+    seen.add(s.index);
+  }
+  return undefined;
+};
+
+const buildEvidenceText = (diff: string, untrackedSections: string[], truncated: boolean): string => {
+  const untrackedBlock
+    = untrackedSections.length > 0
+      ? `\n\n## Untracked new files\n\n${untrackedSections.join('\n\n')}`
+      : '';
+  const evidenceNote = truncated
+    ? '\n[Evidence was truncated. Apply conservative judgment — prefer not-done over done when unsure.]'
+    : '';
+  return diff + untrackedBlock + evidenceNote;
+};
+
+export interface PlanStepVerificationRunParams {
+  steps: string[];
+  planSummary: string;
+  planArtifactPath: string;
+  repoDir: string;
+  sessionId: string;
+  maxRounds: number;
+  silent?: boolean;
+  runFixRound: (prompt: string, sessionId: string) => Promise<{ sessionId?: string; passCount?: number }>;
+}
+
+export interface PlanStepVerificationOutcome {
+  sessionId?: string;
+  summary?: StepVerificationSummary;
+  extraPassCount: number;
+}
+
+export const validateStepAssessments = (
+  statuses: StepAssessment[],
+  stepCount: number,
+): Map<number, StepAssessment> | string => {
+  if (statuses.length !== stepCount) return `expected ${stepCount} assessments, got ${statuses.length}`;
+  const error = findDuplicateOrOutOfRange(statuses, stepCount);
+  if (error !== undefined) return error;
+  const map = new Map<number, StepAssessment>();
+  for (const s of statuses) map.set(s.index, s);
+  return map;
+};
+
+export const buildStepAssessorPrompt = (
+  steps: string[],
+  diff: string,
+  untrackedSections: string[],
+  truncated: boolean,
+): string => {
+  const numbered = steps.map((s, i) => `Step ${i}: ${s}`).join('\n');
+  const evidence = buildEvidenceText(diff, untrackedSections, truncated);
+  const body = ['', '## Changed files diff', evidence, ''].join('\n');
+  return [...STEP_ASSESSOR_PREAMBLE, numbered, body, ...STEP_ASSESSOR_RULES].join('\n');
+};
+
+export const buildPlanStepVerificationPrompt = (
+  pending: StepAssessment[],
+  round: number,
+  maxRounds: number,
+): string => {
+  const lines: string[] = [
+    `Verification round ${round} of ${maxRounds}: a post-implementation audit found plan steps that are not fully implemented.`,
+    '',
+  ];
+  for (const p of pending) {
+    lines.push(`Step ${p.index} (${p.status}): ${p.missing ?? ''}`);
+    if (p.missing) lines.push(`Missing: ${p.missing}`);
+  }
+  return [...lines, ...VERIFICATION_PROMPT_FOOTER].join('\n');
+};
+
+@Injectable()
+export class PlanStepVerificationService {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly aiService: AiService,
+    private readonly gitService: GitService,
+    private readonly presenter: CliPresenter,
+  ) {}
+
+  async run(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
+    try {
+      const target = this.resolveAssessorTarget();
+      if (!target) {
+        this.logEvent('WARN', 'step-verify.target.unresolved', params.silent);
+        return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
+      }
+      return await this.runVerificationLoop(params, target);
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      this.logEvent('ERROR', `step-verify.error cause=${cause}`, params.silent);
+      return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
+    }
+  }
+
+  private async runVerificationLoop(
+    params: PlanStepVerificationRunParams,
+    target: { provider: string; model: string },
+  ): Promise<PlanStepVerificationOutcome> {
+    let sessionId: string | undefined = params.sessionId;
+    let extraPassCount = 0;
+    const n = params.steps.length;
+    for (let round = 1; round <= params.maxRounds; round++) {
+      const roundResult = await this.executeRound(params, target, round, sessionId, extraPassCount, n);
+      if (roundResult.outcome) return roundResult.outcome;
+      sessionId = roundResult.sessionId;
+      extraPassCount = roundResult.extraPassCount;
+    }
+    return { sessionId, summary: undefined, extraPassCount };
+  }
+
+  private async executeRound(
+    params: PlanStepVerificationRunParams, target: { provider: string; model: string },
+    round: number, sessionId: string | undefined, extraPassCount: number, n: number,
+  ): Promise<{ outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number }> {
+    this.logEvent('INFO', `step-verify.round.start round=${round}/${params.maxRounds}`, params.silent);
+    const statusMap = await this.assessSteps(params, target);
+    if (!statusMap) return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
+    const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
+    const fallback: PlanStepVerificationOutcome = { sessionId, summary: undefined, extraPassCount };
+    const fixPrompt = buildPlanStepVerificationPrompt(nowPending, round, params.maxRounds);
+    const outcome = this.resolveRoundOutcome(nowPending, round, params, sessionId, n, extraPassCount);
+    if (outcome || !sessionId) return { outcome: outcome ?? fallback, extraPassCount };
+    const fix = await params.runFixRound(fixPrompt, sessionId);
+    return { sessionId: fix.sessionId, extraPassCount: extraPassCount + (fix.passCount ?? 0) };
+  }
+
+  private resolveRoundOutcome(
+    nowPending: StepAssessment[], round: number, params: PlanStepVerificationRunParams,
+    sessionId: string | undefined, n: number, extraPassCount: number,
+  ): PlanStepVerificationOutcome | null {
+    if (nowPending.length === 0) {
+      this.logEvent('INFO', `step-verify.complete rounds=${round}`, params.silent);
+      return { sessionId, summary: { rounds: round, done: n, pending: 0 }, extraPassCount };
+    }
+    const exhausted = round === params.maxRounds || !sessionId;
+    if (!exhausted) return null;
+    const pending = nowPending.length;
+    const reason = sessionId ? `step-verify.exhausted pending=${pending}` : 'step-verify.session.missing';
+    this.logEvent('WARN', reason, params.silent);
+    return { sessionId, summary: { rounds: round, done: n - pending, pending }, extraPassCount };
+  }
+
+  private async assessSteps(
+    params: PlanStepVerificationRunParams,
+    target: { provider: string; model: string },
+  ): Promise<Map<number, StepAssessment> | undefined> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await this.runSingleAssessmentAttempt(params, target).catch(() => undefined);
+      if (typeof result === 'string') {
+        this.logEvent('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
+      } else if (result) {
+        return this.logPendingStatuses(result, params.silent);
+      }
+    }
+    this.logEvent('ERROR', 'step-verify.assess.invalid', params.silent);
+    return undefined;
+  }
+
+  private async runSingleAssessmentAttempt(
+    params: PlanStepVerificationRunParams,
+    target: { provider: string; model: string },
+  ): Promise<Map<number, StepAssessment> | string> {
+    const { diff, untrackedSections, truncated } = await this.captureEvidence(params);
+    const prompt = buildStepAssessorPrompt(params.steps, diff, untrackedSections, truncated);
+    const response = await this.aiService.execute({
+      prompt, systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT,
+      temperature: 0, maxTokens: 4096,
+      provider: target.provider, model: target.model,
+    });
+    const parsed = parseJsonResponse<unknown>(response.content);
+    const validated = stepAssessmentResponseSchema.parse(parsed);
+    return validateStepAssessments(validated.statuses, params.steps.length);
+  }
+
+  private logPendingStatuses(
+    statusMap: Map<number, StepAssessment>, silent?: boolean,
+  ): Map<number, StepAssessment> {
+    for (const [, s] of statusMap) {
+      if (s.status !== 'done' && s.status !== 'not-applicable') {
+        this.logEvent('INFO', `step-verify.status index=${s.index} status=${s.status}`, silent);
+      }
+    }
+    return statusMap;
+  }
+
+  private resolveAssessorTarget(): { provider: string; model: string } | undefined {
+    const implProvider = this.configService.get<string>('stages.implement.provider');
+    if (!implProvider) return this.resolveFallbackTarget();
+    const implModel
+      = this.configService.get<string>('stages.implement.model')
+        ?? this.configService.get<string>('stages.implement.models.default')
+        ?? this.configService
+          .get<Array<{ provider: string; model: string }>>('ai.providers')
+          ?.find(p => p.provider === implProvider)?.model;
+    if (!implModel) return undefined;
+    return { provider: implProvider, model: implModel };
+  }
+
+  private resolveFallbackTarget(): { provider: string; model: string } | undefined {
+    const provider = this.configService.get<string>('ai.provider');
+    const model = this.configService.get<string>('ai.model');
+    if (!provider || !model) return undefined;
+    return { provider, model };
+  }
+
+  private async captureEvidence(
+    params: PlanStepVerificationRunParams,
+  ): Promise<{ diff: string; untrackedSections: string[]; truncated: boolean }> {
+    const baseRef = this.resolveBaseRef(params);
+    const rawDiff = await this.getDiff(params.repoDir, baseRef);
+    const untrackedSections = await this.collectUntrackedSections(params.repoDir);
+    const combined = rawDiff + untrackedSections.join('\n\n');
+    if (combined.length <= MAX_ASSESSOR_EVIDENCE_CHARS) {
+      return { diff: rawDiff, untrackedSections, truncated: false };
+    }
+    this.logEvent('WARN', `step-verify.diff.truncated original=${combined.length}`, params.silent);
+    return { diff: combined.slice(0, MAX_ASSESSOR_EVIDENCE_CHARS), untrackedSections: [], truncated: true };
+  }
+
+  private resolveBaseRef(params: PlanStepVerificationRunParams): string {
+    const manifestPath = buildPlanArtifactManifestPath(params.planArtifactPath);
+    const manifest = readPlanArtifactManifest(manifestPath);
+    if (!manifest?.sourceBranch) {
+      this.logEvent('WARN', 'step-verify.source-branch.missing fallback=HEAD', params.silent);
+    }
+    return manifest?.sourceBranch ?? 'HEAD';
+  }
+
+  private async getDiff(repoDir: string, baseRef: string): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync('git', ['diff', baseRef], {
+        cwd: repoDir,
+        maxBuffer: MAX_ASSESSOR_EVIDENCE_CHARS * 2,
+      });
+      return stdout;
+    } catch {
+      return '';
+    }
+  }
+
+  private async collectUntrackedSections(repoDir: string): Promise<string[]> {
+    const status = await this.gitService.getStatus(repoDir);
+    const untrackedFiles: string[] = (status as { not_added?: string[] }).not_added ?? [];
+    const sections: string[] = [];
+    for (const file of untrackedFiles) {
+      try {
+        sections.push(`### ${file}\n\`\`\`\n${fs.readFileSync(path.resolve(repoDir, file), 'utf-8')}\n\`\`\``);
+      } catch {
+        appendToLogFile('DEBUG', `step-verify.untracked.unreadable path=${file}`, 'step-verification');
+      }
+    }
+    return sections;
+  }
+
+  private logEvent(level: string, message: string, silent?: boolean): void {
+    appendToLogFile(level, message, 'step-verification');
+    if (!silent) this.presenter.progress(`  [step-verify] ${message}`);
+  }
+}

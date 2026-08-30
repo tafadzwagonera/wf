@@ -196,6 +196,8 @@ test('implementerOptionsSchema shape keys match original interface fields', () =
     'branchNamePattern',
     'conversationContext',
     'customBranchSlug',
+    'initialPromptOverride',
+    'isNewRepo',
     'modelRouting',
     'noBranch',
     'priorStageSummary',

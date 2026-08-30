@@ -1203,4 +1203,30 @@ describe('wf-config-loader', () => {
       ).toThrow(/validation failed/i);
     });
   });
+
+  describe('planStepVerification config', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('accepts and normalizes planStepVerification verbatim', () => {
+      const normalized = normalizeWfConfig({
+        ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+        stages: { implement: { provider: 'anthropic', planStepVerification: { enabled: true, maxRounds: 2 } } },
+      });
+      expect(normalized.stages?.implement?.planStepVerification).toEqual({ enabled: true, maxRounds: 2 });
+    });
+
+    it('rejects an unknown nested key under planStepVerification', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+          stages: {
+            implement: {
+              provider: 'anthropic',
+              planStepVerification: { unknownKey: true } as never,
+            },
+          },
+        }),
+      ).toThrow(ValidationError);
+    });
+  });
 });

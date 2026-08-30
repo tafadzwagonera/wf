@@ -614,6 +614,35 @@ describe('ClaudeCliAdapter', () => {
     consoleSpy.mockRestore();
   });
 
+  it('uses initialPromptOverride as the prompt when set', async () => {
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1 } as never;
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+          affectedFiles: [], affectedRepositories: [], risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo', initialPromptOverride: 'custom override' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      conventionsSection: 'conventions',
+    } as never);
+
+    expect(mockBuildCliArgs.mock.calls[0][0].prompt).toBe('custom override');
+  });
+
   it('does not log Skill when summary is empty', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 

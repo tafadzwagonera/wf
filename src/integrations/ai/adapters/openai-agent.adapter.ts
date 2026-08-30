@@ -1391,7 +1391,8 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const contextMd = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true
     );
-    const prompt = buildInitialPrompt(buildOaiTaskBriefParams(params, repoDir), contextMd);
+    const prompt = options.initialPromptOverride
+      ?? buildInitialPrompt(buildOaiTaskBriefParams(params, repoDir), contextMd);
     return { agent, prompt };
   }
 

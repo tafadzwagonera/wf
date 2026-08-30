@@ -657,6 +657,7 @@ type InitialSessionParams = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   taskBriefParams: BuildTaskBriefParams;
+  promptOverride?: string;
 };
 
 const assertNoAgentError = (result: SDKResultMessage): void => {
@@ -669,7 +670,8 @@ const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultM
   const resumeOption = p.resumeSessionId ? { resume: p.resumeSessionId } : {};
   console.log(chalk.bold.cyan(`\n  [claude-agent-sdk] Running agent loop in ${p.repoDir}...`));
   const sessionOptions = { ...p.sdkOptions, ...resumeOption };
-  const session = p.query({ prompt: buildInitialUserPrompt(p.taskBriefParams), options: sessionOptions });
+  const prompt = p.promptOverride ?? buildInitialUserPrompt(p.taskBriefParams);
+  const session = p.query({ prompt, options: sessionOptions });
   const finalResult = await runSdkSession(session, p.repoDir, p.touchedFiles, p.activityState);
   // Supplement files_persisted tracking with git-based discovery since
   // the SDK may not emit files_persisted for all writes in acceptEdits mode.
@@ -711,6 +713,7 @@ const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
   const finalResult = await runInitialSdkSession({
     query: s.query, sdkOptions: s.sdkOptions, resumeSessionId: s.params.options.resumeProviderSessionId,
     repoDir: s.repoDir, touchedFiles: s.touchedFiles, activityState: s.activityState, taskBriefParams,
+    promptOverride: s.params.options.initialPromptOverride,
   });
   logSdkCompletion(finalResult, s.touchedFiles);
   return runSdkContinuationLoop(buildSdkContinuationParams(s, finalResult, taskBriefParams));

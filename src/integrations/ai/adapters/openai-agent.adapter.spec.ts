@@ -2207,6 +2207,28 @@ describe('OpenAIAgentAdapter', () => {
         expect(typeof promptArg === 'string' && promptArg.includes('yarn build')).toBe(true);
       });
     });
+
+    it('uses initialPromptOverride as the prompt when set', async () => {
+      const repoDir = createManagedTempDir('openai-prompt-override');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      const mockRun = jest.fn(async () => mockRunResult);
+      mockRunner.mockImplementation(() => ({
+        run: mockRun,
+        config: {},
+      }));
+
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...makeParams(repoDir),
+        options: { ...makeParams(repoDir).options, initialPromptOverride: 'custom override' },
+      });
+
+      expect(mockRun).toHaveBeenCalledWith(expect.anything(), 'custom override', expect.anything());
+    });
   });
 
   describe('validateTypeScriptEdit', () => {

@@ -244,7 +244,7 @@ const buildStreamContext = (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
   timeoutMs: number, inactivityTimeoutMs: number,
 ): StreamContext => {
-  const implementPrompt = buildCodexImplementPrompt(params, repoDir);
+  const implementPrompt = params.options.initialPromptOverride ?? buildCodexImplementPrompt(params, repoDir);
   const cliArgs = buildCodexCliArgs({
     prompt: implementPrompt, model, cwd: repoDir,
     permissionMode: 'full-auto', sessionId: params.options.resumeProviderSessionId,

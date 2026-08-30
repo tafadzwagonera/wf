@@ -7,6 +7,7 @@ import { GitService } from '../integrations/git/git.service';
 import { GitError } from '../shared/errors/app.error';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
+import { PlanStepVerificationService } from './plan-step-verification.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
@@ -42,6 +43,7 @@ describe('ImplementerAgent', () => {
   let aiService: jest.Mocked<AiService>;
   let presenter: ReturnType<typeof createMockPresenter>;
   let configService: ConfigService;
+  let planStepVerificationService: { run: jest.Mock };
   let mockIsRepoResolvable: jest.MockedFunction<typeof isRepoResolvable>;
 
   const ticketArtifact: TicketArtifact = {
@@ -149,6 +151,12 @@ describe('ImplementerAgent', () => {
             chatTurn: jest.fn(),
           },
         },
+        {
+          provide: PlanStepVerificationService,
+          useValue: {
+            run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+          },
+        },
       ],
     }).compile();
 
@@ -157,6 +165,7 @@ describe('ImplementerAgent', () => {
     gitService = module.get(GitService);
     aiService = module.get(AiService);
     configService = module.get(ConfigService);
+    planStepVerificationService = module.get(PlanStepVerificationService);
     mockIsRepoResolvable = isRepoResolvable as jest.MockedFunction<typeof isRepoResolvable>;
 
     jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
@@ -520,6 +529,12 @@ describe('ImplementerAgent', () => {
             provide: StageAgentService,
             useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
           },
+          {
+            provide: PlanStepVerificationService,
+            useValue: {
+              run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+            },
+          },
         ],
       }).compile();
 
@@ -604,6 +619,12 @@ describe('ImplementerAgent', () => {
           {
             provide: StageAgentService,
             useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+          },
+          {
+            provide: PlanStepVerificationService,
+            useValue: {
+              run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+            },
           },
         ],
       }).compile();
@@ -2010,6 +2031,12 @@ describe('ImplementerAgent', () => {
             provide: StageAgentService,
             useValue: mockStageAgentService,
           },
+          {
+            provide: PlanStepVerificationService,
+            useValue: {
+              run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+            },
+          },
         ],
       }).compile();
 
@@ -2058,6 +2085,205 @@ describe('ImplementerAgent', () => {
 
       expect(investigationAiService.generateFindings).toHaveBeenCalled();
       expect(stageAgentService.chatTurn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('plan step verification seam', () => {
+    const setupWithChanges = () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) =>
+        String(p).endsWith('/package.json') || String(p).startsWith('/tmp/repo-a/src/')
+      );
+      (gitService.getStatus as jest.Mock).mockResolvedValue({
+        isClean: () => false,
+        modified: ['src/example.ts'],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+        files: [{ path: 'src/example.ts' }],
+      });
+    };
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('calls service.run when all conditions are met', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.run).toHaveBeenCalled();
+    });
+
+    it('skips service.run when cfg.enabled is false', async () => {
+      setupWithChanges();
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.planStepVerification') return { enabled: false };
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.run).not.toHaveBeenCalled();
+    });
+
+    it('skips service.run when isNewRepo is true', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, isNewRepo: true },
+      );
+
+      expect(planStepVerificationService.run).not.toHaveBeenCalled();
+    });
+
+    it('attaches stepVerification to result when summary is present', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      planStepVerificationService.run.mockResolvedValue({
+        sessionId: 'sess-2',
+        summary: { rounds: 1, done: 1, pending: 0 },
+        extraPassCount: 0,
+      });
+
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.stepVerification).toEqual({ rounds: 1, done: 1, pending: 0 });
+      }
+    });
+
+    it('accumulates extraPassCount from service into passCount', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      planStepVerificationService.run.mockResolvedValue({
+        sessionId: 'sess-2',
+        summary: { rounds: 1, done: 1, pending: 0 },
+        extraPassCount: 3,
+      });
+
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.passCount).toBe(3);
+      }
+    });
+
+    it('refreshes sessionId from service outcome', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      planStepVerificationService.run.mockResolvedValue({
+        sessionId: 'sess-updated',
+        summary: undefined,
+        extraPassCount: 0,
+      });
+
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(result.type).toBe('implementation');
+      if (result.type === 'implementation') {
+        expect(result.sessionId).toBe('sess-updated');
+      }
+    });
+
+    it('skips service.run in multi-repo mode when all steps are generic (no repo-prefixed path)', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          steps: ['Run the tests', 'Confirm existing behaviour'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
+      );
+
+      expect(planStepVerificationService.run).not.toHaveBeenCalled();
+    });
+
+    it('passes only repo-prefixed steps to service.run in multi-repo mode', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          steps: ['Run the tests', 'repo-a/src/example.ts: update handler'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
+      );
+
+      expect(planStepVerificationService.run).toHaveBeenCalledWith(
+        expect.objectContaining({ steps: ['repo-a/src/example.ts: update handler'] }),
+      );
+    });
+
+    it('returns the original result when service.run throws unexpectedly', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      planStepVerificationService.run.mockRejectedValue(new Error('network failure'));
+
+      const result = await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['repo-a/src/example.ts: update'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(result.type).toBe('implementation');
+      expect((result as any).stepVerification).toBeUndefined();
     });
   });
 });

@@ -7,6 +7,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../shared/types/agent.types';
+import type { StepVerificationSummary } from '../shared/types/step-verification.types';
 
 export type {
   VerificationScript,
@@ -31,6 +32,7 @@ export type ImplementerResult
   = | {
     type: 'implementation'; hasChanges: boolean; branchName: string | null; sessionId?: string;
     verificationOutcomes: VerificationOutcome[]; passCount?: number; modelsUsed?: string[];
+    stepVerification?: StepVerificationSummary;
   }
   | { type: 'investigation'; artifact: FindingsArtifact };
 

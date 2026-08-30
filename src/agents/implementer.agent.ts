@@ -29,6 +29,8 @@ import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { PlanStepVerificationService, type PlanStepVerificationRunParams } from './plan-step-verification.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -61,7 +63,8 @@ export class ImplementerAgent {
     private readonly gitService: GitService,
     private readonly aiService: AiService,
     private readonly presenter: CliPresenter,
-    private readonly stageAgentService: StageAgentService
+    private readonly stageAgentService: StageAgentService,
+    private readonly planStepVerification: PlanStepVerificationService,
   ) {}
 
   /**
@@ -87,11 +90,7 @@ export class ImplementerAgent {
       return this.executeInvestigation(ticket, planArtifact);
     }
 
-    if (!options.suppressHeader) {
-      this.presenter.stageHeader(3, 'Implementation Guide');
-      this.presenter.separator();
-    }
-
+    this.printImplementationHeader(options);
     this.validateImplementationScope(planArtifact, options.repoDir, options.allowMultiRepoScope);
     const branchName = await this.handleBranchWorkflow(ticket, planArtifact, options);
 
@@ -99,7 +98,15 @@ export class ImplementerAgent {
     const filteredSteps = this.filterStepsForRepo(planArtifact.plan.steps, resolved.repoFiles, resolved.repoName);
     this.logPlanSteps(filteredSteps);
     const scopedPlan = { ...planArtifact, plan: { ...planArtifact.plan, steps: filteredSteps } };
-    return this.runBackend(ticket, scopedPlan, options, branchName, resolved);
+    const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved);
+    return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result);
+  }
+
+  private printImplementationHeader(options: ImplementerOptions): void {
+    if (!options.suppressHeader) {
+      this.presenter.stageHeader(3, 'Implementation Guide');
+      this.presenter.separator();
+    }
   }
 
   private logPlanSteps(steps: string[]): void {
@@ -164,6 +171,102 @@ export class ImplementerAgent {
     const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
     const { sessionId, verificationOutcomes, passCount, modelsUsed } = adapterResult;
     return { type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount, modelsUsed };
+  }
+
+  private async applyPlanStepVerification(
+    ticket: TicketArtifact, scopedPlan: PlanArtifact,
+    options: ImplementerOptions, resolved: FileResolution,
+    filteredSteps: string[], result: ImplementerResult,
+  ): Promise<ImplementerResult> {
+    try {
+      return await this.runPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result);
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('ERROR', `step-verify.unexpected cause=${cause}`, 'step-verification');
+      return result;
+    }
+  }
+
+  private async runPlanStepVerification(
+    ticket: TicketArtifact, scopedPlan: PlanArtifact,
+    options: ImplementerOptions, resolved: FileResolution,
+    filteredSteps: string[], result: ImplementerResult,
+  ): Promise<ImplementerResult> {
+    const cfg = this.configService.get<{ enabled?: boolean; maxRounds?: number }>('stages.implement.planStepVerification');
+    if (result.type !== 'implementation' || !result.sessionId) return result;
+    const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
+    if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options)) return result;
+    const maxRounds = Math.max(1, cfg?.maxRounds ?? 3);
+    const params = this.buildVerificationRunParams(
+      ticket, scopedPlan, options, resolved, assessedSteps, result.sessionId, maxRounds);
+    const outcome = await this.planStepVerification.run(params);
+    return {
+      ...result,
+      sessionId: outcome.sessionId ?? result.sessionId,
+      passCount: (result.passCount ?? 0) + outcome.extraPassCount,
+      ...(outcome.summary && { stepVerification: outcome.summary }),
+    };
+  }
+
+  private resolveAssessedSteps(filteredSteps: string[], options: ImplementerOptions): string[] {
+    if (!options.additionalRepoDirs?.length) return filteredSteps;
+    const repoPathPattern = /\b[\w-]+\/(?:src|test|lib|app)\//i;
+    const assessedSteps = filteredSteps.filter(s => repoPathPattern.test(s));
+    const excluded = filteredSteps.length - assessedSteps.length;
+    if (excluded > 0) {
+      appendToLogFile('INFO', `step-verify.generic-steps-excluded excluded=${excluded}`, 'step-verification');
+    }
+    return assessedSteps;
+  }
+
+  private shouldSkipPlanStepVerification(
+    cfg: { enabled?: boolean } | undefined,
+    result: { hasChanges: boolean },
+    assessedSteps: string[],
+    options: ImplementerOptions,
+  ): boolean {
+    return (cfg?.enabled ?? true) === false
+      || !result.hasChanges
+      || assessedSteps.length === 0
+      || Boolean(options.isNewRepo);
+  }
+
+  private buildVerificationRunParams(
+    ticket: TicketArtifact, scopedPlan: PlanArtifact,
+    options: ImplementerOptions, resolved: FileResolution,
+    filteredSteps: string[], sessionId: string, maxRounds: number,
+  ): PlanStepVerificationRunParams {
+    return {
+      steps: filteredSteps,
+      planSummary: scopedPlan.plan.summary,
+      planArtifactPath: scopedPlan.path,
+      repoDir: options.repoDir ?? process.cwd(),
+      sessionId,
+      maxRounds,
+      silent: options.silent,
+      runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
+    };
+  }
+
+  private async runVerificationFixRound(
+    ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions,
+    resolved: FileResolution, prompt: string, sessionId: string,
+  ): Promise<{ sessionId?: string; passCount?: number }> {
+    try {
+      const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
+      const baseline = await this.captureCommitBaseline(options.repoDir);
+      const res = await this.executeBackendAdapter(
+        ticket, scopedPlan,
+        { ...options, resumeProviderSessionId: sessionId, initialPromptOverride: prompt },
+        resolved,
+      );
+      await this.enforceCommitPolicy(policy, baseline, options.repoDir);
+      return { sessionId: res.sessionId, passCount: res.passCount };
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('ERROR', `step-verify.fix.failed cause=${cause}`, 'step-verification');
+      return { sessionId: undefined };
+    }
   }
 
   private async runAdapterCaptureError(

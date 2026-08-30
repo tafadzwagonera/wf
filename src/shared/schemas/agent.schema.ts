@@ -125,6 +125,7 @@ export const implementerOptionsSchema = z.object({
   priorStageSummary: z.string().optional(),
   resumeProviderSessionId: z.string().optional(),
   isNewRepo: z.boolean().optional(),
+  initialPromptOverride: z.string().optional(),
 });
 
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate', 'implement']);
