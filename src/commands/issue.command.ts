@@ -101,6 +101,7 @@ interface IssueOptions {
   sessionId?: string;
   silent?: boolean;
   sonar?: boolean;
+  figma?: boolean;
   ticketKey?: string;
   to?: string;
   tracker?: string;
@@ -278,6 +279,14 @@ export class IssueCommand extends CommandRunner {
     description: 'Enable the SonarQube CLI scan during the REVIEW stage, overriding stages.review.sonar config',
   })
   parseSonar(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--figma',
+    description: 'Enable Figma design-conformance check during REVIEW, overriding stages.review.figma config',
+  })
+  parseFigma(): boolean {
     return true;
   }
 
@@ -1600,7 +1609,8 @@ export class IssueCommand extends CommandRunner {
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
     const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
-      suppressHeader: isMultiRepo, silent: options?.silent, sonar: options?.sonar, ...sessionContext,
+      suppressHeader: isMultiRepo, silent: options?.silent,
+      sonar: options?.sonar, figma: options?.figma, ...sessionContext,
     });
     if (!reviewArtifact) return null;
 

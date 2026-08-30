@@ -17,6 +17,7 @@ export const planArtifactManifestSchema = z.object({
   trackerName: z.string().optional(),
   sourceBranch: z.string().optional(),
   branchName: z.string().optional(),
+  figmaLinks: z.array(z.string()).optional(),
 });
 
 export const planArtifactReferenceSchema = z.object({

@@ -37,6 +37,7 @@ import * as path from 'node:path';
 import * as YAML from 'yaml';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
+import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
@@ -54,6 +55,7 @@ interface IssueReviewOptions {
   silent?: boolean;
   sessionId?: string;
   sonar?: boolean;
+  figma?: boolean;
   skipVerification?: boolean;
   estimatedComplexity?: string;
   passCount?: number;
@@ -131,7 +133,8 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
-    + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact.',
+    + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact. '
+    + 'Runs a Figma design-conformance check when `stages.review.figma` is `true` or `--figma` is passed; Figma frame links captured from the ticket description during `issue:plan` are stored in the plan manifest and re-read at review time to inject a `figma-design-check` skill hint into the review prompt, directing the reviewer model to evaluate visual conformance against the original frames.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -148,7 +151,8 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly conversationService: ConversationService,
     private readonly reviewPresenter: ReviewPresenter,
     private readonly sessionService: SessionService,
-    private readonly sonarStageService: SonarStageService
+    private readonly sonarStageService: SonarStageService,
+    private readonly figmaStageService: FigmaStageService
   ) {
     super();
   }
@@ -628,6 +632,7 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<CodeReview | null> {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     const sonarResult = await this.resolveSonarResultForTarget(target, options, onProgress);
+    const figmaResult = await this.resolveFigmaResultForTarget(target, options, onProgress);
     const context = await buildPreReviewContext(target, {
       ticketKey: options?.ticketKey,
       silent: options?.silent,
@@ -635,18 +640,22 @@ export class IssueReviewCommand extends CommandRunner {
     });
     const { review } = await this.reviewStageService.reviewDiff(
       target.diff,
-      this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, sonarResult)
+      this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, sonarResult, figmaResult)
     );
     return review;
   }
 
+  private buildFigmaSkillHint(figmaResult: FigmaResolveResult | undefined): string | undefined {
+    if (!figmaResult) return undefined;
+    const links = figmaResult.figmaLinks.join(' ');
+    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
+    return `Skill('figma-design-check', '${links}${branch}')`;
+  }
+
   private buildReviewDiffOptions(
-    target: ReviewTarget,
-    context: string,
-    extraCriteria: string[] | null,
-    options: IssueReviewOptions | undefined,
-    onProgress: ((line: string) => void) | undefined,
-    sonarResult: SonarScanResult | undefined
+    target: ReviewTarget, context: string, extraCriteria: string[] | null,
+    options: IssueReviewOptions | undefined, onProgress: ((line: string) => void) | undefined,
+    sonarResult: SonarScanResult | undefined, figmaResult: FigmaResolveResult | undefined
   ): Parameters<ReviewStageService['reviewDiff']>[1] {
     return {
       context,
@@ -658,6 +667,7 @@ export class IssueReviewCommand extends CommandRunner {
       priorStageSummary: options?.priorStageSummary,
       forkSession: options?.forkSession,
       onProgress,
+      figmaSkillHint: this.buildFigmaSkillHint(figmaResult),
     };
   }
 
@@ -684,6 +694,18 @@ export class IssueReviewCommand extends CommandRunner {
       if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
       return this.warnAndSkipSonar(error, target, options?.silent);
     }
+  }
+
+  private async resolveFigmaResultForTarget(
+    target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
+  ): Promise<FigmaResolveResult | undefined> {
+    return this.figmaStageService.resolveIfEnabled({
+      repoDir: target.repoDir ?? process.cwd(),
+      force: options?.figma,
+      ticketKey: options?.ticketKey,
+      trackerName: this.resolveTrackerNameSafely(options?.tracker),
+      onProgress,
+    });
   }
 
   private warnAndSkipSonar(
@@ -853,6 +875,14 @@ export class IssueReviewCommand extends CommandRunner {
     description: 'Enable the SonarQube CLI scan, overriding stages.review.sonar config',
   })
   parseSonar(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--figma',
+    description: 'Enable Figma design-conformance check during REVIEW, overriding stages.review.figma config',
+  })
+  parseFigma(): boolean {
     return true;
   }
 

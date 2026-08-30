@@ -5,6 +5,7 @@ export const wfAiProviderNameSchema = z.enum(['anthropic', 'openai', 'google', '
 export const wfBackendModeSchema = z.enum(['agent', 'cli', 'standard']);
 
 export const wfPlanSkillNameSchema = z.enum([
+  'figma-implement',
   'frontend-design',
   'test-driven-development',
   'writing-plans',
@@ -18,6 +19,7 @@ export const wfImplementSkillNameSchema = z.enum([
 ]);
 
 export const wfReviewSkillNameSchema = z.enum([
+  'figma-design-check',
   'receiving-code-review',
 ]);
 
@@ -70,6 +72,7 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   skills: z.array(wfReviewSkillNameSchema).optional(),
   sonar: z.boolean().optional(),
+  figma: z.boolean().optional(),
 });
 
 export const wfCreateStageConfigSchema = z.object({

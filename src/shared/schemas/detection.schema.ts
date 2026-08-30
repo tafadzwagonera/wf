@@ -106,6 +106,18 @@ export const repoConventionsContextSchema = z.object({
   errorHandlingPaths: z.array(z.string()),
   packageManager: z.enum(['bun', 'pnpm', 'yarn', 'npm']).default('npm'),
   gitHooks: z.array(gitHooksContextSchema).default([]),
+  designSystem: z
+    .object({
+      framework: z.enum(['nuxt', 'next', 'react', 'vue']).nullable(),
+      configFile: z.string().nullable(),
+      tailwindConfig: z
+        .object({ path: z.string().nullable(), mode: z.enum(['legacy-file', 'inline-theme', 'css-variables']).nullable() })
+        .nullable(),
+      darkModeConvention: z.enum(['tailwind-dark', 'data-theme-attr']).nullable(),
+      componentLibrary: z.string().nullable(),
+      hasStorybook: z.boolean(),
+    })
+    .optional(),
 });
 
 export const priorPlanSummarySchema = z.object({

@@ -53,15 +53,24 @@ export const detectPackageManager = (repoDir: string): PackageManager => {
 
 const KEY_DEPENDENCY_KEYWORDS = [
   '@nestjs/core',
+  '@chakra-ui/react',
+  '@emotion/react',
+  '@mui/material',
+  '@nuxt/ui',
+  'class-variance-authority',
   'express',
   'fastify',
+  'primevue',
   'react',
   'next',
   'angular',
   'vue',
+  'vuetify',
   'jest',
   'vitest',
   'mocha',
+  'styled-components',
+  'tailwindcss',
 ];
 
 interface LanguageDetectionResult {
@@ -954,18 +963,96 @@ const assembleStructuralConventions = (
   };
 };
 
+type DesignSystemContext = NonNullable<RepoConventionsContext['designSystem']>;
+
+const COMPONENT_LIBRARY_DEPS: ReadonlyArray<string> = [
+  '@nuxt/ui', '@mui/material', '@chakra-ui/react', 'vuetify', 'primevue', 'styled-components',
+];
+
+const resolveDesignSystemFramework = (keyDeps: string[]): DesignSystemContext['framework'] => {
+  if (keyDeps.includes('@nuxt/ui') || keyDeps.includes('nuxt')) return 'nuxt';
+  if (keyDeps.includes('next')) return 'next';
+  if (keyDeps.includes('react')) return 'react';
+  if (keyDeps.includes('vue') || keyDeps.includes('vuetify') || keyDeps.includes('primevue')) return 'vue';
+  return null;
+};
+
+const resolveDesignSystemConfigFile = (repoDir: string, framework: DesignSystemContext['framework']): string | null =>
+  framework === 'nuxt'
+    ? findFirst(repoDir, ['app/app.config.ts', 'app.config.ts'])
+    : findFirst(repoDir, ['tailwind.config.ts', 'tailwind.config.js', 'tailwind.config.mjs']);
+
+const globalCssCandidates = [
+  'src/index.css', 'src/app.css', 'app/globals.css', 'app/assets/main.css', 'styles/globals.css',
+];
+
+const detectTailwindConfig = (repoDir: string): DesignSystemContext['tailwindConfig'] => {
+  const configFile = findFirst(repoDir, ['tailwind.config.ts', 'tailwind.config.js', 'tailwind.config.mjs']);
+  if (configFile) return { path: configFile, mode: 'legacy-file' };
+  const cssFile = findFirst(repoDir, globalCssCandidates);
+  if (!cssFile) return null;
+  try {
+    const content = fs.readFileSync(path.join(repoDir, cssFile), 'utf-8');
+    if (content.includes('@theme')) return { path: cssFile, mode: 'inline-theme' };
+    if (content.includes('@config') || (content.includes(':root') && content.includes('--'))) {
+      return { path: cssFile, mode: 'css-variables' };
+    }
+  } catch { /* ignore */ }
+  return null;
+};
+
+const detectDarkModeInCss = (repoDir: string): DesignSystemContext['darkModeConvention'] => {
+  const cssFile = findFirst(repoDir, globalCssCandidates);
+  if (!cssFile) return null;
+  try {
+    return fs.readFileSync(path.join(repoDir, cssFile), 'utf-8').includes('[data-theme')
+      ? 'data-theme-attr'
+      : null;
+  } catch { return null; }
+};
+
+const detectDarkModeConvention = (
+  repoDir: string, tailwindConfig: DesignSystemContext['tailwindConfig']
+): DesignSystemContext['darkModeConvention'] => {
+  if (tailwindConfig?.mode === 'legacy-file' && tailwindConfig.path) {
+    try {
+      const content = fs.readFileSync(path.join(repoDir, tailwindConfig.path), 'utf-8');
+      if (/darkMode[^'"]*['"]class/.test(content)) return 'tailwind-dark';
+    } catch { /* ignore */ }
+  }
+  return detectDarkModeInCss(repoDir);
+};
+
+const detectDesignSystemContext = (repoDir: string, keyDeps: string[]): DesignSystemContext => {
+  const componentLibrary = fs.existsSync(path.join(repoDir, 'components.json'))
+    ? 'shadcn-ui'
+    : COMPONENT_LIBRARY_DEPS.find(dep => keyDeps.includes(dep)) ?? null;
+  const framework = resolveDesignSystemFramework(keyDeps);
+  const tailwindConfig = detectTailwindConfig(repoDir);
+  return {
+    framework,
+    configFile: resolveDesignSystemConfigFile(repoDir, framework),
+    tailwindConfig,
+    darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
+    componentLibrary,
+    hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
+  };
+};
+
 const assembleConventions = (inputs: ConventionsInputs): RepoConventionsContext => {
   const { repoDir, hasGoMod, sourceRoots, allDeps, skipDirs } = inputs;
   const langContexts = detectLanguageContexts(inputs);
+  const keyDependencies = detectKeyDependencies(allDeps, hasGoMod, repoDir, langContexts.terraform);
 
   return {
     language: inputs.language,
     ...langContexts,
     ...assembleStructuralConventions(inputs, langContexts),
-    keyDependencies: detectKeyDependencies(allDeps, hasGoMod, repoDir, langContexts.terraform),
+    keyDependencies,
     errorHandlingPaths: detectErrorHandlingPaths(sourceRoots, repoDir, skipDirs),
     packageManager: detectPackageManager(repoDir),
     gitHooks: detectGitHooks(repoDir),
+    designSystem: detectDesignSystemContext(repoDir, keyDependencies),
   };
 };
 
@@ -1002,6 +1089,7 @@ const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   || ctx.nestjsDetected
   || ctx.keyDependencies.length > 0
   || ctx.errorHandlingPaths.length > 0
+  || (ctx.designSystem?.componentLibrary !== null && ctx.designSystem?.componentLibrary !== undefined)
   || ctx.gitHooks.some(hookCtx => Object.keys(hookCtx.hooks).length > 0);
 
 /**
@@ -1125,13 +1213,20 @@ const appendStructureLines = (ctx: RepoConventionsContext, lines: string[]): voi
  * @param repoName - Human-readable repository name
  * @returns A formatted string for inclusion in an AI prompt, or empty string when no meaningful data exists
  */
+const buildDesignSystemLine = (ds: DesignSystemContext): string => {
+  const extras: string[] = [];
+  if (ds.configFile) extras.push(ds.configFile);
+  if (ds.tailwindConfig?.mode) extras.push(`tailwind:${ds.tailwindConfig.mode}`);
+  if (ds.darkModeConvention) extras.push(ds.darkModeConvention);
+  return `- Design system: ${ds.framework ?? 'unknown'}/${ds.componentLibrary ?? 'none'}${extras.length ? ` (${extras.join(', ')})` : ''}`;
+};
+
 export const formatRepoConventionsPromptSection = (ctx: RepoConventionsContext, repoName: string): string => {
   if (!hasMeaningfulConventionsData(ctx)) return '';
-
   const lines: string[] = [`Repository conventions (${repoName}):`];
   lines.push(`- Language: ${ctx.language}`);
   appendToolingLines(ctx, lines);
   appendStructureLines(ctx, lines);
-
+  if (ctx.designSystem) lines.push(buildDesignSystemLine(ctx.designSystem));
   return lines.join('\n');
 };

@@ -955,3 +955,72 @@ describe('detectPackageManager', () => {
     expect(detectPackageManager(REPO_DIR)).toBe('yarn');
   });
 });
+
+describe('detectRepoConventions — designSystem', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('detects @nuxt/ui from package.json dependencies', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return s === path.join(REPO_DIR, 'package.json');
+    });
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+      if (String(p) === path.join(REPO_DIR, 'package.json')) {
+        return JSON.stringify({ dependencies: { '@nuxt/ui': '^4.0.0' } });
+      }
+      return '{}';
+    });
+    mockReaddirSync.mockReturnValue([]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.componentLibrary).toBe('@nuxt/ui');
+  });
+
+  it('detects shadcn-ui when components.json is present', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return s === path.join(REPO_DIR, 'package.json') || s === path.join(REPO_DIR, 'components.json');
+    });
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+      const s = String(p);
+      if (s === path.join(REPO_DIR, 'package.json')) return JSON.stringify({ dependencies: {} });
+      if (s === path.join(REPO_DIR, 'components.json')) return JSON.stringify({ style: 'default' });
+      return '{}';
+    });
+    mockReaddirSync.mockReturnValue([]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.componentLibrary).toBe('shadcn-ui');
+  });
+
+  it('reports null componentLibrary when no component library detected', () => {
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.componentLibrary).toBeNull();
+  });
+
+  it('formatRepoConventionsPromptSection includes Design system line when set', () => {
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ dependencies: { '@nuxt/ui': '^4.0.0' }, name: 'my-repo' }));
+
+    const base = detectRepoConventions(REPO_DIR);
+    const ctx: RepoConventionsContext = {
+      ...base,
+      designSystem: {
+        framework: 'nuxt',
+        componentLibrary: '@nuxt/ui',
+        configFile: 'app/app.config.ts',
+        tailwindConfig: null,
+        darkModeConvention: null,
+        hasStorybook: false,
+      },
+    };
+    const output = formatRepoConventionsPromptSection(ctx, 'my-repo');
+    expect(output).toMatch(/Design system:/);
+  });
+});

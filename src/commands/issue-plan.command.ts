@@ -16,6 +16,7 @@ import { getPlanArtifactExtension,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
 } from '../shared/utils/plan-artifact';
+import { extractFigmaLinks } from '../shared/utils/extract-figma-links';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
@@ -167,7 +168,8 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
-    + 'outside the selected repository are rejected.',
+    + 'outside the selected repository are rejected. '
+    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling the `figma-design-check` skill hint during a later `issue:review --figma` run.',
   arguments: '',
 })
 export class IssuePlanCommand extends CommandRunner {
@@ -331,12 +333,18 @@ export class IssuePlanCommand extends CommandRunner {
     if (!options?.silent) this.logger.info('Planning custom source ' + ctx.stem + ' (action: ' + options.action + ')...');
     if (!fs.existsSync(ctx.artifactDir)) fs.mkdirSync(ctx.artifactDir, { recursive: true });
 
-    if (this.returnCachedPlanIfExists(ctx.planPath, options)) return;
+    if (!this.returnCachedPlanIfExists(ctx.planPath, options)) await this.generateAndSaveCustomPlan(ctx, options);
+  }
 
-    const plan = await this.generatePlan(fs.readFileSync(ctx.sourcePath, 'utf-8'), ctx.baseDir, options.action, options);
+  private async generateAndSaveCustomPlan(
+    ctx: ReturnType<IssuePlanCommand['resolveCustomPlanContext']>, options: IssuePlanOptions
+  ): Promise<void> {
+    const sourceContent = fs.readFileSync(ctx.sourcePath, 'utf-8');
+    const plan = await this.generatePlan(sourceContent, ctx.baseDir, options.action, options);
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ctx.stem, sourceKind: 'custom', artifactDir: ctx.artifactDir, options,
+      figmaLinks: extractFigmaLinks(sourceContent),
     });
   }
 
@@ -384,13 +392,21 @@ export class IssuePlanCommand extends CommandRunner {
       ticketKey, ctx.trackerName, ctx.baseDir, ctx.needsFetch, options
     );
 
-    if (this.returnCachedPlanIfExists(ctx.planPath, options)) return;
+    if (!this.returnCachedPlanIfExists(ctx.planPath, options)) {
+      await this.generateAndSaveTicketPlan(ticketKey, ticketContent, ctx, options);
+    }
+  }
 
+  private async generateAndSaveTicketPlan(
+    ticketKey: string, ticketContent: string,
+    ctx: ReturnType<IssuePlanCommand['resolveTicketPlanContext']>, options: IssuePlanOptions
+  ): Promise<void> {
     const plan = await this.generatePlan(ticketContent, ctx.baseDir, options.action, options, ticketKey);
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ticketKey, sourceKind: 'ticket',
       artifactDir: ctx.trackerDir, options, trackerName: ctx.trackerName,
+      figmaLinks: extractFigmaLinks(ticketContent),
     });
   }
 
@@ -462,16 +478,16 @@ export class IssuePlanCommand extends CommandRunner {
       plan: any; planPath: string; format: string; action: ResolutionAction;
       hash: string; sourceName: string; sourceKind: 'ticket' | 'custom';
       artifactDir: string; options?: IssuePlanOptions; trackerName?: string;
+      figmaLinks?: string[];
     }
   ): Promise<void> {
-    const { plan, planPath, format, action, hash, sourceName, sourceKind, artifactDir, options, trackerName } = opts;
+    const { plan, planPath, format, action, hash, sourceName, sourceKind,
+      artifactDir, options, trackerName, figmaLinks } = opts;
     await fs.promises.writeFile(planPath, this.serializePlan(plan, format as OutputFormat), 'utf-8');
-    writePlanArtifactManifest(
-      buildPlanArtifactManifest({
-        artifactPath: planPath, action, format: format as OutputFormat, hash, sourceName, sourceKind,
-        createdAt: new Date(), trackerName,
-      })
-    );
+    writePlanArtifactManifest(buildPlanArtifactManifest({
+      artifactPath: planPath, action, format: format as OutputFormat, hash, sourceName, sourceKind,
+      createdAt: new Date(), trackerName, figmaLinks: figmaLinks?.length ? figmaLinks : undefined,
+    }));
     this.deleteSiblingPlanArtifacts(artifactDir, sourceName, sourceKind, action, planPath);
     this.printPlanSummary(planPath, plan, options?.silent);
   }

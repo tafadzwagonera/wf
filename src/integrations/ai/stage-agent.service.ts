@@ -348,14 +348,15 @@ const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
 ].join('\n');
 
 const buildStageReviewPrompt = (
-  diff: string, guidelines: string[], skillNames?: string[]
+  diff: string, guidelines: string[], skillNames?: string[], figmaSkillHint?: string
 ): string => {
   const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
+  const skillSection = buildReviewSkillSection(skillNames, figmaSkillHint);
   return [
     `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
     `\nReview Guidelines:\n${numberedGuidelines}`,
     `\n${reviewInstructions}`,
-    ...(skillNames?.length ? [buildReviewSkillSection(skillNames)] : []),
+    ...(skillSection ? [skillSection] : []),
     reviewTraceGuidance,
     `\n${reviewOutputSchema}`,
   ].join('\n');
@@ -976,10 +977,10 @@ export class StageAgentService {
     priorStageSummary?: string,
     resumeProviderSessionId?: string,
     onProgress?: StageProgressCallback,
-    opts?: { skillNames?: string[]; forkSession?: boolean }
+    opts?: { skillNames?: string[]; forkSession?: boolean; figmaSkillHint?: string }
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames), systemPrompt: reviewSystemPrompt,
+      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.figmaSkillHint), systemPrompt: reviewSystemPrompt,
       repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
     });
     return this.parseStageReviewResponse(diff, response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);

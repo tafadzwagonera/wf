@@ -16,6 +16,7 @@ import {
   resolvePlanArtifactReference,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
+import { searchFigmaLinksForTicket } from '../../shared/utils/extract-figma-links';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
@@ -145,30 +146,35 @@ export class PlanStageService {
 
   private persistPlanArtifact(
     plan: ResolutionPlan, action: ResolutionAction, artifactDir: string,
-    planHash: string, sourceName: string, sourceKind: 'ticket' | 'custom' | undefined
+    planHash: string, sourceName: string, sourceKind: 'ticket' | 'custom' | undefined,
+    figmaLinks: string[]
   ): PlanArtifact {
     const createdAt = new Date();
     const filename = buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' });
     const planPath = path.join(artifactDir, filename);
     fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
-    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: action, format: 'json', hash: planHash, sourceName: sourceName, sourceKind: sourceKind ?? 'ticket', createdAt: createdAt });
+    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: action, format: 'json', hash: planHash, sourceName: sourceName, sourceKind: sourceKind ?? 'ticket', createdAt: createdAt, figmaLinks: figmaLinks.length ? figmaLinks : undefined });
     writePlanArtifactManifest(manifest);
     this.deleteStalePlanArtifacts(artifactDir, planHash, action, planPath);
     return { plan, action, path: planPath, fromCache: false };
   }
 
+  private warnNoFigmaLinks(): void {
+    appendToLogFile('WARN', 'No Figma frame links found in ticket — figma-implement/figma-design-check will be skipped.', 'figma-stage');
+  }
+
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
+    const figmaLinks = await searchFigmaLinksForTicket(ticket.content, this.isInteractiveSession());
+    if (!figmaLinks.length) this.warnNoFigmaLinks();
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
     });
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
-    const result = this.persistPlanArtifact(
-      plan, options.action, path.dirname(ticket.path), hashPlanArtifactSources([ticket.ticketKey]),
-      ticket.ticketKey, options.sourceKind,
-    );
+    const result = this.persistPlanArtifact(plan, options.action, path.dirname(ticket.path),
+      hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind, figmaLinks);
     return { ...result, sessionId };
   }
 

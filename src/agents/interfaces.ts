@@ -67,6 +67,10 @@ export interface ReviewerOptions {
   passCount?: number;
   /** Force the SonarQube scan on, overriding `stages.review.sonar` config (CLI `--sonar`). */
   sonar?: boolean;
+  /** Force the Figma design-conformance check on, overriding `stages.review.figma` config (CLI `--figma`). */
+  figma?: boolean;
+  /** Tracker name (e.g. 'jira') used to locate plan manifests stored under tracker-namespaced artifact dirs. */
+  trackerName?: string;
 }
 
 /**

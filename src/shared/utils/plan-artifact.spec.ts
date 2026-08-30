@@ -11,6 +11,7 @@ import {
   writePlanArtifactManifest,
   readPlanArtifactManifest,
   updatePlanArtifactManifestSourceBranch,
+  updatePlanArtifactManifestFigmaLinks,
   findPlanArtifactManifestByBranchName,
   hashPlanArtifactSources,
   resolvePlanToken,
@@ -190,6 +191,21 @@ describe('plan artifact helpers', () => {
     });
   });
 
+  it('includes figmaLinks when provided to buildPlanArtifactManifest', () => {
+    const links = ['https://www.figma.com/design/abc/Name'];
+    const manifest = buildPlanArtifactManifest({
+      artifactPath: '/tmp/plan.json',
+      action: 'feature',
+      format: 'json',
+      hash: 'h1',
+      sourceName: 'T-1',
+      sourceKind: 'ticket',
+      createdAt: new Date(),
+      figmaLinks: links,
+    });
+    expect(manifest.figmaLinks).toEqual(links);
+  });
+
   it('rejects non-canonical short hashed identifiers', () => {
     expect(() =>
       resolvePlanArtifactReference('1a2b3c4d-fix-plan.json', {
@@ -280,6 +296,41 @@ describe('updatePlanArtifactManifestSourceBranch', () => {
     const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
     expect(manifest?.sourceBranch).toBe('develop');
     expect(manifest?.branchName).toBe('feature/WBP-1-thing');
+  });
+});
+
+describe('updatePlanArtifactManifestFigmaLinks', () => {
+  it('sets figmaLinks when not previously set', () => {
+    const tempDir = createManagedTempDir('figma-links-set');
+    const planPath = path.join(tempDir, '2026-08-30-abc123-feature-plan.json');
+    writePlanArtifactManifest(
+      buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123',
+        sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date('2026-08-30T00:00:00.000Z'),
+      })
+    );
+
+    updatePlanArtifactManifestFigmaLinks(planPath, ['https://www.figma.com/design/X/Y']);
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.figmaLinks).toEqual(['https://www.figma.com/design/X/Y']);
+  });
+
+  it('is a no-op when figmaLinks already set', () => {
+    const tempDir = createManagedTempDir('figma-links-noop');
+    const planPath = path.join(tempDir, '2026-08-30-abc123-feature-plan.json');
+    writePlanArtifactManifest({
+      ...buildPlanArtifactManifest({
+        artifactPath: planPath, action: 'feature', format: 'json', hash: 'abc123',
+        sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date('2026-08-30T00:00:00.000Z'),
+      }),
+      figmaLinks: ['https://www.figma.com/design/original'],
+    });
+
+    updatePlanArtifactManifestFigmaLinks(planPath, ['https://www.figma.com/design/replacement']);
+
+    const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+    expect(manifest?.figmaLinks).toEqual(['https://www.figma.com/design/original']);
   });
 });
 

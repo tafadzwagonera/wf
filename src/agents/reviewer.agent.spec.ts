@@ -4,6 +4,7 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { SonarStageService } from '../review/sonar-stage.service';
+import { FigmaStageService } from '../review/figma-stage.service';
 import * as fs from 'fs';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
@@ -21,6 +22,10 @@ const mockFormatRepoConventionsPromptSection = jest.mocked(formatRepoConventions
 
 const createMockSonarStageService = () => ({
   scanIfEnabled: jest.fn().mockResolvedValue(undefined),
+});
+
+const createMockFigmaStageService = () => ({
+  resolveIfEnabled: jest.fn().mockResolvedValue(undefined),
 });
 
 describe('ReviewerAgent', () => {
@@ -85,6 +90,10 @@ describe('ReviewerAgent', () => {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
         },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
+        },
       ],
     }).compile();
 
@@ -139,6 +148,10 @@ describe('ReviewerAgent', () => {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
         },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
+        },
       ],
     }).compile();
 
@@ -181,6 +194,10 @@ describe('ReviewerAgent', () => {
         {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
+        },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
         },
       ],
     }).compile();
@@ -243,6 +260,10 @@ describe('ReviewerAgent', () => {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
         },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
+        },
       ],
     }).compile();
 
@@ -303,6 +324,10 @@ describe('ReviewerAgent', () => {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
         },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
+        },
       ],
     }).compile();
 
@@ -349,6 +374,7 @@ describe('ReviewerAgent', () => {
           },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -397,6 +423,7 @@ describe('ReviewerAgent', () => {
           },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -449,6 +476,7 @@ describe('ReviewerAgent', () => {
           },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -492,6 +520,7 @@ describe('ReviewerAgent', () => {
           useValue: { reviewDiff: mockReviewDiff, buildReviewArtifact: jest.fn() },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -538,6 +567,7 @@ describe('ReviewerAgent', () => {
           },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -582,6 +612,7 @@ describe('ReviewerAgent', () => {
           useValue: { reviewDiff: jest.fn(), buildReviewArtifact: jest.fn() },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -622,6 +653,7 @@ describe('ReviewerAgent', () => {
           },
         },
         { provide: SonarStageService, useValue: createMockSonarStageService() },
+        { provide: FigmaStageService, useValue: createMockFigmaStageService() },
       ],
     }).compile();
 
@@ -691,6 +723,10 @@ describe('ReviewerAgent', () => {
           provide: SonarStageService,
           useValue: createMockSonarStageService(),
         },
+        {
+          provide: FigmaStageService,
+          useValue: createMockFigmaStageService(),
+        },
       ],
     }).compile();
 
@@ -741,6 +777,7 @@ describe('ReviewerAgent', () => {
             },
           },
           { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
         ],
       }).compile();
 

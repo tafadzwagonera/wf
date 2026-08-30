@@ -79,6 +79,7 @@ import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { SonarStageService } from '../review/sonar-stage.service';
+import { FigmaStageService } from '../review/figma-stage.service';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
@@ -421,6 +422,12 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
           scanIfEnabled: jest.fn().mockResolvedValue(undefined),
         },
       },
+      {
+        provide: FigmaStageService,
+        useValue: {
+          resolveIfEnabled: jest.fn().mockResolvedValue(undefined),
+        },
+      },
     ],
   }).compile();
 
@@ -527,7 +534,11 @@ describe('IssueReviewCommand', () => {
       jest.spyOn(require('fs'), 'existsSync').mockImplementation((targetPath: string) => {
         return targetPath === reviewArtifactPath;
       });
-      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('# Cached review\n\nAlready reviewed.');
+      const realReadFileSync = jest.requireActual<typeof import('fs')>('fs').readFileSync;
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((p: any, ...args: any[]) => {
+        if (String(p) === reviewArtifactPath) return '# Cached review\n\nAlready reviewed.';
+        return realReadFileSync(p, ...args);
+      });
       adapters.jiraAdapter.getTicket.mockRejectedValue(new Error('ticket lookup should be skipped'));
       const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
 

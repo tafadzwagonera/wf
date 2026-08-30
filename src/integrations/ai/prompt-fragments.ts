@@ -110,10 +110,12 @@ export const buildPlanSkillSection = (skillNames?: string[]): string => {
     + '\nFollow each skill\'s instructions fully before proceeding.';
 };
 
-export const buildReviewSkillSection = (skillNames?: string[]): string => {
-  if (!skillNames?.length) return '';
+export const buildReviewSkillSection = (skillNames?: string[], figmaSkillHint?: string): string => {
+  if (!skillNames?.length && !figmaSkillHint) return '';
+  const lines: string[] = (skillNames ?? []).map(s => `- Skill('${s}')`);
+  if (figmaSkillHint) lines.push(`- ${figmaSkillHint}`);
   return '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
-    + skillNames.map(s => `- Skill('${s}')`).join('\n')
+    + lines.join('\n')
     + '\nFollow each skill\'s instructions fully before proceeding.\n';
 };
 

@@ -41,6 +41,7 @@ export interface BuildPlanArtifactManifestOptions {
   sourceKind: PlanArtifactSourceKind;
   createdAt: Date;
   trackerName?: string;
+  figmaLinks?: string[];
 }
 
 export interface ResolvePlanArtifactOptions {
@@ -108,6 +109,7 @@ export const buildPlanArtifactManifest = (options: BuildPlanArtifactManifestOpti
   ticketKey: options.sourceKind === 'ticket' ? options.sourceName : undefined,
   customArtifactName: options.sourceKind === 'custom' ? options.sourceName : undefined,
   trackerName: options.trackerName,
+  figmaLinks: options.figmaLinks,
 });
 
 export const writePlanArtifactManifest = (manifest: PlanArtifactManifest): string => {
@@ -131,6 +133,7 @@ const buildOptionalManifestFields = (value: Partial<PlanArtifactManifest>) => ({
   trackerName: typeof value.trackerName === 'string' ? value.trackerName : undefined,
   sourceBranch: typeof value.sourceBranch === 'string' ? value.sourceBranch : undefined,
   branchName: typeof value.branchName === 'string' ? value.branchName : undefined,
+  figmaLinks: Array.isArray(value.figmaLinks) ? value.figmaLinks : undefined,
 });
 
 const buildValidatedManifest = (
@@ -188,6 +191,15 @@ export const updatePlanArtifactManifestSourceBranch = (
   const nextBranchName = existing.branchName ?? branchName;
   if (nextSourceBranch === existing.sourceBranch && nextBranchName === existing.branchName) return;
   writePlanArtifactManifest({ ...existing, sourceBranch: nextSourceBranch, branchName: nextBranchName });
+};
+
+export const updatePlanArtifactManifestFigmaLinks = (
+  artifactPath: string, figmaLinks: string[]
+): void => {
+  const manifestPath = buildPlanArtifactManifestPath(artifactPath);
+  const existing = readPlanArtifactManifest(manifestPath);
+  if (!existing || existing.figmaLinks?.length) return;
+  writePlanArtifactManifest({ ...existing, figmaLinks });
 };
 
 const pickMostRecentManifest = (matches: PlanArtifactManifest[]): PlanArtifactManifest | undefined => {

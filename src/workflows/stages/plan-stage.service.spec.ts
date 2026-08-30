@@ -29,6 +29,11 @@ jest.mock('../../shared/utils/detect-test-infra', () => ({
   detectTestInfra: jest.fn(),
 }));
 
+jest.mock('../../shared/utils/extract-figma-links', () => ({
+  searchFigmaLinksForTicket: jest.fn().mockResolvedValue([]),
+  extractFigmaLinks: jest.fn().mockReturnValue([]),
+}));
+
 describe('PlanStageService', () => {
   const mockDetectTestInfra = detectTestInfra as jest.MockedFunction<typeof detectTestInfra>;
   const mockPlan = {

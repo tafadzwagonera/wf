@@ -10,6 +10,7 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
+import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
@@ -21,6 +22,7 @@ export class ReviewerAgent {
     private readonly gitService: GitService,
     private readonly reviewStageService: ReviewStageService,
     private readonly sonarStageService: SonarStageService,
+    private readonly figmaStageService: FigmaStageService,
     private readonly presenter: CliPresenter
   ) {}
 
@@ -35,29 +37,31 @@ export class ReviewerAgent {
    * @param options - Optional reviewer configuration
    * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
    */
-  async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
-    const cached = this.tryLoadCachedReview(ticket.path, options);
-    if (cached) return cached;
-
-    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
-
+  private presentReviewHeader(options: ReviewerOptions): void {
     if (!options.suppressHeader && !options.silent) {
       this.presenter.stageHeader(4, 'Code Review');
       this.presenter.separator();
     }
+  }
 
+  async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
+    const cached = this.tryLoadCachedReview(ticket.path, options);
+    if (cached) return cached;
+    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
+    this.presentReviewHeader(options);
     if (await this.hasNoChanges(options)) return null;
     if (!options.silent) this.presenter.progress('Analyzing changes...');
-
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
-
     const repoDir = options.repoDir ?? process.cwd();
     await this.gitService.stageAll(repoDir);
-    const sonarResult = await this.runSonarStage(repoDir, ticket, options, onProgress);
-
-    const { review, sessionId } = await this.stageAndReview(ticket, repoDir, options, onProgress, sonarResult);
-
+    const [sonarResult, figmaResult] = await Promise.all([
+      this.runSonarStage(repoDir, ticket, options, onProgress),
+      this.runFigmaStage(repoDir, ticket, options, onProgress),
+    ]);
+    const { review, sessionId } = await this.stageAndReview(
+      ticket, repoDir, options, onProgress, sonarResult, figmaResult
+    );
     return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId);
   }
 
@@ -94,15 +98,18 @@ export class ReviewerAgent {
     return true;
   }
 
+  private buildFigmaSkillHint(figmaResult?: FigmaResolveResult): string | undefined {
+    if (!figmaResult) return undefined;
+    const links = figmaResult.figmaLinks.join(' ');
+    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
+    return `Skill('figma-design-check', '${links}${branch}')`;
+  }
+
   private async stageAndReview(
-    ticket: TicketArtifact,
-    repoDir: string,
-    options: ReviewerOptions,
-    onProgress?: (line: string) => void,
-    sonarResult?: SonarScanResult
+    ticket: TicketArtifact, repoDir: string, options: ReviewerOptions,
+    onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
-
     return this.reviewStageService.reviewDiff(diff, {
       context: this.buildReviewContext(ticket.ticketKey, repoDir),
       additionalContextSections: this.buildAdditionalContextSections(sonarResult),
@@ -111,6 +118,7 @@ export class ReviewerAgent {
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
       onProgress,
+      figmaSkillHint: this.buildFigmaSkillHint(figmaResult),
     });
   }
 
@@ -136,6 +144,18 @@ export class ReviewerAgent {
       if (!options.silent) this.presenter.outcome('warning', message);
       return undefined;
     }
+  }
+
+  private async runFigmaStage(
+    repoDir: string, ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
+  ): Promise<FigmaResolveResult | undefined> {
+    return this.figmaStageService.resolveIfEnabled({
+      repoDir,
+      force: options.figma,
+      ticketKey: ticket.ticketKey,
+      artifactDir: path.dirname(ticket.path),
+      onProgress,
+    });
   }
 
   private buildAdditionalContextSections(sonarResult?: SonarScanResult): string[] | undefined {
