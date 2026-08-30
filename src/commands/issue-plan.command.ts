@@ -289,8 +289,8 @@ export class IssuePlanCommand extends CommandRunner {
 
       if (options?.customPlan) return this.executeCustomPlan(options);
 
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      await this.executeTicketPlan(options!.ticketKey!, options!);
+      if (!options?.ticketKey) throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
+      await this.executeTicketPlan(options.ticketKey, options);
     } });
   }
 
@@ -316,8 +316,7 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   private async executeCustomPlan(options: IssuePlanOptions): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    if (!options.customPlan!.toLowerCase().endsWith('.md')) {
+    if (!options.customPlan?.toLowerCase().endsWith('.md')) {
       throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
     }
 
@@ -907,7 +906,8 @@ export class IssuePlanCommand extends CommandRunner {
     if (violations.length === 0) return;
 
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
-    console.log(chalk.yellow(`  ⚠ Plan quality violations:\n${formatted.map(v => `    • ${v}`).join('\n')}`));
+    const violationLines = formatted.map(v => `    • ${v}`).join('\n');
+    console.log(chalk.yellow(`  ⚠ Plan quality violations:\n${violationLines}`));
     const existingRisks = (plan as RepoAwarePlan & { risks?: string[] }).risks ?? [];
     (plan as RepoAwarePlan & { risks?: string[] }).risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
   }

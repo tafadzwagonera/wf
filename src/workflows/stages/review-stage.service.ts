@@ -257,23 +257,26 @@ export class ReviewStageService {
 
   private formatIssuesSection(presentation: ReturnType<typeof buildCodeReviewPresentation>): string {
     return presentation.issueRows.length > 0
-      ? presentation.issueRows
-          .map(({ issue, suggestion }) =>
-            [
-              `- [${issue.severity}] ${issue.message}${issue.file ? ` (${formatIssueFileLocation(issue)})` : ''}`,
-              suggestion ? `  - Suggestion: ${suggestion}` : null,
-            ]
-              .filter((line): line is string => line != null)
-              .join('\n')
-          )
-          .join('\n')
+      ? presentation.issueRows.map(row => this.formatIssueRow(row)).join('\n')
       : '- None';
   }
 
+  private formatIssueRow(
+    row: ReturnType<typeof buildCodeReviewPresentation>['issueRows'][number]
+  ): string {
+    const { issue, suggestion } = row;
+    const location = issue.file ? ` (${formatIssueFileLocation(issue)})` : '';
+    const lines = [
+      `- [${issue.severity}] ${issue.message}${location}`,
+      suggestion ? `  - Suggestion: ${suggestion}` : null,
+    ];
+    return lines.filter((line): line is string => line != null).join('\n');
+  }
+
   private formatTrailingSuggestionsSection(presentation: ReturnType<typeof buildCodeReviewPresentation>): string {
-    return presentation.unmatchedSuggestions.length > 0
-      ? `\n## Suggestions\n${presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n')}\n`
-      : '\n';
+    if (presentation.unmatchedSuggestions.length === 0) return '\n';
+    const suggestionLines = presentation.unmatchedSuggestions.map(suggestion => `- ${suggestion}`).join('\n');
+    return `\n## Suggestions\n${suggestionLines}\n`;
   }
 
   private resolveTraceProvenance(review: CodeReview): string {
@@ -314,7 +317,7 @@ export class ReviewStageService {
       repairLine,
       '> Provenance: evidence-based (code-path trace backed by the execution backend).',
       '> Evidence: the trace is grounded in the changed code path.',
-    ].filter((line): line is string => Boolean(line)).join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   private formatBestEffortTrace(executionMode: string, repairLine: string | null): string {
@@ -323,7 +326,7 @@ export class ReviewStageService {
       repairLine,
       '> Provenance: best-effort (code-path trace inferred from the diff and AI output).',
       '> Hindrance: there is no runtime execution trace backend in this path.',
-    ].filter((line): line is string => Boolean(line)).join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   private formatUnavailableTrace(executionMode: string, repairLine: string | null): string {
@@ -332,7 +335,7 @@ export class ReviewStageService {
       repairLine,
       '> Provenance: unavailable (no concrete code-path trace could be inferred from the diff).',
       '> Hindrance: the review pipeline did not return a code-path trace payload.',
-    ].filter((line): line is string => Boolean(line)).join('\n');
+    ].filter(Boolean).join('\n');
   }
 
   private handleSummariseFailure(

@@ -202,8 +202,8 @@ const configSchema = z
     ai: z.array(providerSchema).optional(),
     atlassian: z
       .object({
-        baseUrl: z.string().url().optional(),
-        email: z.string().email().optional(),
+        baseUrl: z.url().optional(),
+        email: z.email().optional(),
         apiToken: z.string().optional(),
         jira: z
           .object({
@@ -496,12 +496,16 @@ const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> =
 const createProjectRequire = (cwd: string): ReturnType<typeof createRequire> =>
   createRequire(path.join(cwd, 'package.json'));
 
+interface RegisteredRequireExtensions {
+  extensions?: Record<string, unknown>;
+}
+
 const readTypeScriptConfigFromRegisteredExtension = (filePath: string, cwd: string): WfConfig | null => {
   try {
     const requireFromProject = createProjectRequire(cwd);
-    const extensions = requireFromProject.extensions as Record<string, unknown> | undefined;
+    const registeredExtensions = (requireFromProject as unknown as RegisteredRequireExtensions).extensions;
 
-    if (!extensions?.['.ts']) {
+    if (!registeredExtensions?.['.ts']) {
       return null;
     }
 
@@ -782,13 +786,20 @@ const normalizeStageTarget = ({
  * resolveModelConfig falls through to the hardcoded mechanical default for auto-routing.
  * When models is present, always strips the injected model to prevent conflicts.
  */
+const omitModel = (
+  stageTarget: NormalizedAiStageTargetConfig
+): Omit<NormalizedAiStageTargetConfig, 'model'> => {
+  const rest: Partial<NormalizedAiStageTargetConfig> = { ...stageTarget };
+  delete rest.model;
+  return rest as Omit<NormalizedAiStageTargetConfig, 'model'>;
+};
+
 const normalizeImplementStageConfig = ({
   implementStageConfig,
   implementTarget,
 }: ImplementStageInput): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
-  const { model: unusedModel, ...targetWithoutModel } = implementTarget;
-  void unusedModel;
+  const targetWithoutModel = omitModel(implementTarget);
   return {
     ...(implementStageConfig.model !== undefined && implementStageConfig.models === undefined
       ? implementTarget
@@ -921,7 +932,7 @@ const buildGitConfig = (validatedConfig: WfConfig) => ({
   commitFormat: validatedConfig.git?.commitFormat ?? 'auto',
   branchNamePattern:
     validatedConfig.git?.branchNamePattern
-    ?? '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+    ?? String.raw`^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\/[A-Z]+-[0-9]+__|-.+$`,
   branchPrefixMapping: {
     feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
     fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
