@@ -89,6 +89,20 @@ describe('getHelpText', () => {
     expect(helpText).not.toContain('[ticket-key]');
   });
 
+  it('returns stage-specific help for issue:create', () => {
+    const helpText = getHelpText(['issue:create', '--help'], catalog);
+    const plainHelpText = normalizeWrappedText(helpText);
+
+    expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:create [input] [options]');
+    expect(plainHelpText).toContain(
+      'Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate.'
+    );
+    expect(plainHelpText).toContain(
+      '`stages.create` is verification-only and warns when provider, model, backend, or skills are configured.'
+    );
+    expect(helpText).toContain('--dry-run');
+  });
+
   it('reflects current issue command flags', () => {
     const helpText = getHelpText(['issue', '--help'], catalog);
 

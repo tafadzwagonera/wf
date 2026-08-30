@@ -143,7 +143,7 @@ export const COMMAND_DOCS = {
     ],
   },
   'issue:create': {
-    summary: 'Create tickets on various trackers from standardized input (file or stdin).',
+    summary: 'Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate.',
     examples: [
       {
         comment: 'Create ticket from JSON on primary tracker',
@@ -158,7 +158,8 @@ export const COMMAND_DOCS = {
         command: 'wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium',
       },
       {
-        comment: 'Dry-run a repo-scoped generated Jira artifact before creation',
+        comment:
+          'Dry-run a repo-scoped generated Jira artifact to inspect the ADF safety verdict before creation',
         command:
           'wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run',
       },

@@ -728,6 +728,7 @@ describe('wf-config-loader', () => {
     });
 
     it('normalizes create stage with provider and verificationConditions', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const config = normalizeWfConfig({
         ai: [
           {
@@ -750,13 +751,17 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.stages.create).toBeDefined();
-      expect(config.stages.create?.provider).toBe('openai');
+      expect(config.stages.create?.provider).toBeUndefined();
+      expect(config.stages.create?.backend).toBeUndefined();
       expect(config.stages.create?.verificationConditions).toEqual({
         policyFile: undefined,
         scripts: {
           format: 'nr test:manual -- test-verify-request-format',
         },
       });
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('stages.create provider/model/backend/skills settings are currently ignored')
+      );
     });
 
     it('normalizes create stage without provider for validation-only mode', () => {

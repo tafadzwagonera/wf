@@ -6,12 +6,12 @@ import { ConfigService } from '@nestjs/config';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { ValidationError, FileSystemError, ExecutionError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { TicketPriority, TicketType } from '../common/dto/universal-ticket.dto';
+import { TicketPriority, TicketType, UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
-import { stripRedundantSections } from '../common/utils/markdown-text';
+import { stripRedundantSectionsWithReport } from '../common/utils/markdown-text';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -34,6 +34,10 @@ interface DescriptionFormattingStats {
   bulletListCount: number;
   orderedListCount: number;
   suspiciousMarkers: string[];
+}
+
+interface JiraPayloadAnalysis extends DescriptionFormattingStats {
+  looksJiraSafe: boolean;
 }
 
 const createEmptyFormattingStats = (): DescriptionFormattingStats => ({
@@ -82,23 +86,41 @@ const buildDescriptionFormattingStats = (
   return stats;
 };
 
-const buildJiraPayloadPreviewLines = (payload: Record<string, unknown>): string[] => {
+const analyzeJiraPayload = (payload: Record<string, unknown>): JiraPayloadAnalysis => {
   const description = (payload.fields as { description?: unknown } | undefined)?.description;
   const stats = buildDescriptionFormattingStats(description);
-  const suspiciousMarkers = stats.suspiciousMarkers.length > 0 ? stats.suspiciousMarkers.join('; ') : 'none';
-  const looksJiraSafe
-    = stats.suspiciousMarkers.length === 0 && stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
+  const hasRenderableStructure = stats.headingCount + stats.codeBlockCount + stats.bulletListCount > 0;
+  return {
+    ...stats,
+    looksJiraSafe: stats.suspiciousMarkers.length === 0 && hasRenderableStructure,
+  };
+};
 
+const buildJiraPayloadPreviewLines = (analysis: JiraPayloadAnalysis): string[] => {
+  const suspiciousMarkers = analysis.suspiciousMarkers.length > 0 ? analysis.suspiciousMarkers.join('; ') : 'none';
   return [
     'Formatting Summary',
-    `  Headings: ${stats.headingCount}`,
-    `  Paragraphs: ${stats.paragraphCount}`,
-    `  Code blocks: ${stats.codeBlockCount}`,
-    `  Bullet lists: ${stats.bulletListCount}`,
-    `  Ordered lists: ${stats.orderedListCount}`,
+    `  Headings: ${analysis.headingCount}`,
+    `  Paragraphs: ${analysis.paragraphCount}`,
+    `  Code blocks: ${analysis.codeBlockCount}`,
+    `  Bullet lists: ${analysis.bulletListCount}`,
+    `  Ordered lists: ${analysis.orderedListCount}`,
     `  Suspicious raw markers: ${suspiciousMarkers}`,
-    `  Verdict: ${looksJiraSafe ? 'looks Jira-safe' : 'needs review'}`,
+    `  Verdict: ${analysis.looksJiraSafe ? 'looks Jira-safe' : 'needs review'}`,
   ];
+};
+
+const validateEnumValue = <T extends string>(
+  value: string,
+  validValues: readonly T[],
+  label: string,
+  valuesLabel: string
+): T => {
+  const validValueSet = new Set<string>(validValues);
+  if (!validValueSet.has(value)) {
+    throw new ValidationError(`Invalid ${label}: ${value}. Valid ${valuesLabel}: ${validValues.join(', ')}`);
+  }
+  return value as T;
 };
 
 const splitIntoSectionBlocks = (lines: string[]): string[][] => {
@@ -179,10 +201,81 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     );
   }
 };
+
+const applyTicketOverrides = (ticket: UniversalTicket, options?: IssueCreateOptions): void => {
+  if (options?.ticketProject) ticket.project = options.ticketProject;
+  if (options?.type) ticket.type = options.type as TicketType;
+  if (options?.priority) ticket.priority = options.priority as TicketPriority;
+};
+
+const logStrippedSections = (strippedHeadings: string[], silent?: boolean): void => {
+  if (!silent && strippedHeadings.length > 0) {
+    console.log(chalk.gray(`  Removed internal-only sections: ${strippedHeadings.join(', ')}`));
+  }
+};
+
+const getJiraCreateValidationError = (ticket: UniversalTicket, jiraAdapter: JiraAdapter): string | null => {
+  if (!ticket.description.trim()) {
+    return 'Ticket description is empty after removing internal-only sections.';
+  }
+
+  const jiraPayloadAnalysis = analyzeJiraPayload(jiraAdapter.buildCreatePayload(ticket));
+  if (jiraPayloadAnalysis.looksJiraSafe) {
+    return null;
+  }
+
+  const failureReason
+    = jiraPayloadAnalysis.suspiciousMarkers.join('; ')
+      || 'no headings, code blocks, or bullet lists detected';
+  return `Jira payload formatting check failed: ${failureReason}`;
+};
+
+const buildTrackerPreviewPayload = (
+  ticket: UniversalTicket,
+  trackerName: string,
+  jiraAdapter: JiraAdapter
+): Record<string, unknown> =>
+  trackerName === 'jira'
+    ? jiraAdapter.buildCreatePayload(ticket)
+    : {
+        title: ticket.title,
+        type: ticket.type || 'task',
+        priority: ticket.priority || 'medium',
+        project: ticket.project || '<from config>',
+      };
+
+const buildPreviewPayloadLines = (
+  ticket: UniversalTicket,
+  trackerName: string,
+  payload: Record<string, unknown>
+): string[] =>
+  trackerName !== 'jira'
+    ? []
+    : [
+        ...buildJiraPayloadPreviewLines(analyzeJiraPayload(payload)),
+        '',
+        ...buildTicketPreviewLines(ticket.description),
+      ];
+
+const assertCreateTicketIsValid = (ticket: UniversalTicket, trackerName: string, jiraAdapter: JiraAdapter): void => {
+  if (trackerName === 'jira') {
+    const validationError = getJiraCreateValidationError(ticket, jiraAdapter);
+    if (validationError) throw new ValidationError(validationError);
+    return;
+  }
+
+  if (!ticket.description.trim()) {
+    throw new ValidationError(
+      'Ticket description is empty after removing internal-only sections.'
+    );
+  }
+};
 @Injectable()
 @Command({
   name: 'issue:create',
-  description: 'Create tickets on various trackers from standardized input (file or stdin).',
+  description:
+    'Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate. '
+    + '`stages.create` is verification-only and warns when provider, model, backend, or skills are configured.',
   arguments: '[input]',
   options: { isDefault: false },
 })
@@ -225,11 +318,10 @@ export class IssueCreateCommand extends CommandRunner {
 
     const converter = this.formatConverterService.getConverter(format);
     const ticket = converter.parse(content);
-
-    if (options?.ticketProject) ticket.project = options.ticketProject;
-    if (options?.type) ticket.type = options.type as TicketType;
-    if (options?.priority) ticket.priority = options.priority as TicketPriority;
-    ticket.description = stripRedundantSections(ticket.description);
+    applyTicketOverrides(ticket, options);
+    const strippedDescription = stripRedundantSectionsWithReport(ticket.description);
+    ticket.description = strippedDescription.description;
+    logStrippedSections(strippedDescription.strippedHeadings, options?.silent);
 
     if (!options?.silent) console.log(chalk.gray(`  Target tracker: ${trackerName}\n`));
     return { ticket, trackerName };
@@ -268,17 +360,13 @@ export class IssueCreateCommand extends CommandRunner {
     return { content, format };
   }
 
-  private previewDryRun(ticket: any, trackerName: string): void {
+  private previewDryRun(ticket: UniversalTicket, trackerName: string): void {
     this.dryRunPreview.showHeader('issue:create', ticket.title?.substring(0, 40));
-    const payload = trackerName === 'jira'
-      ? this.jiraAdapter.buildCreatePayload(ticket)
-      : { title: ticket.title, type: ticket.type || 'task', priority: ticket.priority || 'medium', project: ticket.project || '<from config>' };
+    const payload = buildTrackerPreviewPayload(ticket, trackerName, this.jiraAdapter);
     this.dryRunPreview.previewApiCall({
       method: 'POST', endpoint: `/${trackerName}/issues`, platform: trackerName,
       description: `Create ticket on ${trackerName}`, estimatedResponse: '201 Created — ticket key and URL returned',
-      payloadPreviewLines: trackerName === 'jira'
-        ? [...buildJiraPayloadPreviewLines(payload), '', ...buildTicketPreviewLines(ticket.description)]
-        : [],
+      payloadPreviewLines: buildPreviewPayloadLines(ticket, trackerName, payload),
     });
     this.dryRunPreview.showSummary({
       apiCallCount: 1, fileCreatedCount: 0, fileModifiedCount: 0, gitOperationCount: 0,
@@ -288,7 +376,12 @@ export class IssueCreateCommand extends CommandRunner {
     this.dryRunPreview.showValidationResult();
   }
 
-  private async executeCreate(ticket: any, trackerName: string, options?: IssueCreateOptions): Promise<void> {
+  private async executeCreate(
+    ticket: UniversalTicket,
+    trackerName: string,
+    options?: IssueCreateOptions
+  ): Promise<void> {
+    assertCreateTicketIsValid(ticket, trackerName, this.jiraAdapter);
     const adapter = this.issueTrackerService.getAdapter(trackerName);
     if (!options?.silent) console.log(chalk.cyan('🚀 Creating ticket on tracker...\n'));
     const reference = await adapter.createTicket(ticket);
@@ -332,7 +425,7 @@ export class IssueCreateCommand extends CommandRunner {
       'Override normalized ticket priority (highest|high|medium|low|lowest); Jira resolves it to an allowed project value',
   })
   parsePriority(val: string): string {
-    return val;
+    return validateEnumValue(val, Object.values(TicketPriority), 'priority', 'priorities');
   }
 
   @Option({
@@ -373,6 +466,6 @@ export class IssueCreateCommand extends CommandRunner {
     description: 'Issue type (task|bug|story|todo) - overrides input file',
   })
   parseType(val: string): string {
-    return val;
+    return validateEnumValue(val, Object.values(TicketType), 'type', 'types');
   }
 }

@@ -1,4 +1,4 @@
-import { stripInlineMarkdownDelimiters, stripRedundantSections } from './markdown-text';
+import { stripInlineMarkdownDelimiters, stripRedundantSections, stripRedundantSectionsWithReport } from './markdown-text';
 
 describe('stripInlineMarkdownDelimiters', () => {
   it('removes backtick, bold, and italic delimiters', () => {
@@ -34,13 +34,13 @@ describe('stripRedundantSections', () => {
     '- Refund handling',
   ].join('\n');
 
-  it('removes all five stripped sections', () => {
+  it('removes only the four stripped sections', () => {
     const result = stripRedundantSections(description);
     expect(result).not.toContain('### Unit Test Scope');
     expect(result).not.toContain('#### Dependencies');
     expect(result).not.toContain('### Affected Repositories');
     expect(result).not.toContain('#### References');
-    expect(result).not.toContain('### Risks & Assumptions');
+    expect(result).toContain('### Risks & Assumptions');
   });
 
   it('preserves retained sections', () => {
@@ -53,5 +53,29 @@ describe('stripRedundantSections', () => {
   it('returns the description unchanged when no stripped sections exist', () => {
     const clean = '### Summary\nA brief summary.\n';
     expect(stripRedundantSections(clean)).toBe(clean);
+  });
+
+  it('reports only the headings that were stripped', () => {
+    expect(stripRedundantSectionsWithReport(description)).toEqual({
+      description: [
+        '### Summary',
+        'A brief summary.',
+        '',
+        '### Acceptance Criteria',
+        '- First criterion',
+        '',
+        '### Risks & Assumptions',
+        '- None',
+        '',
+        '#### Out of Scope',
+        '- Refund handling',
+      ].join('\n'),
+      strippedHeadings: [
+        '#### References',
+        '### Unit Test Scope',
+        '#### Dependencies',
+        '### Affected Repositories',
+      ],
+    });
   });
 });

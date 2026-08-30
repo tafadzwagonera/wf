@@ -22,6 +22,9 @@ const DEFAULT_SEARCH_FIELDS = [
   'updated',
 ] as const;
 
+const CODE_BLOCK_PATTERN = /^[ \t]*\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/gm;
+const NOFORMAT_BLOCK_PATTERN = /^[ \t]*\{noformat}([\s\S]*?)\{noformat}/gm;
+
 /**
  * Normalize near-markdown formatting that commonly appears in generated Jira
  * ticket artifacts before converting the content to ADF.
@@ -40,11 +43,11 @@ const DEFAULT_SEARCH_FIELDS = [
  */
 const normalizeMarkdownForADF = (markdown: string): string =>
   markdown
-    .replaceAll(/^[ \t]*\{code(?::([^}\n]+))?}([\s\S]*?)\{code}/gm, (_match, language: string | undefined, code: string) => {
+    .replaceAll(CODE_BLOCK_PATTERN, (_match, language: string | undefined, code: string) => {
       const lang = language?.trim() ?? '';
       return `\`\`\`${lang}\n${code.trim()}\n\`\`\``;
     })
-    .replaceAll(/^[ \t]*\{noformat}([\s\S]*?)\{noformat}/gm, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
+    .replaceAll(NOFORMAT_BLOCK_PATTERN, (_match, content: string) => `\`\`\`\n${content.trim()}\n\`\`\``)
     .replaceAll(/^(# .+(?:\n# .+)+)$/gm, block => {
       const items = block.split('\n');
       return items.map((line, i) => `${i + 1}. ${line.replace(/^#\s+/, '')}`).join('\n');
@@ -155,6 +158,68 @@ const isTableSeparator = (line: string): boolean => /^\|[\s:|-]+\|$/.test(line.t
 const parseTableCells = (line: string): string[] =>
   line.split('|').slice(1, -1).map(c => c.trim()).filter(c => c.length > 0);
 
+const findMatchingPriorityName = (
+  priorities: Array<{ id: string; name: string }>,
+  requested: string
+): string | undefined => {
+  const lower = requested.toLowerCase();
+  return priorities.find(priority => priority.name.toLowerCase() === lower)?.name;
+};
+
+const buildPriorityFetchWarning = (requested: string): string =>
+  `Failed to fetch Jira priorities while resolving requested priority "${requested}". `
+  + 'Creating ticket without priority.';
+
+const extractTableLines = (lines: string[], index: number): { tableLines: string[]; nextIndex: number } => {
+  const tableLines: string[] = [];
+  let cursor = index;
+  while (
+    cursor < lines.length
+    && lines[cursor].trimStart().startsWith('|')
+    && lines[cursor].trimEnd().endsWith('|')
+  ) {
+    tableLines.push(lines[cursor]);
+    cursor++;
+  }
+  return { tableLines, nextIndex: cursor };
+};
+
+const buildEmptyTableNode = (): Record<string, unknown> =>
+  ({ type: 'paragraph', content: [{ type: 'text', text: '' }] });
+
+const buildTableListItem = (
+  text: string,
+  parseInlineMarkdown: (text: string) => ADFTextNode[]
+): Record<string, unknown> => ({
+  type: 'listItem',
+  content: [{ type: 'paragraph', content: parseInlineMarkdown(text) }],
+});
+
+const buildTableRowText = (headerCells: string[], row: string): string => {
+  const cells = parseTableCells(row);
+  return headerCells
+    .map((header, idx) => (cells[idx] ? `${header}: ${cells[idx]}` : null))
+    .filter(Boolean)
+    .join(' | ');
+};
+
+const buildTableListItemsFromRows = (
+  tableLines: string[],
+  parseInlineMarkdown: (text: string) => ADFTextNode[]
+): Array<Record<string, unknown>> => {
+  const headerCells = parseTableCells(tableLines[0]);
+  const dataRows = tableLines.slice(1).filter(line => !isTableSeparator(line));
+
+  if (dataRows.length === 0) return headerCells.map(cell => buildTableListItem(cell, parseInlineMarkdown));
+
+  return dataRows.map(row => buildTableListItem(buildTableRowText(headerCells, row), parseInlineMarkdown));
+};
+
+const buildTableNode = (listItems: Array<Record<string, unknown>>): Record<string, unknown> =>
+  listItems.length > 0
+    ? { type: 'bulletList', content: listItems }
+    : buildEmptyTableNode();
+
 /**
  * Map Jira issue field metadata (status, dates, people, labels, components)
  * to domain-level JiraTicket properties.
@@ -162,7 +227,9 @@ const parseTableCells = (line: string): string[] =>
  * @param fields - Raw Jira fields object
  * @returns Partial JiraTicket with metadata properties
  */
-const mapJiraFieldsMetadata = (fields: Record<string, unknown>): Omit<JiraTicket, 'key' | 'id' | 'summary' | 'description'> => ({
+const mapJiraFieldsMetadata = (
+  fields: Record<string, unknown>
+): Omit<JiraTicket, 'key' | 'id' | 'summary' | 'description'> => ({
   status: (fields.status as { name: string }).name,
   issueType: (fields.issuetype as { name: string }).name,
   priority: (fields.priority as { name?: string })?.name || 'None',
@@ -317,7 +384,8 @@ export class JiraService {
     const hasPartialConfig = Boolean(this.baseUrl || this.email || this.apiToken || this.defaultProject);
     if (this.issueTrackerConfig.isTrackerEnabled('jira', hasPartialConfig)) {
       this.logger.warn(
-        'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.'
+        'Jira credentials not configured. Set atlassian.baseUrl, atlassian.email, '
+        + 'and atlassian.jira.apiToken in wf.config.*.'
       );
     }
   }
@@ -325,7 +393,8 @@ export class JiraService {
   private ensureConfigured(): void {
     if (!this.baseUrl || !this.email || !this.apiToken) {
       throw new JiraApiError(
-        'Jira is not configured. Set atlassian.baseUrl, atlassian.email, and atlassian.jira.apiToken in wf.config.*.',
+        'Jira is not configured. Set atlassian.baseUrl, atlassian.email, '
+        + 'and atlassian.jira.apiToken in wf.config.*.',
         null,
         false
       );
@@ -339,15 +408,18 @@ export class JiraService {
    */
   async resolveValidPriorityName(requested: string): Promise<string | undefined> {
     try {
-      const url = `${this.baseUrl}/rest/api/3/priority`;
-      const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
-      const priorities: Array<{ id: string; name: string }> = response.data;
-      const lower = requested.toLowerCase();
-      const match = priorities.find(p => p.name.toLowerCase() === lower);
-      return match?.name;
+      const priorities = await this.fetchJiraPriorities();
+      return findMatchingPriorityName(priorities, requested);
     } catch {
+      this.logger.warn(buildPriorityFetchWarning(requested));
       return undefined;
     }
+  }
+
+  private async fetchJiraPriorities(): Promise<Array<{ id: string; name: string }>> {
+    const url = `${this.baseUrl}/rest/api/3/priority`;
+    const response = await firstValueFrom(this.httpService.get(url, { headers: this.getAuthHeaders() }));
+    return response.data;
   }
 
   /**
@@ -367,6 +439,10 @@ export class JiraService {
     try {
       return await this.resolveCreatePriorityFromMetadata(projectKey, issueTypeName, requestedPriority);
     } catch {
+      this.logger.warn(
+        `Failed to resolve Jira create priority metadata for ${projectKey} ${issueTypeName} `
+        + `while resolving requested priority "${requestedPriority}". Falling back to the global priority list.`
+      );
       return this.resolveValidPriorityName(requestedPriority);
     }
   }
@@ -385,12 +461,40 @@ export class JiraService {
     requestedPriority: string
   ): Promise<string | undefined> {
     const issueTypeId = await this.resolveCreateIssueTypeId(projectKey, issueTypeName);
-    if (!issueTypeId) return this.resolveValidPriorityName(requestedPriority);
+    if (!issueTypeId) {
+      return this.fallbackForMissingIssueTypeId(projectKey, issueTypeName, requestedPriority);
+    }
 
     const allowedPriorities = await this.fetchCreateAllowedPriorities(projectKey, issueTypeId);
-    if (!allowedPriorities) return undefined;
+    if (!allowedPriorities) {
+      return this.warnMissingAllowedPriorities(projectKey, issueTypeName, requestedPriority);
+    }
 
     return this.matchAllowedPriority(requestedPriority, allowedPriorities);
+  }
+
+  private fallbackForMissingIssueTypeId(
+    projectKey: string,
+    issueTypeName: string,
+    requestedPriority: string
+  ): Promise<string | undefined> {
+    this.logger.warn(
+      `Failed to resolve Jira create metadata for ${projectKey} ${issueTypeName} `
+      + `while resolving requested priority "${requestedPriority}". Falling back to the global priority list.`
+    );
+    return this.resolveValidPriorityName(requestedPriority);
+  }
+
+  private warnMissingAllowedPriorities(
+    projectKey: string,
+    issueTypeName: string,
+    requestedPriority: string
+  ): undefined {
+    this.logger.warn(
+      `Jira create metadata for ${projectKey} ${issueTypeName} does not expose priority `
+      + `while resolving requested priority "${requestedPriority}". Creating ticket without priority.`
+    );
+    return undefined;
   }
 
   /**
@@ -440,9 +544,7 @@ export class JiraService {
     }
 
     return issueTypes.filter((issueType): issueType is JiraCreateIssueType => {
-      if (!issueType || typeof issueType !== 'object') return false;
-      const { id, name } = issueType as JiraCreateIssueType;
-      return typeof id === 'string' && typeof name === 'string';
+      return Boolean(issueType && typeof issueType === 'object');
     });
   }
 
@@ -550,7 +652,8 @@ export class JiraService {
     const resolved = await this.resolveCreatePriorityName(project, request.issueType || 'Task', request.priority);
     if (!resolved) {
       this.logger.warn(
-        `Priority "${request.priority}" is not allowed for ${project} ${request.issueType || 'Task'} creates. Creating ticket without priority.`
+        `Priority "${request.priority}" is not allowed for ${project} `
+        + `${request.issueType || 'Task'} creates. Creating ticket without priority.`
       );
     }
     return resolved;
@@ -823,19 +926,8 @@ export class JiraService {
    * @returns ADF bulletList node and the index after the last table line
    */
   private parseTableBlock(lines: string[], index: number): { node: Record<string, unknown>; nextIndex: number } {
-    const tableLines: string[] = [];
-    let cursor = index;
-    while (cursor < lines.length && lines[cursor].trimStart().startsWith('|') && lines[cursor].trimEnd().endsWith('|')) {
-      tableLines.push(lines[cursor]);
-      cursor++;
-    }
-
-    const listItems = this.buildTableListItems(tableLines);
-    const node = listItems.length > 0
-      ? { type: 'bulletList', content: listItems }
-      : { type: 'paragraph', content: [{ type: 'text', text: '' }] };
-
-    return { node, nextIndex: cursor };
+    const { tableLines, nextIndex } = extractTableLines(lines, index);
+    return { node: buildTableNode(this.buildTableListItems(tableLines)), nextIndex };
   }
 
   /**
@@ -845,20 +937,7 @@ export class JiraService {
    * @returns Array of ADF listItem nodes
    */
   private buildTableListItems(tableLines: string[]): Array<Record<string, unknown>> {
-    const headerCells = parseTableCells(tableLines[0]);
-    const dataRows = tableLines.slice(1).filter(l => !isTableSeparator(l));
-
-    const makeItem = (text: string) => ({
-      type: 'listItem',
-      content: [{ type: 'paragraph', content: this.parseInlineMarkdown(text) }],
-    });
-
-    if (dataRows.length === 0) return headerCells.map(cell => makeItem(cell));
-
-    return dataRows.map(row => {
-      const cells = parseTableCells(row);
-      return makeItem(headerCells.map((h, idx) => (cells[idx] ? `${h}: ${cells[idx]}` : null)).filter(Boolean).join(' | '));
-    });
+    return buildTableListItemsFromRows(tableLines, text => this.parseInlineMarkdown(text));
   }
 
   /**

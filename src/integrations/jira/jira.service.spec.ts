@@ -84,6 +84,7 @@ describe('JiraService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe('Markdown to ADF Conversion', () => {
@@ -668,7 +669,11 @@ describe('JiraService', () => {
             content: [
               {
                 type: 'text',
-                text: '# *Ghost page* - blank trailing page\n# *Footer gap* - red footer bar\n# *Content splitting* - day blocks split',
+                text: [
+                  '# *Ghost page* - blank trailing page',
+                  '# *Footer gap* - red footer bar',
+                  '# *Content splitting* - day blocks split',
+                ].join('\n'),
               },
             ],
           },
@@ -841,7 +846,10 @@ describe('JiraService', () => {
             content: [
               {
                 type: 'text',
-                text: '* Introduce a normalization utility.\n* The normalizer must operate on the lowest-common-denominator principle.',
+                text: [
+                  '* Introduce a normalization utility.',
+                  '* The normalizer must operate on the lowest-common-denominator principle.',
+                ].join('\n'),
               },
             ],
           },
@@ -1249,13 +1257,16 @@ describe('JiraService', () => {
         description: [
           '### Summary',
           '',
-          'The `service-document` ECS task fails to remain healthy during startup because ECS marks the task unhealthy before the Node.js process has fully initialised, causing repeated restarts.',
+          'The `service-document` ECS task fails to remain healthy during startup because '
+          + 'ECS marks the task unhealthy before the Node.js process has fully initialised, causing repeated restarts.',
           '',
-          'The `customer-service-identity` task previously required a longer health-check grace period for the same reason; `service-document` needs the same treatment.',
+          'The `customer-service-identity` task previously required a longer health-check '
+          + 'grace period for the same reason; `service-document` needs the same treatment.',
           '',
           '#### Technical Details',
           '',
-          '- Increase the ECS service `health_check_grace_period_seconds` for `service-document`. Use the `customer-service-identity` Terraform module as the reference pattern.',
+          '- Increase the ECS service `health_check_grace_period_seconds` for `service-document`. '
+          + 'Use the `customer-service-identity` Terraform module as the reference pattern.',
           '',
           '### Acceptance Criteria',
           '',
@@ -1681,6 +1692,57 @@ describe('JiraService', () => {
 
       const result = await service.resolveValidPriorityName('High');
       expect(result).toBeUndefined();
+      expect(mockLoggerService.warn).toHaveBeenLastCalledWith(
+        'Failed to fetch Jira priorities while resolving requested priority "High". Creating ticket without priority.'
+      );
+    });
+  });
+
+  describe('resolveCreatePriorityName', () => {
+    it('should warn and fall back to the global priority list when create metadata lookup fails', async () => {
+      jest.spyOn(service as any, 'resolveCreatePriorityFromMetadata')
+        .mockRejectedValue(new Error('metadata unavailable'));
+      const fallbackSpy = jest.spyOn(service, 'resolveValidPriorityName').mockResolvedValue('Medium');
+
+      const result = await service.resolveCreatePriorityName('WBP', 'Task', 'medium');
+
+      expect(result).toBe('Medium');
+      expect(fallbackSpy).toHaveBeenCalledWith('medium');
+      expect(mockLoggerService.warn).toHaveBeenLastCalledWith(
+        'Failed to resolve Jira create priority metadata for WBP Task while '
+        + 'resolving requested priority "medium". Falling back to the global priority list.'
+      );
+    });
+
+    it('should warn and fall back to the global priority list when issue type metadata is missing', async () => {
+      const issueTypeSpy = jest.spyOn(service as any, 'resolveCreateIssueTypeId')
+        .mockResolvedValue(undefined);
+      const fallbackSpy = jest.spyOn(service, 'resolveValidPriorityName').mockResolvedValue('Medium');
+
+      const result = await service.resolveCreatePriorityName('WBP', 'Task', 'medium');
+
+      expect(result).toBe('Medium');
+      expect(issueTypeSpy).toHaveBeenCalledWith('WBP', 'Task');
+      expect(fallbackSpy).toHaveBeenCalledWith('medium');
+      expect(mockLoggerService.warn).toHaveBeenLastCalledWith(
+        'Failed to resolve Jira create metadata for WBP Task while '
+        + 'resolving requested priority "medium". Falling back to the global priority list.'
+      );
+    });
+
+    it('should warn when create metadata omits priority and create the ticket without priority', async () => {
+      jest.spyOn(service as any, 'resolveCreateIssueTypeId').mockResolvedValue('42');
+      const allowedSpy = jest.spyOn(service as any, 'fetchCreateAllowedPriorities')
+        .mockResolvedValue(undefined);
+
+      const result = await service.resolveCreatePriorityName('WBP', 'Task', 'medium');
+
+      expect(result).toBeUndefined();
+      expect(allowedSpy).toHaveBeenCalledWith('WBP', '42');
+      expect(mockLoggerService.warn).toHaveBeenLastCalledWith(
+        'Jira create metadata for WBP Task does not expose priority while '
+        + 'resolving requested priority "medium". Creating ticket without priority.'
+      );
     });
   });
 });

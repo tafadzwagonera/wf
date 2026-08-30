@@ -11,9 +11,9 @@
  *   5. Dry-run and execute paths both resolve the artifact successfully
  */
 
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
@@ -60,7 +60,8 @@ const pass = (message: string) => {
 };
 
 const fail = (message: string, detail?: string) => {
-  console.error(`  \u2717 ${message}${detail ? `\n    -> ${detail}` : ''}`);
+  const suffix = detail ? '\n    -> ' + detail : '';
+  console.error(`  \u2717 ${message}${suffix}`);
   failed++;
 };
 
@@ -69,7 +70,6 @@ function setup() {
   fs.mkdirSync(testArtifactDir, { recursive: true });
   fs.writeFileSync(path.join(testArtifactDir, testFilename), SOURCE_CONTENT);
 
-  // Also place the file in the repo dir to detect incorrect cwd resolution
   fs.writeFileSync(path.join(testRepoDir, testFilename), 'WRONG: resolved from cwd, not artifact dir');
 }
 
@@ -120,7 +120,6 @@ async function main() {
   const origCwd = process.cwd();
 
   try {
-    // 1. Bare filename resolves to artifact dir inferred from cwd
     {
       process.chdir(testRepoDir);
       const capture = captureConsole();
@@ -138,7 +137,6 @@ async function main() {
       }
     }
 
-    // 2. Bare filename does NOT resolve against cwd (the code repo)
     {
       process.chdir(testRepoDir);
       const capture = captureConsole();
@@ -149,14 +147,13 @@ async function main() {
       }
 
       const cwdPath = path.join(testRepoDir, testFilename);
-      if (!capture.output.includes(cwdPath)) {
-        pass('bare filename does not resolve to cwd');
-      } else {
+      if (capture.output.includes(cwdPath)) {
         fail('bare filename does not resolve to cwd', `output contained cwd path ${cwdPath}`);
+      } else {
+        pass('bare filename does not resolve to cwd');
       }
     }
 
-    // 3. Absolute path passes through unchanged
     {
       process.chdir(testRepoDir);
       const absPath = path.join(testArtifactDir, testFilename);
@@ -174,7 +171,6 @@ async function main() {
       }
     }
 
-    // 4. Missing bare filename surfaces an actionable error
     {
       process.chdir(testRepoDir);
       const missingFile = 'nonexistent-source.md';
@@ -193,9 +189,7 @@ async function main() {
         (process as any).exit = origExit;
       }
 
-      if (!exitCalled) {
-        fail('missing file triggers process.exit', 'process.exit was not called');
-      } else {
+      if (exitCalled) {
         const allOutput = capture.output + capture.errors;
         if (allOutput.includes('--repos') || allOutput.includes('could not be resolved')) {
           pass('missing file error is actionable');
@@ -204,19 +198,19 @@ async function main() {
         }
 
         const cwdPath = path.join(testRepoDir, missingFile);
-        if (!allOutput.includes(cwdPath)) {
-          pass('missing file error does not reference cwd path');
-        } else {
+        if (allOutput.includes(cwdPath)) {
           fail('missing file error does not reference cwd path');
+        } else {
+          pass('missing file error does not reference cwd path');
         }
+      } else {
+        fail('missing file triggers process.exit', 'process.exit was not called');
       }
     }
 
-    // 5. Dry-run and execute paths both resolve the artifact successfully
     {
       process.chdir(testRepoDir);
 
-      // Dry-run
       const dryCapture = captureConsole();
       try {
         await command.run([testFilename], { dryRun: true });
@@ -224,7 +218,6 @@ async function main() {
         dryCapture.restore();
       }
 
-      // Execute (AI is stubbed, so no real API call)
       const execCapture = captureConsole();
       let execError: Error | null = null;
       try {
@@ -240,10 +233,7 @@ async function main() {
 
       if (execError) {
         fail('execute path resolves artifact without error', `execute threw: ${execError.message}`);
-      } else if (!dryHasPath) {
-        fail('dry-run resolves artifact path', `dry-run output did not contain ${expectedPath}`);
-      } else {
-        // Execute path logs "Fetched (file)", not the resolved path — success means resolution worked
+      } else if (dryHasPath) {
         const execFetched = execCapture.output.includes('Fetched');
         if (dryHasPath && execFetched) {
           pass('dry-run and execute both resolve the artifact successfully');
@@ -253,6 +243,8 @@ async function main() {
             `dry-run has path: ${dryHasPath}, execute fetched: ${execFetched}`,
           );
         }
+      } else {
+        fail('dry-run resolves artifact path', `dry-run output did not contain ${expectedPath}`);
       }
     }
   } finally {

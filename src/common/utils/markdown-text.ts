@@ -17,16 +17,19 @@ export const stripInlineMarkdownDelimiters = (text: string): string =>
  * creation or update. These sections are either internal provenance
  * (References), redundant with CLI options (Affected Repositories),
  * implementation-level detail better suited to the plan artifact
- * (Unit Test Scope, Dependencies), or advisory context that adds noise
- * to the live ticket (Risks & Assumptions).
+ * (Unit Test Scope, Dependencies).
  */
 const STRIPPED_SECTIONS = [
   '#### References',
   '### Unit Test Scope',
   '#### Dependencies',
   '### Affected Repositories',
-  '### Risks & Assumptions',
 ];
+
+interface StripRedundantSectionsResult {
+  description: string;
+  strippedHeadings: string[];
+}
 
 /**
  * Remove ticket-template sections that should not appear on the tracker.
@@ -37,11 +40,25 @@ const STRIPPED_SECTIONS = [
  * @returns Description with stripped sections removed
  */
 export const stripRedundantSections = (description: string): string => {
-  let result = description;
-  for (const heading of STRIPPED_SECTIONS) {
+  return stripRedundantSectionsWithReport(description).description;
+};
+
+/**
+ * Remove ticket-template sections and report which headings were removed.
+ *
+ * @param description - Markdown ticket description
+ * @returns Sanitized description plus removed heading names
+ */
+export const stripRedundantSectionsWithReport = (description: string): StripRedundantSectionsResult => {
+  return STRIPPED_SECTIONS.reduce<StripRedundantSectionsResult>((result, heading) => {
     const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`${escaped}\\n(?:(?!#{1,4}\\s).*\\n?)*`, 'g');
-    result = result.replace(pattern, '');
-  }
-  return result;
+    const descriptionWithoutHeading = result.description.replace(pattern, '');
+    return descriptionWithoutHeading === result.description
+      ? result
+      : {
+          description: descriptionWithoutHeading,
+          strippedHeadings: [...result.strippedHeadings, heading],
+        };
+  }, { description, strippedHeadings: [] });
 };

@@ -1,8 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as vm from 'vm';
-import { createRequire } from 'module';
-import { pathToFileURL } from 'url';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as vm from 'node:vm';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
@@ -18,6 +18,7 @@ import type {
   WfConfig,
   WfImplementStageConfig,
   WfCreateStageConfig,
+  LogLevel,
   NormalizedAiStageTargetConfig,
   NormalizedVerificationConditionsConfig,
   NormalizedImplementStageConfig,
@@ -52,8 +53,9 @@ const CONFIG_FILE_NAMES = [
 ] as const;
 
 type SupportedStageName = StageBackendDefaultStageName;
-type SupportedModelStageName = Exclude<SupportedStageName, 'implement' | 'create'>;
+type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
 const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
+const IGNORED_CREATE_STAGE_KEYS = ['provider', 'model', 'backend', 'skills'] as const;
 
 export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';
@@ -359,57 +361,55 @@ const readConfigModule = async (filePath: string): Promise<WfConfig> => {
   return unwrapModuleExport(loaded);
 };
 
-// eslint-disable-next-line max-lines-per-function
+const readPackageJsonType = (packageJsonPath: string): 'module' | 'commonjs' | null => {
+  if (!fs.existsSync(packageJsonPath)) return null;
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { type?: unknown };
+    return packageJson.type === 'module' || packageJson.type === 'commonjs' ? packageJson.type : null;
+  } catch {
+    return null;
+  }
+};
+
 const detectNearestPackageType = (filePath: string): 'module' | 'commonjs' | null => {
   let currentDir = path.dirname(filePath);
   const { root } = path.parse(currentDir);
 
-  while (true) {
-    const packageJsonPath = path.join(currentDir, 'package.json');
-    if (fs.existsSync(packageJsonPath)) {
-      try {
-        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { type?: unknown };
-        if (packageJson.type === 'module' || packageJson.type === 'commonjs') {
-          return packageJson.type;
-        }
-      } catch {
-        return null;
-      }
-    }
-
-    if (currentDir === root) {
-      return null;
-    }
-
+  while (currentDir !== root) {
+    const packageJsonType = readPackageJsonType(path.join(currentDir, 'package.json'));
+    if (packageJsonType) return packageJsonType;
     currentDir = path.dirname(currentDir);
   }
+
+  return readPackageJsonType(path.join(root, 'package.json'));
 };
 
 const hasCommonJsExportSyntax = (sourceText: string): boolean => /\bmodule\.exports\b|\bexports\./.test(sourceText);
 
-// eslint-disable-next-line max-lines-per-function
-const evaluateConfigScript = (filePath: string, sourceText: string): unknown => {
-  const requireFromConfig = createRequire(filePath);
-  const module = { exports: {} as unknown };
-  const context = vm.createContext({
+const createConfigScriptContext = (filePath: string, module: { exports: unknown }): vm.Context =>
+  vm.createContext({
     exports: module.exports,
     module,
-    require: requireFromConfig,
+    require: createRequire(filePath),
     __filename: filePath,
     __dirname: path.dirname(filePath),
   });
 
-  try {
-    new vm.Script(sourceText, { filename: filePath }).runInContext(context);
-  } catch (error) {
-    if (error instanceof ValidationError) {
-      throw error;
-    }
+const rethrowConfigScriptError = (filePath: string, error: unknown): never => {
+  if (error instanceof ValidationError) {
+    throw error;
+  }
 
-    const originalMessage = error instanceof Error ? error.message : String(error);
-    throw new ValidationError(
-      `Failed to evaluate config file "${filePath}": ${originalMessage}`
-    );
+  const originalMessage = error instanceof Error ? error.message : String(error);
+  throw new ValidationError(`Failed to evaluate config file "${filePath}": ${originalMessage}`);
+};
+
+const evaluateConfigScript = (filePath: string, sourceText: string): unknown => {
+  const module = { exports: {} as unknown };
+  try {
+    new vm.Script(sourceText, { filename: filePath }).runInContext(createConfigScriptContext(filePath, module));
+  } catch (error) {
+    rethrowConfigScriptError(filePath, error);
   }
 
   return module.exports;
@@ -422,7 +422,7 @@ const hasImportSyntax = (sourceText: string): boolean => /^\s*import\s/m.test(so
 
 const hasEsmDefaultExportSyntax = (sourceText: string): boolean => /^\s*export\s+default\b/m.test(sourceText);
 
-const isEmptyEsmExportSource = (sourceText: string): boolean => /^\s*export\s*\{\s*\}\s*;?\s*$/.test(sourceText);
+const isEmptyEsmExportSource = (sourceText: string): boolean => /^\s*export\s*\{\s*}\s*;?\s*$/.test(sourceText);
 
 const evaluateEsmDefaultConfigSource = (filePath: string, sourceText: string): WfConfig => {
   const executableSource = sourceText.replace(/^\s*export\s+default\b/m, 'module.exports = ');
@@ -430,46 +430,51 @@ const evaluateEsmDefaultConfigSource = (filePath: string, sourceText: string): W
   return unwrapModuleExport(evaluateConfigScript(filePath, executableSource));
 };
 
-// eslint-disable-next-line max-lines-per-function
-const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> => {
-  const sourceText = fs.readFileSync(filePath, 'utf-8');
-  const nearestPackageType = detectNearestPackageType(filePath);
+const buildMissingConfigError = (): ValidationError =>
+  new ValidationError(
+    'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.'
+  );
 
-  if (nearestPackageType === 'module') {
-    if (hasCommonJsExportSyntax(sourceText)) {
-      return evaluateCommonJsConfigSource(filePath, sourceText);
-    }
+const shouldEvaluateEsmDefaultConfigSource = (message: string, sourceText: string): boolean =>
+  (message.includes('--experimental-vm-modules') || message.includes('Unexpected token \'export\''))
+  && !hasImportSyntax(sourceText)
+  && hasEsmDefaultExportSyntax(sourceText);
 
-    try {
-      return await readConfigModule(filePath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+const loadCommonJsConfigModule = (filePath: string): WfConfig => {
+  const requireFromConfig = createRequire(filePath);
+  return unwrapModuleExport(requireFromConfig(filePath));
+};
 
-      if (isEmptyEsmExportSource(sourceText)) {
-        throw new ValidationError(
-          'wf config file exists but did not export a config object. Use export default { ... } for ESM configs or module.exports = { ... } for CommonJS configs.'
-        );
-      }
+const loadEsmConfigModule = async (filePath: string): Promise<WfConfig> => readConfigModule(filePath);
 
-      if (
-        (message.includes('--experimental-vm-modules') || message.includes('Unexpected token \'export\''))
-        && !hasImportSyntax(sourceText)
-        && hasEsmDefaultExportSyntax(sourceText)
-      ) {
-        return evaluateEsmDefaultConfigSource(filePath, sourceText);
-      }
+const handleEsmModuleLoadError = (filePath: string, sourceText: string, error: unknown): WfConfig => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isEmptyEsmExportSource(sourceText)) {
+    throw buildMissingConfigError();
+  }
+  if (shouldEvaluateEsmDefaultConfigSource(message, sourceText)) {
+    return evaluateEsmDefaultConfigSource(filePath, sourceText);
+  }
+  throw error;
+};
 
-      throw error;
-    }
+const loadJavaScriptConfigFromModulePackage = async (filePath: string, sourceText: string): Promise<WfConfig> => {
+  if (hasCommonJsExportSyntax(sourceText)) {
+    return evaluateCommonJsConfigSource(filePath, sourceText);
   }
 
   try {
-    const requireFromConfig = createRequire(filePath);
-    const loaded = requireFromConfig(filePath);
-    return unwrapModuleExport(loaded);
+    return await loadEsmConfigModule(filePath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('import')) {
+    return handleEsmModuleLoadError(filePath, sourceText, error);
+  }
+};
+
+const loadJavaScriptConfigFromCommonJsPackage = async (filePath: string): Promise<WfConfig> => {
+  try {
+    return loadCommonJsConfigModule(filePath);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes('import')) {
       throw error;
     }
 
@@ -477,9 +482,23 @@ const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> =
   }
 };
 
+const readJavaScriptConfigModule = async (filePath: string): Promise<WfConfig> => {
+  const sourceText = fs.readFileSync(filePath, 'utf-8');
+  const nearestPackageType = detectNearestPackageType(filePath);
+
+  if (nearestPackageType === 'module') {
+    return loadJavaScriptConfigFromModulePackage(filePath, sourceText);
+  }
+
+  return loadJavaScriptConfigFromCommonJsPackage(filePath);
+};
+
+const createProjectRequire = (cwd: string): ReturnType<typeof createRequire> =>
+  createRequire(path.join(cwd, 'package.json'));
+
 const readTypeScriptConfigFromRegisteredExtension = (filePath: string, cwd: string): WfConfig | null => {
   try {
-    const requireFromProject = createRequire(path.join(cwd, 'package.json'));
+    const requireFromProject = createProjectRequire(cwd);
     const extensions = requireFromProject.extensions as Record<string, unknown> | undefined;
 
     if (!extensions?.['.ts']) {
@@ -492,31 +511,63 @@ const readTypeScriptConfigFromRegisteredExtension = (filePath: string, cwd: stri
   }
 };
 
-// eslint-disable-next-line max-lines-per-function
-const loadJitiFromProject = (cwd: string): ((filePath: string) => unknown) | null => {
+const readJitiPackageVersion = (cwd: string): string => {
+  const requireFromProject = createProjectRequire(cwd);
+  const packageJsonPath = requireFromProject.resolve('jiti/package.json');
+  const packageJson = requireFromProject(packageJsonPath) as { version?: string };
+  return packageJson.version ?? '0.0.0';
+};
+
+const buildUnsupportedTypeScriptConfigError = (): ValidationError =>
+  new ValidationError(
+    'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.'
+  );
+
+const createJitiModuleLoader = (cwd: string): ((filePath: string) => unknown) => {
+  const createJiti = createProjectRequire(cwd)('jiti') as (filename: string) => (targetPath: string) => unknown;
+  const jiti = createJiti(cwd);
+  return (filePath: string) => jiti(filePath);
+};
+
+const assertSupportedJitiVersion = (cwd: string): void => {
+  const version = readJitiPackageVersion(cwd);
+  if (!isVersionGte(version, 2, 2, 0)) {
+    throw new ValidationError(
+      `Installed jiti version ${version} is unsupported. Install jiti@2.2.0 or newer to load wf.config.ts files in Node.js.`
+    );
+  }
+};
+
+const createJitiLoader = (cwd: string): ((filePath: string) => unknown) | null => {
   try {
-    const requireFromProject = createRequire(path.join(cwd, 'package.json'));
-    const packageJsonPath = requireFromProject.resolve('jiti/package.json');
-    const packageJson = requireFromProject(packageJsonPath) as {
-      version?: string;
-    };
-    const version = packageJson.version ?? '0.0.0';
-
-    if (!isVersionGte(version, 2, 2, 0)) {
-      throw new ValidationError(
-        `Installed jiti version ${version} is unsupported. Install jiti@2.2.0 or newer to load wf.config.ts files in Node.js.`
-      );
-    }
-
-    const createJiti = requireFromProject('jiti') as (filename: string) => (targetPath: string) => unknown;
-    const jiti = createJiti(cwd);
-
-    return (filePath: string) => jiti(filePath);
+    assertSupportedJitiVersion(cwd);
+    return createJitiModuleLoader(cwd);
   } catch (error) {
     if (error instanceof ValidationError) {
       throw error;
     }
     return null;
+  }
+};
+
+const shouldReadTypeScriptConfigDirectly = (runtime: string, nodeVersion: string, execArgv: string[]): boolean =>
+  runtime === 'bun'
+  || runtime === 'deno'
+  || hasNativeNodeTypeStripping(nodeVersion, execArgv);
+
+const getTypeScriptConfigLoader = (
+  options: TypeScriptConfigLoadOptions,
+  cwd: string
+): ((filePath: string) => unknown) | null | undefined => options.loadJiti ?? createJitiLoader(cwd) ?? undefined;
+
+const loadTypeScriptConfigWithLoader = (
+  loader: (filePath: string) => unknown,
+  filePath: string
+): WfConfig => {
+  try {
+    return unwrapModuleExport(loader(filePath));
+  } catch {
+    throw buildUnsupportedTypeScriptConfigError();
   }
 };
 
@@ -544,7 +595,6 @@ export const discoverWfConfigPath = (cwd: string): string | null => {
  * @param options - Runtime and loader overrides used for Node/Bun/Deno support
  * @returns Parsed config object
  */
-// eslint-disable-next-line max-lines-per-function
 export const loadTypeScriptConfig = async (
   filePath: string,
   options: TypeScriptConfigLoadOptions = {}
@@ -554,34 +604,12 @@ export const loadTypeScriptConfig = async (
   const nodeVersion = options.nodeVersion ?? process.versions.node;
   const execArgv = options.execArgv ?? process.execArgv;
 
-  if (runtime === 'bun' || runtime === 'deno') {
-    return readConfigModule(filePath);
-  }
-
-  if (hasNativeNodeTypeStripping(nodeVersion, execArgv)) {
-    return readConfigModule(filePath);
-  }
-
+  if (shouldReadTypeScriptConfigDirectly(runtime, nodeVersion, execArgv)) return readConfigModule(filePath);
   const registeredExtensionConfig = readTypeScriptConfigFromRegisteredExtension(filePath, cwd);
-  if (registeredExtensionConfig) {
-    return registeredExtensionConfig;
-  }
-
-  const jitiLoader = options.loadJiti ?? loadJitiFromProject(cwd) ?? undefined;
-
-  if (!jitiLoader) {
-    throw new ValidationError(
-      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.'
-    );
-  }
-
-  try {
-    return unwrapModuleExport(jitiLoader(filePath));
-  } catch {
-    throw new ValidationError(
-      'Node.js cannot load wf TypeScript config files in this process. Install jiti@2.2.0 or newer as a dev dependency, or run Node.js >= 22.13.0 with --experimental-strip-types.'
-    );
-  }
+  if (registeredExtensionConfig) return registeredExtensionConfig;
+  const jitiLoader = getTypeScriptConfigLoader(options, cwd);
+  if (!jitiLoader) throw buildUnsupportedTypeScriptConfigError();
+  return loadTypeScriptConfigWithLoader(jitiLoader, filePath);
 };
 
 const loadConfigFile = async (filePath: string, options: TypeScriptConfigLoadOptions = {}): Promise<WfConfig> => {
@@ -624,6 +652,108 @@ const normalizeVerificationConditionsConfig = (
   };
 };
 
+const assertStageTargetProviderIsConfigured = (
+  stageName: SupportedStageName,
+  stageTarget: WfAiStageTargetConfig,
+  configuredProviderNames: Set<WfAiProviderName>
+): void => {
+  if (!configuredProviderNames.has(stageTarget.provider)) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage references provider "${stageTarget.provider}" which is not configured in ai[].`
+    );
+  }
+};
+
+const resolveStageTargetModel = (
+  stageName: SupportedStageName,
+  stageTarget: WfAiStageTargetConfig,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): string => {
+  const providerConfig = configuredProvidersByName.get(stageTarget.provider);
+  const model = stageTarget.model ?? providerConfig?.model;
+
+  if (!model) {
+    throw new ValidationError(
+      `Invalid wf config: ${stageName} stage must define model or configure a default model for provider "${stageTarget.provider}" in ai[].`
+    );
+  }
+
+  return model;
+};
+
+const buildInvalidStageBackendError = (stageName: SupportedStageName, backend: WfBackendMode): ValidationError =>
+  new ValidationError(`Invalid wf config: ${stageName} stage does not support backend "${backend}".`);
+
+const buildUnsupportedAgentStageProviderError = (
+  stageName: SupportedStageName,
+  provider: WfAiProviderName
+): ValidationError =>
+  new ValidationError(
+    `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${provider}".`
+  );
+
+const resolveStageTargetBackend = (
+  stageName: SupportedStageName,
+  stageTarget: WfAiStageTargetConfig
+): WfBackendMode => {
+  const backend: WfBackendMode = stageTarget.backend ?? resolveDefaultStageBackend(stageName);
+
+  if (backend !== 'standard' && !isAgentSupportedStage(stageName)) {
+    throw buildInvalidStageBackendError(stageName, backend);
+  }
+
+  if (backend === 'agent' && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
+    throw buildUnsupportedAgentStageProviderError(stageName, stageTarget.provider);
+  }
+
+  return backend;
+};
+
+type StageTargetInput = {
+  stageName: SupportedStageName;
+  stageTarget?: WfAiStageTargetConfig;
+  configuredProviderNames: Set<WfAiProviderName>;
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>;
+};
+
+type ImplementStageInput = {
+  implementStageConfig: WfImplementStageConfig | undefined;
+  implementTarget: NormalizedAiStageTargetConfig | undefined;
+};
+
+const buildNormalizedStageTarget = (
+  stageTarget: WfAiStageTargetConfig,
+  model: string,
+  backend: WfBackendMode
+): NormalizedAiStageTargetConfig => ({
+  provider: stageTarget.provider,
+  model,
+  backend,
+  maxTokens: stageTarget.maxTokens,
+  outputFormat: stageTarget.outputFormat,
+  timeoutMs: stageTarget.timeoutMs,
+  inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
+  skills: stageTarget.skills,
+});
+
+const warnOnIgnoredCreateStageSettings = (createStageConfig: WfCreateStageConfig | undefined): void => {
+  if (!createStageConfig) {
+    return;
+  }
+
+  const ignoredKeys = IGNORED_CREATE_STAGE_KEYS.filter(key =>
+    Object.hasOwn(createStageConfig as Record<string, unknown>, key)
+  );
+  if (ignoredKeys.length === 0) {
+    return;
+  }
+
+  console.warn(
+    `Invalid wf config: stages.create provider/model/backend/skills settings are currently ignored. `
+    + `Remove: ${ignoredKeys.join(', ')}. Only verificationConditions is consumed for issue:create today.`
+  );
+};
+
 /**
  * Validate and normalize an explicit AI stage target against configured providers.
  *
@@ -633,55 +763,17 @@ const normalizeVerificationConditionsConfig = (
  * @param configuredProvidersByName - Map from provider name to its configured model
  * @returns Normalized stage target or undefined when absent
  */
-// eslint-disable-next-line max-lines-per-function
 const normalizeStageTarget = ({
   stageName,
   stageTarget,
   configuredProviderNames,
   configuredProvidersByName,
-}: {
-  stageName: SupportedStageName;
-  stageTarget?: WfAiStageTargetConfig;
-  configuredProviderNames: Set<WfAiProviderName>;
-  configuredProvidersByName: Map<WfAiProviderName, { model: string }>;
-}): NormalizedAiStageTargetConfig | undefined => {
-  if (!stageTarget) {
-    return undefined;
-  }
-
-  if (!configuredProviderNames.has(stageTarget.provider)) {
-    throw new ValidationError(
-      `Invalid wf config: ${stageName} stage references provider "${stageTarget.provider}" which is not configured in ai[].`
-    );
-  }
-
-  const providerConfig = configuredProvidersByName.get(stageTarget.provider);
-  const model = stageTarget.model ?? providerConfig?.model;
-  if (!model) {
-    throw new ValidationError(
-      `Invalid wf config: ${stageName} stage must define model or configure a default model for provider "${stageTarget.provider}" in ai[].`
-    );
-  }
-
-  const backend: WfBackendMode = stageTarget.backend ?? resolveDefaultStageBackend(stageName);
-  if (backend !== 'standard' && !isAgentSupportedStage(stageName)) {
-    throw new ValidationError(`Invalid wf config: ${stageName} stage does not support backend "${backend}".`);
-  }
-  if (backend === 'agent' && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
-    throw new ValidationError(
-      `Invalid wf config: ${stageName} stage with backend: 'agent' is unsupported for provider "${stageTarget.provider}".`
-    );
-  }
-  return {
-    provider: stageTarget.provider,
-    model,
-    backend,
-    maxTokens: stageTarget.maxTokens,
-    outputFormat: stageTarget.outputFormat,
-    timeoutMs: stageTarget.timeoutMs,
-    inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
-    skills: stageTarget.skills,
-  };
+}: StageTargetInput): NormalizedAiStageTargetConfig | undefined => {
+  if (!stageTarget) return undefined;
+  assertStageTargetProviderIsConfigured(stageName, stageTarget, configuredProviderNames);
+  const model = resolveStageTargetModel(stageName, stageTarget, configuredProvidersByName);
+  const backend = resolveStageTargetBackend(stageName, stageTarget);
+  return buildNormalizedStageTarget(stageTarget, model, backend);
 };
 
 /**
@@ -690,38 +782,266 @@ const normalizeStageTarget = ({
  * resolveModelConfig falls through to the hardcoded mechanical default for auto-routing.
  * When models is present, always strips the injected model to prevent conflicts.
  */
-// eslint-disable-next-line max-lines-per-function
-const normalizeImplementStageConfig = (
-  implementStageConfig: WfImplementStageConfig | undefined,
-  implementTarget: NormalizedAiStageTargetConfig | undefined
-): NormalizedImplementStageConfig | undefined => {
+const normalizeImplementStageConfig = ({
+  implementStageConfig,
+  implementTarget,
+}: ImplementStageInput): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { model: _model, ...targetWithoutModel } = implementTarget;
-  const useModelConfig = implementStageConfig.model !== undefined;
-  const useModelsConfig = implementStageConfig.models !== undefined;
-  const keepModel = useModelConfig && !useModelsConfig;
-  const base = keepModel ? implementTarget : targetWithoutModel;
+  const { model: unusedModel, ...targetWithoutModel } = implementTarget;
+  void unusedModel;
   return {
-    ...base,
-    ...(useModelsConfig && { models: implementStageConfig.models }),
+    ...(implementStageConfig.model !== undefined && implementStageConfig.models === undefined
+      ? implementTarget
+      : targetWithoutModel),
+    ...(implementStageConfig.models && { models: implementStageConfig.models }),
     verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
   };
 };
 
-// Normalize create stage configuration, supporting validation-only mode.
 const normalizeCreateStageConfig = (
-  createStageConfig: WfCreateStageConfig | undefined,
-  configuredProviderNames: Set<WfAiProviderName>,
-  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+  createStageConfig: WfCreateStageConfig | undefined
 ): NormalizedCreateStageConfig | undefined => {
   if (!createStageConfig) return undefined;
-  const vc = normalizeVerificationConditionsConfig(createStageConfig.verificationConditions);
-  if (!createStageConfig.provider) return { verificationConditions: vc };
-  const stageTarget = createStageConfig as WfAiStageTargetConfig;
-  const ct = normalizeStageTarget({ stageName: 'create', stageTarget, configuredProviderNames, configuredProvidersByName });
-  return ct ? { ...ct, verificationConditions: vc } : undefined;
+  warnOnIgnoredCreateStageSettings(createStageConfig);
+  return { verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions) };
 };
+
+const getInputProviders = (validatedConfig: WfConfig): WfAiProviderConfig[] =>
+  validatedConfig.ai?.length
+    ? validatedConfig.ai
+    : [
+        {
+          provider: 'anthropic',
+          model: DEFAULT_ANTHROPIC_MODEL,
+          default: true,
+        },
+      ];
+
+const getDefaultProviders = (providers: NormalizedAiProviderConfig[]): NormalizedAiProviderConfig[] =>
+  providers.filter(provider => provider.default);
+
+const assertProviderDefaultRules = (
+  providers: NormalizedAiProviderConfig[],
+  defaultProviders: NormalizedAiProviderConfig[]
+): void => {
+  if (defaultProviders.length > 1) {
+    throw new ValidationError('Invalid wf config: at most one AI provider may set default: true.');
+  }
+
+  if (providers.length > 1 && defaultProviders.length === 0) {
+    throw new ValidationError(
+      'Invalid wf config: a default AI provider is required when multiple AI providers are configured.'
+    );
+  }
+};
+
+const selectActiveProvider = (
+  providers: NormalizedAiProviderConfig[],
+  defaultProviders: NormalizedAiProviderConfig[]
+): NormalizedAiProviderConfig =>
+  defaultProviders[0] ?? ({
+    ...providers[0],
+    default: true,
+  } as NormalizedAiProviderConfig);
+
+const getProviderConfig = (
+  providers: NormalizedAiProviderConfig[],
+  providerName: WfAiProviderName
+): NormalizedAiProviderConfig | undefined => providers.find(provider => provider.provider === providerName);
+
+const buildConfiguredProviderLookup = (providers: NormalizedAiProviderConfig[]): {
+  configuredProviderNames: Set<WfAiProviderName>;
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>;
+} => ({
+  configuredProviderNames: new Set(providers.map(provider => provider.provider)),
+  configuredProvidersByName: new Map(providers.map(provider => [provider.provider, { model: provider.model }])),
+});
+
+const buildAiStageTargets = (
+  validatedConfig: WfConfig,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>> =>
+  (['plan', 'review', 'generate', 'commit'] as const).reduce(
+    (result, stageName) =>
+      addStageTarget(result, validatedConfig, stageName, configuredProviderNames, configuredProvidersByName),
+    {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
+  );
+
+const addStageTarget = (
+  result: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>,
+  validatedConfig: WfConfig,
+  stageName: SupportedModelStageName,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>> => {
+  const stageTarget = normalizeStageTarget({
+    stageName,
+    stageTarget: validatedConfig.stages?.[stageName],
+    configuredProviderNames,
+    configuredProvidersByName,
+  });
+  return stageTarget ? { ...result, [stageName]: stageTarget } : result;
+};
+
+const resolveImplementStageTarget = (
+  validatedConfig: WfConfig,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): NormalizedAiStageTargetConfig | undefined => {
+  const implementStageConfig = validatedConfig.stages?.implement;
+  return implementStageConfig
+    ? normalizeStageTarget({
+        stageName: 'implement',
+        stageTarget: implementStageConfig,
+        configuredProviderNames,
+        configuredProvidersByName,
+      })
+    : undefined;
+};
+
+const hasFetchStageOverride = (validatedConfig: WfConfig): boolean =>
+  Boolean((validatedConfig.stages as { fetch?: string } | undefined)?.fetch);
+
+const buildAtlassianConfig = (validatedConfig: WfConfig, jiraApiToken: string | undefined) => ({
+  baseUrl: validatedConfig.atlassian?.baseUrl,
+  email: validatedConfig.atlassian?.email,
+  apiToken: jiraApiToken,
+  jira: {
+    apiToken: jiraApiToken,
+    defaultProject: validatedConfig.atlassian?.jira?.defaultProject,
+  },
+  bitbucket: {
+    workspace: validatedConfig.atlassian?.bitbucket?.workspace,
+    apiToken: validatedConfig.atlassian?.bitbucket?.apiToken,
+  },
+});
+
+const buildGitConfig = (validatedConfig: WfConfig) => ({
+  commitFormat: validatedConfig.git?.commitFormat ?? 'auto',
+  branchNamePattern:
+    validatedConfig.git?.branchNamePattern
+    ?? '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
+  branchPrefixMapping: {
+    feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
+    fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
+    investigate: validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
+  },
+});
+
+type LoggingSourceConfig = { directory?: string; level?: LogLevel };
+
+const buildLoggingConfig = (loggingSource: LoggingSourceConfig): { directory?: string; level: LogLevel } => ({
+  directory: loggingSource.directory,
+  level: loggingSource.level ?? 'info',
+});
+
+const buildNormalizedStages = (
+  validatedConfig: WfConfig,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+) => ({
+  aiStages: buildAiStageTargets(validatedConfig, configuredProviderNames, configuredProvidersByName),
+  normalizedImplementStage: normalizeImplementStageConfig({
+    implementStageConfig: validatedConfig.stages?.implement,
+    implementTarget: resolveImplementStageTarget(validatedConfig, configuredProviderNames, configuredProvidersByName),
+  }),
+  normalizedCreateStage: normalizeCreateStageConfig(validatedConfig.stages?.create),
+});
+
+const buildAiApiKeys = (providers: NormalizedAiProviderConfig[]) => ({
+  anthropicApiKey: getProviderConfig(providers, 'anthropic')?.apiKey,
+  openaiApiKey: getProviderConfig(providers, 'openai')?.apiKey,
+  geminiApiKey: getProviderConfig(providers, 'google')?.apiKey,
+  deepseekApiKey: getProviderConfig(providers, 'deepseek')?.apiKey,
+});
+
+const buildAiSection = (
+  providers: NormalizedAiProviderConfig[],
+  activeProvider: NormalizedAiProviderConfig,
+  aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
+): NormalizedWfConfig['ai'] => ({
+  provider: activeProvider.provider,
+  providers,
+  apiKey: activeProvider.apiKey,
+  ...buildAiApiKeys(providers),
+  model: activeProvider.model,
+  maxTokens: activeProvider.maxTokens,
+  stages: aiStages,
+});
+
+const buildStageSection = (
+  aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>,
+  normalizedImplementStage: NormalizedImplementStageConfig | undefined,
+  normalizedCreateStage: NormalizedCreateStageConfig | undefined
+): NormalizedWfConfig['stages'] => ({
+  plan: aiStages.plan,
+  implement: normalizedImplementStage,
+  create: normalizedCreateStage,
+  review: aiStages.review,
+  generate: aiStages.generate,
+  commit: aiStages.commit,
+});
+
+const buildOutputConfigSection = (validatedConfig: WfConfig, jiraApiToken: string | undefined, aiSection: NormalizedWfConfig['ai'], stageSection: NormalizedWfConfig['stages'], loggingSource: LoggingSourceConfig): Omit<NormalizedWfConfig, 'tracker'> => ({
+  ai: aiSection,
+  stages: stageSection,
+  atlassian: buildAtlassianConfig(validatedConfig, jiraApiToken),
+  github: buildGitHubConfig(validatedConfig),
+  git: buildGitConfig(validatedConfig),
+  state: buildStateConfig(validatedConfig),
+  logging: buildLoggingConfig(loggingSource),
+  log: buildLoggingConfig(loggingSource),
+  slack: buildSlackConfig(validatedConfig),
+});
+
+const buildGitHubConfig = (validatedConfig: WfConfig) => ({
+  token: validatedConfig.github?.token,
+  defaultRepo: validatedConfig.github?.defaultRepo,
+});
+
+const buildStateConfig = (validatedConfig: WfConfig) => ({
+  directory: validatedConfig.state?.directory,
+});
+
+const buildSlackConfig = (validatedConfig: WfConfig) => ({
+  botToken: validatedConfig.slack?.botToken,
+  userToken: validatedConfig.slack?.userToken,
+});
+
+const buildNormalizedProviderContext = (
+  validatedConfig: WfConfig
+): {
+  providers: NormalizedAiProviderConfig[];
+  activeProvider: NormalizedAiProviderConfig;
+} => {
+  const inputProviders = getInputProviders(validatedConfig);
+  const providers = inputProviders.map(normalizeProvider);
+  const defaultProviders = getDefaultProviders(providers);
+  assertProviderDefaultRules(providers, defaultProviders);
+  return { providers, activeProvider: selectActiveProvider(providers, defaultProviders) };
+};
+
+type BuildNormalizedWfConfigInput = {
+  validatedConfig: WfConfig;
+  providers: NormalizedAiProviderConfig[];
+  activeProvider: NormalizedAiProviderConfig;
+  aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>;
+  normalizedImplementStage: NormalizedImplementStageConfig | undefined;
+  normalizedCreateStage: NormalizedCreateStageConfig | undefined;
+  loggingSource: LoggingSourceConfig;
+};
+
+const buildNormalizedWfConfig = (input: BuildNormalizedWfConfigInput): NormalizedWfConfig => ({
+  tracker: input.validatedConfig.tracker ?? 'jira',
+  ...buildOutputConfigSection(
+    input.validatedConfig,
+    input.validatedConfig.atlassian?.jira?.apiToken ?? input.validatedConfig.atlassian?.apiToken,
+    buildAiSection(input.providers, input.activeProvider, input.aiStages),
+    buildStageSection(input.aiStages, input.normalizedImplementStage, input.normalizedCreateStage),
+    input.loggingSource
+  ),
+});
 
 /**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
@@ -729,7 +1049,6 @@ const normalizeCreateStageConfig = (
  * @param rawConfig - Consumer-authored config object
  * @returns Normalized config with defaults applied
  */
-// eslint-disable-next-line max-lines-per-function
 export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
   const result = configSchema.safeParse(rawConfig);
   if (!result.success) {
@@ -741,149 +1060,23 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
   }
 
   const validatedConfig = result.data as WfConfig;
-  const inputProviders = validatedConfig.ai?.length
-    ? validatedConfig.ai
-    : [
-        {
-          provider: 'anthropic' as const,
-          model: DEFAULT_ANTHROPIC_MODEL,
-          default: true,
-        },
-      ];
-  const providers = inputProviders.map(normalizeProvider);
-  const defaultProviders = providers.filter(provider => provider.default);
+  return normalizeValidatedWfConfig(validatedConfig);
+};
 
-  if (defaultProviders.length > 1) {
-    throw new ValidationError('Invalid wf config: at most one AI provider may set default: true.');
-  }
-
-  if (providers.length > 1 && defaultProviders.length === 0) {
-    throw new ValidationError(
-      'Invalid wf config: a default AI provider is required when multiple AI providers are configured.'
-    );
-  }
-
-  const activeProvider
-    = defaultProviders[0]
-      ?? ({
-        ...providers[0],
-        default: true,
-      } as (typeof providers)[number]);
-  const loggingSource = validatedConfig.logging ?? validatedConfig.log ?? {};
-
-  if ((validatedConfig.stages as { fetch?: string } | undefined)?.fetch) {
-    throw new ValidationError('Invalid wf config: fetch stage cannot be overridden in stages.');
-  }
-
-  const configuredProviderNames = new Set(providers.map(provider => provider.provider));
-  const configuredProvidersByName = new Map(providers.map(provider => [provider.provider, { model: provider.model }]));
-
-  const aiStages = (['plan', 'review', 'generate', 'commit'] as const).reduce(
-    (result, stageName) => {
-      const stageTarget = normalizeStageTarget({
-        stageName,
-        stageTarget: validatedConfig.stages?.[stageName],
-        configuredProviderNames,
-        configuredProvidersByName,
-      });
-      if (stageTarget) {
-        result[stageName] = stageTarget;
-      }
-      return result;
-    },
-    {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
-  );
-
-  const implementStageConfig = validatedConfig.stages?.implement;
-  const implementTarget = implementStageConfig
-    ? normalizeStageTarget({
-        stageName: 'implement',
-        stageTarget: implementStageConfig,
-        configuredProviderNames,
-        configuredProvidersByName,
-      })
-    : undefined;
-  const normalizedImplementStage = normalizeImplementStageConfig(implementStageConfig, implementTarget);
-
-  const normalizedCreateStage = normalizeCreateStageConfig(
-    validatedConfig.stages?.create,
-    configuredProviderNames,
-    configuredProvidersByName
-  );
-
-  const providerMap = new Map(providers.map(provider => [provider.provider, provider]));
-  const anthropicProvider = providerMap.get('anthropic');
-  const openaiProvider = providerMap.get('openai');
-  const geminiProvider = providerMap.get('google');
-  const deepseekProvider = providerMap.get('deepseek');
-  const jiraApiToken = validatedConfig.atlassian?.jira?.apiToken ?? validatedConfig.atlassian?.apiToken;
-
-  return {
-    tracker: validatedConfig.tracker ?? 'jira',
-    ai: {
-      provider: activeProvider.provider,
-      providers,
-      apiKey: activeProvider.apiKey,
-      anthropicApiKey: anthropicProvider?.apiKey,
-      openaiApiKey: openaiProvider?.apiKey,
-      geminiApiKey: geminiProvider?.apiKey,
-      deepseekApiKey: deepseekProvider?.apiKey,
-      model: activeProvider.model,
-      maxTokens: activeProvider.maxTokens,
-      stages: aiStages,
-    },
-    stages: {
-      plan: aiStages.plan,
-      implement: normalizedImplementStage,
-      create: normalizedCreateStage,
-      review: aiStages.review,
-      generate: aiStages.generate,
-      commit: aiStages.commit,
-    },
-    atlassian: {
-      baseUrl: validatedConfig.atlassian?.baseUrl,
-      email: validatedConfig.atlassian?.email,
-      apiToken: jiraApiToken,
-      jira: {
-        apiToken: jiraApiToken,
-        defaultProject: validatedConfig.atlassian?.jira?.defaultProject,
-      },
-      bitbucket: {
-        workspace: validatedConfig.atlassian?.bitbucket?.workspace,
-        apiToken: validatedConfig.atlassian?.bitbucket?.apiToken,
-      },
-    },
-    github: {
-      token: validatedConfig.github?.token,
-      defaultRepo: validatedConfig.github?.defaultRepo,
-    },
-    git: {
-      commitFormat: validatedConfig.git?.commitFormat ?? 'auto',
-      branchNamePattern:
-        validatedConfig.git?.branchNamePattern
-        ?? '^(bugfix|build|chore|ci|docs|feat|feature|fix|perf|performance|refactor|revert|style|test)\\/[A-Z]+-[0-9]+__|-.+$',
-      branchPrefixMapping: {
-        feature: validatedConfig.git?.branchPrefixMapping?.feature ?? 'feature',
-        fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
-        investigate: validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
-      },
-    },
-    state: {
-      directory: validatedConfig.state?.directory,
-    },
-    logging: {
-      directory: loggingSource.directory,
-      level: loggingSource.level ?? 'info',
-    },
-    log: {
-      directory: loggingSource.directory,
-      level: loggingSource.level ?? 'info',
-    },
-    slack: {
-      botToken: validatedConfig.slack?.botToken,
-      userToken: validatedConfig.slack?.userToken,
-    },
-  };
+const normalizeValidatedWfConfig = (validatedConfig: WfConfig): NormalizedWfConfig => {
+  const { providers, activeProvider } = buildNormalizedProviderContext(validatedConfig);
+  if (hasFetchStageOverride(validatedConfig)) throw new ValidationError('Invalid wf config: fetch stage cannot be overridden in stages.');
+  const { configuredProviderNames, configuredProvidersByName } = buildConfiguredProviderLookup(providers);
+  const normalizedStages = buildNormalizedStages(validatedConfig, configuredProviderNames, configuredProvidersByName);
+  return buildNormalizedWfConfig({
+    validatedConfig,
+    providers,
+    activeProvider,
+    aiStages: normalizedStages.aiStages,
+    normalizedImplementStage: normalizedStages.normalizedImplementStage,
+    normalizedCreateStage: normalizedStages.normalizedCreateStage,
+    loggingSource: validatedConfig.logging ?? validatedConfig.log ?? {},
+  });
 };
 
 /**

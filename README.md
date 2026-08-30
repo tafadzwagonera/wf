@@ -279,7 +279,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
   A model that is actively working but takes 8 minutes total is fine — the wall-clock timer has not fired and inactivity is reset continuously. A model that starts thinking silently and produces nothing for 2 minutes is killed by the inactivity timeout even if the wall-clock timer still has time remaining. Increase `inactivityTimeoutMs` (e.g. `600000` for 10 minutes) when using models with extended thinking that produce no output for several minutes. Set either value to `0` to disable the corresponding limit entirely (`timeoutMs: 0` removes the wall-clock kill; `inactivityTimeoutMs: 0` removes the inactivity kill).
 - `stages.generate`, `stages.plan`, and `stages.review` also accept `outputFormat?: 'json' | 'md' | 'yaml' | 'yml'` to override the per-stage default format (generate=md, plan=json, review=md).
 - `stages.commit` accepts `{ provider, model, backend? }`.
-- `stages.create` accepts `{ provider, model, backend?, verificationConditions? }`.
+- `stages.create` currently consumes only `verificationConditions`. If `provider`, `model`, `backend`, or `skills` are set there, wf warns that those fields are ignored because `issue:create` has no AI-backed create stage.
 - Stage targets explicitly override the default `ai.provider` and `ai.model`.
 - Prefer `verificationConditions.policyFile` to point at a repository-owned verification manifest. This keeps baseline verification policy tool-agnostic and reusable from CI or other executors.
 - `verificationConditions.scripts` remains supported as a fallback when a manifest is not present.
@@ -515,10 +515,10 @@ When `--comment` is used on a pull request, inline review comments use destinati
 
 ---
 
-#### `wf issue:create <input>`
+#### `wf issue:create [input]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
-Create tickets on various trackers from standardized input (file or stdin).
+Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate.
 
 ```bash
 # Create ticket from JSON on primary tracker
@@ -530,7 +530,7 @@ wf issue:create ticket.md --tracker jira --ticket-project WBP --type story
 # Create Jira ticket with project-specific priority resolution
 wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium
 
-# Dry-run a repo-scoped generated Jira artifact before creation
+# Dry-run a repo-scoped generated Jira artifact to inspect the ADF safety verdict before creation
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 
 # Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update and shows a y/N prompt before the PUT
@@ -553,7 +553,7 @@ yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /U
 
 When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field.
 
-For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped. Before ADF conversion, the write path normalises embedded Jira wiki markup: `{code:lang}...{code}` and `{noformat}...{noformat}` blocks at the start of a line become fenced code blocks, consecutive `# item` lines become numbered lists, `* item` bullets become `- item`, and `{{text}}` becomes inline code. Mid-line prose references to these patterns are preserved as literal text. Use `--dry-run` to inspect the formatting summary before creating a ticket.
+For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped. Before ADF conversion, the write path normalises embedded Jira wiki markup: `{code:lang}...{code}` and `{noformat}...{noformat}` blocks at the start of a line become fenced code blocks, consecutive `# item` lines become numbered lists, `* item` bullets become `- item`, and `{{text}}` becomes inline code. Mid-line prose references to these patterns are preserved as literal text. Use `--dry-run` to inspect the formatting summary before creating a ticket. The live Jira create path now enforces the same verdict and rejects empty or suspicious payloads before posting.
 
 ---
 
@@ -1076,7 +1076,7 @@ wf/
 
 - **File-system-only state.** No database — all artifacts, state, and logs live under `.wf/` in the target repository or `~/.wf/<repo>/` for repo-scoped artifacts. This keeps wf portable and easy to debug.
 - **Per-stage provider overrides.** Each pipeline stage can use a different AI provider and model via `stages.<command>` config, so you can use a cheaper model for planning and a more capable one for implementation.
-- **Agent vs completion mode.** Most stages (plan, implement, review, generate, create) default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard (completion API). Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
+- **Agent vs completion mode.** The plan, implement, review, and generate stages default to agent mode via the Claude Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode. The commit stage defaults to standard mode. The create stage is verification-only and consumes `verificationConditions` rather than a runnable backend. Controlled by `stages.<command>.backend: 'agent' | 'cli' | 'standard'`.
 - **Adapter pattern.** Platform adapters (Jira, GitHub, Bitbucket) and AI adapters (Anthropic, OpenAI, Gemini, DeepSeek) share a common interface so new providers can be added without changing command or agent code.
 - **Config resolution.** `wf` resolves config from the target repository when `--repos` is supplied, not from the caller's cwd. This lets a single wf installation manage many repositories with different settings.
 - **Review sonar gating.** `stages.review.sonar` defaults to disabled when omitted. Set it to `true` to enable the SonarQube CLI during review; requires `sonar` on PATH and an authenticated `sonar auth status`. Findings are reported and review continues; a missing CLI or auth/project misconfiguration skips review for the affected target or repository with a warning, without aborting the rest of the run. Pass `--sonar` to force it on for a single run.

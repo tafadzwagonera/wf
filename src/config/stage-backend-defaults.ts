@@ -1,13 +1,12 @@
 import type { WfBackendMode } from './public-config';
 
-export type StageBackendDefaultStageName = 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create';
+export type StageBackendDefaultStageName = 'plan' | 'implement' | 'review' | 'generate' | 'commit';
 
 const AGENT_DEFAULT_BACKEND_STAGES = new Set<StageBackendDefaultStageName>([
   'plan',
   'implement',
   'review',
   'generate',
-  'create',
 ]);
 
 /**

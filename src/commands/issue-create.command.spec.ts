@@ -517,7 +517,7 @@ describe('IssueCreateCommand', () => {
     expect(ticket.description).not.toContain('### Unit Test Scope');
     expect(ticket.description).not.toContain('#### Dependencies');
     expect(ticket.description).not.toContain('### Affected Repositories');
-    expect(ticket.description).not.toContain('### Risks & Assumptions');
+    expect(ticket.description).toContain('### Risks & Assumptions');
     expect(ticket.description).toContain('### Acceptance Criteria');
     expect(ticket.description).toContain('#### Out of Scope');
   });
@@ -543,6 +543,81 @@ describe('IssueCreateCommand', () => {
         priority: 'medium',
         project: 'WBP',
       }),
+    );
+  });
+
+  it('blocks live Jira creates when the description is empty after stripping', async () => {
+    const command = await buildCommand();
+    const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const artifactPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-08-29-empty-after-strip.md');
+    const artifactContent = [
+      '# Empty after strip',
+      '',
+      '**Type:** story',
+      '**Priority:** medium',
+      '',
+      '## Description',
+      '### Unit Test Scope',
+      '- DTO validation covers required fields.',
+      '',
+      '#### Dependencies',
+      '- service-auth v2',
+      '',
+      '### Affected Repositories',
+      '- service-document-v1',
+      '',
+      '#### References',
+      '- https://example.com/doc',
+    ].join('\n');
+
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
+    mockReadFileSync.mockReturnValue(artifactContent);
+
+    await expect(command.run(['2026-08-29-empty-after-strip.md'], {})).rejects.toThrow(
+      'Ticket description is empty after removing internal-only sections.'
+    );
+
+    expect(issueTrackerService.getAdapter).not.toHaveBeenCalled();
+  });
+
+  it('blocks live Jira creates when the converted payload still contains suspicious formatting markers', async () => {
+    const command = await buildCommand();
+    const issueTrackerService = (command as any).issueTrackerService as jest.Mocked<IssueTrackerService>;
+    const jiraAdapter = (command as any).jiraAdapter as { buildCreatePayload: jest.Mock };
+    const artifactPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', '2026-08-29-suspicious-markers.md');
+
+    mockExistsSync.mockImplementation(input => String(input) === artifactPath);
+    jiraAdapter.buildCreatePayload.mockReturnValueOnce({
+      fields: {
+        description: {
+          type: 'doc',
+          version: 1,
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: 'raw {code} marker found in text node' }],
+            },
+          ],
+        },
+      },
+    });
+
+    await expect(command.run(['2026-08-29-suspicious-markers.md'], {})).rejects.toThrow(
+      'Jira payload formatting check failed: raw {code} marker found in text node'
+    );
+
+    expect(issueTrackerService.getAdapter).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid priority overrides with the allowed values', () => {
+    expect(() => IssueCreateCommand.prototype.parsePriority.call({}, 'urgent')).toThrow(
+      'Invalid priority: urgent. Valid priorities: highest, high, medium, low, lowest'
+    );
+  });
+
+  it('rejects invalid type overrides with the allowed values', () => {
+    expect(() => IssueCreateCommand.prototype.parseType.call({}, 'incident')).toThrow(
+      'Invalid type: incident. Valid types: task, bug, story, todo, epic, subtask'
     );
   });
 });
