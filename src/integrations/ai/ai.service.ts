@@ -706,7 +706,7 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
 const planSystemPrompt = `You are a software architect producing resolution plans. Prioritize correctness and minimal blast radius.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
-const findingsSystemPrompt = `You are a software investigator. Distinguish root causes from symptoms, and ground every finding in concrete evidence.
+export const findingsSystemPrompt = `You are a software investigator. Distinguish root causes from symptoms, and ground every finding in concrete evidence.
 Return your response as a JSON object.`;
 
 const commitSystemPrompt = `You are a commit message author. Capture intent over mechanics — the reader should understand "why" without opening the diff.`;
@@ -840,7 +840,7 @@ ${JSON_OUTPUT_RULES}`;
  * @param ticketContent Optional raw ticket text for extra context
  * @returns Prompt string for the findings generation call
  */
-const buildFindingsPrompt = (plan: ResolutionPlan, ticketContent?: string): string => `
+export const buildFindingsPrompt = (plan: ResolutionPlan, ticketContent?: string): string => `
 Investigation Plan:
 ${JSON.stringify(plan, null, 2)}
 ${ticketContent ? `\nTicket Context:\n${ticketContent}\n` : ''}
@@ -962,10 +962,9 @@ export class AiService {
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
-    return this.adapter.execute({
-      ...request,
-      ...this.resolveAiTarget(request.stage, request.provider, request.model),
-    });
+    const target = this.resolveAiTarget(request.stage, request.provider, request.model);
+    this.logger.info(`ai.execute stage=${request.stage ?? 'default'} provider=${target.provider ?? 'inherit'} model=${target.model ?? 'inherit'}`);
+    return this.adapter.execute({ ...request, ...target });
   }
 
   /**
@@ -976,10 +975,9 @@ export class AiService {
    * @returns AI response with content and token usage
    */
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
-    return this.adapter.executeWithHistory({
-      ...request,
-      ...this.resolveAiTarget(request.stage, request.provider, request.model),
-    });
+    const target = this.resolveAiTarget(request.stage, request.provider, request.model);
+    this.logger.info(`ai.execute stage=${request.stage ?? 'default'} provider=${target.provider ?? 'inherit'} model=${target.model ?? 'inherit'}`);
+    return this.adapter.executeWithHistory({ ...request, ...target });
   }
 
   async generatePlan(

@@ -113,7 +113,7 @@ async function testEmptyAiResponseDiagnostics() {
     });
 
     try {
-      await conversationService.getAssistantResponse(conversation.conversationId);
+      await conversationService.getAssistantResponse(conversation.conversationId, undefined, 'review');
       fail('ConversationService.getAssistantResponse should reject blank output');
     } catch (error: any) {
       const hasExpectedError

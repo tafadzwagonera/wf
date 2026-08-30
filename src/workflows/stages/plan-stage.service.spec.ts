@@ -427,7 +427,7 @@ describe('PlanStageService', () => {
     expect(result).toMatchObject({ plan: { action: 'fix', summary: expect.any(String) } });
   });
 
-  it('rethrows non-parse repair errors instead of falling back', async () => {
+  it('falls through to generatePlan fallback when validatePlanJson rejects with a non-parse error during agent path', async () => {
     const { service, aiService, stageAgentService } = await buildService(true);
     const proseError = new AiProviderError(
       'Failed to parse resolution plan from agent response',
@@ -442,16 +442,33 @@ describe('PlanStageService', () => {
       new AiProviderError('Rate limit exceeded', { status: 429 }, true, 'api')
     );
 
-    await expect(
-      service.generatePlan('Ticket body', {
-        action: 'fix',
-        ticketKey: 'WBP-403',
-        affectedRepositories: ['repo-a'],
-      })
-    ).rejects.toMatchObject({
-      message: 'Rate limit exceeded',
+    const result = await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-403',
+      affectedRepositories: ['repo-a'],
     });
-    expect(aiService.generatePlan).not.toHaveBeenCalled();
+
+    expect(aiService.generatePlan).toHaveBeenCalled();
+    expect(result).toMatchObject({ plan: { action: 'fix', summary: expect.any(String) } });
+  });
+
+  it('falls through to executeFallbackCompletion when validatePlanJson rejects with a non-parse error', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const proseError = new AiProviderError(
+      'Failed to parse resolution plan from agent response',
+      { response: 'Here is my analysis of the codebase...' },
+      true,
+      'parse'
+    );
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(proseError);
+    (aiService.validatePlanJson as jest.Mock).mockRejectedValueOnce(
+      new AiProviderError('Rate limit exceeded', { status: 429 }, true, 'api')
+    );
+
+    const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-404' });
+
+    expect(aiService.generatePlan).toHaveBeenCalled();
+    expect(result).toMatchObject({ plan: { action: 'fix', summary: expect.any(String) } });
   });
 
   it('throws when fallback result is structurally invalid', async () => {

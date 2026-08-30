@@ -75,6 +75,7 @@ async function buildCommand(): Promise<IssueImplementCommand> {
         useValue: {
           getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'),
           getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions'),
+          execute: jest.fn().mockResolvedValue({ content: '{}' }),
         },
       },
       { provide: IssueTrackerService, useValue: {} },
@@ -1260,6 +1261,31 @@ describe('IssueImplementCommand', () => {
       const result = (command as any).filterActiveRepos(['repoA', 'repoB'], planArtifact);
 
       expect(result).toEqual(['repoA', 'repoB']);
+    });
+  });
+
+  describe('investigate findings routing', () => {
+    it('passes stage=implement when generating investigation findings', async () => {
+      const command = await buildCommand();
+      const aiService = (command as any).aiService;
+      const executeSpy = jest.spyOn(aiService, 'execute').mockResolvedValue({
+        content: JSON.stringify({ action: 'investigate', summary: '', findings: [], recommendations: [], conclusion: '' }),
+      });
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const mockPlan = {
+        action: 'investigate',
+        summary: 'check auth',
+        steps: ['check'],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        affectedRepositories: [],
+      };
+
+      await (command as any).generateFindings(mockPlan);
+
+      expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({ stage: 'implement' }));
+      consoleSpy.mockRestore();
     });
   });
 });

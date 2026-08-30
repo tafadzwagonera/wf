@@ -127,7 +127,7 @@ export const implementerOptionsSchema = z.object({
   isNewRepo: z.boolean().optional(),
 });
 
-export const agentStageNameSchema = z.enum(['plan', 'review', 'generate']);
+export const agentStageNameSchema = z.enum(['plan', 'review', 'generate', 'implement']);
 
 export const stageProgressCallbackSchema = z.custom<(line: string) => void>();
 

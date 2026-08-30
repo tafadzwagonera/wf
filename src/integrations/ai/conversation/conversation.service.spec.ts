@@ -162,11 +162,12 @@ describe('ConversationService', () => {
         },
       });
 
-      const response = await service.getAssistantResponse(conversation.conversationId, 'You are helpful');
+      const response = await service.getAssistantResponse(conversation.conversationId, 'You are helpful', 'plan');
 
       expect(claudeService.executeWithHistory).toHaveBeenCalledWith({
         messages: [{ role: 'user', content: 'Hello' }],
         systemPrompt: 'You are helpful',
+        stage: 'plan',
       });
 
       expect(response.role).toBe('assistant');
@@ -193,14 +194,14 @@ describe('ConversationService', () => {
         usage: { inputTokens: 100, outputTokens: 50 },
       });
 
-      await service.getAssistantResponse(conversation.conversationId);
+      await service.getAssistantResponse(conversation.conversationId, undefined, 'plan');
 
       const state = service.getConversation(conversation.conversationId);
       expect(state?.totalTokensUsed).toEqual({ input: 100, output: 50 });
     });
 
     it('should throw error if conversation not found', async () => {
-      await expect(service.getAssistantResponse('invalid-id')).rejects.toThrow('Conversation not found');
+      await expect(service.getAssistantResponse('invalid-id', undefined, 'plan')).rejects.toThrow('Conversation not found');
     });
 
     it('raises an AiProviderError when the standard assistant response is blank', async () => {
@@ -220,13 +221,31 @@ describe('ConversationService', () => {
         model: 'gpt-5.4',
       } as any);
 
-      await expect(service.getAssistantResponse(conversation.conversationId)).rejects.toMatchObject({
+      await expect(service.getAssistantResponse(conversation.conversationId, undefined, 'review')).rejects.toMatchObject({
         message: 'AI provider returned an empty chat response',
         details: expect.objectContaining({
           provider: 'openai',
           model: 'gpt-5.4',
         }),
       } satisfies Partial<AiProviderError>);
+    });
+
+    it('forwards stage to executeWithHistory unconditionally', async () => {
+      const ticketKey = 'TEST-123';
+      const context: ConversationContext = {
+        ticketKey,
+        stage: 'plan',
+        workflowState: { ticketContent: 'Test' },
+      };
+      const conversation = await service.createConversation(ticketKey, context);
+      await service.addUserMessage(conversation.conversationId, 'Hello');
+      claudeService.executeWithHistory.mockResolvedValue({ content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } });
+
+      await service.getAssistantResponse(conversation.conversationId, 'sys', 'plan');
+
+      expect(claudeService.executeWithHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'plan' })
+      );
     });
   });
 

@@ -74,7 +74,6 @@ import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { AiService } from '../integrations/ai/ai.service';
 import type { PlanArtifact } from '../agents/interfaces';
 import { SessionService } from '../shared/session/session.service';
-import { SummaryService } from '../shared/session/summary.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -99,10 +98,6 @@ const mockSessionService = {
     .mockReturnValue({ canResume: false, resumableProviderSessionId: null, priorSummary: null, warnings: [] }),
   isExpired: jest.fn().mockReturnValue(false),
   getSessionDir: jest.fn().mockReturnValue('/tmp/sessions'),
-};
-
-const mockSummaryService = {
-  generateStageSummary: jest.fn().mockResolvedValue('Mock stage summary'),
 };
 
 const mockCwd = '/tmp/consumer-app';
@@ -227,7 +222,6 @@ async function buildCommand(): Promise<IssueCommand> {
         },
       },
       { provide: SessionService, useValue: mockSessionService },
-      { provide: SummaryService, useValue: mockSummaryService },
       {
         provide: ReviewPresenter,
         useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -669,7 +663,6 @@ describe('IssueCommand', () => {
           },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -811,7 +804,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -938,7 +930,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1073,7 +1064,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1180,7 +1170,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1298,7 +1287,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1407,7 +1395,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1538,7 +1525,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1633,7 +1619,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1701,7 +1686,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1791,7 +1775,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1888,7 +1871,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1994,7 +1976,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2085,7 +2066,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2168,7 +2148,6 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
-        { provide: SummaryService, useValue: mockSummaryService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2253,7 +2232,6 @@ describe('IssueCommand', () => {
             useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
           },
           { provide: SessionService, useValue: mockSessionService },
-          { provide: SummaryService, useValue: mockSummaryService },
           {
             provide: ReviewPresenter,
             useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },

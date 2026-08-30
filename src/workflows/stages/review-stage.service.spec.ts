@@ -185,6 +185,7 @@ describe('ReviewStageService', () => {
                 executionMode: mockStageExecutionMode,
               },
             }),
+            chatTurn: jest.fn().mockResolvedValue({ content: '- agent summary', session: {} }),
           },
         },
       ],
@@ -545,6 +546,16 @@ describe('ReviewStageService', () => {
       expect.stringContaining('Review diff remains oversized after summarisation'),
       'review-stage'
     );
+  });
+
+  it('routes diff summarisation through stageAgentService.chatTurn when review backend is agent', async () => {
+    const { service, stageAgentService, aiService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+
+    await service.reviewDiff(largeDiff, { context: 'test context' });
+
+    expect((stageAgentService as any).chatTurn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'review' }));
+    expect((aiService as any).execute).not.toHaveBeenCalled();
   });
 
   it('should forward onProgress to stageAgentService.reviewCode when agent backend is enabled', async () => {

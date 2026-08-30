@@ -105,7 +105,7 @@ export class ReviewStageService {
 
   private shouldUseCliSummarisation(): boolean {
     const backend = this.configService.get<string>('stages.review.backend', resolveDefaultStageBackend('review'));
-    return backend === 'cli' && this.stageAgentService.isEnabledForStage('review');
+    return backend !== 'standard' && this.stageAgentService.isEnabledForStage('review');
   }
 
   private async runCliSummarisation(prompt: string, repoDir: string | undefined): Promise<string> {

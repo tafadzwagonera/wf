@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
 import type { BranchInfo } from '../shared/types/git.types';
-import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
+import { AiService, buildFindingsPrompt, findingsSystemPrompt, normalizeFileEntries, parseJsonResponse } from '../integrations/ai/ai.service';
+import { StageAgentService } from '../integrations/ai/stage-agent.service';
+import type { FindingsDocument } from '../shared/types/ai.types';
 import {
   ImplementBackendSelection,
   ImplementerBackend,
@@ -58,7 +60,8 @@ export class ImplementerAgent {
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
     private readonly aiService: AiService,
-    private readonly presenter: CliPresenter
+    private readonly presenter: CliPresenter,
+    private readonly stageAgentService: StageAgentService
   ) {}
 
   /**
@@ -803,7 +806,10 @@ export class ImplementerAgent {
     console.log(chalk.gray('─'.repeat(70)));
     console.log(chalk.gray('  Generating findings and recommendations...'));
 
-    const findings = await this.aiService.generateFindings(planArtifact.plan, ticket.content);
+    const backend = this.configService.get<string>('stages.implement.backend', 'cli');
+    const findings = backend === 'cli'
+      ? await this.generateFindingsViaCli(planArtifact, ticket)
+      : await this.aiService.generateFindings(planArtifact.plan, ticket.content);
     const findingsPath = planArtifact.path.replace('.json', '-findings-and-recommendations.json');
     fs.mkdirSync(path.dirname(findingsPath), { recursive: true });
     fs.writeFileSync(findingsPath, JSON.stringify(findings, null, 2), 'utf-8');
@@ -811,6 +817,15 @@ export class ImplementerAgent {
     const artifact: FindingsArtifact = { ...findings, path: findingsPath };
     this.logInvestigationResults(artifact, findingsPath);
     return { type: 'investigation', artifact };
+  }
+
+  private async generateFindingsViaCli(planArtifact: PlanArtifact, ticket: TicketArtifact): Promise<FindingsDocument> {
+    const result = await this.stageAgentService.chatTurn({
+      stage: 'implement',
+      userMessage: buildFindingsPrompt(planArtifact.plan, ticket.content),
+      systemPrompt: findingsSystemPrompt,
+    });
+    return parseJsonResponse<FindingsDocument>(result.content);
   }
 
   private logInvestigationResults(artifact: FindingsArtifact, findingsPath: string): void {

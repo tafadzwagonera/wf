@@ -252,7 +252,7 @@ describe('ConversationService Integration Tests', () => {
         usage: { inputTokens: 100, outputTokens: 50 },
       });
 
-      await service2.getAssistantResponse(conv2.conversationId);
+      await service2.getAssistantResponse(conv2.conversationId, undefined, 'plan');
       await service2.saveConversation(conv2);
 
       // Third session: verify full history
@@ -296,7 +296,7 @@ describe('ConversationService Integration Tests', () => {
         usage: { inputTokens: 100, outputTokens: 50 },
       });
 
-      await service.getAssistantResponse(conv1.conversationId);
+      await service.getAssistantResponse(conv1.conversationId, undefined, 'plan');
       await service.saveConversation(conv1);
 
       // Load in new session
@@ -327,7 +327,7 @@ describe('ConversationService Integration Tests', () => {
         usage: { inputTokens: 120, outputTokens: 60 },
       });
 
-      await service2.getAssistantResponse(conv2.conversationId);
+      await service2.getAssistantResponse(conv2.conversationId, undefined, 'plan');
 
       expect(conv2.totalTokensUsed).toEqual({ input: 220, output: 110 });
     });

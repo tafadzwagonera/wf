@@ -627,7 +627,7 @@ export class IssueImplementCommand extends CommandRunner {
       + 'Return ONLY a valid JSON object:\n'
       + '{ "action": "investigate", "summary": "...", "findings": ["..."], "recommendations": ["..."], "conclusion": "..." }';
 
-    const response = await this.aiService.execute({ prompt: findingsPrompt, systemPrompt, temperature: 0.4 });
+    const response = await this.aiService.execute({ prompt: findingsPrompt, systemPrompt, temperature: 0.4, stage: 'implement' });
     const content = requireAiResponseContent(response, 'AI provider returned an empty investigation findings response');
     return this.parseInvestigationFindings(content);
   }

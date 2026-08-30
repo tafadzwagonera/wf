@@ -6,6 +6,7 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { GitError } from '../shared/errors/app.error';
 import { AiService } from '../integrations/ai/ai.service';
+import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
@@ -139,6 +140,13 @@ describe('ImplementerAgent', () => {
           provide: AiService,
           useValue: {
             generateFindings: jest.fn(),
+          },
+        },
+        {
+          provide: StageAgentService,
+          useValue: {
+            isEnabledForStage: jest.fn().mockReturnValue(false),
+            chatTurn: jest.fn(),
           },
         },
       ],
@@ -508,6 +516,10 @@ describe('ImplementerAgent', () => {
               generateFindings: jest.fn(),
             },
           },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+          },
         ],
       }).compile();
 
@@ -588,6 +600,10 @@ describe('ImplementerAgent', () => {
             useValue: {
               generateFindings: jest.fn(),
             },
+          },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
           },
         ],
       }).compile();
@@ -1946,6 +1962,102 @@ describe('ImplementerAgent', () => {
       );
 
       expect(adapterSpy.mock.calls[0][0].conventionsSection).toContain('Repository conventions (repo-a):');
+    });
+  });
+
+  describe('investigation CLI routing', () => {
+    const buildInvestigationModule = async (backend: string) => {
+      const mockStageAgentService = {
+        isEnabledForStage: jest.fn().mockReturnValue(true),
+        chatTurn: jest.fn().mockResolvedValue({
+          content: JSON.stringify({
+            action: 'investigate',
+            summary: 'found root cause',
+            findings: [],
+            recommendations: [],
+            conclusion: 'fixed',
+          }),
+          session: {},
+        }),
+      };
+
+      const module = await Test.createTestingModule({
+        providers: [
+          ImplementerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
+                if (key === 'stages.implement.backend') return backend;
+                return fallback;
+              }),
+            },
+          },
+          {
+            provide: GitService,
+            useValue: { getCurrentBranch: jest.fn() },
+          },
+          {
+            provide: AiService,
+            useValue: {
+              generateFindings: jest.fn().mockResolvedValue({
+                action: 'investigate', summary: 's', findings: [], recommendations: [], conclusion: 'c',
+              }),
+            },
+          },
+          {
+            provide: StageAgentService,
+            useValue: mockStageAgentService,
+          },
+        ],
+      }).compile();
+
+      return {
+        agent: module.get(ImplementerAgent),
+        aiService: module.get(AiService),
+        stageAgentService: mockStageAgentService,
+      };
+    };
+
+    it('routes executeInvestigation through stageAgentService.chatTurn when implement backend is cli', async () => {
+      const { agent: investigationAgent, aiService: investigationAiService, stageAgentService } = await buildInvestigationModule('cli');
+
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+
+      await (investigationAgent as any).executeInvestigation(
+        ticketArtifact,
+        {
+          action: 'investigate',
+          path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-investigate.json',
+          plan: { action: 'investigate', summary: 'check auth', steps: ['check'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+        }
+      );
+
+      expect(stageAgentService.chatTurn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'implement' }));
+      expect(investigationAiService.generateFindings).not.toHaveBeenCalled();
+    });
+
+    it('uses aiService.generateFindings when implement backend is standard', async () => {
+      const { agent: investigationAgent, aiService: investigationAiService, stageAgentService } = await buildInvestigationModule('standard');
+
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+
+      await (investigationAgent as any).executeInvestigation(
+        ticketArtifact,
+        {
+          action: 'investigate',
+          path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-investigate.json',
+          plan: { action: 'investigate', summary: 'check auth', steps: ['check'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+        }
+      );
+
+      expect(investigationAiService.generateFindings).toHaveBeenCalled();
+      expect(stageAgentService.chatTurn).not.toHaveBeenCalled();
     });
   });
 });

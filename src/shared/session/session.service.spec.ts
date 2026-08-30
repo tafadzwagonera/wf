@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import * as logFileWriter from '../logger/log-file-writer';
 import { ConfigService } from '@nestjs/config';
 import { SessionService } from './session.service';
+import { SessionModule } from './session.module';
 import type { SessionState, StageConfigFingerprint } from '../types/session.types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -607,5 +608,12 @@ describe('SessionService', () => {
       expect(result.resumableProviderSessionId).toBeNull();
       expect(result.priorSummary).toBe('Plan done');
     });
+  });
+});
+
+describe('SessionModule composition', () => {
+  it('exports exactly SessionService', () => {
+    const metadata: unknown[] = Reflect.getMetadata('exports', SessionModule);
+    expect(metadata).toEqual([SessionService]);
   });
 });

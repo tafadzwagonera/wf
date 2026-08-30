@@ -99,15 +99,12 @@ export class PlanStageService {
     error: unknown,
     sessionId?: string
   ): Promise<{ plan: ResolutionPlan; sessionId?: string } | undefined> {
-    if (!isAiProviderErrorLike(error) || error.category !== 'parse' || typeof error.details?.response !== 'string') {
-      return undefined;
-    }
-
-    return this.aiService
-      .validatePlanJson(error.details.response)
+    if (!isAiProviderErrorLike(error) || error.category !== 'parse' || typeof error.details?.response !== 'string') return undefined;
+    return this.aiService.validatePlanJson(error.details.response)
       .then(plan => ({ plan, sessionId }))
       .catch(repairError => {
-        if (!isAiProviderErrorLike(repairError) || repairError.category !== 'parse') throw repairError;
+        const msg = repairError instanceof Error ? repairError.message : String(repairError);
+        appendToLogFile('WARN', `plan.repair failed cause=${msg.replaceAll('\n', ' | ')}`, 'plan-stage');
         return undefined;
       });
   }

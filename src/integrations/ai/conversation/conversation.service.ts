@@ -124,15 +124,14 @@ export class ConversationService {
 
   async getAssistantResponse(
     conversationId: string,
-    systemPrompt?: string,
-    stage?: WorkflowStage
+    systemPrompt: string | undefined,
+    stage: WorkflowStage
   ): Promise<ConversationMessage> {
     const state = this.conversations.get(conversationId);
     if (!state) throw new StateError(`Conversation not found: ${conversationId}`, { conversationId });
     const messages = buildApiMessages(state);
     this.logger.debug(`Getting assistant response for conversation: ${conversationId} with ${messages.length} messages`);
-    const stageOverride = stage ? { stage: stage as AIConversationRequest['stage'] } : {};
-    const response = await this.claudeService.executeWithHistory({ messages, systemPrompt, ...stageOverride });
+    const response = await this.claudeService.executeWithHistory({ messages, systemPrompt, stage: stage as AIConversationRequest['stage'] });
     const content = requireAiResponseContent(response, 'AI provider returned an empty chat response');
     return this.recordAssistantMessage(state, content, response.usage);
   }
@@ -184,10 +183,10 @@ export class ConversationService {
     conversationId: string,
     state: ConversationState,
     systemPrompt: string | undefined,
-    stage: WorkflowStage | undefined
+    stage: WorkflowStage
   ): Promise<void> {
     const response = await this.getAssistantResponse(conversationId, systemPrompt, stage);
-    this.chatUI.displayAssistantResponse(response, stage ?? state.context.stage);
+    this.chatUI.displayAssistantResponse(response, stage);
     if (response.tokenUsage) this.chatUI.displayTokenUsage(response.tokenUsage, state.totalTokensUsed);
   }
 
@@ -211,7 +210,7 @@ export class ConversationService {
         options.systemPrompt ?? '', options.repoDir ?? state.context.repoDir ?? '', agentSession
       );
     }
-    await this.processStandardTurn(conversationId, state, options.systemPrompt, options.stage);
+    await this.processStandardTurn(conversationId, state, options.systemPrompt, options.stage ?? state.context.stage);
     return agentSession;
   }
 

@@ -518,7 +518,7 @@ When `--comment` is used on a pull request, inline review comments use destinati
 #### `wf issue:create [input]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:create -->
-Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate.
+Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate. `stages.create` is verification-only and warns when provider, model, backend, or skills are configured. Internal-only sections (`### Unit Test Scope`, `#### Dependencies`, `### Affected Repositories`, `#### References`) are stripped before posting; `### Risks & Assumptions` is preserved. Both `--dry-run` and live creates run the ADF safety analysis.
 
 ```bash
 # Create ticket from JSON on primary tracker
@@ -551,9 +551,9 @@ yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /U
 | `-t, --type <type>` | Issue type (task\|bug\|story\|todo) - overrides input file |
 <!-- END GENERATED COMMAND DOCS: issue:create -->
 
-When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field.
+When creating Jira tickets, `wf` resolves the requested priority against Jira create metadata for the target project and issue type. Exact allowed names win first; otherwise normalized values such as `medium` can resolve to project values such as `Minor`. If priority is hidden from the create screen or Jira still rejects it, `wf` creates the ticket without a priority field. Priority metadata fetch failures now emit a WARN log and fall back gracefully rather than silently swallowing errors.
 
-For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped. Before ADF conversion, the write path normalises embedded Jira wiki markup: `{code:lang}...{code}` and `{noformat}...{noformat}` blocks at the start of a line become fenced code blocks, consecutive `# item` lines become numbered lists, `* item` bullets become `- item`, and `{{text}}` becomes inline code. Mid-line prose references to these patterns are preserved as literal text. Use `--dry-run` to inspect the formatting summary before creating a ticket. The live Jira create path now enforces the same verdict and rejects empty or suspicious payloads before posting.
+For Jira, `issue:create` converts generated Markdown descriptions into Jira ADF before sending the create request. Inline Markdown delimiters in plain-text fields such as summaries are stripped. Before ADF conversion, the write path normalises embedded Jira wiki markup: `{code:lang}...{code}` and `{noformat}...{noformat}` blocks at the start of a line become fenced code blocks, consecutive `# item` lines become numbered lists, `* item` bullets become `- item`, and `{{text}}` becomes inline code. Mid-line prose references to these patterns are preserved as literal text. Before conversion, internal-only sections (`### Unit Test Scope`, `#### Dependencies`, `### Affected Repositories`, `#### References`) are stripped from the description; `### Risks & Assumptions` is preserved verbatim. In non-silent mode the command logs which sections were removed. Both `--dry-run` and live creates run the same ADF safety analysis: suspicious markers and empty descriptions are surfaced at preview time rather than only at submit time.
 
 ---
 

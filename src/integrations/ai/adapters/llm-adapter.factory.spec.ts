@@ -4,6 +4,7 @@ import { LoggerService } from '../../../shared/logger/logger.service';
 
 describe('LlmAdapterFactory', () => {
   const mockLogger = {
+    info: jest.fn(),
     debug: jest.fn(),
     error: jest.fn(),
     warn: jest.fn(),
