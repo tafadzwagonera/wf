@@ -126,6 +126,8 @@ export const implementerOptionsSchema = z.object({
   resumeProviderSessionId: z.string().optional(),
   isNewRepo: z.boolean().optional(),
   initialPromptOverride: z.string().optional(),
+  /** Force the Figma implementation skill on, overriding `stages.implement.figma` config (CLI `--figma`). */
+  figma: z.boolean().optional(),
 });
 
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate', 'implement']);
@@ -144,6 +146,7 @@ export const buildTaskBriefParamsSchema = z.object({
   planRisks: z.array(z.string()).optional(),
   planAction: resolutionActionSchema.optional(),
   skillNames: z.array(z.string()).optional(),
+  figmaSkillHint: z.string().optional(),
   phases: z.array(planPhaseSchema).optional(),
 });
 

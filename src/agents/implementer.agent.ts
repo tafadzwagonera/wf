@@ -31,6 +31,7 @@ import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-art
 import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { PlanStepVerificationService, type PlanStepVerificationRunParams } from './plan-step-verification.service';
+import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -65,6 +66,7 @@ export class ImplementerAgent {
     private readonly presenter: CliPresenter,
     private readonly stageAgentService: StageAgentService,
     private readonly planStepVerification: PlanStepVerificationService,
+    private readonly figmaStageService: FigmaStageService,
   ) {}
 
   /**
@@ -155,6 +157,24 @@ export class ImplementerAgent {
     if (!ids.length) return undefined;
     const skills = await resolveSkills(ids, { interactive: this.isInteractiveSession(), stage: 'implement' });
     return skills.map(s => s.id);
+  }
+
+  private buildFigmaSkillHint(figmaResult?: FigmaResolveResult): string | undefined {
+    if (!figmaResult) return undefined;
+    const links = figmaResult.figmaLinks.join(' ');
+    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
+    return `Skill('figma-implement', '${links}${branch}')`;
+  }
+
+  private async runFigmaStage(
+    ticket: TicketArtifact, options: ImplementerOptions
+  ): Promise<FigmaResolveResult | undefined> {
+    return this.figmaStageService.resolveIfEnabled({
+      repoDir: options.repoDir ?? process.cwd(),
+      force: options.figma,
+      ticketKey: ticket.ticketKey,
+      artifactDir: path.dirname(ticket.path),
+    });
   }
 
   private async runBackend(
@@ -405,6 +425,16 @@ export class ImplementerAgent {
     for (const c of commitsToRevert) console.log(chalk.yellow(`      - ${c.subject}`));
   }
 
+  private async resolveSkillParams(
+    ticket: TicketArtifact, options: ImplementerOptions
+  ): Promise<{ skillNames?: string[]; figmaSkillHint?: string }> {
+    const [skillNames, figmaResult] = await Promise.all([
+      this.resolveImplementSkillNames(),
+      this.runFigmaStage(ticket, options),
+    ]);
+    return { skillNames, figmaSkillHint: this.buildFigmaSkillHint(figmaResult) };
+  }
+
   private async executeBackendAdapter(
     ticket: TicketArtifact, planArtifact: PlanArtifact,
     options: ImplementerOptions, resolved: FileResolution,
@@ -416,11 +446,11 @@ export class ImplementerAgent {
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
+    const skillParams = await this.resolveSkillParams(ticket, options);
     return this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
       contextFiles, repoName, ...tracked,
-      conventionsSection,
-      skillNames: await this.resolveImplementSkillNames(),
+      conventionsSection, ...skillParams,
     });
   }
 

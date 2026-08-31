@@ -8,6 +8,7 @@ import { GitError } from '../shared/errors/app.error';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { PlanStepVerificationService } from './plan-step-verification.service';
+import { FigmaStageService } from '../review/figma-stage.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
@@ -155,6 +156,12 @@ describe('ImplementerAgent', () => {
           provide: PlanStepVerificationService,
           useValue: {
             run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+          },
+        },
+        {
+          provide: FigmaStageService,
+          useValue: {
+            resolveIfEnabled: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -535,6 +542,7 @@ describe('ImplementerAgent', () => {
               run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
             },
           },
+          { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
         ],
       }).compile();
 
@@ -626,6 +634,7 @@ describe('ImplementerAgent', () => {
               run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
             },
           },
+          { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
         ],
       }).compile();
 
@@ -2037,6 +2046,7 @@ describe('ImplementerAgent', () => {
               run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
             },
           },
+          { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
         ],
       }).compile();
 

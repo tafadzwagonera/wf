@@ -68,6 +68,7 @@ type GenerateAndVerifyParams = {
   trackedFilePaths: string[];
   conventionsSection?: string;
   skillNames?: string[];
+  figmaSkillHint?: string;
 };
 
 type CliSessionParams = {
@@ -363,7 +364,8 @@ const buildCliTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
-  skillNames: params.skillNames, phases: params.planArtifact.plan.phases ?? undefined,
+  skillNames: params.skillNames, figmaSkillHint: params.figmaSkillHint,
+  phases: params.planArtifact.plan.phases ?? undefined,
 });
 
 const createCliSessionParams = (

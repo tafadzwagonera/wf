@@ -169,7 +169,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
     + 'outside the selected repository are rejected. '
-    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling the `figma-design-check` skill hint during a later `issue:review --figma` run.',
+    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling the `figma-implement` skill hint during a later `issue:implement --figma` run and the `figma-design-check` skill hint during a later `issue:review --figma` run.',
   arguments: '',
 })
 export class IssuePlanCommand extends CommandRunner {

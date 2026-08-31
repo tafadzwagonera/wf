@@ -155,6 +155,7 @@ type GenerateAndVerifyParams = {
   trackedFilePaths: string[];
   conventionsSection?: string;
   skillNames?: string[];
+  figmaSkillHint?: string;
 };
 
 const findSafePruneIndex = (
@@ -1294,7 +1295,8 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
-  skillNames: params.skillNames, phases: params.planArtifact.plan.phases ?? undefined,
+  skillNames: params.skillNames, figmaSkillHint: params.figmaSkillHint,
+  phases: params.planArtifact.plan.phases ?? undefined,
 });
 
 export class OpenAIAgentAdapter implements ImplementerBackend {
@@ -1403,13 +1405,19 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const tools = createAllTools(mutable, vs);
     const sysPrompt = buildSystemPromptFromParams(params, repoDir);
     const preamble = buildPriorStagePreamble(options.priorStageSummary);
-    const skillFragment = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames) : '';
+    const skillFragment = await this.buildSkillFragment(params);
     if (options.resumeProviderSessionId) {
       console.log(chalk.yellow(
         '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
       ));
     }
     return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, tools);
+  }
+
+  private async buildSkillFragment(params: GenerateAndVerifyParams): Promise<string> {
+    const skillPart = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames) : '';
+    const figmaPart = params.figmaSkillHint ? `\n- ${params.figmaSkillHint}` : '';
+    return `${skillPart}${figmaPart}`;
   }
 
   private buildLoopState(mutable: ToolMutableState): StreamLoopState {

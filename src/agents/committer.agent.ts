@@ -48,13 +48,19 @@ export class CommitterAgent {
     this.logNextStep(silent);
   }
 
+  /**
+   * Only auto-stages everything when nothing has been staged yet — a caller
+   * that already ran `git add` on a deliberately scoped set of files (per
+   * this project's commit convention) must have that scope respected, not
+   * widened to every changed/untracked file in the working tree.
+   */
   private async hasChangesToCommit(repoDir?: string, silent?: boolean): Promise<boolean> {
     const status = await this.gitService.getStatus(repoDir);
     if (status.files.length === 0) {
       if (!silent) this.presenter.outcome('warning', 'No changes to commit');
       return false;
     }
-    await this.gitService.stageAll(repoDir);
+    if (!status.staged.length) await this.gitService.stageAll(repoDir);
     return true;
   }
 

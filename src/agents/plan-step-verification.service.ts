@@ -208,7 +208,7 @@ export class PlanStepVerificationService {
     sessionId: string | undefined, n: number, extraPassCount: number,
   ): PlanStepVerificationOutcome | null {
     if (nowPending.length === 0) {
-      this.logEvent('INFO', `step-verify.complete rounds=${round}`, params.silent);
+      this.logEvent('INFO', `step-verify.complete rounds=${round} steps=${n} done=${n} pending=0`, params.silent);
       return { sessionId, summary: { rounds: round, done: n, pending: 0 }, extraPassCount };
     }
     if (round !== params.maxRounds && sessionId) return null;
@@ -278,14 +278,29 @@ export class PlanStepVerificationService {
     return result;
   }
 
+  private logAssessmentSummary(
+    statusMap: Map<number, StepAssessment>,
+    counts: Record<string, number>,
+    silent?: boolean,
+  ): void {
+    this.logEvent(
+      'INFO',
+      `step-verify.assessed steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']}`,
+      silent,
+    );
+  }
+
   private logPendingStatuses(
     statusMap: Map<number, StepAssessment>, silent?: boolean,
   ): Map<number, StepAssessment> {
+    const counts = { done: 0, 'not-applicable': 0, 'partially-done': 0, 'not-done': 0 };
     for (const [, s] of statusMap) {
+      counts[s.status]++;
       if (s.status !== 'done' && s.status !== 'not-applicable') {
         this.logEvent('INFO', `step-verify.status index=${s.index} status=${s.status}`, silent);
       }
     }
+    this.logAssessmentSummary(statusMap, counts, silent);
     return statusMap;
   }
 
