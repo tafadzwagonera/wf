@@ -225,7 +225,8 @@ export class ImplementerAgent {
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
-    const maxRounds = Math.max(1, cfg?.maxRounds ?? 3);
+    const DEFAULT_MAX_ROUNDS = 3;
+    const maxRounds = Math.max(1, cfg?.maxRounds ?? DEFAULT_MAX_ROUNDS);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, maxRounds, baseline,
       assessedSteps,

@@ -148,13 +148,13 @@ export class PlanStepVerificationService {
     try {
       const target = this.resolveAssessorTarget();
       if (!target) {
-        this.logEvent('WARN', 'step-verify.target.unresolved', params.silent);
+        this.logEventAndAppendToLogFile('WARN', 'step-verify.target.unresolved', params.silent);
         return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
       }
       return await this.runVerificationLoop(params, target);
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
-      this.logEvent('ERROR', `step-verify.error cause=${cause}`, params.silent);
+      this.logEventAndAppendToLogFile('ERROR', `step-verify.error cause=${cause}`, params.silent);
       return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
     }
   }
@@ -166,12 +166,12 @@ export class PlanStepVerificationService {
     let sessionId: string | undefined = params.sessionId;
     let extraPassCount = 0;
     const n = params.steps.length;
-    for (let round = 1; ; round++) {
+    for (let round = 1; ; round += 1) {
       let activeSteps = params.steps;
       if (params.refreshSteps) {
         const fresh = await params.refreshSteps();
         if (fresh === null) {
-          this.logEvent('WARN', 'step-verify.fidelity.stalled consecutive=2', params.silent);
+          this.logEventAndAppendToLogFile('WARN', 'step-verify.fidelity.stalled consecutive=2', params.silent);
           return { sessionId, summary: undefined, extraPassCount };
         }
         activeSteps = fresh;
@@ -192,7 +192,7 @@ export class PlanStepVerificationService {
     activeSteps: string[],
   ): Promise<{ outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number }> {
     const roundLabel = params.refreshSteps ? `${round}/?` : `${round}/${params.maxRounds}`;
-    this.logEvent('INFO', `step-verify.round.start round=${roundLabel}`, params.silent);
+    this.logEventAndAppendToLogFile('INFO', `step-verify.round.start round=${roundLabel}`, params.silent);
     const statusMap = await this.assessSteps({ ...params, steps: activeSteps }, target);
     if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount);
     const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
@@ -214,7 +214,7 @@ export class PlanStepVerificationService {
     round: number, params: PlanStepVerificationRunParams, sessionId: string | undefined, extraPassCount: number,
   ): { outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number } {
     if (params.refreshSteps || round < params.maxRounds) return { sessionId, extraPassCount };
-    this.logEvent('WARN', 'step-verify.exhausted reason=assessment-invalid', params.silent);
+    this.logEventAndAppendToLogFile('WARN', 'step-verify.exhausted reason=assessment-invalid', params.silent);
     return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
   }
 
@@ -223,13 +223,13 @@ export class PlanStepVerificationService {
     sessionId: string | undefined, n: number, extraPassCount: number,
   ): PlanStepVerificationOutcome | null {
     if (nowPending.length === 0) {
-      this.logEvent('INFO', `step-verify.complete rounds=${round} steps=${n} done=${n} pending=0`, params.silent);
+      this.logEventAndAppendToLogFile('INFO', `step-verify.complete rounds=${round} steps=${n} done=${n} pending=0`, params.silent);
       return { sessionId, summary: { rounds: round, done: n, pending: 0 }, extraPassCount };
     }
     if (params.refreshSteps && sessionId) return null;
     if (!params.refreshSteps && round !== params.maxRounds && sessionId) return null;
     const reason = sessionId ? `step-verify.exhausted pending=${nowPending.length}` : 'step-verify.session.missing';
-    this.logEvent('WARN', reason, params.silent);
+    this.logEventAndAppendToLogFile('WARN', reason, params.silent);
     this.logMissedSteps(nowPending, params.silent);
     const pending = nowPending.length;
     return { sessionId, summary: { rounds: round, done: n - pending, pending }, extraPassCount };
@@ -237,7 +237,7 @@ export class PlanStepVerificationService {
 
   private logMissedSteps(nowPending: StepAssessment[], silent?: boolean): void {
     for (const p of nowPending) {
-      this.logEvent('WARN', `step-verify.missed index=${p.index} status=${p.status} missing=${p.missing ?? 'n/a'}`, silent);
+      this.logEventAndAppendToLogFile('WARN', `step-verify.missed index=${p.index} status=${p.status} missing=${p.missing ?? 'n/a'}`, silent);
     }
   }
 
@@ -249,7 +249,7 @@ export class PlanStepVerificationService {
       const result = await this.attemptAssessment(params, target);
       if (result) return this.logPendingStatuses(result, params.silent);
     }
-    this.logEvent('ERROR', 'step-verify.assess.invalid', params.silent);
+    this.logEventAndAppendToLogFile('ERROR', 'step-verify.assess.invalid', params.silent);
     return undefined;
   }
 
@@ -263,7 +263,7 @@ export class PlanStepVerificationService {
       return undefined;
     });
     if (typeof result === 'string') {
-      this.logEvent('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
+      this.logEventAndAppendToLogFile('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
       return undefined;
     }
     return result;
@@ -299,7 +299,7 @@ export class PlanStepVerificationService {
     counts: Record<string, number>,
     silent?: boolean,
   ): void {
-    this.logEvent(
+    this.logEventAndAppendToLogFile(
       'INFO',
       `step-verify.assessed steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']}`,
       silent,
@@ -313,7 +313,7 @@ export class PlanStepVerificationService {
     for (const [, s] of statusMap) {
       counts[s.status]++;
       if (s.status !== 'done' && s.status !== 'not-applicable') {
-        this.logEvent('INFO', `step-verify.status index=${s.index} status=${s.status}`, silent);
+        this.logEventAndAppendToLogFile('INFO', `step-verify.status index=${s.index} status=${s.status}`, silent);
       }
     }
     this.logAssessmentSummary(statusMap, counts, silent);
@@ -349,7 +349,7 @@ export class PlanStepVerificationService {
     if (combined.length <= MAX_ASSESSOR_EVIDENCE_CHARS) {
       return { diff: rawDiff, untrackedSections, truncated: false };
     }
-    this.logEvent('WARN', `step-verify.diff.truncated original=${combined.length}`, params.silent);
+    this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated original=${combined.length}`, params.silent);
     return { diff: combined.slice(0, MAX_ASSESSOR_EVIDENCE_CHARS), untrackedSections: [], truncated: true };
   }
 
@@ -379,7 +379,7 @@ export class PlanStepVerificationService {
     return sections;
   }
 
-  private logEvent(level: string, message: string, silent?: boolean): void {
+  private logEventAndAppendToLogFile(level: string, message: string, silent?: boolean): void {
     appendToLogFile(level, message, 'step-verification');
     if (!silent) this.presenter.progress(`  [step-verify] ${message}`);
   }
