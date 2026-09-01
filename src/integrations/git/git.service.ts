@@ -358,10 +358,6 @@ export class GitService {
       await git.add(files);
       return;
     }
-    // This guard keeps the auto-add branch below safe: stageAll() is always called before
-    // commit() at real call sites, so status.staged.length is non-zero and this returns
-    // early. Removing the guard without adding selectStageablePaths would expose the same
-    // already-staged-path failure that selectStageablePaths fixes in addStageableFiles.
     if (status.staged.length || !status.files.length) return;
     const filesToAdd = this.filterStageable(status.files.map(f => f.path));
     if (filesToAdd.length > 0) await git.add(filesToAdd);
@@ -389,6 +385,15 @@ export class GitService {
       return staged ? await git.diff(['--staged']) : await git.diff();
     } catch (error) {
       throw new GitError('Failed to get diff', error);
+    }
+  }
+
+  async getDiffFromRef(baseRef: string, cwd?: string): Promise<string> {
+    try {
+      const git = cwd ? createGit(cwd) : this.git;
+      return await git.diff([baseRef]);
+    } catch (error) {
+      throw new GitError(`Failed to get diff from ref ${baseRef}`, error);
     }
   }
 

@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { ensureWfHome } from './ensure-wf-home';
 import { getWfHomeDir } from './wf-paths';
@@ -18,6 +18,7 @@ describe('ensureWfHome', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: originalIsTTY,
       writable: true,
+      configurable: true,
     });
   });
 
@@ -35,6 +36,7 @@ describe('ensureWfHome', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       writable: true,
+      configurable: true,
     });
     mockPrompt.mockResolvedValue({ confirm: true });
 
@@ -48,6 +50,7 @@ describe('ensureWfHome', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: true,
       writable: true,
+      configurable: true,
     });
     mockPrompt.mockResolvedValue({ confirm: false });
 
@@ -59,6 +62,7 @@ describe('ensureWfHome', () => {
     Object.defineProperty(process.stdin, 'isTTY', {
       value: false,
       writable: true,
+      configurable: true,
     });
 
     await expect(ensureWfHome()).rejects.toThrow(/does not exist.*Create it manually/);

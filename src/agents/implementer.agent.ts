@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
@@ -31,6 +31,8 @@ import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-art
 import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { PlanStepVerificationService, type PlanStepVerificationRunParams } from './plan-step-verification.service';
+import { StepSpecFidelityService } from './step-spec-fidelity.service';
+import type { StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -59,13 +61,16 @@ const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
 
 @Injectable()
 export class ImplementerAgent {
+  @Inject(CliPresenter)
+  private readonly presenter: CliPresenter;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
     private readonly aiService: AiService,
-    private readonly presenter: CliPresenter,
     private readonly stageAgentService: StageAgentService,
     private readonly planStepVerification: PlanStepVerificationService,
+    private readonly stepSpecFidelity: StepSpecFidelityService,
     private readonly figmaStageService: FigmaStageService,
   ) {}
 
@@ -222,7 +227,9 @@ export class ImplementerAgent {
     if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
     const maxRounds = Math.max(1, cfg?.maxRounds ?? 3);
     const params = this.buildVerificationRunParams({
-      ticket, scopedPlan, options, resolved, assessedSteps, sessionId: result.sessionId, maxRounds, baseline,
+      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, maxRounds, baseline,
+      assessedSteps: await this.enrichStepsWithFidelityErrors(
+        assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
     });
     const outcome = await this.planStepVerification.run(params);
     return this.mergeVerificationOutcome(result, outcome);
@@ -264,10 +271,10 @@ export class ImplementerAgent {
     options: ImplementerOptions,
     policy: CommitPolicy,
   ): boolean {
-    return (cfg?.enabled ?? true) === false
+    return cfg?.enabled === false
       || !result.hasChanges
       || assessedSteps.length === 0
-      || Boolean(options.isNewRepo)
+      || options.isNewRepo
       || policy.allowsCommit;
   }
 
@@ -288,6 +295,18 @@ export class ImplementerAgent {
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
     };
+  }
+
+  private async enrichStepsWithFidelityErrors(
+    steps: string[], repoDir: string, baseRef?: string,
+  ): Promise<string[]> {
+    const findingsPerStep = await this.stepSpecFidelity.verifyAll(steps, repoDir, baseRef);
+    return steps.map((stepText, i) => {
+      const errors = findingsPerStep[i].filter((f: StepFidelityFinding) => f.severity === 'error');
+      if (!errors.length) return stepText;
+      const block = errors.map((f: StepFidelityFinding) => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
+      return `${stepText}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`;
+    });
   }
 
   private async runVerificationFixRound(
@@ -796,7 +815,6 @@ export class ImplementerAgent {
     packageScripts: Record<string, string>
   ): VerificationScript {
     const command = this.normalizeVerificationCommand(step.run, repoDir);
-    // 'override' is a dedup-only directive; once merged, treat as 'enforced' for execution
     const effectivePolicy = step.policy === 'override' ? 'enforced' : step.policy;
     return {
       id: step.id,

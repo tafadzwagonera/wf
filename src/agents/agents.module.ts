@@ -11,6 +11,7 @@ import { AgentOrchestrator } from './agent-orchestrator.service';
 import { WorkflowStagesModule } from '../workflows/stages/workflow-stages.module';
 import { ReviewModule } from '../review/review.module';
 import { PlanStepVerificationService } from './plan-step-verification.service';
+import { StepSpecFidelityService } from './step-spec-fidelity.service';
 
 @Module({
   // Re-importing AIModule, IssueTrackerModule, GitModule here is correct NestJS practice.
@@ -19,7 +20,7 @@ import { PlanStepVerificationService } from './plan-step-verification.service';
   imports: [AIModule, IssueTrackerModule, GitModule, WorkflowStagesModule, ReviewModule],
   providers: [
     FetcherAgent, PlannerAgent, ImplementerAgent, ReviewerAgent, CommitterAgent,
-    AgentOrchestrator, PlanStepVerificationService,
+    AgentOrchestrator, PlanStepVerificationService, StepSpecFidelityService,
   ],
   exports: [AgentOrchestrator],
 })
