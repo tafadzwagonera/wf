@@ -230,7 +230,7 @@ export class ImplementerAgent {
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, maxRounds, baseline,
       assessedSteps,
-      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
+      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), maxRounds, baseline?.sha),
     });
     const outcome = await this.planStepVerification.run(params);
     return this.mergeVerificationOutcome(result, outcome);
@@ -313,7 +313,7 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(
-    originalSteps: string[], repoDir: string, baseRef?: string,
+    originalSteps: string[], repoDir: string, stallBudget: number, baseRef?: string,
   ): () => Promise<string[] | null> {
     let prevKey = '';
     let consecutiveStall = 0;
@@ -323,7 +323,7 @@ export class ImplementerAgent {
       );
       const key = JSON.stringify(enriched);
       if (key === prevKey) {
-        if (++consecutiveStall >= 2) return null;
+        if (++consecutiveStall >= stallBudget) return null;
       } else {
         consecutiveStall = 0;
       }

@@ -171,7 +171,7 @@ export class PlanStepVerificationService {
       if (params.refreshSteps) {
         const fresh = await params.refreshSteps();
         if (fresh === null) {
-          this.logEventAndAppendToLogFile('WARN', 'step-verify.fidelity.stalled consecutive=2', params.silent);
+          this.logEventAndAppendToLogFile('WARN', `step-verify.fidelity.stalled consecutive=${params.maxRounds}`, params.silent);
           return { sessionId, summary: undefined, extraPassCount };
         }
         activeSteps = fresh;
