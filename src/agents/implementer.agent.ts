@@ -315,19 +315,15 @@ export class ImplementerAgent {
   private buildFidelityRefresher(
     originalSteps: string[], repoDir: string, stallBudget: number, baseRef?: string,
   ): () => Promise<string[] | null> {
-    let prevKey = '';
-    let consecutiveStall = 0;
+    const recentKeys: string[] = [];
     return async () => {
       const enriched = await this.enrichStepsWithFidelityErrors(originalSteps, repoDir, baseRef).catch(
         () => originalSteps,
       );
       const key = JSON.stringify(enriched);
-      if (key === prevKey) {
-        if (++consecutiveStall >= stallBudget) return null;
-      } else {
-        consecutiveStall = 0;
-      }
-      prevKey = key;
+      if (recentKeys.includes(key)) return null;
+      recentKeys.push(key);
+      if (recentKeys.length > stallBudget) recentKeys.shift();
       return enriched;
     };
   }
