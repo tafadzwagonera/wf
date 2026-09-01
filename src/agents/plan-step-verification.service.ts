@@ -86,6 +86,7 @@ export interface PlanStepVerificationRunParams {
   maxRounds: number;
   silent?: boolean;
   runFixRound: (prompt: string, sessionId: string) => Promise<{ sessionId?: string; passCount?: number }>;
+  refreshSteps?: () => Promise<string[] | null>;
 }
 
 export interface PlanStepVerificationOutcome {
@@ -121,12 +122,12 @@ export const buildStepAssessorPrompt = (
 export const buildPlanStepVerificationPrompt = (
   pending: StepAssessment[],
   round: number,
-  maxRounds: number,
+  maxRounds?: number,
 ): string => {
-  const lines: string[] = [
-    `Verification round ${round} of ${maxRounds}: a post-implementation audit found plan steps that are not fully implemented.`,
-    '',
-  ];
+  const roundHeader = maxRounds !== undefined
+    ? `Verification round ${round} of ${maxRounds}: a post-implementation audit found plan steps that are not fully implemented.`
+    : `Verification round ${round}: a post-implementation audit found plan steps that are not fully implemented.`;
+  const lines: string[] = [roundHeader, ''];
   for (const p of pending) {
     lines.push(`Step ${p.index} (${p.status}): ${p.missing ?? ''}`);
     if (p.missing) lines.push(`Missing: ${p.missing}`);
@@ -165,26 +166,40 @@ export class PlanStepVerificationService {
     let sessionId: string | undefined = params.sessionId;
     let extraPassCount = 0;
     const n = params.steps.length;
-    for (let round = 1; round <= params.maxRounds; round++) {
-      const roundResult = await this.executeRound(params, target, round, sessionId, extraPassCount, n);
+    for (let round = 1; ; round++) {
+      let activeSteps = params.steps;
+      if (params.refreshSteps) {
+        const fresh = await params.refreshSteps();
+        if (fresh === null) {
+          this.logEvent('WARN', 'step-verify.fidelity.stalled consecutive=2', params.silent);
+          return { sessionId, summary: undefined, extraPassCount };
+        }
+        activeSteps = fresh;
+      }
+      const roundResult = await this.executeRound(params, target, round, sessionId, extraPassCount, n, activeSteps);
       if (roundResult.outcome) return roundResult.outcome;
       sessionId = roundResult.sessionId;
       extraPassCount = roundResult.extraPassCount;
+      if (!params.refreshSteps && round >= params.maxRounds) {
+        return { sessionId, summary: undefined, extraPassCount };
+      }
     }
-    return { sessionId, summary: undefined, extraPassCount };
   }
 
   private async executeRound(
     params: PlanStepVerificationRunParams, target: { provider: string; model: string },
     round: number, sessionId: string | undefined, extraPassCount: number, n: number,
+    activeSteps: string[],
   ): Promise<{ outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number }> {
-    this.logEvent('INFO', `step-verify.round.start round=${round}/${params.maxRounds}`, params.silent);
-    const statusMap = await this.assessSteps(params, target);
+    const roundLabel = params.refreshSteps ? `${round}/?` : `${round}/${params.maxRounds}`;
+    this.logEvent('INFO', `step-verify.round.start round=${roundLabel}`, params.silent);
+    const statusMap = await this.assessSteps({ ...params, steps: activeSteps }, target);
     if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount);
     const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
     const outcome = this.resolveRoundOutcome(nowPending, round, params, sessionId, n, extraPassCount);
     if (outcome || !sessionId) return this.finalizeRound(outcome, sessionId, extraPassCount);
-    const fixPrompt = buildPlanStepVerificationPrompt(nowPending, round, params.maxRounds);
+    const maxRoundsForDisplay = params.refreshSteps ? undefined : params.maxRounds;
+    const fixPrompt = buildPlanStepVerificationPrompt(nowPending, round, maxRoundsForDisplay);
     const fix = await params.runFixRound(fixPrompt, sessionId);
     return { sessionId: fix.sessionId, extraPassCount: extraPassCount + (fix.passCount ?? 0) };
   }
@@ -198,7 +213,7 @@ export class PlanStepVerificationService {
   private handleAssessmentFailure(
     round: number, params: PlanStepVerificationRunParams, sessionId: string | undefined, extraPassCount: number,
   ): { outcome?: PlanStepVerificationOutcome; sessionId?: string; extraPassCount: number } {
-    if (round < params.maxRounds) return { sessionId, extraPassCount };
+    if (params.refreshSteps || round < params.maxRounds) return { sessionId, extraPassCount };
     this.logEvent('WARN', 'step-verify.exhausted reason=assessment-invalid', params.silent);
     return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
   }
@@ -211,7 +226,8 @@ export class PlanStepVerificationService {
       this.logEvent('INFO', `step-verify.complete rounds=${round} steps=${n} done=${n} pending=0`, params.silent);
       return { sessionId, summary: { rounds: round, done: n, pending: 0 }, extraPassCount };
     }
-    if (round !== params.maxRounds && sessionId) return null;
+    if (params.refreshSteps && sessionId) return null;
+    if (!params.refreshSteps && round !== params.maxRounds && sessionId) return null;
     const reason = sessionId ? `step-verify.exhausted pending=${nowPending.length}` : 'step-verify.session.missing';
     this.logEvent('WARN', reason, params.silent);
     this.logMissedSteps(nowPending, params.silent);

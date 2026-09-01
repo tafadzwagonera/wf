@@ -157,7 +157,10 @@ describe('ImplementerAgent', () => {
         {
           provide: PlanStepVerificationService,
           useValue: {
-            run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+            run: jest.fn().mockImplementation(async (params: { refreshSteps?: () => Promise<unknown> }) => {
+              await params.refreshSteps?.();
+              return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+            }),
           },
         },
         {
@@ -2397,7 +2400,7 @@ describe('ImplementerAgent', () => {
       expect(stepSpecFidelityService.verifyAll).not.toHaveBeenCalled();
     });
 
-    it('appends error findings from verifyAll to the steps seen by PlanStepVerificationService', async () => {
+    it('passes a refreshSteps callback to PlanStepVerificationService when fidelity is active', async () => {
       setupWithChanges();
       stepSpecFidelityService.verifyAll.mockResolvedValue([
         [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }],
@@ -2413,11 +2416,7 @@ describe('ImplementerAgent', () => {
       );
 
       expect(planStepVerificationService.run).toHaveBeenCalledWith(
-        expect.objectContaining({
-          steps: expect.arrayContaining([
-            expect.stringContaining('[SPEC FIDELITY ERRORS'),
-          ]),
-        }),
+        expect.objectContaining({ refreshSteps: expect.any(Function) }),
       );
     });
 

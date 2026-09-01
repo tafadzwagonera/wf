@@ -228,8 +228,8 @@ export class ImplementerAgent {
     const maxRounds = Math.max(1, cfg?.maxRounds ?? 3);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, maxRounds, baseline,
-      assessedSteps: await this.enrichStepsWithFidelityErrors(
-        assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
+      assessedSteps,
+      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
     });
     const outcome = await this.planStepVerification.run(params);
     return this.mergeVerificationOutcome(result, outcome);
@@ -283,8 +283,9 @@ export class ImplementerAgent {
     options: ImplementerOptions; resolved: FileResolution;
     assessedSteps: string[]; sessionId: string; maxRounds: number;
     baseline: { sha: string; branch: string } | null;
+    refreshSteps?: () => Promise<string[] | null>;
   }): PlanStepVerificationRunParams {
-    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, maxRounds, baseline } = args;
+    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, maxRounds, baseline, refreshSteps } = args;
     return {
       steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
@@ -294,6 +295,7 @@ export class ImplementerAgent {
       maxRounds,
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
+      refreshSteps,
     };
   }
 
@@ -307,6 +309,26 @@ export class ImplementerAgent {
       const block = errors.map((f: StepFidelityFinding) => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
       return `${stepText}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`;
     });
+  }
+
+  private buildFidelityRefresher(
+    originalSteps: string[], repoDir: string, baseRef?: string,
+  ): () => Promise<string[] | null> {
+    let prevKey = '';
+    let consecutiveStall = 0;
+    return async () => {
+      const enriched = await this.enrichStepsWithFidelityErrors(originalSteps, repoDir, baseRef).catch(
+        () => originalSteps,
+      );
+      const key = JSON.stringify(enriched);
+      if (key === prevKey) {
+        if (++consecutiveStall >= 2) return null;
+      } else {
+        consecutiveStall = 0;
+      }
+      prevKey = key;
+      return enriched;
+    };
   }
 
   private async runVerificationFixRound(
