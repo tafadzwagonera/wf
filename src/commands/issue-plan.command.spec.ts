@@ -448,6 +448,36 @@ describe('IssuePlanCommand', () => {
     expect(String(writeFileSpy.mock.calls[0][1])).toContain('"verification"');
   });
 
+  it('extracts Figma links once and threads them into both the plan prompt and the manifest', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const ticketContent = '# WBP-2: Style the card\n\nSee https://figma.com/design/abc123/Card for the frame.';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-2', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-2.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-2', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-2.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style the card', estimatedComplexity: 'low',
+        steps: ['Match the frame'], affectedFiles: ['repo-a/src/Card.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-2', repos: ['repo-a'] });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      ticketContent,
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
+    );
+    expect(writePlanArtifactManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
+    );
+  });
+
   it('passes repo discovery context to generatePlan', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const mockPriorPlans = {

@@ -29,8 +29,6 @@ const detectPackageManagerFromPkgJson = (pkgPath: string): PackageManager | null
   }
 };
 
-// When yarn.lock and package-lock.json coexist, the packageManager field in
-// package.json is authoritative. Yarn keeps priority when the field is absent.
 const resolveYarnNpmLockfileConflict = (repoDir: string): PackageManager => {
   const pkgPath = path.join(repoDir, 'package.json');
   const declared = fs.existsSync(pkgPath) ? detectPackageManagerFromPkgJson(pkgPath) : null;
@@ -227,9 +225,9 @@ const PY_LINTER_CANDIDATES: Array<{
     tool: 'pyproject',
     extract: raw => {
       const settings: Record<string, unknown> = {};
-      if (/\[tool\.ruff\]/.test(raw)) settings['ruff'] = true;
-      if (/\[tool\.black\]/.test(raw)) settings['black'] = true;
-      if (/\[tool\.mypy\]/.test(raw)) settings['mypy'] = true;
+      if (/\[tool\.ruff]/.test(raw)) settings['ruff'] = true;
+      if (/\[tool\.black]/.test(raw)) settings['black'] = true;
+      if (/\[tool\.mypy]/.test(raw)) settings['mypy'] = true;
       if (/\[tool\.pytest/.test(raw)) settings['pytest'] = true;
       return settings;
     },
@@ -254,9 +252,7 @@ const detectPythonContext = (repoDir: string, language: RepoLanguage): RepoConve
     try {
       const raw = fs.readFileSync(pyPath, 'utf-8');
       return { tool: candidate.tool, keySettings: candidate.extract(raw) };
-    } catch {
-      continue;
-    }
+    } catch {} // eslint-disable-line no-empty
   }
 
   return null;
@@ -1023,19 +1019,196 @@ const detectDarkModeConvention = (
   return detectDarkModeInCss(repoDir);
 };
 
-const detectDesignSystemContext = (repoDir: string, keyDeps: string[]): DesignSystemContext => {
-  const componentLibrary = fs.existsSync(path.join(repoDir, 'components.json'))
+type UiPatternExemplar = DesignSystemContext['interactionPatterns'][number];
+
+const UI_PATTERN_EXTENSIONS = new Set(['.vue', '.tsx', '.jsx']);
+const UI_PATTERN_ROOT_CANDIDATES = ['app', 'src', 'components', 'pages'];
+const UI_PATTERN_MAX_FILES_PER_PATTERN = 3;
+
+interface UiPatternSignature {
+  readonly pattern: string;
+  readonly test: (content: string) => boolean;
+}
+
+const UI_PATTERN_SIGNATURES: readonly UiPatternSignature[] = [
+  {
+    pattern: 'stretched-link card (one real link, stretched over the card, instead of duplicate links to the same target)',
+    test: content => /after:absolute/.test(content) && /after:inset-0/.test(content),
+  },
+  {
+    pattern: 'aria-hidden combined with tabindex="-1" (verify the element genuinely cannot receive focus — clicking a tabindex="-1" element still focuses it, so aria-hidden here is often a real accessibility bug)',
+    test: content => /aria-hidden=["']true["']/.test(content) && /tabindex=["']-1["']/.test(content),
+  },
+  {
+    pattern: 'scroll reset on same-route query-only navigation (window.scrollTo gated on a route-query change)',
+    test: content => /window\.scrollTo/.test(content) && /route\.query|useRoute\(\)/.test(content),
+  },
+  {
+    pattern: 'native form-control affordance suppressed in favour of a custom one (appearance-none on a ::-webkit-*/::-moz-* pseudo-element)',
+    test: content => /appearance-none/.test(content) && /::-webkit-|::-moz-/.test(content),
+  },
+];
+
+const resolveUiPatternScanRoots = (repoDir: string, sourceRoots: string[]): string[] => {
+  if (sourceRoots.length > 0) return sourceRoots;
+  return UI_PATTERN_ROOT_CANDIDATES.map(dir => path.join(repoDir, dir)).filter(dir => fs.existsSync(dir));
+};
+
+const matchSignatureFiles = (
+  signature: UiPatternSignature, candidateFiles: string[], repoDir: string
+): UiPatternExemplar => {
+  const files: string[] = [];
+  for (const filePath of candidateFiles) {
+    if (files.length >= UI_PATTERN_MAX_FILES_PER_PATTERN) break;
+    try {
+      if (signature.test(fs.readFileSync(filePath, 'utf-8'))) files.push(path.relative(repoDir, filePath));
+    } catch {} // eslint-disable-line no-empty
+  }
+  return { pattern: signature.pattern, found: files.length > 0, files };
+};
+
+type ElementClassConvention = DesignSystemContext['classConventions'][number];
+
+const ELEMENT_CLASS_EXTENSIONS = new Set(['.vue', '.tsx', '.jsx', '.html']);
+
+const canonicalizeClasses = (classStr: string): string =>
+  classStr.trim().split(/\s+/).filter(Boolean).sort((a, b) => a.localeCompare(b)).join(' ');
+
+const extractHeadingClassSamples = (
+  content: string,
+  relPath: string,
+): Array<{ element: string; classes: string; file: string }> => {
+  const results: Array<{ element: string; classes: string; file: string }> = [];
+  const re = /<(h[1-6])\s[^>]*?(?<!:)\bclass="([^"]*)"[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const raw = m[2];
+    if (raw.includes('{') || raw.includes('$')) continue;
+    results.push({ element: m[1].toLowerCase(), classes: canonicalizeClasses(raw), file: relPath });
+  }
+  return results;
+};
+
+const extractGridGapSamples = (
+  content: string,
+  relPath: string,
+): Array<{ element: string; classes: string; file: string }> => {
+  const results: Array<{ element: string; classes: string; file: string }> = [];
+  const re = /(?<!:)\bclass="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const tokens = m[1].split(/\s+/);
+    if (tokens.includes('grid') && tokens.some(t => t.startsWith('gap-')))
+      results.push({ element: 'grid-gap', classes: canonicalizeClasses(tokens.filter(t => t.startsWith('gap-')).join(' ')), file: relPath });
+  }
+  return results;
+};
+
+const rankClassSamples = (samples: Array<{ classes: string; file: string }>) => {
+  const counts = new Map<string, { count: number; files: Set<string> }>();
+  for (const s of samples) {
+    const entry = counts.get(s.classes) ?? { count: 0, files: new Set<string>() };
+    entry.count++;
+    entry.files.add(s.file);
+    counts.set(s.classes, entry);
+  }
+  return [...counts.entries()].sort((a, b) => b[1].count - a[1].count);
+};
+
+const computeElementConvention = (
+  element: string,
+  samples: Array<{ classes: string; file: string }>,
+): ElementClassConvention | null => {
+  if (samples.length < 3) return null;
+  const ranked = rankClassSamples(samples);
+  const [top, second] = ranked;
+  const occurrences = top[1].count;
+  const isLow = second !== undefined && second[1].count / occurrences >= 0.8;
+  const confidence: 'high' | 'low' = isLow ? 'low' : 'high';
+  return { element, modalClasses: top[0], occurrences, totalSamples: samples.length, confidence,
+    files: [...top[1].files].slice(0, 3) };
+};
+
+const readFileContentOrNull = (filePath: string): string | null => {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+};
+
+const accumulateSamples = (
+  samplesMap: Map<string, Array<{ classes: string; file: string }>>,
+  samples: Array<{ element: string; classes: string; file: string }>,
+): void => {
+  for (const s of samples) {
+    const arr = samplesMap.get(s.element) ?? [];
+    arr.push({ classes: s.classes, file: s.file });
+    samplesMap.set(s.element, arr);
+  }
+};
+
+const collectClassSamples = (
+  repoDir: string,
+  candidateFiles: string[],
+): Map<string, Array<{ classes: string; file: string }>> => {
+  const samplesMap = new Map<string, Array<{ classes: string; file: string }>>();
+  for (const filePath of candidateFiles) {
+    const content = readFileContentOrNull(filePath);
+    if (content === null) continue;
+    const relPath = path.relative(repoDir, filePath);
+    const allSamples = [...extractHeadingClassSamples(content, relPath), ...extractGridGapSamples(content, relPath)];
+    accumulateSamples(samplesMap, allSamples);
+  }
+  return samplesMap;
+};
+
+const detectElementClassConventions = (
+  repoDir: string, sourceRoots: string[], skipDirs: Set<string>
+): ElementClassConvention[] => {
+  const scanRoots = resolveUiPatternScanRoots(repoDir, sourceRoots);
+  if (scanRoots.length === 0) return [];
+  const candidateFiles = scanRoots.flatMap(root =>
+    walkDir(root, filePath => ELEMENT_CLASS_EXTENSIONS.has(path.extname(filePath)), skipDirs),
+  );
+  const samplesMap = collectClassSamples(repoDir, candidateFiles);
+  return [...samplesMap.entries()].flatMap(([element, elementSamples]) => {
+    const conv = computeElementConvention(element, elementSamples);
+    return conv ? [conv] : [];
+  });
+};
+
+const detectUiPatternExemplars = (
+  repoDir: string, sourceRoots: string[], skipDirs: Set<string>
+): UiPatternExemplar[] => {
+  const scanRoots = resolveUiPatternScanRoots(repoDir, sourceRoots);
+  if (scanRoots.length === 0) return [];
+
+  const candidateFiles = scanRoots.flatMap(root =>
+    walkDir(root, filePath => UI_PATTERN_EXTENSIONS.has(path.extname(filePath)), skipDirs)
+  );
+
+  return UI_PATTERN_SIGNATURES.map(signature => matchSignatureFiles(signature, candidateFiles, repoDir));
+};
+
+const detectComponentLibrary = (repoDir: string, keyDeps: string[]): DesignSystemContext['componentLibrary'] =>
+  fs.existsSync(path.join(repoDir, 'components.json'))
     ? 'shadcn-ui'
     : COMPONENT_LIBRARY_DEPS.find(dep => keyDeps.includes(dep)) ?? null;
+
+const detectDesignSystemContext = (
+  repoDir: string, keyDeps: string[], sourceRoots: string[], skipDirs: Set<string>
+): DesignSystemContext => {
   const framework = resolveDesignSystemFramework(keyDeps);
   const tailwindConfig = detectTailwindConfig(repoDir);
   return {
     framework,
     configFile: resolveDesignSystemConfigFile(repoDir, framework),
-    tailwindConfig,
-    darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
-    componentLibrary,
+    tailwindConfig, darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
+    componentLibrary: detectComponentLibrary(repoDir, keyDeps),
     hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
+    interactionPatterns: detectUiPatternExemplars(repoDir, sourceRoots, skipDirs),
+    classConventions: detectElementClassConventions(repoDir, sourceRoots, skipDirs),
   };
 };
 
@@ -1052,7 +1225,7 @@ const assembleConventions = (inputs: ConventionsInputs): RepoConventionsContext 
     errorHandlingPaths: detectErrorHandlingPaths(sourceRoots, repoDir, skipDirs),
     packageManager: detectPackageManager(repoDir),
     gitHooks: detectGitHooks(repoDir),
-    designSystem: detectDesignSystemContext(repoDir, keyDependencies),
+    designSystem: detectDesignSystemContext(repoDir, keyDependencies, sourceRoots, skipDirs),
   };
 };
 
@@ -1090,6 +1263,8 @@ const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   || ctx.keyDependencies.length > 0
   || ctx.errorHandlingPaths.length > 0
   || (ctx.designSystem?.componentLibrary !== null && ctx.designSystem?.componentLibrary !== undefined)
+  || (ctx.designSystem?.interactionPatterns.some(p => p.found) ?? false)
+  || (ctx.designSystem?.classConventions.some(c => c.confidence === 'high') ?? false)
   || ctx.gitHooks.some(hookCtx => Object.keys(hookCtx.hooks).length > 0);
 
 /**
@@ -1206,27 +1381,63 @@ const appendStructureLines = (ctx: RepoConventionsContext, lines: string[]): voi
   }
 };
 
-/**
- * Format a RepoConventionsContext into a prompt section string.
- *
- * @param ctx - The conventions context
- * @param repoName - Human-readable repository name
- * @returns A formatted string for inclusion in an AI prompt, or empty string when no meaningful data exists
- */
 const buildDesignSystemLine = (ds: DesignSystemContext): string => {
   const extras: string[] = [];
   if (ds.configFile) extras.push(ds.configFile);
   if (ds.tailwindConfig?.mode) extras.push(`tailwind:${ds.tailwindConfig.mode}`);
   if (ds.darkModeConvention) extras.push(ds.darkModeConvention);
-  return `- Design system: ${ds.framework ?? 'unknown'}/${ds.componentLibrary ?? 'none'}${extras.length ? ` (${extras.join(', ')})` : ''}`;
+  const suffix = extras.length ? ' (' + extras.join(', ') + ')' : '';
+  return `- Design system: ${ds.framework ?? 'unknown'}/${ds.componentLibrary ?? 'none'}` + suffix;
 };
 
-export const formatRepoConventionsPromptSection = (ctx: RepoConventionsContext, repoName: string): string => {
+const buildInteractionPatternLines = (patterns: UiPatternExemplar[]): string[] =>
+  patterns
+    .filter(p => p.found)
+    .map(p => `  - ${p.pattern}: ${p.files.join(', ')}`);
+
+const buildClassConventionLines = (conventions: ElementClassConvention[]): string[] => {
+  const lines: string[] = [];
+  for (const c of conventions) {
+    if (c.confidence === 'high') {
+      lines.push(`  - ${c.element}: "${c.modalClasses}" (${c.occurrences}/${c.totalSamples}, e.g. ${c.files.slice(0, 2).join(', ')})`);
+    } else {
+      lines.push(`  - ${c.element}: no consistent convention (${c.totalSamples} samples, top variants within 20%)`);
+    }
+  }
+  return lines;
+};
+
+const appendDesignSystemLines = (ctx: RepoConventionsContext, lines: string[]): void => {
+  if (!ctx.designSystem) return;
+  lines.push(buildDesignSystemLine(ctx.designSystem));
+  const patternLines = buildInteractionPatternLines(ctx.designSystem.interactionPatterns);
+  if (patternLines.length > 0) {
+    lines.push('- Known UI interaction patterns (match these before inventing a new approach):', ...patternLines);
+  }
+  const conventionLines = buildClassConventionLines(ctx.designSystem.classConventions ?? []);
+  if (conventionLines.length > 0) {
+    lines.push('- Element class conventions (cite these before choosing a class for the same element; a low-confidence line means no single winner — pick from the documented variants):', ...conventionLines);
+  }
+};
+
+/**
+ * Format a RepoConventionsContext into a prompt section string.
+ *
+ * @param ctx - The conventions context
+ * @param repoName - Human-readable repository name
+ * @param opts - Options; set `includeDesignSystem: false` to omit the design-system block
+ * @returns A formatted string for inclusion in an AI prompt, or empty string when no meaningful data exists
+ */
+export const formatRepoConventionsPromptSection = (
+  ctx: RepoConventionsContext,
+  repoName: string,
+  opts?: { includeDesignSystem?: boolean }
+): string => {
   if (!hasMeaningfulConventionsData(ctx)) return '';
   const lines: string[] = [`Repository conventions (${repoName}):`];
   lines.push(`- Language: ${ctx.language}`);
   appendToolingLines(ctx, lines);
   appendStructureLines(ctx, lines);
-  if (ctx.designSystem) lines.push(buildDesignSystemLine(ctx.designSystem));
+  if (opts?.includeDesignSystem !== false) appendDesignSystemLines(ctx, lines);
   return lines.join('\n');
 };

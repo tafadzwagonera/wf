@@ -608,6 +608,25 @@ describe('PlanStageService', () => {
     });
   });
 
+  it('threads Figma links captured from the ticket into the plan generation context', async () => {
+    const { searchFigmaLinksForTicket } = jest.requireMock('../../shared/utils/extract-figma-links');
+    (searchFigmaLinksForTicket as jest.Mock).mockResolvedValueOnce(['https://figma.com/design/abc123/Card']);
+    const { service, aiService } = await buildService();
+    const tempDir = createManagedTempDir('plan');
+    const ticketPath = path.join(tempDir, 'WBP-500.md');
+    fs.writeFileSync(ticketPath, '# WBP-500: Style the card');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'WBP-500', content: '# WBP-500: Style the card', path: ticketPath },
+      { action: 'fix', affectedRepositories: ['repo-a'] }
+    );
+
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix', '# WBP-500: Style the card',
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] })
+    );
+  });
+
   it('writes manifest with sourceKind custom when sourceKind option is custom', async () => {
     const { service } = await buildService();
     const tempDir = createManagedTempDir('plan');

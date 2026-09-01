@@ -30,7 +30,7 @@ export const COMMAND_DOCS = {
     ],
   },
   'issue:plan': {
-    summary: 'Plan ticket implementation from a local artifact or repo-scoped custom artifact.',
+    summary: 'Plan ticket implementation from a local artifact or repo-scoped custom artifact. Design-system element class conventions are mined from the repo and included for UI-relevant tickets; omitted otherwise.',
     examples: [
       {
         comment: 'Create a custom feature plan from a markdown artifact',
@@ -97,7 +97,7 @@ export const COMMAND_DOCS = {
     ],
   },
   'issue:review': {
-    summary: 'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs.',
+    summary: 'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. Review rubric includes Accessibility, Scope & necessity, and Pattern grounding criteria.',
     examples: [
       {
         comment: 'Review current repo changes',

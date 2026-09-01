@@ -21,6 +21,7 @@ import {
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
+import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
 import {
   formatPriorPlansPromptSection,
   formatPlanCorrelationPromptSection,
@@ -50,6 +51,7 @@ import {
   buildPlanVerificationBlock,
   buildReviewSkillSection,
   deriveModelSource,
+  formatFigmaPlanPromptSection,
   planFileListingInstructions,
   planMinimalChangePrinciple,
   planStepPrinciples,
@@ -507,17 +509,22 @@ export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =
 /**
  * Collect non-empty discovery prompt sections for the given context.
  * @param context Raw plan context object
+ * @param issueContent
  * @returns Array of non-empty section strings
  */
-const collectDiscoverySections = (context: Record<string, unknown>): string[] => {
+const collectDiscoverySections = (context: Record<string, unknown>, issueContent = ''): string[] => {
   const repoName = (context.affectedRepositories as string[] | undefined)?.[0] ?? 'repo';
+  const conventions = context.conventions as RepoConventionsContext | undefined;
+  const figmaLinks = context.figmaLinks as string[] | undefined;
+  const isUiRelevant = Boolean(figmaLinks?.length) || isUiRelevantTicket(issueContent);
   const candidates = [
-    context.conventions && formatRepoConventionsPromptSection(context.conventions as RepoConventionsContext, repoName),
+    conventions && formatRepoConventionsPromptSection(conventions, repoName, { includeDesignSystem: isUiRelevant }),
     context.crossRepoPatterns && formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext),
     context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
     context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
+    formatFigmaPlanPromptSection(context.figmaLinks as string[] | undefined, Boolean(conventions?.designSystem)),
   ];
-  return candidates.filter((s): s is string => typeof s === 'string');
+  return candidates.filter((s): s is string => typeof s === 'string' && s.length > 0);
 };
 
 /**
@@ -525,8 +532,8 @@ const collectDiscoverySections = (context: Record<string, unknown>): string[] =>
  * @param context Raw plan context object
  * @returns Newline-delimited discovery sections, or empty string
  */
-const buildPlanDiscoveryBlock = (context: Record<string, unknown>): string => {
-  const parts = collectDiscoverySections(context);
+const buildPlanDiscoveryBlock = (context: Record<string, unknown>, issueContent = ''): string => {
+  const parts = collectDiscoverySections(context, issueContent);
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
 };
 
@@ -1190,7 +1197,7 @@ export class AiService {
     context?: Record<string, unknown>
   ): { planMaxTokens: number; prompt: string } {
     const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
-    const discoveryBlock = context ? buildPlanDiscoveryBlock(context) : '';
+    const discoveryBlock = context ? buildPlanDiscoveryBlock(context, issueContent) : '';
     const hasNodeInfra = detectNodeTestInfra(context);
     return {
       planMaxTokens: this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS),

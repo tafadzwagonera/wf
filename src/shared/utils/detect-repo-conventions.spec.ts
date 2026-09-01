@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   detectPackageManager,
   detectRepoConventions,
@@ -14,10 +14,7 @@ const SRC_DIR = path.join(REPO_DIR, 'src');
 
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;
-// Cast as jest.Mock to avoid TypeScript overload resolution conflicts with readdirSync signatures
 const mockReaddirSync = fs.readdirSync as jest.Mock;
-
-// --- Factories ---
 
 const createMockPackageJson = (overrides: Record<string, unknown> = {}): string =>
   JSON.stringify({
@@ -574,15 +571,7 @@ describe('language detection', () => {
   it('detects terraform when .tf files exist at root', () => {
     mockExistsSync.mockImplementation((p: fs.PathLike) => {
       const s = String(p);
-      return (
-        (s === path.join(REPO_DIR, 'tsconfig.json')) === false
-        && s !== path.join(REPO_DIR, 'package.json')
-        && s !== path.join(REPO_DIR, 'go.mod')
-        && s !== path.join(REPO_DIR, 'pyproject.toml')
-        && s !== path.join(REPO_DIR, 'setup.py')
-        && s !== path.join(REPO_DIR, 'requirements.txt')
-        && s !== path.join(REPO_DIR, 'modules')
-      );
+      return (!(s === path.join(REPO_DIR, 'tsconfig.json')) && s !== path.join(REPO_DIR, 'package.json') && s !== path.join(REPO_DIR, 'go.mod') && s !== path.join(REPO_DIR, 'pyproject.toml') && s !== path.join(REPO_DIR, 'setup.py') && s !== path.join(REPO_DIR, 'requirements.txt') && s !== path.join(REPO_DIR, 'modules'));
     });
     // readdirSync at root returns .tf files
     mockReaddirSync.mockImplementation((dir: fs.PathLike) => {
@@ -1018,9 +1007,317 @@ describe('detectRepoConventions — designSystem', () => {
         tailwindConfig: null,
         darkModeConvention: null,
         hasStorybook: false,
+        interactionPatterns: [],
+        classConventions: [],
       },
     };
     const output = formatRepoConventionsPromptSection(ctx, 'my-repo');
     expect(output).toMatch(/Design system:/);
+  });
+});
+
+describe('detectRepoConventions — designSystem.interactionPatterns', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const APP_DIR = path.join(REPO_DIR, 'app');
+
+  const mockVueFile = (name: string): fs.Dirent => ({ name, isDirectory: () => false }) as fs.Dirent;
+
+  // No top-level src/ (the Nuxt convention) — exercises the fallback root resolution.
+  const mockSingleFileAppDir = (fileName: string): void => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === APP_DIR);
+    mockReaddirSync.mockImplementation((dir: fs.PathLike) =>
+      String(dir) === APP_DIR ? [mockVueFile(fileName)] : ([] as fs.Dirent[]));
+  };
+
+  it('finds the stretched-link card pattern via a real file', () => {
+    mockSingleFileAppDir('TourCard.vue');
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) =>
+      String(p).endsWith('TourCard.vue')
+        ? '<NuxtLink class="after:absolute after:inset-0" />'
+        : '{}');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const found = ctx.designSystem?.interactionPatterns.find(p => p.pattern.includes('stretched-link'));
+    expect(found?.found).toBe(true);
+    expect(found?.files).toEqual(['app/TourCard.vue']);
+  });
+
+  it('flags the aria-hidden + tabindex="-1" anti-pattern when present', () => {
+    mockSingleFileAppDir('BlogPostRow.vue');
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) =>
+      String(p).endsWith('BlogPostRow.vue')
+        ? '<NuxtLink aria-hidden="true" tabindex="-1" />'
+        : '{}');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const found = ctx.designSystem?.interactionPatterns.find(p => p.pattern.includes('aria-hidden'));
+    expect(found?.found).toBe(true);
+    expect(found?.files).toEqual(['app/BlogPostRow.vue']);
+  });
+
+  it('finds the scroll-reset-on-query-nav pattern via a real file', () => {
+    mockSingleFileAppDir('useScrollReset.tsx');
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) =>
+      String(p).endsWith('useScrollReset.tsx')
+        ? 'watch(() => useRoute().query, () => window.scrollTo({ top: 0 }))'
+        : '{}');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const found = ctx.designSystem?.interactionPatterns.find(p => p.pattern.includes('scroll reset'));
+    expect(found?.found).toBe(true);
+  });
+
+  it('finds the native-control-suppression pattern via a real file', () => {
+    mockSingleFileAppDir('SearchField.tsx');
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) =>
+      String(p).endsWith('SearchField.tsx')
+        ? '.search-cancel { appearance-none; } ::-webkit-search-cancel-button { display: none; }'
+        : '{}');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const found = ctx.designSystem?.interactionPatterns.find(p => p.pattern.includes('native form-control'));
+    expect(found?.found).toBe(true);
+  });
+
+  it('reports found: false with empty files when no source files match any signature', () => {
+    mockSingleFileAppDir('Plain.vue');
+    mockReadFileSync.mockReturnValue('<div>hello</div>');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.interactionPatterns.every(p => !p.found && p.files.length === 0)).toBe(true);
+  });
+
+  it('returns an empty array when no scannable root exists at all', () => {
+    mockExistsSync.mockReturnValue(false);
+    mockReaddirSync.mockReturnValue([]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.interactionPatterns).toEqual([]);
+  });
+
+  it('formatRepoConventionsPromptSection lists only the found patterns, with matching files', () => {
+    mockSingleFileAppDir('TourCard.vue');
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) =>
+      String(p).endsWith('TourCard.vue')
+        ? '<NuxtLink class="after:absolute after:inset-0" />'
+        : '{}');
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const output = formatRepoConventionsPromptSection(ctx, 'my-repo');
+    expect(output).toMatch(/Known UI interaction patterns/);
+    expect(output).toMatch(/stretched-link card.*app\/TourCard\.vue/);
+    expect(output).not.toMatch(/scroll reset on same-route/);
+  });
+});
+
+describe('formatRepoConventionsPromptSection — includeDesignSystem gate', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const makeCtxWithDesignSystem = (): RepoConventionsContext => ({
+    language: 'typescript',
+    linter: null,
+    formatter: null,
+    typescript: null,
+    go: null,
+    python: null,
+    terraform: null,
+    folderStructure: [],
+    namingPattern: 'kebab-case',
+    nestjsDetected: false,
+    importStyle: 'esm',
+    keyDependencies: ['nuxt-ui'],
+    errorHandlingPaths: [],
+    packageManager: 'npm',
+    gitHooks: [],
+    designSystem: {
+      framework: 'vue',
+      configFile: null,
+      tailwindConfig: null,
+      darkModeConvention: null,
+      componentLibrary: 'nuxt-ui',
+      hasStorybook: false,
+      interactionPatterns: [{ pattern: 'stretched-link card', found: true, files: ['app/TourCard.vue'] }],
+    },
+  } as any);
+
+  it('includes the Design system section when includeDesignSystem is true', () => {
+    const output = formatRepoConventionsPromptSection(makeCtxWithDesignSystem(), 'repo', { includeDesignSystem: true });
+    expect(output).toContain('Design system:');
+    expect(output).toContain('Known UI interaction patterns');
+  });
+
+  it('omits the entire Design system section when includeDesignSystem is false', () => {
+    const output = formatRepoConventionsPromptSection(makeCtxWithDesignSystem(), 'repo', { includeDesignSystem: false });
+    expect(output).not.toContain('Design system:');
+    expect(output).not.toContain('- Known UI interaction patterns');
+    expect(output).toContain('Repository conventions');
+  });
+
+  it('includes the Design system section by default when opts is omitted', () => {
+    const output = formatRepoConventionsPromptSection(makeCtxWithDesignSystem(), 'repo');
+    expect(output).toContain('Design system:');
+  });
+});
+
+describe('detectRepoConventions — designSystem.classConventions', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const APP_DIR_E = path.join(REPO_DIR, 'app');
+
+  const mockVueFileE = (name: string): fs.Dirent => ({ name, isDirectory: () => false }) as fs.Dirent;
+
+  const mockAppDirFiles = (files: Array<{ name: string; content: string }>): void => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === APP_DIR_E);
+    mockReaddirSync.mockImplementation((dir: fs.PathLike) =>
+      String(dir) === APP_DIR_E ? files.map(f => mockVueFileE(f.name)) : ([] as fs.Dirent[]));
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+      const file = files.find(f => String(p).endsWith(f.name));
+      return file ? file.content : '{}';
+    });
+  };
+
+  it('detects high-confidence h2 convention when 3+ files agree', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h2 class="font-bold text-2xl">Title</h2>' },
+      { name: 'B.vue', content: '<h2 class="font-bold text-2xl">Title</h2>' },
+      { name: 'C.vue', content: '<h2 class="font-bold text-2xl">Title</h2>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h2');
+    expect(conv).toBeDefined();
+    expect(conv?.modalClasses).toBe('font-bold text-2xl');
+    expect(conv?.confidence).toBe('high');
+    expect(conv?.occurrences).toBe(3);
+    expect(conv?.totalSamples).toBe(3);
+    expect(conv?.files.length).toBeGreaterThan(0);
+  });
+
+  it('canonicalises class attribute order before comparing (sorted alphabetically)', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h3 class="text-xl font-semibold">T</h3>' },
+      { name: 'B.vue', content: '<h3 class="font-semibold text-xl">T</h3>' },
+      { name: 'C.vue', content: '<h3 class="font-semibold text-xl">T</h3>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h3');
+    expect(conv?.confidence).toBe('high');
+    expect(conv?.modalClasses).toBe('font-semibold text-xl');
+  });
+
+  it('marks confidence low when top two variants are within 20% of each other', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'B.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'C.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'D.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+      { name: 'E.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+      { name: 'F.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h1');
+    expect(conv?.confidence).toBe('low');
+  });
+
+  it('does not report an element with fewer than 3 samples', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h4 class="font-bold">T</h4>' },
+      { name: 'B.vue', content: '<h4 class="font-bold">T</h4>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h4');
+    expect(conv).toBeUndefined();
+  });
+
+  it('skips dynamic :class bindings without crashing', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h2 :class="{ \'font-bold\': active }">T</h2>' },
+      { name: 'B.vue', content: '<h2 :class="computedClass">T</h2>' },
+    ]);
+
+    expect(() => detectRepoConventions(REPO_DIR)).not.toThrow();
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h2');
+    expect(conv).toBeUndefined();
+  });
+
+  it('detects grid-gap convention when class attribute contains both grid and a gap-* token', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div class="grid gap-4 grid-cols-3">A</div>' },
+      { name: 'B.vue', content: '<div class="grid gap-4 grid-cols-3">B</div>' },
+      { name: 'C.vue', content: '<div class="grid gap-4 grid-cols-3">C</div>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-gap');
+    expect(conv).toBeDefined();
+    expect(conv?.confidence).toBe('high');
+  });
+
+  it('hasMeaningfulConventionsData returns true when classConventions has high-confidence entries', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+      { name: 'B.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+      { name: 'C.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const minimalCtx = {
+      ...ctx,
+      linter: null, formatter: null, typescript: null, go: null, python: null, terraform: null,
+      folderStructure: [], nestjsDetected: false, keyDependencies: [], errorHandlingPaths: [],
+      gitHooks: [],
+      designSystem: {
+        ...(ctx.designSystem ?? {}),
+        componentLibrary: null,
+        interactionPatterns: [],
+      },
+    } as any;
+
+    const output = formatRepoConventionsPromptSection(minimalCtx, 'my-repo');
+    expect(output).not.toBe('');
+    expect(output).toContain('Element class conventions');
+  });
+
+  it('formatRepoConventionsPromptSection renders high-confidence convention', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+      { name: 'B.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+      { name: 'C.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const output = formatRepoConventionsPromptSection(ctx, 'my-repo');
+    expect(output).toContain('Element class conventions');
+    expect(output).toMatch(/h2.*"font-bold text-2xl".*\(3\/3/);
+    expect(output).toMatch(/A\.vue/);
+  });
+
+  it('marks confidence low at the exact 0.8 boundary (second/top = 4/5)', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'B.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'C.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'D.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'E.vue', content: '<h1 class="font-bold text-4xl">T</h1>' },
+      { name: 'F.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+      { name: 'G.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+      { name: 'H.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+      { name: 'I.vue', content: '<h1 class="font-semibold text-3xl">T</h1>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h1');
+    expect(conv?.confidence).toBe('low');
   });
 });

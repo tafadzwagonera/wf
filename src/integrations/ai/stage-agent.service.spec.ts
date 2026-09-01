@@ -381,6 +381,134 @@ describe('StageAgentService', () => {
     expect(prompt).not.toContain('Previous plan attempt was rejected for these exact reasons:');
   });
 
+  it('lists captured Figma links and defers exact values to the figma skills', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'],
+        estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Style the card',
+      figmaLinks: ['https://figma.com/design/abc123/Card'],
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('Figma reference(s) captured for this ticket:');
+    expect(prompt).toContain('https://figma.com/design/abc123/Card');
+    expect(prompt).toContain('do not guess spacing, typography, or colour values in this plan');
+  });
+
+  it('warns when no Figma link was captured for a repo with a detected design system', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'],
+        estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Style the card',
+      conventions: {
+        language: 'typescript',
+        namingPattern: 'kebab-case',
+        importStyle: 'esm',
+        folderStructure: [],
+        keyDependencies: [],
+        errorHandlingPaths: [],
+        gitHooks: [],
+        designSystem: {
+          framework: 'vue', componentLibrary: 'nuxt-ui', interactionPatterns: [],
+        },
+      } as any,
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('No Figma reference was found for this ticket.');
+  });
+
+  it('omits the Figma section entirely when there are no links and no detected design system', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'],
+        estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({ action: 'fix', issueContent: 'Fix a backend timeout' });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).not.toContain('Figma reference');
+  });
+
+  it('omits Design system section for a non-UI-relevant ticket even when conventions include a design system', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'],
+        estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix a database connection timeout in the auth service',
+      conventions: {
+        language: 'typescript',
+        namingPattern: 'kebab-case',
+        importStyle: 'esm',
+        folderStructure: [],
+        keyDependencies: ['nuxt-ui'],
+        errorHandlingPaths: [],
+        gitHooks: [],
+        designSystem: { framework: 'vue', componentLibrary: 'nuxt-ui', interactionPatterns: [] },
+      } as any,
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).not.toContain('Design system:');
+    expect(prompt).not.toContain('- Known UI interaction patterns');
+  });
+
+  it('includes Design system section for a UI-relevant ticket when conventions include a design system', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'],
+        estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({
+      action: 'fix',
+      issueContent: 'Fix the card component layout on mobile',
+      conventions: {
+        language: 'typescript',
+        namingPattern: 'kebab-case',
+        importStyle: 'esm',
+        folderStructure: [],
+        keyDependencies: ['nuxt-ui'],
+        errorHandlingPaths: [],
+        gitHooks: [],
+        designSystem: { framework: 'vue', componentLibrary: 'nuxt-ui', interactionPatterns: [] },
+      } as any,
+    });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain('Design system:');
+  });
+
   it('places the no-null instruction after the plan example block', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({

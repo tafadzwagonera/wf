@@ -4,9 +4,8 @@ import { AiService } from '../../integrations/ai/ai.service';
 import { ReviewStageService } from './review-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { AiProviderError } from '../../shared/utils/errors';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import type { SkillDefinition } from '../../skills/skill.types';
@@ -214,7 +213,7 @@ describe('ReviewStageService', () => {
       'diff --git a/file b/file',
       expect.arrayContaining([
         expect.stringContaining('Clarity'),
-        expect.stringContaining('Scope'),
+        expect.stringContaining('Scope & necessity'),
         expect.stringContaining('ticket WBP-123: Fix auth callback'),
         'Accessibility: keyboard flow still works',
       ]),
@@ -222,7 +221,7 @@ describe('ReviewStageService', () => {
     );
   });
 
-  it.each(['Contracts', 'Ripple effects', 'Documentation', 'Testing'])(
+  it.each(['Contracts', 'Ripple effects', 'Documentation', 'Testing', 'Accessibility', 'Scope & necessity'])(
     'includes the %s criterion in the assembled guidelines',
     async criterion => {
       const { service, aiService } = await buildService();
@@ -494,9 +493,8 @@ describe('ReviewStageService', () => {
   });
 
   it('should invoke onProgress during diff summarisation when threshold exceeded', async () => {
-    const { service, aiService } = await buildService({ agentEnabled: false });
+    const { service } = await buildService({ agentEnabled: false });
     const onProgress = jest.fn();
-    // Create a large diff to trigger summarisation (exceeding MAX_REVIEW_DIFF_LENGTH of 80000)
     const largeFile = 'x'.repeat(50000);
     const diff = `diff --git a/file b/file
 --- a/file

@@ -48,6 +48,7 @@ interface IssuePlanOptions {
   dryRun?: boolean;
   silent?: boolean;
   sessionId?: string;
+  figmaLinks?: string[];
 }
 
 interface RepoAwarePlan {
@@ -165,6 +166,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Use --force to fetch and recreate artifacts. '
     + 'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. '
     + 'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. '
+    + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
@@ -340,11 +342,12 @@ export class IssuePlanCommand extends CommandRunner {
     ctx: ReturnType<IssuePlanCommand['resolveCustomPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
     const sourceContent = fs.readFileSync(ctx.sourcePath, 'utf-8');
-    const plan = await this.generatePlan(sourceContent, ctx.baseDir, options.action, options);
+    const figmaLinks = extractFigmaLinks(sourceContent);
+    const plan = await this.generatePlan(sourceContent, ctx.baseDir, { ...options, figmaLinks });
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ctx.stem, sourceKind: 'custom', artifactDir: ctx.artifactDir, options,
-      figmaLinks: extractFigmaLinks(sourceContent),
+      figmaLinks,
     });
   }
 
@@ -401,12 +404,13 @@ export class IssuePlanCommand extends CommandRunner {
     ticketKey: string, ticketContent: string,
     ctx: ReturnType<IssuePlanCommand['resolveTicketPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
-    const plan = await this.generatePlan(ticketContent, ctx.baseDir, options.action, options, ticketKey);
+    const figmaLinks = extractFigmaLinks(ticketContent);
+    const plan = await this.generatePlan(ticketContent, ctx.baseDir, { ...options, ticketKey, figmaLinks });
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ticketKey, sourceKind: 'ticket',
       artifactDir: ctx.trackerDir, options, trackerName: ctx.trackerName,
-      figmaLinks: extractFigmaLinks(ticketContent),
+      figmaLinks,
     });
   }
 
@@ -444,15 +448,14 @@ export class IssuePlanCommand extends CommandRunner {
     return artifact.content;
   }
 
-  private async generatePlan(
-    content: string, baseDir: string, action: ResolutionAction, options: IssuePlanOptions, ticketKey?: string
-  ): Promise<any> {
+  private async generatePlan(content: string, baseDir: string, options: IssuePlanOptions): Promise<any> {
+    const { action, figmaLinks } = options;
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
     const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
 
     const { plan } = await this.planStageService.generatePlan(content, {
-      action, ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
-      repoDir: baseDir, ...discovery, onProgress, resumeProviderSessionId: options?.sessionId,
+      action, ticketKey: options.ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
+      repoDir: baseDir, ...discovery, figmaLinks, onProgress, resumeProviderSessionId: options?.sessionId,
     });
 
     this.validateGeneratedPlan(

@@ -62,6 +62,21 @@ export const gitHooksContextSchema = z.object({
   hooks: z.record(z.string(), z.array(z.string())),
 });
 
+export const uiPatternExemplarSchema = z.object({
+  pattern: z.string(),
+  found: z.boolean(),
+  files: z.array(z.string()),
+});
+
+export const elementClassConventionSchema = z.object({
+  element: z.string(),
+  modalClasses: z.string(),
+  occurrences: z.number(),
+  totalSamples: z.number(),
+  confidence: z.enum(['high', 'low']),
+  files: z.array(z.string()),
+});
+
 export const repoConventionsContextSchema = z.object({
   language: repoLanguageSchema,
   linter: z
@@ -116,6 +131,8 @@ export const repoConventionsContextSchema = z.object({
       darkModeConvention: z.enum(['tailwind-dark', 'data-theme-attr']).nullable(),
       componentLibrary: z.string().nullable(),
       hasStorybook: z.boolean(),
+      interactionPatterns: z.array(uiPatternExemplarSchema).default([]),
+      classConventions: z.array(elementClassConventionSchema).default([]),
     })
     .optional(),
 });

@@ -5,6 +5,7 @@ import type {
   diSetupPatternSchema,
   ecosystemInfraSchema,
   ecosystemSchema,
+  elementClassConventionSchema,
   gitHooksContextSchema,
   goInfraSchema,
   nodeFrameworkSchema,
@@ -19,6 +20,7 @@ import type {
   sourceSnippetSchema,
   terraformInfraSchema,
   testInfraContextSchema,
+  uiPatternExemplarSchema,
 } from '../schemas/detection.schema';
 
 export type CrossRepoContext = z.infer<typeof crossRepoContextSchema>;
@@ -40,3 +42,5 @@ export type RepoLanguage = z.infer<typeof repoLanguageSchema>;
 export type SourceSnippet = z.infer<typeof sourceSnippetSchema>;
 export type TerraformInfra = z.infer<typeof terraformInfraSchema>;
 export type TestInfraContext = z.infer<typeof testInfraContextSchema>;
+export type UiPatternExemplar = z.infer<typeof uiPatternExemplarSchema>;
+export type ElementClassConvention = z.infer<typeof elementClassConventionSchema>;

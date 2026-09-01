@@ -21,6 +21,7 @@ import {
   buildPlanVerificationBlock,
   buildReviewSkillSection,
   deriveModelSource,
+  formatFigmaPlanPromptSection,
   planFileListingInstructions,
   planMinimalChangePrinciple,
   planStepPrinciples,
@@ -61,6 +62,7 @@ import {
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
+import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
 import {
   formatPlanCorrelationPromptSection,
   formatPriorPlansPromptSection,
@@ -76,8 +78,6 @@ import { resolveProviderModel } from './adapters/shared-routing';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
-// These are last-resort defaults only. Stage-level model config and `ai.model`
-// both win before the service falls back to provider-specific read-only models.
 const READ_ONLY_OPENAI_MODEL = 'gpt-5.4-mini';
 const READ_ONLY_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_STAGE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash'] as const;
@@ -263,6 +263,7 @@ type GeneratePlanParams = {
   affectedRepositories?: string[];
   conventions?: RepoConventionsContext;
   crossRepoPatterns?: CrossRepoContext;
+  figmaLinks?: string[];
   issueContent: string;
   planCorrelation?: PlanCorrelationResult;
   planQualityFeedback?: string[];
@@ -274,11 +275,13 @@ type GeneratePlanParams = {
 
 const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   const repoName = params.affectedRepositories?.[0] ?? 'repo';
+  const isUiRelevant = Boolean(params.figmaLinks?.length) || isUiRelevantTicket(params.issueContent);
   const parts = [
-    params.conventions ? formatRepoConventionsPromptSection(params.conventions, repoName) : '',
+    params.conventions ? formatRepoConventionsPromptSection(params.conventions, repoName, { includeDesignSystem: isUiRelevant }) : '',
     params.crossRepoPatterns ? formatCrossRepoPatternsPromptSection(params.crossRepoPatterns) : '',
     params.planCorrelation ? formatPlanCorrelationPromptSection(params.planCorrelation) : '',
     params.priorPlans ? formatPriorPlansPromptSection(params.priorPlans) : '',
+    formatFigmaPlanPromptSection(params.figmaLinks, Boolean(params.conventions?.designSystem)),
   ].filter(Boolean);
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';
 };
@@ -631,8 +634,6 @@ const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastD
   if (stalledPasses < CLI_STALL_THRESHOLD) return;
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
   const message = `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`;
-  // Logged here rather than at the throw site: callers such as PlanStageService catch this
-  // to fall back, discarding the message and its diagnostics before anything records them.
   appendToLogFile('ERROR', `cli.stall ${message.replaceAll('\n', ' | ')}`, CLI_STAGE_LABEL);
   throw new AiProviderError(message, { passes: passNumber, diagnostics: lastDiagnostics }, true, 'stall');
 };

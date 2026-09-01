@@ -2,7 +2,6 @@ import { ConfigService } from '@nestjs/config';
 import { AiService, parseJsonResponse } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { AiProviderError } from '../../shared/utils/errors';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 
 describe('AiService', () => {
@@ -490,6 +489,34 @@ describe('AiService', () => {
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining('Related prior plans (repo-a):'),
+        })
+      );
+    });
+
+    it('includes captured Figma links in the fallback plan prompt', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Style the card',
+          steps: ['Match the frame'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo-a/src/Card.vue'],
+          affectedRepositories: ['repo-a'],
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-129: Style the card', {
+        affectedRepositories: ['repo-a'],
+        figmaLinks: ['https://figma.com/design/abc123/Card'],
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('Figma reference(s) captured for this ticket:'),
         })
       );
     });

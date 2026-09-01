@@ -47,6 +47,7 @@ interface GeneratePlanOptions {
   priorPlans?: PriorPlanContext;
   planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
+  figmaLinks?: string[];
   onProgress?: (line: string) => void;
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
@@ -138,7 +139,6 @@ export class PlanStageService {
     try {
       return await this.resolveCachedPlan(ticket, options, artifactDir);
     } catch (error) {
-      // PlanArtifactNotFoundError is the only recoverable case — no prior plan exists, fall through to generation
       if (error instanceof PlanArtifactNotFoundError) return null;
       throw error;
     }
@@ -171,6 +171,7 @@ export class PlanStageService {
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
+      figmaLinks,
     });
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(plan, options.action, path.dirname(ticket.path),
@@ -363,6 +364,7 @@ export class PlanStageService {
       priorPlans: o.priorPlans,
       planCorrelation: o.planCorrelation,
       crossRepoPatterns: o.crossRepoPatterns,
+      figmaLinks: o.figmaLinks,
       skillNames: skillIds.length ? skillIds : undefined,
     };
   }
@@ -373,7 +375,8 @@ export class PlanStageService {
       action: o.action, issueContent: ticketContent, planQualityFeedback: feedback,
       ticketKey: o.ticketKey, affectedRepositories: o.affectedRepositories, testInfra,
       conventions: o.conventions, priorPlans: o.priorPlans, planCorrelation: o.planCorrelation,
-      crossRepoPatterns: o.crossRepoPatterns, skillNames: skillIds.length ? skillIds : undefined,
+      crossRepoPatterns: o.crossRepoPatterns, figmaLinks: o.figmaLinks,
+      skillNames: skillIds.length ? skillIds : undefined,
       onProgress: o.onProgress, priorStageSummary: o.priorStageSummary,
       resumeProviderSessionId: o.resumeProviderSessionId,
     };

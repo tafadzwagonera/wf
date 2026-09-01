@@ -1,11 +1,9 @@
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 
-// ─── Plan prompt fragments ───────────────────────────────────────────────────
-
 /**
  * Condensed step-writing principles for the plan prompt.
  * Gen-5 models respond better to judgment-oriented principles than to
- * exhaustive "When X, do Y" checklists.
+ * prescriptive principles, such as "When X, do Y" checklists.
  */
 export const planStepPrinciples = `   Plan step principles — apply judgment, not rote checklists:
    - Be explicit about before and after: renames, moves, type changes, and helper placements
@@ -22,6 +20,11 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      (not just "no throw").
    - Surface hidden gaps: note dead code after removals, cover error-swallowing paths with tests,
      run or explicitly defer smoke tests, and verify both working-tree and staged state before handoff.
+   - When "Known UI interaction patterns" or "Element class conventions" are listed under
+     repository conventions, cite and match the referenced file or convention before proposing
+     a new approach to the same interaction or choosing a Tailwind class (duplicate links,
+     scroll-reset-on-navigation, aria-hidden/tabindex suppression, native control suppression,
+     heading and grid-gap class choices).
    - Prefer re-running generators over manually patching generated output.
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
      checkpoints using the \`phases\` array.`;
@@ -38,6 +41,28 @@ export const planFileListingInstructions = `3. Estimated complexity (low/medium/
 8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
 export const planMinimalChangePrinciple = `Minimal-change principle: propose the smallest effective change scoped to the ticket. Limit verification to files edited by this plan. Prefer changes that are replaceable or deletable without cascading effects.`;
+
+/**
+ * Format the Figma discovery block for the plan prompt.
+ *
+ * @param figmaLinks - Figma frame links extracted from the ticket, if any
+ * @param hasDesignSystem - Whether a frontend design system was detected in the target repo
+ * @returns A formatted section instructing the model on Figma-derived values, or empty string
+ *   when there is nothing actionable to say (no links, and no detected design system to warn about)
+ */
+export const formatFigmaPlanPromptSection = (
+  figmaLinks: string[] | undefined, hasDesignSystem: boolean
+): string => {
+  if (figmaLinks?.length) {
+    const linkLines = figmaLinks.map(link => '- ' + link).join('\n');
+    return 'Figma reference(s) captured for this ticket:\n' + linkLines + '\n'
+      + 'These frames will be fetched for exact tokens by the figma-implement/figma-design-check skills at '
+      + 'implement/review time — do not guess spacing, typography, or colour values in this plan.';
+  }
+  if (!hasDesignSystem) return '';
+  return 'No Figma reference was found for this ticket. Do not assert exact spacing, typography, or colour '
+    + 'values as final in this plan — flag them under "risks" as unconfirmed pending a design reference.';
+};
 
 /**
  * Judgment-oriented verification principles.
@@ -61,8 +86,6 @@ export const buildPlanTestConventionsBlock = (hasTestInfra: boolean): string => 
   if (!hasTestInfra) return '';
   return `Test convention principle: match the repo's detected patterns for mock cleanup, DI wiring, and isolation. Keep mock setup concrete — conditional or partial mocks hide failures.`;
 };
-
-// ─── Review prompt fragments ─────────────────────────────────────────────────
 
 /**
  * Judgment-oriented review instructions.
@@ -100,8 +123,6 @@ Prefer an absolute line number. Degrade to a line range (line + endLine) when th
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
 ${JSON_OUTPUT_RULES}`;
-
-// ─── Shared builders ─────────────────────────────────────────────────────────
 
 export const buildPlanSkillSection = (skillNames?: string[]): string => {
   if (!skillNames?.length) return '';

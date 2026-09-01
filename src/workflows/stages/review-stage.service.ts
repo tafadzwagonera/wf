@@ -23,19 +23,19 @@ import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 
 const defaultReviewGuidelines = [
+  "Accessibility: Verify interactive elements have correct roles, labels, and focus states; check that keyboard and screen-reader operability isn't regressed (e.g. aria-hidden on a focusable element, missing alt text, a removed native affordance); flag contrast or motion-reduction regressions in visual changes.",
+  "Pattern grounding: Before flagging a naming, structural, or convention issue, check whether the pattern you're recommending actually exists in the codebase by reading the relevant files listed in the repository conventions. Do not assert that something diverges from an established pattern if you have only read the diff.",
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
   'Clarity: Verify every changed line is immediately understandable without author context.',
   'Contracts: Flag changes to function signatures, return types, event payloads, or public APIs that break existing callers or tests.',
   'Conventions: Confirm naming, formatting, import order, and file placement match established codebase patterns.',
-  'Naming fit: Flag a file/component/class/method/utility name that describes a narrower scope than its actual call sites (e.g. a page-scoped component reused on an unrelated page, or a single-purpose helper generalized to a second caller without renaming). This is a name-to-scope mismatch, not a style deviation — raise it even with no existing pattern to compare against; the "Pattern grounding" guideline below does not gate this one.',
   'Documentation: Ensure changed public APIs, config options, and behaviour have matching doc, JSDoc, or comment updates.',
   'Failure handling: Identify how each new code path fails and whether the failure is surfaced, retried, or silently swallowed.',
-  'Necessity: Flag added code, parameters, or abstractions that are unused, speculative, or unreachable.',
+  'Naming fit: Flag a file/component/class/method/utility name that describes a narrower scope than its actual call sites (e.g. a page-scoped component reused on an unrelated page, or a single-purpose helper generalized to a second caller without renaming). This is a name-to-scope mismatch, not a style deviation — raise it even with no existing pattern to compare against; the "Pattern grounding" guideline below does not gate this one.',
   'Ripple effects: Identify subtle breakage across module boundaries, in downstream consumers, or that compounds over time.',
-  'Scope: Reject unrelated refactors, unnecessary abstractions, and changes beyond the stated objective.',
+  'Scope & necessity: Reject unrelated refactors, unnecessary abstractions, and changes beyond the stated objective; flag added code, parameters, or abstractions that are unused, speculative, or unreachable.',
   'Security: Check for exposed secrets, injection vectors, missing auth/authz guards, and unsafe deserialization.',
   'Testing: Require test coverage for new code paths, edge cases, and failure scenarios.',
-  'Pattern grounding: Before flagging a naming, structural, or convention issue, check whether the pattern you\'re recommending actually exists in the codebase by reading the relevant files listed in the repository conventions. Do not assert that something diverges from an established pattern if you have only read the diff.',
 ];
 
 interface ReviewDiffOptions {
