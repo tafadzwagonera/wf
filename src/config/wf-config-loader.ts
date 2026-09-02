@@ -56,7 +56,7 @@ type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
 const MODEL_STAGE_NAMES = ['plan', 'review', 'generate', 'commit'] as const;
 
-type AssertEqual<A, B> = A extends B ? (B extends A ? true : never) : never;
+type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 /** Fails to build if MODEL_STAGE_NAMES and SupportedModelStageName ever diverge. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof MODEL_STAGE_NAMES)[number]> = true;
