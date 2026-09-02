@@ -14,19 +14,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { resolvePostParseFigmaLinks } from '../../src/shared/utils/extract-figma-links';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (msg: string): void => {
-  console.log(chalk.green(`  PASS  ${msg}`));
-  passed++;
-};
-const fail = (msg: string, detail?: string): void => {
-  const suffix = detail ? '\n    → ' + detail : '';
-  console.error(chalk.red('  FAIL  ' + msg + suffix));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 async function main(): Promise<void> {
   console.log('Manual smoke: no design system → no prompt, WARN written to log only\n');
@@ -79,12 +69,12 @@ async function main(): Promise<void> {
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: no design system → no prompt, WARN log only');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });

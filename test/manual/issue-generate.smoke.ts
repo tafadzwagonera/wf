@@ -1,0 +1,199 @@
+/**
+ * Manual Test: issue:generate buildSynthesisPrompt template sections
+ *
+ * Run: nr test:manual -- test-issue-generate
+ *
+ * Verifies that the synthesized output contains all required Jira ticket
+ * template sections when the AI response is mocked. No real API calls are made.
+ */
+
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from '../../src/app.module';
+import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
+import { AiService } from '../../src/integrations/ai/ai.service';
+import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
+import { createReporter } from './support/reporter';
+
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Add rate limiting to the API gateway',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'The API gateway currently has no rate limiting. Under sustained load, downstream services are overwhelmed.',
+    'Add per-client rate limiting using a token-bucket algorithm.',
+    '',
+    '#### Technical Details',
+    '- Add a Redis-backed token-bucket middleware to the gateway.',
+    '- Ensure backward compatibility by defaulting to 100 req/min per client.',
+    '- No database migrations required.',
+    '',
+    '### Acceptance Criteria',
+    '- API returns 429 when a client exceeds 100 requests per minute.',
+    '- The rate limit is configurable via environment variable RATE_LIMIT_MAX.',
+    '',
+    '### Risks & Assumptions',
+    '- Redis availability is assumed; a circuit breaker is out of scope.',
+    '',
+    '#### Out of Scope',
+    '- Per-endpoint rate limits.',
+  ].join('\n'),
+});
+
+async function main(): Promise<void> {
+  console.log('\n🧪 Manual Test: issue:generate buildSynthesisPrompt template sections\n');
+
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn'],
+  });
+
+  const { counts, pass, fail } = createReporter();
+
+  app.get(AiService); // ensure singleton is initialized
+  const originalProtoExecute = AiService.prototype.execute;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
+  let synthesisCallCount = 0;
+  let synthesisBackend: 'ai' | 'agent' | undefined;
+  (AiService.prototype as any).execute = async () => {
+    synthesisCallCount++;
+    synthesisBackend = 'ai';
+    return { content: MOCK_AI_RESPONSE };
+  };
+  (StageAgentService.prototype as any).generateFromPrompt = async () => {
+    synthesisCallCount++;
+    synthesisBackend = 'agent';
+    return { content: MOCK_AI_RESPONSE };
+  };
+
+  // Two temp source files to bypass the single-source short-circuit in synthesizeWithAI:
+  //   if (sources.length === 1 && sources[0].ticket) return sources[0].ticket
+  const tmpFile1 = path.join(os.tmpdir(), `wf-gen-test-a-${Date.now()}.txt`);
+  const tmpFile2 = path.join(os.tmpdir(), `wf-gen-test-b-${Date.now()}.txt`);
+  fs.writeFileSync(tmpFile1, 'Source A: placeholder content.', 'utf-8');
+  fs.writeFileSync(tmpFile2, 'Source B: placeholder content.', 'utf-8');
+
+  let capturedOutput = '';
+  const origWrite = process.stdout.write.bind(process.stdout);
+  (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
+    capturedOutput += String(chunk);
+    return true;
+  };
+
+  const command = app.get(IssueGenerateCommand);
+
+  try {
+    await command.run([tmpFile1, tmpFile2], { repos: [] });
+  } catch {
+    // Ignore
+  } finally {
+    process.stdout.write = origWrite;
+    fs.unlinkSync(tmpFile1);
+    fs.unlinkSync(tmpFile2);
+    AiService.prototype.execute = originalProtoExecute;
+    StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
+  }
+
+  const REQUIRED_SECTIONS = [
+    '### Summary',
+    '#### Technical Details',
+    '### Acceptance Criteria',
+    '### Risks & Assumptions',
+    '#### Out of Scope',
+  ];
+
+  for (const section of REQUIRED_SECTIONS) {
+    if (capturedOutput.includes(section)) {
+      pass(`Output contains "${section}"`);
+    } else {
+      fail(`Output is missing "${section}"`, `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`);
+    }
+  }
+
+  {
+    const longTitle = 'Plan: Tripcom Tour Sync Manual Test Script';
+    const sanitized = longTitle
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .slice(0, 30)
+      .replace(/-+$/, '');
+    if (sanitized.endsWith('-')) {
+      fail('sanitizedTitle still ends with a trailing dash', `Got: "${sanitized}"`);
+    } else {
+      pass('sanitizedTitle does not end with a trailing dash');
+    }
+  }
+
+  if (synthesisCallCount > 0) {
+    pass(`AI synthesis was invoked through the ${synthesisBackend} backend (${synthesisCallCount} call(s))`);
+  } else {
+    fail('AI synthesis was NOT invoked — both synthesis backends were idle');
+  }
+
+  if (/^# .+/m.test(capturedOutput)) {
+    pass('Output contains a non-empty markdown heading line');
+  } else {
+    fail(
+      'Output is missing a non-empty markdown heading line',
+      `Captured output (first 600 chars):\n    ${capturedOutput.slice(0, 600)}`
+    );
+  }
+
+  {
+    const stubFile = path.join(os.tmpdir(), `wf-gen-stub-${Date.now()}.md`);
+    fs.writeFileSync(stubFile, '# Plan: Quick Stub Feature\n\nShort stub description.\n', 'utf-8');
+
+    let stubSynthesisCallCount = 0;
+    const existingProtoExecute = AiService.prototype.execute;
+    const existingGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
+    (AiService.prototype as any).execute = async () => {
+      stubSynthesisCallCount++;
+      return { content: MOCK_AI_RESPONSE };
+    };
+    (StageAgentService.prototype as any).generateFromPrompt = async () => {
+      stubSynthesisCallCount++;
+      return { content: MOCK_AI_RESPONSE };
+    };
+
+    let stubOutput = '';
+    const origWriteStub = process.stdout.write.bind(process.stdout);
+    (process.stdout.write as unknown as (chunk: any) => boolean) = (chunk: any, ...args: any[]) => {
+      stubOutput += String(chunk);
+      return true;
+    };
+
+    try {
+      await command.run([stubFile], { repos: [] });
+    } catch {
+      // Ignore
+    } finally {
+      process.stdout.write = origWriteStub;
+      fs.unlinkSync(stubFile);
+      AiService.prototype.execute = existingProtoExecute;
+      StageAgentService.prototype.generateFromPrompt = existingGenerateFromPrompt;
+    }
+
+    if (stubSynthesisCallCount > 0) {
+      pass('single-source stub description triggered AI synthesis (not short-circuited)');
+    } else {
+      fail('single-source stub description was short-circuited — AI was NOT called');
+    }
+  }
+
+  console.log('\n' + '━'.repeat(60));
+  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
+  if (counts.failed === 0) console.log('All tests passed! ✓');
+  console.log('━'.repeat(60) + '\n');
+
+  await app.close();
+  if (counts.failed > 0) process.exit(1);
+}
+
+main().catch(error => {
+  console.error('Smoke test crashed:', error);
+  process.exit(1);
+});

@@ -29,19 +29,9 @@ import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
 import { StepSpecFidelityService } from '../../src/agents/step-spec-fidelity.service';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (message: string) => {
-  console.log(chalk.green(`  PASS  ${message}`));
-  passed++;
-};
-const fail = (message: string, detail?: string) => {
-  const text = detail ? `  FAIL  ${message}\n    → ${detail}` : `  FAIL  ${message}`;
-  console.error(chalk.red(text));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -112,13 +102,13 @@ async function main(): Promise<void> {
 
   fs.rmSync(repoDir, { recursive: true, force: true });
 
-  console.log(`\n${passed} passed, ${failed} failed`);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
-  if (failed > 0) process.exit(1);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: GitService.getDiffFromRef');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });

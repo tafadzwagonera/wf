@@ -27,18 +27,9 @@ import {
   writePlanArtifactManifest,
   buildPlanArtifactManifestPath,
 } from '../../src/shared/utils/plan-artifact';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (msg: string): void => {
-  console.log(chalk.green(`  PASS  ${msg}`));
-  passed++;
-};
-const fail = (msg: string, detail?: string): void => {
-  console.error(chalk.red(`  FAIL  ${msg}${detail ? `\n    → ${detail}` : ''}`));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 function initGitBranch(dir: string, branch: string): void {
   execSync('git init -q', { cwd: dir });
@@ -161,12 +152,12 @@ async function main(): Promise<void> {
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: FigmaStageService manifest lookup and skill hint');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });

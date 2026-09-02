@@ -23,18 +23,9 @@ import {
   detectRepoConventions,
   formatRepoConventionsPromptSection,
 } from '../../src/shared/utils/detect-repo-conventions';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (msg: string): void => {
-  console.log(chalk.green(`  PASS  ${msg}`));
-  passed++;
-};
-const fail = (msg: string, detail?: string): void => {
-  console.error(chalk.red(`  FAIL  ${msg}${detail ? `\n    → ${detail}` : ''}`));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-tw-'));
@@ -162,12 +153,12 @@ async function main(): Promise<void> {
     for (const dir of repos) fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: detectTailwindConfig and detectDarkModeConvention');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });

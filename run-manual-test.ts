@@ -2,10 +2,9 @@
  * Manual test runner entry point.
  *
  * Usage: nr test:manual -- <test-file-name>
- * Example: nr test:manual -- test-issue-review
+ * Example: nr test:manual -- issue-review.smoke
  *
- * Resolves the test file from src/test/manual/<name>.ts first, then falls
- * back to test/manual/<name>.ts for legacy manual tests.
+ * Resolves the test file from test/manual/<name>.ts.
  */
 
 import * as fs from 'fs';
@@ -47,23 +46,14 @@ export const runManualTest = async (): Promise<void> => {
 
   if (!testName) {
     console.error('Usage: nr test:manual -- <test-file-name>');
-    console.error('Example: nr test:manual -- test-issue-review');
+    console.error('Example: nr test:manual -- issue-review.smoke');
     process.exit(1);
   }
 
-  const candidatePaths = [
-    path.join(__dirname, 'src', 'test', 'manual', `${testName}.ts`),
-    path.join(__dirname, 'test', 'manual', `${testName}.ts`),
-  ];
+  const resolvedTestPath = path.join(__dirname, 'test', 'manual', `${testName}.ts`);
 
-  const resolvedTestPath = candidatePaths.find(candidatePath =>
-    fs.existsSync(candidatePath),
-  );
-
-  if (!resolvedTestPath) {
-    console.error(
-      `Manual test "${testName}" not found in src/test/manual or test/manual.`,
-    );
+  if (!fs.existsSync(resolvedTestPath)) {
+    console.error(`Manual test "${testName}" not found in test/manual.`);
     process.exit(1);
   }
 

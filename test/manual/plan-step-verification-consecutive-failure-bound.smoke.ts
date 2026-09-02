@@ -8,20 +8,9 @@ import { AppModule } from '../../src/app.module';
 import { PlanStepVerificationService } from '../../src/agents/plan-step-verification.service';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { getWfLogDir } from '../../src/shared/utils/wf-paths';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (msg: string) => {
-  console.log(chalk.green(`  PASS  ${msg}`));
-  passed++;
-};
-
-const fail = (msg: string, detail?: string) => {
-  const suffix = detail ? '\n    → ' + detail : '';
-  console.error(chalk.red('  FAIL  ' + msg + suffix));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]) =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -67,8 +56,14 @@ async function main(): Promise<void> {
     sessionId: 'sess-cfail',
     stallWindow: 2,
     silent: true,
-    runFixRound: async () => { fixCallsA++; return { sessionId: 'sess-cfail' }; },
-    refreshSteps: async () => { refreshCallsA++; return [`Step A variant ${refreshCallsA}`]; },
+    runFixRound: async () => {
+      fixCallsA++;
+      return { sessionId: 'sess-cfail' };
+    },
+    refreshSteps: async () => {
+      refreshCallsA++;
+      return [`Step A variant ${refreshCallsA}`];
+    },
   });
 
   const logA = fs.readFileSync(logPath, 'utf-8').slice(logSizeA);
@@ -126,13 +121,13 @@ async function main(): Promise<void> {
   (aiService as any).execute = originalExecute;
   fs.rmSync(repoDir, { recursive: true, force: true });
 
-  console.log(`\n${passed} passed, ${failed} failed`);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
-  if (failed > 0) process.exit(1);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: consecutive assessment failure bound');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });

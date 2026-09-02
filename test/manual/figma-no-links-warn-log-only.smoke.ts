@@ -18,18 +18,9 @@ import { AppModule } from '../../src/app.module';
 import { PlanStageService } from '../../src/workflows/stages/plan-stage.service';
 import { appendToLogFile } from '../../src/shared/logger/log-file-writer';
 import { getWfLogDir } from '../../src/shared/utils/wf-paths';
+import { createReporter } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
-
-const pass = (msg: string): void => {
-  console.log(chalk.green(`  PASS  ${msg}`));
-  passed++;
-};
-const fail = (msg: string, detail?: string): void => {
-  console.error(chalk.red(`  FAIL  ${msg}${detail ? `\n    → ${detail}` : ''}`));
-  failed++;
-};
+const { counts, pass, fail } = createReporter();
 
 function todaysLogPath(): string {
   return path.join(getWfLogDir(), `agent-${new Date().toISOString().slice(0, 10)}.log`);
@@ -106,12 +97,12 @@ async function main(): Promise<void> {
     fs.rmSync(wfHome, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: warnNoFigmaLinks log-file only');
 }
 
 main().catch(error => {
-  console.error(`\nManual smoke test failed: ${error.message}`);
+  console.error(error);
   process.exit(1);
 });
