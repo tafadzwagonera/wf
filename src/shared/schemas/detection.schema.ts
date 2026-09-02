@@ -182,6 +182,7 @@ export const planCorrelationResultSchema = z.object({
 export const crossRepoPatternSchema = z.object({
   repoName: z.string(),
   deltas: z.array(z.string()),
+  conventions: repoConventionsContextSchema.optional(),
 });
 
 export const crossRepoContextSchema = z.object({

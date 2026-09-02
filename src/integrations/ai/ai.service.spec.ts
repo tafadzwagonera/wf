@@ -1902,5 +1902,4 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(plan.phases).toBeUndefined();
     });
   });
-
 });

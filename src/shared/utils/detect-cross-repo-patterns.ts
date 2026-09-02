@@ -1,12 +1,12 @@
-import * as path from 'path';
+import * as path from 'node:path';
 
-import { detectRepoConventions } from './detect-repo-conventions';
-import type { RepoConventionsContext } from '../types/detection.types';
-import type { CrossRepoPattern, CrossRepoContext } from '../types/detection.types';
+import { detectRepoConventions, hasMeaningfulConventionsData, formatRepoConventionsPromptSection } from './detect-repo-conventions';
+import { appendToLogFile } from '../logger/log-file-writer';
+import type { CrossRepoPattern, CrossRepoContext, RepoConventionsContext } from '../types/detection.types';
 
-export type { CrossRepoPattern, CrossRepoContext };
+export type { CrossRepoPattern, CrossRepoContext } from '../types/detection.types';
 
-const TEST_FRAMEWORKS = ['jest', 'vitest', 'mocha', 'pytest', 'testify'];
+const testFrameworks = ['jest', 'vitest', 'mocha', 'pytest', 'testify'];
 
 /**
  * Detect the test framework used from keyDependencies.
@@ -16,7 +16,7 @@ const TEST_FRAMEWORKS = ['jest', 'vitest', 'mocha', 'pytest', 'testify'];
  */
 const detectTestFramework = (keyDependencies: string[]): string | null => {
   for (const dep of keyDependencies) {
-    for (const framework of TEST_FRAMEWORKS) {
+    for (const framework of testFrameworks) {
       if (dep === framework || dep.includes(framework)) {
         return framework;
       }
@@ -28,9 +28,11 @@ const detectTestFramework = (keyDependencies: string[]): string | null => {
 /**
  * Collect tooling-related deltas: linter, test framework, import style.
  *
+ * @param deltas
  * @param repoName - Human-readable name for the secondary repo
  * @param primary - Conventions context for the primary repo
  * @param secondary - Conventions context for the secondary repo
+ * @param label
  * @returns Array of delta description strings
  */
 const pushIfDifferent = (
@@ -69,8 +71,8 @@ const collectGitHooksDeltas = (
   primary: RepoConventionsContext,
   secondary: RepoConventionsContext,
 ): string[] => {
-  const primaryTools = [...new Set(primary.gitHooks.map(({ tool }) => tool))].sort();
-  const secondaryTools = [...new Set(secondary.gitHooks.map(({ tool }) => tool))].sort();
+  const primaryTools = [...new Set(primary.gitHooks.map(({ tool }) => tool))].sort((a, b) => a.localeCompare(b));
+  const secondaryTools = [...new Set(secondary.gitHooks.map(({ tool }) => tool))].sort((a, b) => a.localeCompare(b));
 
   if (primaryTools.length === 0 && secondaryTools.length === 0) return [];
   if (secondaryTools.length === 0) {
@@ -147,6 +149,22 @@ const computeDeltas = (
   ...collectStructureDeltas(repoName, primary, secondary),
 ];
 
+const resolveSecondaryPattern = (
+  repoName: string,
+  primary: RepoConventionsContext,
+  secondary: RepoConventionsContext,
+): CrossRepoPattern | null => {
+  const deltas = computeDeltas(repoName, primary, secondary);
+  const secondaryHasData = hasMeaningfulConventionsData(secondary);
+
+  if (deltas.length === 0 && !secondaryHasData) {
+    appendToLogFile('WARN', `No conventions data detected for secondary repo: ${repoName}`);
+    return null;
+  }
+
+  return { repoName, deltas, conventions: secondaryHasData ? secondary : undefined };
+};
+
 /**
  * Detect cross-repo patterns by comparing secondary repos' conventions against the primary.
  *
@@ -161,14 +179,26 @@ export const detectCrossRepoPatterns = (primaryRepoDir: string, secondaryRepoDir
   for (const secondaryDir of secondaryRepoDirs) {
     const secondary = detectRepoConventions(secondaryDir);
     const repoName = path.basename(secondaryDir);
-    const deltas = computeDeltas(repoName, primary, secondary);
-
-    if (deltas.length > 0) {
-      patterns.push({ repoName, deltas });
-    }
+    const pattern = resolveSecondaryPattern(repoName, primary, secondary);
+    if (pattern) patterns.push(pattern);
   }
 
   return { patterns };
+};
+
+const appendPatternLines = (lines: string[], pattern: CrossRepoPattern): void => {
+  const full = pattern.conventions
+    ? formatRepoConventionsPromptSection(pattern.conventions, pattern.repoName)
+    : '';
+  if (full) {
+    lines.push(full);
+    return;
+  }
+  if (pattern.deltas.length === 0) return;
+  lines.push(`${pattern.repoName}:`);
+  for (const delta of pattern.deltas) {
+    lines.push(`  - ${delta}`);
+  }
 };
 
 /**
@@ -181,13 +211,7 @@ export const formatCrossRepoPatternsPromptSection = (ctx: CrossRepoContext): str
   if (ctx.patterns.length === 0) return '';
 
   const lines: string[] = ['Patterns from related repositories:'];
-
-  for (const pattern of ctx.patterns) {
-    lines.push(`${pattern.repoName}:`);
-    for (const delta of pattern.deltas) {
-      lines.push(`  - ${delta}`);
-    }
-  }
+  for (const pattern of ctx.patterns) appendPatternLines(lines, pattern);
 
   return lines.join('\n');
 };

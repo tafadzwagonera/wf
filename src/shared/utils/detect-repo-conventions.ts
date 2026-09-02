@@ -49,7 +49,7 @@ export const detectPackageManager = (repoDir: string): PackageManager => {
   return (fs.existsSync(pkgPath) ? detectPackageManagerFromPkgJson(pkgPath) : null) ?? 'npm';
 };
 
-const KEY_DEPENDENCY_KEYWORDS = [
+const keyDependencyKeywords = [
   '@nestjs/core',
   '@chakra-ui/react',
   '@emotion/react',
@@ -386,7 +386,7 @@ const extractEslintKeyRules = (parsed: Record<string, unknown>): Record<string, 
   if (semi !== undefined) keyRules['semi'] = semi;
   if (quotes !== undefined) keyRules['quotes'] = quotes;
   if (trailingComma !== undefined) keyRules['trailingComma'] = trailingComma;
-  for (const rule of ESLINT_STRUCTURAL_RULES) {
+  for (const rule of eslintStructuralRules) {
     if (rules[rule] !== undefined) keyRules[rule] = rules[rule];
   }
   return keyRules;
@@ -436,8 +436,8 @@ const extractLinterRules = (tool: string, filePath: string): { tool: string; key
   return { tool, keyRules: {} };
 };
 
-const ESLINT_STRUCTURAL_RULES = ['max-lines-per-function', 'max-depth', 'max-params', 'max-len', 'complexity'];
-const ESLINT_CANDIDATES = [
+const eslintStructuralRules = ['max-lines-per-function', 'max-depth', 'max-params', 'max-len', 'complexity'];
+const eslintCandidates = [
   'eslint.config.js',
   'eslint.config.mjs',
   'eslint.config.cjs',
@@ -479,7 +479,7 @@ const BIOME_CANDIDATES = ['biome.json'];
  * @returns Linter context or null
  */
 const detectLinter = (repoDir: string): RepoConventionsContext['linter'] => {
-  const eslintFile = findFirst(repoDir, ESLINT_CANDIDATES);
+  const eslintFile = findFirst(repoDir, eslintCandidates);
   if (eslintFile) return extractLinterRules('eslint', path.join(repoDir, eslintFile));
 
   const pkg = readPackageJson(repoDir);
@@ -720,7 +720,7 @@ const detectImportStyle = (
   return 'unknown';
 };
 
-const GO_KEY_DEPS = [
+const goKeyDeps = [
   'github.com/gin-gonic/gin',
   'github.com/gorilla/mux',
   'github.com/labstack/echo',
@@ -740,7 +740,7 @@ const GO_KEY_DEPS = [
 const detectGoDependencies = (repoDir: string): string[] => {
   try {
     const raw = fs.readFileSync(path.join(repoDir, 'go.mod'), 'utf-8');
-    return GO_KEY_DEPS.filter(dep => raw.includes(dep)).map(dep => path.basename(dep));
+    return goKeyDeps.filter(dep => raw.includes(dep)).map(dep => path.basename(dep));
   } catch {
     return [];
   }
@@ -761,7 +761,7 @@ const detectKeyDependencies = (
   repoDir: string,
   terraformCtx: RepoConventionsContext['terraform'],
 ): string[] => {
-  const keyDependencies = KEY_DEPENDENCY_KEYWORDS.filter(kw => kw in allDeps);
+  const keyDependencies = keyDependencyKeywords.filter(kw => kw in allDeps);
   if (hasGoMod) keyDependencies.push(...detectGoDependencies(repoDir));
   if (terraformCtx) {
     for (const provider of terraformCtx.providers) keyDependencies.push(`terraform-provider-${provider}`);
@@ -1021,8 +1021,8 @@ const detectDarkModeConvention = (
 
 type UiPatternExemplar = DesignSystemContext['interactionPatterns'][number];
 
-const UI_PATTERN_EXTENSIONS = new Set(['.vue', '.tsx', '.jsx']);
-const UI_PATTERN_ROOT_CANDIDATES = ['app', 'src', 'components', 'pages'];
+const uiPatternsExtensions = new Set(['.vue', '.tsx', '.jsx']);
+const uiPatternRootCandidates = ['app', 'src', 'components', 'pages'];
 const UI_PATTERN_MAX_FILES_PER_PATTERN = 3;
 
 interface UiPatternSignature {
@@ -1030,7 +1030,7 @@ interface UiPatternSignature {
   readonly test: (content: string) => boolean;
 }
 
-const UI_PATTERN_SIGNATURES: readonly UiPatternSignature[] = [
+const uiPatternSignatures: readonly UiPatternSignature[] = [
   {
     pattern: 'stretched-link card (one real link, stretched over the card, instead of duplicate links to the same target)',
     test: content => /after:absolute/.test(content) && /after:inset-0/.test(content),
@@ -1051,7 +1051,7 @@ const UI_PATTERN_SIGNATURES: readonly UiPatternSignature[] = [
 
 const resolveUiPatternScanRoots = (repoDir: string, sourceRoots: string[]): string[] => {
   if (sourceRoots.length > 0) return sourceRoots;
-  return UI_PATTERN_ROOT_CANDIDATES.map(dir => path.join(repoDir, dir)).filter(dir => fs.existsSync(dir));
+  return uiPatternRootCandidates.map(dir => path.join(repoDir, dir)).filter(dir => fs.existsSync(dir));
 };
 
 const matchSignatureFiles = (
@@ -1185,10 +1185,10 @@ const detectUiPatternExemplars = (
   if (scanRoots.length === 0) return [];
 
   const candidateFiles = scanRoots.flatMap(root =>
-    walkDir(root, filePath => UI_PATTERN_EXTENSIONS.has(path.extname(filePath)), skipDirs)
+    walkDir(root, filePath => uiPatternsExtensions.has(path.extname(filePath)), skipDirs)
   );
 
-  return UI_PATTERN_SIGNATURES.map(signature => matchSignatureFiles(signature, candidateFiles, repoDir));
+  return uiPatternSignatures.map(signature => matchSignatureFiles(signature, candidateFiles, repoDir));
 };
 
 const detectComponentLibrary = (repoDir: string, keyDeps: string[]): DesignSystemContext['componentLibrary'] =>
@@ -1251,7 +1251,7 @@ export const detectRepoConventions = (repoDir: string): RepoConventionsContext =
  * @param ctx - The conventions context
  * @returns True if at least one section has meaningful data
  */
-const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
+export const hasMeaningfulConventionsData = (ctx: RepoConventionsContext): boolean =>
   ctx.linter !== null
   || ctx.formatter !== null
   || ctx.typescript !== null
@@ -1292,8 +1292,8 @@ const formatRuleEntries = (entries: Array<[string, unknown]>): string =>
  */
 const formatLinterLine = (linter: NonNullable<RepoConventionsContext['linter']>): string => {
   const entries = Object.entries(linter.keyRules);
-  const styleRules = formatRuleEntries(entries.filter(([key]) => !ESLINT_STRUCTURAL_RULES.includes(key)));
-  const structuralRules = formatRuleEntries(entries.filter(([key]) => ESLINT_STRUCTURAL_RULES.includes(key)));
+  const styleRules = formatRuleEntries(entries.filter(([key]) => !eslintStructuralRules.includes(key)));
+  const structuralRules = formatRuleEntries(entries.filter(([key]) => eslintStructuralRules.includes(key)));
   const constraints = structuralRules ? `constraints: ${structuralRules}` : '';
   const details = [styleRules, constraints].filter(Boolean).join('; ');
   return `- Linter: ${linter.tool}${formatDetailSuffix(details)}`;

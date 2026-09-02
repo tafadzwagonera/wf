@@ -3,11 +3,23 @@ import {
   formatCrossRepoPatternsPromptSection,
   CrossRepoContext,
 } from './detect-cross-repo-patterns';
-import { detectRepoConventions, RepoConventionsContext } from './detect-repo-conventions';
+import {
+  detectRepoConventions,
+  hasMeaningfulConventionsData,
+  formatRepoConventionsPromptSection,
+  RepoConventionsContext,
+} from './detect-repo-conventions';
+import { appendToLogFile } from '../logger/log-file-writer';
 
 jest.mock('./detect-repo-conventions');
+jest.mock('../logger/log-file-writer');
 
 const mockDetectRepoConventions = detectRepoConventions as jest.MockedFunction<typeof detectRepoConventions>;
+const mockHasMeaningfulConventionsData
+  = hasMeaningfulConventionsData as jest.MockedFunction<typeof hasMeaningfulConventionsData>;
+const mockFormatRepoConventionsPromptSection
+  = formatRepoConventionsPromptSection as jest.MockedFunction<typeof formatRepoConventionsPromptSection>;
+const mockAppendToLogFile = appendToLogFile as jest.MockedFunction<typeof appendToLogFile>;
 
 const createMockContext = (overrides: Partial<RepoConventionsContext> = {}): RepoConventionsContext => ({
   language: 'typescript',
@@ -29,18 +41,21 @@ const createMockContext = (overrides: Partial<RepoConventionsContext> = {}): Rep
 });
 
 describe('detectCrossRepoPatterns', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('when secondary repos have identical conventions', () => {
-    it('returns empty patterns', () => {
+    it('returns a pattern with empty deltas and populated conventions', () => {
       const mockCtx = createMockContext();
       mockDetectRepoConventions.mockReturnValue(mockCtx);
+      mockHasMeaningfulConventionsData.mockReturnValue(true);
 
-      const result = detectCrossRepoPatterns('/primary', ['/secondary']);
+      const result = detectCrossRepoPatterns('/primary', ['/repos/secondary']);
 
-      expect(result.patterns).toHaveLength(0);
+      expect(result.patterns).toHaveLength(1);
+      expect(result.patterns[0].deltas).toHaveLength(0);
+      expect(result.patterns[0].conventions).toEqual(mockCtx);
     });
   });
 
@@ -209,8 +224,8 @@ describe('detectCrossRepoPatterns', () => {
     });
   });
 
-  describe('when one secondary repo has no deltas', () => {
-    it('skips repos with no deltas', () => {
+  describe('when one secondary repo has identical conventions', () => {
+    it('includes it with empty deltas and populated conventions alongside the differing repo', () => {
       const primaryCtx = createMockContext();
       const identicalCtx = createMockContext();
       const differentCtx = createMockContext({ importStyle: 'esm' });
@@ -219,16 +234,37 @@ describe('detectCrossRepoPatterns', () => {
         .mockReturnValueOnce(primaryCtx)
         .mockReturnValueOnce(identicalCtx)
         .mockReturnValueOnce(differentCtx);
+      mockHasMeaningfulConventionsData.mockReturnValue(true);
 
       const result = detectCrossRepoPatterns('/primary', ['/repos/identical', '/repos/different']);
 
-      expect(result.patterns).toHaveLength(1);
-      expect(result.patterns[0].repoName).toBe('different');
+      expect(result.patterns).toHaveLength(2);
+      expect(result.patterns[0].repoName).toBe('identical');
+      expect(result.patterns[0].deltas).toHaveLength(0);
+      expect(result.patterns[0].conventions).toEqual(identicalCtx);
+      expect(result.patterns[1].repoName).toBe('different');
+    });
+  });
+
+  describe('when secondary repo has no meaningful data and no deltas', () => {
+    it('excludes it from patterns and logs a WARN', () => {
+      const sparseCtx = createMockContext({ linter: null, typescript: null, keyDependencies: [] });
+      mockDetectRepoConventions.mockReturnValue(sparseCtx);
+      mockHasMeaningfulConventionsData.mockReturnValue(false);
+
+      const result = detectCrossRepoPatterns('/primary', ['/repos/sparse']);
+
+      expect(result.patterns).toHaveLength(0);
+      expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('sparse'));
     });
   });
 });
 
 describe('formatCrossRepoPatternsPromptSection', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   describe('when there are no patterns', () => {
     it('returns empty string', () => {
       const ctx: CrossRepoContext = { patterns: [] };
@@ -266,6 +302,25 @@ describe('formatCrossRepoPatternsPromptSection', () => {
           '  - service-worker uses vitest for testing (primary uses jest)',
         ].join('\n')
       );
+    });
+  });
+
+  describe('when a pattern has a conventions field', () => {
+    it('renders the full conventions section instead of delta bullets', () => {
+      const conventions = createMockContext();
+      mockFormatRepoConventionsPromptSection.mockReturnValueOnce(
+        'Repository conventions (svc):\n- Language: typescript\n- Linter: eslint',
+      );
+
+      const ctx: CrossRepoContext = {
+        patterns: [{ repoName: 'svc', deltas: [], conventions }],
+      };
+
+      const result = formatCrossRepoPatternsPromptSection(ctx);
+
+      expect(mockFormatRepoConventionsPromptSection).toHaveBeenCalledWith(conventions, 'svc');
+      expect(result).toContain('Repository conventions (svc)');
+      expect(result).toContain('eslint');
     });
   });
 });

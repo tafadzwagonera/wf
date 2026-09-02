@@ -35,7 +35,8 @@ export async function searchFigmaLinksForTicket(
  *
  * @param content - Raw ticket or source content (used for the inline-search fallback inside searchFigmaLinksForTicket)
  * @param autoLinks - Links already extracted from `content` before AI generation ran
- * @param options - `allowPrompt` gates the inquirer call; `repoDir` drives convention detection when `conventions` is absent; `conventions` skips a redundant `detectRepoConventions` call when the caller already has the result
+ * @param options - `allowPrompt` gates the inquirer call; `repoDir` drives convention detection when `conventions`
+ *   is absent; `conventions` skips a redundant `detectRepoConventions` call when the caller already has the result
  */
 export async function resolvePostParseFigmaLinks(
   content: string,

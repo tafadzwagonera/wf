@@ -6,7 +6,8 @@
  * Verifies:
  *   1. The live issue:generate prompt includes repo conventions for the primary repo.
  *   2. The prompt renders git hook bullets for a real lefthook config.
- *   3. The prompt includes a cross-repo delta when the secondary repo uses a different git-hooks tool.
+ *   3. The prompt includes a full conventions section for the secondary repo using a different git-hooks tool,
+ *      including a Git hooks entry naming that tool.
  *   4. The prompt includes a cross-repo delta when the secondary repo has no git hooks.
  *   5. The live command does not need a real AI provider because the manual smoke test patches the stage backends.
  */
@@ -149,10 +150,16 @@ async function main(): Promise<void> {
       fail('live prompt does not render nested lefthook bullets', differingToolsPrompt.slice(0, 800));
     }
 
-    if (differingToolsPrompt.includes('secondary-husky uses husky git hooks (primary uses lefthook)')) {
-      pass('live prompt includes the cross-repo git-hooks delta for a different tool');
+    if (differingToolsPrompt.includes('Repository conventions (secondary-husky):')) {
+      pass('live prompt includes the full conventions section for the secondary repo using a different git-hooks tool');
     } else {
-      fail('live prompt is missing the cross-repo git-hooks delta for a different tool', differingToolsPrompt.slice(0, 800));
+      fail('live prompt is missing the full conventions section for secondary-husky', differingToolsPrompt.slice(0, 800));
+    }
+
+    if (differingToolsPrompt.includes('Git hooks (husky):')) {
+      pass('live prompt surfaces the husky git-hooks tool inside the secondary-husky conventions section');
+    } else {
+      fail('live prompt is missing the husky git-hooks entry in secondary-husky conventions', differingToolsPrompt.slice(0, 800));
     }
 
     const missingHooksPrompt = await capturePrompt(
