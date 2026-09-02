@@ -52,6 +52,17 @@ jest.mock('../shared/utils/plan-artifact', () => {
   };
 });
 
+jest.mock('../shared/utils/extract-figma-links', () => {
+  const actual = jest.requireActual('../shared/utils/extract-figma-links');
+  return {
+    extractFigmaLinks: actual.extractFigmaLinks,
+    searchFigmaLinksForTicket: jest.fn().mockResolvedValue([]),
+    resolvePostParseFigmaLinks: jest.fn().mockImplementation(
+      (_content: string, autoLinks: string[]) => Promise.resolve(autoLinks)
+    ),
+  };
+});
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from './issue-plan.command';
@@ -1344,5 +1355,38 @@ describe('IssuePlanCommand', () => {
     );
 
     writeFileSpy.mockRestore();
+  });
+
+  it('writes Figma links returned by resolvePostParseFigmaLinks into the manifest when content has no inline links', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../shared/utils/extract-figma-links');
+    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+    (resolvePostParseFigmaLinks as jest.Mock).mockResolvedValueOnce(['https://figma.com/design/abc123/Card']);
+
+    const ticketContent = '# WBP-600: Style the button';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-600', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-600.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-600', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-600.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style the button', estimatedComplexity: 'low',
+        steps: ['Update styles'], affectedFiles: ['repo-a/src/Button.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-600', repos: ['repo-a'] });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      ticketContent,
+      expect.objectContaining({ figmaLinks: [] }),
+    );
+    expect(writePlanArtifactManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
+    );
   });
 });

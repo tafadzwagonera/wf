@@ -16,7 +16,7 @@ import {
   resolvePlanArtifactReference,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
-import { searchFigmaLinksForTicket } from '../../shared/utils/extract-figma-links';
+import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../../shared/utils/extract-figma-links';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
@@ -166,17 +166,25 @@ export class PlanStageService {
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
-    const figmaLinks = await searchFigmaLinksForTicket(ticket.content, this.isInteractiveSession());
+    const { plan, sessionId, figmaLinks } = await this.executePlanGeneration(ticket, options);
     if (!figmaLinks.length) this.warnNoFigmaLinks();
-    const { plan, sessionId } = await this.generatePlan(ticket.content, {
-      action: options.action, ticketKey: ticket.ticketKey,
-      affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
-      figmaLinks,
-    });
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(plan, options.action, path.dirname(ticket.path),
       hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind, figmaLinks);
     return { ...result, sessionId };
+  }
+
+  private async executePlanGeneration(ticket: TicketArtifact, options: PlannerOptions) {
+    const autoLinks = extractFigmaLinks(ticket.content);
+    const { plan, sessionId } = await this.generatePlan(ticket.content, {
+      action: options.action, ticketKey: ticket.ticketKey,
+      affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
+      figmaLinks: autoLinks,
+    });
+    const figmaLinks = await resolvePostParseFigmaLinks(
+      ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
+    );
+    return { plan, sessionId, figmaLinks };
   }
 
   async loadPlanArtifact(ticketPath: string, action?: ResolutionAction, repoDir?: string): Promise<PlanArtifact> {

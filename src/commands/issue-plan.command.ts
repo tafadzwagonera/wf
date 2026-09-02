@@ -16,7 +16,7 @@ import { getPlanArtifactExtension,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
 } from '../shared/utils/plan-artifact';
-import { extractFigmaLinks } from '../shared/utils/extract-figma-links';
+import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../shared/utils/extract-figma-links';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
@@ -171,7 +171,8 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
     + 'outside the selected repository are rejected. '
-    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling the `figma-implement` skill hint during a later `issue:implement --figma` run and the `figma-design-check` skill hint during a later `issue:review --figma` run.',
+    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling the `figma-implement` skill hint during a later `issue:implement --figma` run and the `figma-design-check` skill hint during a later `issue:review --figma` run. '
+    + 'When no inline Figma links are found but a design system is detected in the repo, an interactive prompt asks for frame links in TTY sessions; links supplied this way are stored in the manifest but are not threaded into the AI generation context.',
   arguments: '',
 })
 export class IssuePlanCommand extends CommandRunner {
@@ -342,8 +343,10 @@ export class IssuePlanCommand extends CommandRunner {
     ctx: ReturnType<IssuePlanCommand['resolveCustomPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
     const sourceContent = fs.readFileSync(ctx.sourcePath, 'utf-8');
-    const figmaLinks = extractFigmaLinks(sourceContent);
-    const plan = await this.generatePlan(sourceContent, ctx.baseDir, { ...options, figmaLinks });
+    const autoLinks = extractFigmaLinks(sourceContent);
+    const { plan, figmaLinks } = await this.generatePlan(
+      sourceContent, ctx.baseDir, { ...options, figmaLinks: autoLinks }
+    );
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ctx.stem, sourceKind: 'custom', artifactDir: ctx.artifactDir, options,
@@ -404,8 +407,10 @@ export class IssuePlanCommand extends CommandRunner {
     ticketKey: string, ticketContent: string,
     ctx: ReturnType<IssuePlanCommand['resolveTicketPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
-    const figmaLinks = extractFigmaLinks(ticketContent);
-    const plan = await this.generatePlan(ticketContent, ctx.baseDir, { ...options, ticketKey, figmaLinks });
+    const autoLinks = extractFigmaLinks(ticketContent);
+    const { plan, figmaLinks } = await this.generatePlan(
+      ticketContent, ctx.baseDir, { ...options, ticketKey, figmaLinks: autoLinks }
+    );
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ticketKey, sourceKind: 'ticket',
@@ -448,21 +453,27 @@ export class IssuePlanCommand extends CommandRunner {
     return artifact.content;
   }
 
-  private async generatePlan(content: string, baseDir: string, options: IssuePlanOptions): Promise<any> {
-    const { action, figmaLinks } = options;
+  private async generatePlan(
+    content: string, baseDir: string, options: IssuePlanOptions
+  ): Promise<{ plan: any; figmaLinks: string[] }> {
+    const { action } = options;
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
     const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
 
     const { plan } = await this.planStageService.generatePlan(content, {
       action, ticketKey: options.ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
-      repoDir: baseDir, ...discovery, figmaLinks, onProgress, resumeProviderSessionId: options?.sessionId,
+      repoDir: baseDir, ...discovery, figmaLinks: options.figmaLinks, onProgress,
+      resumeProviderSessionId: options?.sessionId,
     });
 
+    const figmaLinks = await resolvePostParseFigmaLinks(
+      content, options.figmaLinks ?? [], { allowPrompt: !options.silent, conventions: discovery.conventions }
+    );
     this.validateGeneratedPlan(
       plan, baseDir, this.resolveExpectedRepositories(baseDir, options?.repos), detectTestInfra(baseDir)
     );
     this.planStageService.enrichPlanWithDirectoryConfigs(plan, baseDir);
-    return plan;
+    return { plan, figmaLinks };
   }
 
   private gatherPlanDiscoveryContext(content: string, baseDir: string, options: IssuePlanOptions) {
