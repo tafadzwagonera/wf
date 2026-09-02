@@ -72,10 +72,10 @@ async function main(): Promise<void> {
       fail('first call should carry resumeProviderSessionId', JSON.stringify(firstCall));
     }
 
-    if (!secondCall?.resumeProviderSessionId) {
-      pass('retry call has no resumeProviderSessionId (fresh start)');
+    if (secondCall?.resumeProviderSessionId === undefined) {
+      pass('retry call resumeProviderSessionId is undefined (fresh start)');
     } else {
-      fail('retry call should NOT carry resumeProviderSessionId', JSON.stringify(secondCall));
+      fail('retry call resumeProviderSessionId should be undefined', JSON.stringify(secondCall));
     }
 
     if (result?.content === 'fresh result') {

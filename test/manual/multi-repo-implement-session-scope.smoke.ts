@@ -82,8 +82,8 @@ async function main(): Promise<void> {
       fail('primary repo should receive resumeProviderSessionId', JSON.stringify(firstOpts));
     }
 
-    if (!secondOpts['resumeProviderSessionId']) {
-      pass('secondary repo (repoB) has no resumeProviderSessionId');
+    if (secondOpts['resumeProviderSessionId'] === undefined) {
+      pass('secondary repo (repoB) resumeProviderSessionId is undefined');
     } else {
       fail('secondary repo should NOT receive resumeProviderSessionId', JSON.stringify(secondOpts));
     }
@@ -100,10 +100,10 @@ async function main(): Promise<void> {
       fail('result.primaryRepoSessionId should equal sess-impl-repo-a', JSON.stringify(result));
     }
 
-    if (result?.primaryRepoSessionId !== 'sess-impl-repo-b') {
-      pass("result.primaryRepoSessionId is not the secondary repo's session ID");
+    if (result?.primaryRepoSessionId === 'sess-impl-repo-a') {
+      pass("result.primaryRepoSessionId is the primary repo's session ID (secondary repo's excluded)");
     } else {
-      fail('result.primaryRepoSessionId should NOT be sess-impl-repo-b', JSON.stringify(result));
+      fail('result.primaryRepoSessionId should be sess-impl-repo-a', JSON.stringify(result));
     }
   } finally {
     await app.close();

@@ -81,10 +81,10 @@ async function main(): Promise<void> {
       fail('primary repo reviewer should receive resumeProviderSessionId', JSON.stringify(primaryOpts));
     }
 
-    if (!secondaryOpts['resumeProviderSessionId']) {
-      pass('secondary repo (repoB) reviewer has no resumeProviderSessionId');
+    if (secondaryOpts['resumeProviderSessionId'] === undefined) {
+      pass('secondary repo (repoB) reviewer resumeProviderSessionId is undefined');
     } else {
-      fail('secondary repo reviewer should NOT receive resumeProviderSessionId', JSON.stringify(secondaryOpts));
+      fail('secondary repo reviewer resumeProviderSessionId should be undefined', JSON.stringify(secondaryOpts));
     }
 
     if (secondaryOpts['priorStageSummary'] === 'prior summary') {
