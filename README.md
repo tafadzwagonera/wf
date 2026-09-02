@@ -140,10 +140,6 @@ export default defineConfig({
         policyFile: 'verification.policy.json',
       },
     },
-    create: {
-      provider: 'anthropic',
-      backend: 'cli',
-    },
     review: {
       provider: 'anthropic',
       backend: 'cli',
@@ -208,9 +204,6 @@ stages:
     skills: [coding-style, test-driven-development]
     verificationConditions:
       policyFile: verification.policy.json
-  create:
-    provider: anthropic
-    backend: cli
   review:
     provider: anthropic
     backend: cli
