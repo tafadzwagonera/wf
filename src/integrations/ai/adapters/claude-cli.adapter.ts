@@ -513,7 +513,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     const result = await this.runSinglePass({
       passNumber: 100 + passNumber, sessionId, currentUnvisited: [],
-      promptOverride: buildVerificationFixPrompt(codeFailures),
+      promptOverride: buildVerificationFixPrompt(codeFailures, p.repoFiles),
       appendSystemPrompt: undefined, model: p.model,
       repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
       touchedFiles: p.touchedFiles, activityState: p.activityState,

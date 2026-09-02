@@ -202,7 +202,7 @@ describe('runPreReviewVerification', () => {
 
     await runPreReviewVerification(tmpDir, { silent: true });
 
-    expect(mockInstall).toHaveBeenCalledWith(wtPath);
+    expect(mockInstall).toHaveBeenCalledWith(wtPath, true);
   });
 
   it('only runs lint, typecheck, and test scripts — ignores other scripts', async () => {

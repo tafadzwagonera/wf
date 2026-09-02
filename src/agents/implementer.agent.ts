@@ -1094,7 +1094,7 @@ export class ImplementerAgent {
   ): Promise<string> {
     const { didStash } = await this.ensureCleanWorkingTree(planArtifact, stashInteractive, cwd);
     const sourceBranch = await this.detectAndSelectSource(interactive, cwd);
-    await this.pullLatestFromSource(sourceBranch.name, sourceBranch.current, cwd);
+    await this.pullLatestFromSource(sourceBranch.name, sourceBranch.current, cwd, options.skipInstall);
     await this.restoreStash(didStash, cwd);
 
     return this.createOrReuseFeatureBranch(ticket, planArtifact, options, interactive, sourceBranch.name, cwd);
@@ -1268,7 +1268,7 @@ export class ImplementerAgent {
   }
 
   private async pullLatestFromSource(
-    sourceBranch: string, currentBranch: string, cwd: string | undefined
+    sourceBranch: string, currentBranch: string, cwd: string | undefined, skipInstall?: boolean
   ): Promise<void> {
     if (sourceBranch.startsWith('remotes/') || sourceBranch.startsWith('origin/')) {
       console.log(chalk.gray(`  Skipping pull — ${sourceBranch} is a remote tracking ref`));
@@ -1276,7 +1276,7 @@ export class ImplementerAgent {
     }
     await this.ensureOnSourceBranch(sourceBranch, currentBranch, cwd);
     await this.pullSafe(sourceBranch, cwd);
-    await runPostPullDependencyInstall(cwd ?? process.cwd());
+    await runPostPullDependencyInstall(cwd ?? process.cwd(), skipInstall);
   }
 
   private async tryCheckoutSource(sourceBranch: string, cwd: string | undefined): Promise<boolean> {
@@ -1336,7 +1336,7 @@ export class ImplementerAgent {
     if (shouldPull) {
       const { didStash } = await this.ensureCleanWorkingTree(planArtifact, stashInteractive, cwd);
       await this.pullSafe(branch, cwd);
-      await runPostPullDependencyInstall(cwd ?? process.cwd());
+      await runPostPullDependencyInstall(cwd ?? process.cwd(), options.skipInstall);
       await this.restoreStash(didStash, cwd);
     }
 

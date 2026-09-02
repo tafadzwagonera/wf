@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getLoadedWfConfig } from '../../config/wf-config-loader';
 import { IssueTrackerAdapter } from './issue-tracker-adapter.interface';
 
 /**
@@ -28,7 +29,7 @@ export class IssueTrackerService {
    * @throws NotFoundException if tracker is not registered
    */
   getAdapter(trackerName?: string): IssueTrackerAdapter {
-    const tracker = trackerName || this.configService.get<string>('tracker', 'jira');
+    const tracker = trackerName || getLoadedWfConfig().tracker;
 
     const adapter = this.adapters.get(tracker);
     if (!adapter) {
@@ -45,8 +46,7 @@ export class IssueTrackerService {
    * @returns Primary tracker adapter
    */
   getDefaultAdapter(): IssueTrackerAdapter {
-    const primaryTracker = this.configService.get<string>('tracker', 'jira');
-    return this.getAdapter(primaryTracker);
+    return this.getAdapter(getLoadedWfConfig().tracker);
   }
 
   /**

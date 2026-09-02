@@ -57,6 +57,10 @@ jest.mock('../shared/utils/run-pre-review-verification', () => ({
   runPreReviewVerification: jest.fn().mockResolvedValue(''),
 }));
 
+jest.mock('../config/wf-config-loader', () => ({
+  initializeWfConfig: jest.fn().mockResolvedValue({}),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
@@ -78,6 +82,7 @@ import { SessionService } from '../shared/session/session.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
 import { resolveRepoBasePath } from '../agents/utils';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
+import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import * as path from 'node:path';
@@ -1508,6 +1513,44 @@ describe('IssueReviewCommand', () => {
 
       const loggedLines = consoleLogSpy.mock.calls.map((c: unknown[]) => String(c[0]));
       expect(loggedLines.some((line: string) => line.includes('src/logger.ts') && !line.includes('src/logger.ts:'))).toBe(true);
+    });
+  });
+
+  describe('initializeWfConfig per-target calls', () => {
+    beforeEach(() => {
+      jest.restoreAllMocks();
+      (initializeWfConfig as jest.Mock).mockClear();
+    });
+
+    it('calls initializeWfConfig once per target in executeReviews', async () => {
+      const { command } = await buildCommand();
+      jest.spyOn(command as any, 'reviewSingleTarget').mockResolvedValue(null);
+
+      await (command as any).executeReviews(
+        [
+          { title: 'Repo A', diff: '', context: '', repoDir: '/mock/repo-a' },
+          { title: 'Repo B', diff: '', context: '', repoDir: '/mock/repo-b' },
+        ],
+        null,
+        {}
+      );
+
+      expect(initializeWfConfig).toHaveBeenCalledTimes(2);
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/mock/repo-a');
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(2, '/mock/repo-b');
+    });
+
+    it('falls back to process.cwd() when target.repoDir is undefined', async () => {
+      const { command } = await buildCommand();
+      jest.spyOn(command as any, 'reviewSingleTarget').mockResolvedValue(null);
+
+      await (command as any).executeReviews(
+        [{ title: 'Unnamed', diff: '', context: '' }],
+        null,
+        {}
+      );
+
+      expect(initializeWfConfig).toHaveBeenCalledWith(process.cwd());
     });
   });
 });

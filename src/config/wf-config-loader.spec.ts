@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { discoverWfConfigPath, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
+import { discoverWfConfigPath, getLoadedWfConfig, initializeWfConfig, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
 import { ValidationError } from '../shared/utils/errors';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
@@ -1227,6 +1227,40 @@ describe('wf-config-loader', () => {
           },
         }),
       ).toThrow(ValidationError);
+    });
+  });
+
+  describe('initializeWfConfig', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('mutates the same object reference so getLoadedWfConfig reflects the second cwd config', async () => {
+      const cwd1 = createProjectRoot();
+      fs.writeFileSync(path.join(cwd1, 'wf.config.js'), 'module.exports = {};');
+      const first = await initializeWfConfig(cwd1);
+      const ref = getLoadedWfConfig();
+      expect(ref).toBe(first);
+
+      const cwd2 = createProjectRoot();
+      fs.writeFileSync(path.join(cwd2, 'wf.config.js'), "module.exports = { ai: [{ provider: 'openai', default: true }] };");
+      await initializeWfConfig(cwd2);
+
+      const afterRef = getLoadedWfConfig();
+      expect(afterRef).toBe(ref);
+      expect((afterRef as any).ai?.provider).toBe('openai');
+    });
+
+    it('updates the tracker primitive on loadedConfig itself after second call', async () => {
+      const cwd1 = createProjectRoot();
+      fs.writeFileSync(path.join(cwd1, 'wf.config.js'), 'module.exports = {};');
+      await initializeWfConfig(cwd1);
+
+      const cwd2 = createProjectRoot();
+      fs.writeFileSync(path.join(cwd2, 'wf.config.js'), "module.exports = { tracker: 'github' };");
+      await initializeWfConfig(cwd2);
+
+      expect((getLoadedWfConfig() as any).tracker).toBe('github');
     });
   });
 });

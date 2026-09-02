@@ -147,17 +147,27 @@ export function partitionFailures(
  * @param failures - Enforced-failed outcomes with captured output. Must be non-empty.
  * @returns The prompt string for the fix pass, or empty string if failures is empty.
  */
-export function buildVerificationFixPrompt(failures: VerificationOutcome[]): string {
+const buildFailureSection = (f: VerificationOutcome): string => {
+  const output = (f as { output?: string }).output ?? '';
+  const truncated = output.length > 500 ? `...${output.slice(-500)}` : output;
+  return `Command: ${f.command}\nOutput:\n${truncated || '(no output captured)'}`;
+};
+
+const buildScopeNote = (scopedFiles: string[]): string =>
+  `\n\nOnly modify files within this task's scope:\n${scopedFiles.join('\n')}\n`
+  + `If a failure above is not caused by one of these files, treat it as a pre-existing issue unrelated `
+  + `to this task — report it in your summary as a blocker rather than fixing it, and do not edit files `
+  + `outside this list to work around it.\n\n`;
+
+export function buildVerificationFixPrompt(failures: VerificationOutcome[], scopedFiles?: string[]): string {
   if (failures.length === 0) return '';
-  const sections = failures.map(f => {
-    const output = (f as { output?: string }).output ?? '';
-    const truncated = output.length > 500 ? `...${output.slice(-500)}` : output;
-    return `Command: ${f.command}\nOutput:\n${truncated || '(no output captured)'}`;
-  });
+  const sections = failures.map(buildFailureSection).join('\n\n');
+  const scopeNote = scopedFiles?.length ? buildScopeNote(scopedFiles) : '';
   return (
-    `The following enforced verification commands failed:\n\n${sections.join('\n\n')}\n\n`
+    `The following enforced verification commands failed:\n\n${sections}\n\n`
     + `Read the error output above, identify the root cause of each failure, `
     + `and fix the code so all listed commands pass. `
+    + scopeNote
     + `Do not re-run the verification commands yourself — they will be re-run automatically after your changes. `
     + `Do not output any text or plan before making your first tool call.`
   );

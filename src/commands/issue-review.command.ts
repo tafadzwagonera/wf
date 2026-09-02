@@ -23,6 +23,7 @@ import {
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
@@ -615,6 +616,7 @@ export class IssueReviewCommand extends CommandRunner {
     extraCriteria: string[] | null, options?: IssueReviewOptions): Promise<ReviewedTarget[]> {
     const reviewed: ReviewedTarget[] = [];
     for (const target of targets) {
+      await initializeWfConfig(target.repoDir ?? process.cwd());
       try {
         const review = await this.reviewSingleTarget(target, extraCriteria, options);
         if (!review) continue;

@@ -30,6 +30,10 @@ jest.mock('./utils', () => {
   return { ...actual, isRepoResolvable: jest.fn(() => true) };
 });
 
+jest.mock('../shared/utils/post-pull-install', () => ({
+  runPostPullDependencyInstall: jest.fn().mockResolvedValue(undefined),
+}));
+
 const createMockPresenter = () => ({
   stageHeader: jest.fn(),
   separator: jest.fn(),
@@ -1519,6 +1523,24 @@ describe('ImplementerAgent', () => {
       ).rejects.toThrow(/Cannot switch to source branch/);
 
       expect(gitService.createBranch).not.toHaveBeenCalled();
+    });
+
+    it('passes skipInstall: true to runPostPullDependencyInstall when option is set', async () => {
+      const { runPostPullDependencyInstall } = jest.requireMock('../shared/utils/post-pull-install');
+      (runPostPullDependencyInstall as jest.Mock).mockClear();
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', skipInstall: true, silent: true,
+      });
+      expect(runPostPullDependencyInstall).toHaveBeenCalledWith(expect.any(String), true);
+    });
+
+    it('passes skipInstall: undefined to runPostPullDependencyInstall by default', async () => {
+      const { runPostPullDependencyInstall } = jest.requireMock('../shared/utils/post-pull-install');
+      (runPostPullDependencyInstall as jest.Mock).mockClear();
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
+      });
+      expect(runPostPullDependencyInstall).toHaveBeenCalledWith(expect.any(String), undefined);
     });
   });
 

@@ -20,6 +20,7 @@ import {
 } from '../shared/utils/plan-artifact';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
+import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
@@ -102,6 +103,7 @@ interface IssueOptions {
   silent?: boolean;
   sonar?: boolean;
   figma?: boolean;
+  skipInstall?: boolean;
   ticketKey?: string;
   to?: string;
   tracker?: string;
@@ -292,6 +294,14 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--skip-install',
+    description: 'Skip automatic dependency install after branch pull',
+  })
+  parseSkipInstall(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-k, --ticket-key <key>',
     description: 'Ticket key to run the full workflow for (e.g. WBP-2971)',
   })
@@ -376,7 +386,7 @@ export class IssueCommand extends CommandRunner {
     preloadedSession?: SessionState
   ): ResolvedWorkflowContext {
     const { fromStage, toStage, stagesToRun } = this.resolveStageRange(validatedOptions);
-    const trackerName = validatedOptions?.tracker || this.configService.get<string>('tracker') || 'jira';
+    const trackerName = validatedOptions?.tracker || getLoadedWfConfig().tracker;
     const repoBaseDir = resolveRepoBasePath(validatedOptions.repos?.[0]);
     const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
     const { ticketKey, customSourcePath, planTokenResolution } = this.resolveSourceInputs(
@@ -1421,7 +1431,7 @@ export class IssueCommand extends CommandRunner {
     planArtifact?: PlanArtifact
   ): ImplementerOptions {
     return {
-      trackerName: options?.tracker || this.configService.get<string>('tracker') || 'jira',
+      trackerName: options?.tracker || getLoadedWfConfig().tracker,
       repoDir: resolveRepoBasePath(repo),
       additionalRepoDirs: repos
         .filter((r): r is string => r !== undefined && r !== repo)
@@ -1429,6 +1439,7 @@ export class IssueCommand extends CommandRunner {
       suppressHeader: isMultiRepo, allowMultiRepoScope: isMultiRepo,
       modelRouting: options.modelRouting as ModelRouting,
       silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
+      skipInstall: options.skipInstall,
       isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
       ...sessionContext,
     };
@@ -1450,6 +1461,7 @@ export class IssueCommand extends CommandRunner {
     let anyHasChanges = false;
     let primaryRepoSessionId: string | undefined;
     for (const repo of repos) {
+      await initializeWfConfig(resolveRepoBasePath(repo));
       if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
       const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
       const result = await this.executeRepoImplementation(
@@ -1646,6 +1658,7 @@ export class IssueCommand extends CommandRunner {
     repo: string | undefined,
     reviewContext: ReviewRepoContext
   ): Promise<ReviewArtifact | null> {
+    await initializeWfConfig(resolveRepoBasePath(repo));
     const { isMultiRepo, options, planArtifact, primaryRepo, repos, sessionContext, ticketArtifact } = reviewContext;
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
     const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
@@ -1718,12 +1731,28 @@ export class IssueCommand extends CommandRunner {
       { type: 'confirm', name: 'startChat', message: 'Would you like to discuss the review?', prefix: ' ', default: false },
     ]);
     if (!startChat) return;
-    const trackerName = options?.tracker || this.configService.get<string>('tracker') || 'jira';
+    const trackerName = options?.tracker || getLoadedWfConfig().tracker;
     await this.startInteractiveChat(
       ticketKey, 'review' as ConvWorkflowStage,
       { ticketContent: ticketArtifact.content, plan: planArtifact?.plan, review: reviewArtifact.review },
       resolveRepoBasePath(repos[0]), trackerName
     );
+  }
+
+  private async commitForRepo(
+    repo: string | undefined, ticketKey: string, planArtifact: PlanArtifact | undefined,
+    options: IssueOptions, trackerName: string, isMultiRepo: boolean
+  ): Promise<void> {
+    await initializeWfConfig(resolveRepoBasePath(repo));
+    this.printRepoHeader(isMultiRepo, repo, options);
+    const repoDir = resolveRepoBasePath(repo);
+    const scopeSummary = resolveCommitScopeSummary(
+      repoDir, trackerName, ticketKey, planArtifact?.plan?.summary
+    ) ?? undefined;
+    if (scopeSummary && scopeSummary !== planArtifact?.plan?.summary && !options?.silent) {
+      console.log(chalk.gray('  Using scope summary from prior review/plan'));
+    }
+    await this.agents.committer.execute(ticketKey, repoDir, scopeSummary, isMultiRepo, options?.silent);
   }
 
   private async executeCommitStage(
@@ -1733,17 +1762,7 @@ export class IssueCommand extends CommandRunner {
     const isMultiRepo = repos.length > 1;
     this.printStageHeader(isMultiRepo, options?.silent, '💾 STAGE 5: Commit Changes');
     for (const repo of repos) {
-      this.printRepoHeader(isMultiRepo, repo, options);
-      const repoDir = resolveRepoBasePath(repo);
-      const scopeSummary = resolveCommitScopeSummary(
-        repoDir, trackerName, ticketKey, planArtifact?.plan?.summary
-      ) ?? undefined;
-      if (scopeSummary && scopeSummary !== planArtifact?.plan?.summary && !options?.silent) {
-        console.log(chalk.gray('  Using scope summary from prior review/plan'));
-      }
-      await this.agents.committer.execute(
-        ticketKey, repoDir, scopeSummary, isMultiRepo, options?.silent
-      );
+      await this.commitForRepo(repo, ticketKey, planArtifact, options, trackerName, isMultiRepo);
     }
   }
 

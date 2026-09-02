@@ -1,4 +1,4 @@
-import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt } from './verification-report';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 
 const createMockScript = (overrides: Partial<VerificationScript> = {}): VerificationScript => ({
@@ -145,5 +145,40 @@ describe('checkVerificationStall', () => {
     const stopped = checkVerificationStall(5, 5, 2, 'test-adapter', 3);
     expect(stopped).toBe(-1);
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('after 3 passes'));
+  });
+});
+
+describe('buildVerificationFixPrompt', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns empty string for no failures', () => {
+    expect(buildVerificationFixPrompt([])).toBe('');
+  });
+
+  it('returns base prompt without scope note when scopedFiles is omitted', () => {
+    const result = buildVerificationFixPrompt([createMockOutcome({ status: 'failed' })]);
+    expect(result).toContain('fix the code so all listed commands pass');
+    expect(result).not.toContain('Only modify files within this task');
+  });
+
+  it('appends scope note with each file path when scopedFiles is non-empty', () => {
+    const result = buildVerificationFixPrompt(
+      [createMockOutcome({ status: 'failed' })],
+      ['src/foo.ts', 'src/bar.ts'],
+    );
+    expect(result).toContain('Only modify files within this task');
+    expect(result).toContain('src/foo.ts');
+    expect(result).toContain('src/bar.ts');
+    expect(result).toContain('pre-existing issue unrelated to this task');
+  });
+
+  it('omits scope note when scopedFiles is an empty array', () => {
+    const result = buildVerificationFixPrompt(
+      [createMockOutcome({ status: 'failed' })],
+      [],
+    );
+    expect(result).not.toContain('Only modify files within this task');
   });
 });

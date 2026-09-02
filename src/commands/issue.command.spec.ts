@@ -55,6 +55,11 @@ jest.mock('../shared/utils/repo-lock', () => ({
   withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
 }));
 
+jest.mock('../config/wf-config-loader', () => ({
+  initializeWfConfig: jest.fn().mockResolvedValue({}),
+  getLoadedWfConfig: jest.fn().mockReturnValue({ tracker: 'jira' }),
+}));
+
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: {
@@ -81,6 +86,7 @@ import * as path from 'path';
 import inquirer from 'inquirer';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
+import { initializeWfConfig } from '../config/wf-config-loader';
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -3180,6 +3186,105 @@ describe('IssueCommand', () => {
       await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
 
       expect(reviewSpy.mock.calls[0][6]).toEqual(expect.objectContaining({ primaryRepo: 'repoA' }));
+    });
+  });
+
+  describe('initializeWfConfig per-repo calls', () => {
+    const buildLoopTestCommand = async (): Promise<IssueCommand> => {
+      const module = await Test.createTestingModule({
+        providers: [
+          IssueCommand,
+          { provide: ConversationService, useValue: {} },
+          {
+            provide: LoggerService,
+            useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+          },
+          {
+            provide: ConfigService,
+            useValue: { get: jest.fn((key: string, defaultValue?: string) => key === 'tracker' ? 'jira' : defaultValue) },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(), showStageHeader: jest.fn(), showSummary: jest.fn(),
+              showValidationResult: jest.fn(), showSkipped: jest.fn(), showNoSideEffects: jest.fn(),
+              previewApiCall: jest.fn(), previewFileRead: jest.fn(), previewFileWrite: jest.fn(),
+            },
+          },
+          {
+            provide: AgentOrchestrator,
+            useValue: {
+              implementer: { execute: jest.fn().mockResolvedValue({ type: 'implementation', hasChanges: false, sessionId: undefined, branchName: null, verificationOutcomes: [] }) },
+              reviewer: { execute: jest.fn().mockResolvedValue(null), persistArtifact: jest.fn() },
+              committer: { execute: jest.fn().mockResolvedValue(undefined) },
+            },
+          },
+          { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'), getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions') } },
+          { provide: SessionService, useValue: mockSessionService },
+          {
+            provide: ReviewPresenter,
+            useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
+          },
+        ],
+      }).compile();
+      return module.get(IssueCommand);
+    };
+
+    beforeEach(() => {
+      (initializeWfConfig as jest.Mock).mockClear();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('calls initializeWfConfig once per repo in runImplementLoop', async () => {
+      const command = await buildLoopTestCommand();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(command as any, 'executeRepoImplementation').mockResolvedValue({
+        earlyReturn: false,
+        implementerResult: { type: 'implementation', hasChanges: false, sessionId: undefined, branchName: null, verificationOutcomes: [] },
+      });
+
+      await (command as any).runImplementLoop(
+        { ticketKey: 'WBP-123', content: '#', path: '/tmp/consumer-app/jira/WBP-123.md' },
+        { action: 'fix', plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] }, path: '/tmp/plan.json' },
+        ['repo-a', 'repo-b'],
+        { silent: true },
+        {},
+        'repo-a'
+      );
+
+      expect(initializeWfConfig).toHaveBeenCalledTimes(2);
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/tmp/consumer-app/repo-a');
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(2, '/tmp/consumer-app/repo-b');
+    });
+
+    it('calls initializeWfConfig with the resolved repo path in runReviewForRepo', async () => {
+      const command = await buildLoopTestCommand();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await (command as any).runReviewForRepo('repo-a', {
+        isMultiRepo: true,
+        options: {},
+        planArtifact: undefined,
+        repos: ['repo-a'],
+        sessionContext: {},
+        ticketArtifact: { ticketKey: 'WBP-TEST', content: '#', path: '/tmp/consumer-app/jira/WBP-TEST.md' },
+      });
+
+      expect(initializeWfConfig).toHaveBeenCalledWith('/tmp/consumer-app/repo-a');
+    });
+
+    it('calls initializeWfConfig once per repo in executeCommitStage', async () => {
+      const command = await buildLoopTestCommand();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await (command as any).executeCommitStage('WBP-123', undefined, ['repo-a', 'repo-b'], { silent: true }, 'jira');
+
+      expect(initializeWfConfig).toHaveBeenCalledTimes(2);
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/tmp/consumer-app/repo-a');
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(2, '/tmp/consumer-app/repo-b');
     });
   });
 });

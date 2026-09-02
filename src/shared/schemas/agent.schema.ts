@@ -128,6 +128,8 @@ export const implementerOptionsSchema = z.object({
   initialPromptOverride: z.string().optional(),
   /** Force the Figma implementation skill on, overriding `stages.implement.figma` config (CLI `--figma`). */
   figma: z.boolean().optional(),
+  /** Skip post-pull dependency install (use when node_modules is known-clean). */
+  skipInstall: z.boolean().optional(),
 });
 
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate', 'implement']);

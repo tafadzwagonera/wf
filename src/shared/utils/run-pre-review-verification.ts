@@ -121,7 +121,7 @@ const runVerifyCommand = (command: string, cwd: string): { command: string; fail
 const runVerificationInWorktree = async (
   wtPath: string, options: PreReviewVerificationOptions
 ): Promise<string> => {
-  await runPostPullDependencyInstall(wtPath);
+  await runPostPullDependencyInstall(wtPath, true);
   const pm = detectPackageManager(wtPath);
   const commands = availableVerifyCommands(wtPath, pm);
   if (commands.length === 0) return '';

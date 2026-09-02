@@ -331,10 +331,10 @@ export class CodexCliAdapter implements ImplementerBackend {
 
   private async runCodexFixPass(p: {
     ctx: StreamContext; sessionId: string; model: string;
-    codeFailures: VerificationOutcome[]; passNumber: number;
+    codeFailures: VerificationOutcome[]; passNumber: number; repoFiles: string[];
   }): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     this.logFixPassStart(p.passNumber, p.codeFailures.length);
-    const fixPrompt = buildVerificationFixPrompt(p.codeFailures);
+    const fixPrompt = buildVerificationFixPrompt(p.codeFailures, p.repoFiles);
     const fixArgs = buildCodexCliArgs(
       { prompt: fixPrompt, model: p.model, cwd: p.ctx.repoDir, permissionMode: 'full-auto', sessionId: p.sessionId,
         codexVersion: getCodexCliVersion() },
@@ -372,7 +372,9 @@ export class CodexCliAdapter implements ImplementerBackend {
     ctx: StreamContext, p: CodexVerificationLoopParams,
     passNumber: number, sessionId: string, codeFailures: VerificationOutcome[],
   ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
-    const fix = await this.runCodexFixPass({ ctx, sessionId, model: p.model, codeFailures, passNumber });
+    const fix = await this.runCodexFixPass({
+      ctx, sessionId, model: p.model, codeFailures, passNumber, repoFiles: p.params.repoFiles,
+    });
     if (!fix.wrote) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] No files written during fix pass — skipping re-verification`));
     return fix;
   }

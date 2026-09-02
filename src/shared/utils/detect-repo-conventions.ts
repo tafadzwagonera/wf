@@ -1069,7 +1069,7 @@ const matchSignatureFiles = (
 
 type ElementClassConvention = DesignSystemContext['classConventions'][number];
 
-const ELEMENT_CLASS_EXTENSIONS = new Set(['.vue', '.tsx', '.jsx', '.html']);
+const elementClassExtensions = new Set(['.vue', '.tsx', '.jsx', '.html']);
 
 const canonicalizeClasses = (classStr: string): string =>
   classStr.trim().split(/\s+/).filter(Boolean).sort((a, b) => a.localeCompare(b)).join(' ');
@@ -1169,7 +1169,7 @@ const detectElementClassConventions = (
   const scanRoots = resolveUiPatternScanRoots(repoDir, sourceRoots);
   if (scanRoots.length === 0) return [];
   const candidateFiles = scanRoots.flatMap(root =>
-    walkDir(root, filePath => ELEMENT_CLASS_EXTENSIONS.has(path.extname(filePath)), skipDirs),
+    walkDir(root, filePath => elementClassExtensions.has(path.extname(filePath)), skipDirs),
   );
   const samplesMap = collectClassSamples(repoDir, candidateFiles);
   return [...samplesMap.entries()].flatMap(([element, elementSamples]) => {

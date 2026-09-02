@@ -1122,8 +1122,37 @@ export const loadWfConfig = async (options: WfConfigLoadOptions = {}): Promise<N
  * @param cwd - Optional project root override
  * @returns Loaded normalized config
  */
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const mergeConfigKeyInPlace = (target: Record<string, unknown>, key: string, value: unknown): void => {
+  const current = target[key];
+  if (!isPlainObject(current) || !isPlainObject(value)) {
+    target[key] = value;
+    return;
+  }
+  for (const k of Object.keys(current)) delete current[k];
+  Object.assign(current, value);
+};
+
+const mergeConfigInPlace = (target: NormalizedWfConfig, fresh: NormalizedWfConfig): NormalizedWfConfig => {
+  const t = target as unknown as Record<string, unknown>;
+  const f = fresh as unknown as Record<string, unknown>;
+  for (const key of Object.keys(fresh)) mergeConfigKeyInPlace(t, key, f[key]);
+  return target;
+};
+
+/**
+ * Loads and normalizes the wf config rooted at `cwd`, then merges it into the
+ * module-level `loadedConfig` in place so that existing `ConfigService` references
+ * remain valid across multi-repo runs.
+ *
+ * @param cwd - Directory to search for `wf.config.*`. Defaults to `process.cwd()`.
+ * @returns The same `loadedConfig` object on every call after the first — the reference never changes.
+ */
 export const initializeWfConfig = async (cwd: string = process.cwd()): Promise<NormalizedWfConfig> => {
-  loadedConfig = await loadWfConfig({ cwd });
+  const fresh = await loadWfConfig({ cwd });
+  loadedConfig = loadedConfig ? mergeConfigInPlace(loadedConfig, fresh) : fresh;
   setWfPathOverrides({ logDir: loadedConfig.log.directory, stateDir: loadedConfig.state.directory });
   return loadedConfig;
 };

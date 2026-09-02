@@ -53,6 +53,11 @@ jest.mock('inquirer', () => ({
   },
 }));
 
+jest.mock('../config/wf-config-loader', () => ({
+  initializeWfConfig: jest.fn().mockResolvedValue({}),
+  getLoadedWfConfig: jest.fn().mockReturnValue({ tracker: 'jira' }),
+}));
+
 import { Test } from '@nestjs/testing';
 import { IssueImplementCommand } from './issue-implement.command';
 import { AiService } from '../integrations/ai/ai.service';
@@ -65,6 +70,7 @@ import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../share
 import { AmbiguousPlanArtifactError } from '../shared/utils/errors';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { initializeWfConfig } from '../config/wf-config-loader';
 
 async function buildCommand(): Promise<IssueImplementCommand> {
   const module = await Test.createTestingModule({
@@ -1286,6 +1292,48 @@ describe('IssueImplementCommand', () => {
 
       expect(executeSpy).toHaveBeenCalledWith(expect.objectContaining({ stage: 'implement' }));
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe('initializeWfConfig per-repo calls', () => {
+    beforeEach(() => {
+      (initializeWfConfig as jest.Mock).mockClear();
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('calls initializeWfConfig once per active repo in runImplementerLoop', async () => {
+      const command = await buildCommand();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(command as any, 'executeRepoImplementation').mockResolvedValue(false);
+
+      const ctx = {
+        trackerName: 'jira',
+        baseDir: '/tmp/consumer-app',
+        trackerDir: '/tmp/consumer-app/jira',
+        customArtifactDir: '/tmp/consumer-app/.wf',
+        repos: ['repo-a', 'repo-b'],
+        ticketKey: undefined,
+        resolvedPlanReference: null,
+        plan: undefined,
+      };
+      const planArtifact: any = {
+        action: 'fix',
+        plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+      };
+
+      await (command as any).runImplementerLoop(
+        { ticketKey: 'WBP-123', content: '#', path: '/tmp/consumer-app/jira/WBP-123.md' },
+        planArtifact,
+        ctx,
+        { silent: true }
+      );
+
+      expect(initializeWfConfig).toHaveBeenCalledTimes(2);
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/tmp/consumer-app/repo-a');
+      expect(initializeWfConfig).toHaveBeenNthCalledWith(2, '/tmp/consumer-app/repo-b');
     });
   });
 });

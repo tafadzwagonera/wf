@@ -21,6 +21,7 @@ import {
   SUPPORTED_PLAN_EXTENSIONS,
 } from '../shared/utils/plan-artifact';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
+import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import type { ResolutionAction, TicketArtifact, PlanArtifact, ModelRouting } from '../agents/interfaces';
 
@@ -57,6 +58,7 @@ interface IssueImplementOptions {
   ticketKey?: string;
   tracker?: string;
   sessionId?: string;
+  skipInstall?: boolean;
 }
 
 @Injectable()
@@ -76,7 +78,7 @@ interface IssueImplementOptions {
     + 'When a hashed plan artifact is provided, the action is inferred from the filename/manifest and `--action` becomes optional, but any supplied action is still validated against the resolved artifact. '
     + 'Before implementation, the command runs an interactive branch creation workflow: prompts to create a new branch or stay on the current one, then only checks the working tree for uncommitted changes when a pull is needed. '
     + 'When staying on the current branch, the user is asked whether to pull; stashing is only triggered if a pull is accepted. When creating a new branch, uncommitted changes are stashed before pulling the source branch (dev or main). '
-    + 'After each pull, if package.json changed, the detected package manager (bun, pnpm, yarn, or npm) runs an install automatically; failures are surfaced as warnings and never abort the command. '
+    + 'After each pull, runs a dependency install via the detected package manager (bun, pnpm, yarn, or npm); use --skip-install to suppress. Failures are surfaced as warnings and never abort the command. '
     + 'Generated branch names exceeding 100 characters are automatically truncated at the nearest word boundary. '
     + 'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. '
     + 'When running against multiple repos, repos absent from the plan\'s affectedRepositories and newRepositories are skipped with a log message. When a plan declares newRepositories, those repos are scaffolded as sibling directories and prepended to the execution order so they run before existing repos. '
@@ -161,6 +163,14 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--skip-install',
+    description: 'Skip automatic dependency install after branch pull',
+  })
+  parseSkipInstall(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-s, --silent',
     description: 'Auto-stash without prompting; branch selection and naming still prompt when a TTY is available',
   })
@@ -206,7 +216,7 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   private resolveImplementContext(identifier: string, options?: IssueImplementOptions) {
-    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const trackerName = options?.tracker || getLoadedWfConfig().tracker;
     const baseDir = resolveRepoBasePath(options?.repos?.[0]);
     const trackerDir = resolveArtifactDir(baseDir, trackerName);
     const customArtifactDir = resolveCustomArtifactDir(baseDir);
@@ -343,6 +353,7 @@ export class IssueImplementCommand extends CommandRunner {
       console.log(chalk.gray('─'.repeat(70)));
     }
     for (const repo of activeRepos) {
+      await initializeWfConfig(resolveRepoBasePath(repo));
       const shouldExit = await this.executeRepoImplementation(
         repo, ticketArtifact, planArtifact, ctx, options, isMultiRepo, customBranchSlug
       );
@@ -404,6 +415,7 @@ export class IssueImplementCommand extends CommandRunner {
       modelRouting: options?.modelRouting as ModelRouting, silent: options?.silent,
       noBranch: options?.noBranch, branchNamePattern: options?.branchNamePattern,
       resumeProviderSessionId: options?.sessionId, figma: options?.figma,
+      skipInstall: options?.skipInstall,
       isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
     };
   }
@@ -590,7 +602,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   private validateImplementInputs(identifier: string, options?: IssueImplementOptions): void {
     this.assertNoBranchConflict(options);
-    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const trackerName = options?.tracker || getLoadedWfConfig().tracker;
     if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
       throw new ValidationError('--repos is required for Bitbucket ticket fetching');
     }
