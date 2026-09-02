@@ -990,6 +990,24 @@ describe('detectRepoConventions — designSystem', () => {
 
     const ctx = detectRepoConventions(REPO_DIR);
     expect(ctx.designSystem?.componentLibrary).toBeNull();
+    expect(ctx.designSystem?.hasUiEnvironment).toBe(false);
+  });
+
+  it('sets hasUiEnvironment to true when a framework is detected via dependencies', () => {
+    mockExistsSync.mockImplementation((p: fs.PathLike) => {
+      const s = String(p);
+      return s === path.join(REPO_DIR, 'package.json');
+    });
+    mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
+      if (String(p) === path.join(REPO_DIR, 'package.json')) {
+        return JSON.stringify({ dependencies: { next: '^14.0.0' } });
+      }
+      return '{}';
+    });
+    mockReaddirSync.mockReturnValue([]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    expect(ctx.designSystem?.hasUiEnvironment).toBe(true);
   });
 
   it('formatRepoConventionsPromptSection includes Design system line when set', () => {
@@ -1009,6 +1027,7 @@ describe('detectRepoConventions — designSystem', () => {
         hasStorybook: false,
         interactionPatterns: [],
         classConventions: [],
+        hasUiEnvironment: true,
       },
     };
     const output = formatRepoConventionsPromptSection(ctx, 'my-repo');

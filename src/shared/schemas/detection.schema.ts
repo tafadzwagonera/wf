@@ -133,6 +133,7 @@ export const repoConventionsContextSchema = z.object({
       hasStorybook: z.boolean(),
       interactionPatterns: z.array(uiPatternExemplarSchema).default([]),
       classConventions: z.array(elementClassConventionSchema).default([]),
+      hasUiEnvironment: z.boolean(),
     })
     .optional(),
 });

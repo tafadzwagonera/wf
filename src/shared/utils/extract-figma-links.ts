@@ -44,11 +44,11 @@ export async function resolvePostParseFigmaLinks(
   { allowPrompt, repoDir, conventions }: {
     allowPrompt: boolean;
     repoDir?: string;
-    conventions?: { designSystem?: unknown };
+    conventions?: { designSystem?: { hasUiEnvironment?: boolean } | null };
   }
 ): Promise<string[]> {
   if (autoLinks.length) return autoLinks;
   const resolved = conventions ?? detectRepoConventions(repoDir ?? process.cwd());
-  if (!resolved.designSystem) return autoLinks;
+  if (!resolved.designSystem?.hasUiEnvironment) return autoLinks;
   return searchFigmaLinksForTicket(content, allowPrompt);
 }

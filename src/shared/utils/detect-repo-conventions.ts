@@ -1199,16 +1199,16 @@ const detectComponentLibrary = (repoDir: string, keyDeps: string[]): DesignSyste
 const detectDesignSystemContext = (
   repoDir: string, keyDeps: string[], sourceRoots: string[], skipDirs: Set<string>
 ): DesignSystemContext => {
-  const framework = resolveDesignSystemFramework(keyDeps);
-  const tailwindConfig = detectTailwindConfig(repoDir);
+  const framework = resolveDesignSystemFramework(keyDeps), tailwindConfig = detectTailwindConfig(repoDir);
+  const componentLib = detectComponentLibrary(repoDir, keyDeps);
+  const patterns = detectUiPatternExemplars(repoDir, sourceRoots, skipDirs);
+  const conventions = detectElementClassConventions(repoDir, sourceRoots, skipDirs);
   return {
-    framework,
-    configFile: resolveDesignSystemConfigFile(repoDir, framework),
-    tailwindConfig, darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
-    componentLibrary: detectComponentLibrary(repoDir, keyDeps),
-    hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
-    interactionPatterns: detectUiPatternExemplars(repoDir, sourceRoots, skipDirs),
-    classConventions: detectElementClassConventions(repoDir, sourceRoots, skipDirs),
+    framework, configFile: resolveDesignSystemConfigFile(repoDir, framework), tailwindConfig,
+    darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
+    componentLibrary: componentLib, hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
+    interactionPatterns: patterns, classConventions: conventions,
+    hasUiEnvironment: !!(framework || componentLib || tailwindConfig || patterns.length || conventions.length),
   };
 };
 
