@@ -51,10 +51,10 @@ async function main(): Promise<void> {
     const uiTicket = 'Fix the card component layout on mobile';
     const figmaOverride = 'Fix database connection timeout in the auth service';
 
-    if (isUiRelevantTicket(backendTicket)) {
-      fail('Backend ticket incorrectly classified as UI', backendTicket);
-    } else {
+    if (!isUiRelevantTicket(backendTicket)) {
       pass('Backend ticket classified as non-UI');
+    } else {
+      fail('Backend ticket incorrectly classified as UI', backendTicket);
     }
 
     if (isUiRelevantTicket(uiTicket)) {
@@ -63,10 +63,10 @@ async function main(): Promise<void> {
       fail('UI ticket incorrectly classified as non-UI', uiTicket);
     }
 
-    if (isUiRelevantTicket('classify the error type by category')) {
-      fail('"classify" incorrectly matched as UI');
-    } else {
+    if (!isUiRelevantTicket('classify the error type by category')) {
       pass(String.raw`"classify" does not false-positive on \bclasses?\b`);
+    } else {
+      fail('"classify" incorrectly matched as UI');
     }
 
     console.log(chalk.bold.cyan('\nPart 2: formatRepoConventionsPromptSection includeDesignSystem gate'));
@@ -81,10 +81,10 @@ async function main(): Promise<void> {
       fail('includeDesignSystem: true → "Design system:" absent', withDesignSystem.slice(0, 300));
     }
 
-    if (withoutDesignSystem.includes('Design system:')) {
-      fail('includeDesignSystem: false → "Design system:" still present', withoutDesignSystem.slice(0, 300));
-    } else {
+    if (!withoutDesignSystem.includes('Design system:')) {
       pass('includeDesignSystem: false → "Design system:" absent');
+    } else {
+      fail('includeDesignSystem: false → "Design system:" still present', withoutDesignSystem.slice(0, 300));
     }
 
     if (withoutDesignSystem.includes('Repository conventions')) {
