@@ -54,7 +54,7 @@ async function main(): Promise<void> {
       fail('Expected WARN entry not found in log file', written.slice(0, 300));
     }
 
-    console.log(chalk.bold.cyan('\nTest 2: warnNoFigmaLinks has no onProgress parameter'));
+    console.log(chalk.bold.cyan('\nTest 2: warnNoFigmaLinks has log-only implementation (no onProgress)'));
 
     const proto = PlanStageService.prototype as unknown as Record<string, unknown>;
     const methodSrc = typeof proto['warnNoFigmaLinks'] === 'function'
@@ -63,10 +63,13 @@ async function main(): Promise<void> {
 
     if (methodSrc === null) {
       fail('warnNoFigmaLinks method not found on PlanStageService.prototype');
-    } else if (!methodSrc.includes('onProgress') && !methodSrc.includes('Progress')) {
-      pass('warnNoFigmaLinks has no onProgress parameter — log-only confirmed');
     } else {
-      fail('warnNoFigmaLinks still references onProgress', methodSrc.slice(0, 300));
+      const hasNoProgressRef = !methodSrc.includes('onProgress') && !methodSrc.includes('Progress');
+      if (hasNoProgressRef) {
+        pass('warnNoFigmaLinks implementation contains no onProgress references — log-only pattern confirmed');
+      } else {
+        fail('warnNoFigmaLinks still references onProgress', methodSrc.slice(0, 300));
+      }
     }
 
     console.log(chalk.bold.cyan('\nTest 3: calling warnNoFigmaLinks via NestJS produces no stdout output'));

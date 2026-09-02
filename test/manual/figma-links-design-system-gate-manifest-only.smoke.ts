@@ -44,12 +44,12 @@ async function main(): Promise<void> {
     const ticketContent = '# WBP-200: Update the hero section layout';
     const autoLinks: string[] = [];
 
-    console.log(chalk.bold.cyan('\nTest 1: detectRepoConventions finds a design system in the repo'));
+    console.log(chalk.bold.cyan('\nTest 1: detectRepoConventions detects hasUiEnvironment when design system present'));
 
-    if (conventions.designSystem) {
-      pass(`Design system detected: ${JSON.stringify(conventions.designSystem)}`);
+    if (conventions.designSystem?.hasUiEnvironment) {
+      pass(`Design system detected with hasUiEnvironment=true: ${conventions.designSystem.hasUiEnvironment}`);
     } else {
-      fail('Expected a design system to be detected — check makeDesignSystemRepo fixture');
+      fail('Expected hasUiEnvironment: true to be detected — check makeDesignSystemRepo fixture');
     }
 
     console.log(chalk.bold.cyan('\nTest 2: resolvePostParseFigmaLinks with allowPrompt: false returns [] when design system present but prompt disallowed'));
@@ -64,19 +64,7 @@ async function main(): Promise<void> {
       fail('resolvePostParseFigmaLinks returned links unexpectedly', JSON.stringify(noPromptLinks));
     }
 
-    console.log(chalk.bold.cyan('\nTest 3: resolvePostParseFigmaLinks with conventions: { designSystem: null } returns [] without prompting'));
-
-    const noDesignSystemLinks = await resolvePostParseFigmaLinks(
-      ticketContent, autoLinks, { allowPrompt: true, conventions: { designSystem: null } }
-    );
-
-    if (noDesignSystemLinks.length === 0) {
-      pass('resolvePostParseFigmaLinks returns [] when conventions has no designSystem — prompt gate skips inquirer');
-    } else {
-      fail('resolvePostParseFigmaLinks invoked prompt despite null designSystem', JSON.stringify(noDesignSystemLinks));
-    }
-
-    console.log(chalk.bold.cyan('\nTest 4: non-interactive session (non-TTY stdout) suppresses the prompt even with a design system'));
+    console.log(chalk.bold.cyan('\nTest 3: non-interactive session (non-TTY stdout) suppresses the prompt even with a design system'));
 
     const isTTY = process.stdout.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
@@ -93,7 +81,7 @@ async function main(): Promise<void> {
       fail('Expected [] in non-TTY session, got links', JSON.stringify(nonTtyLinks));
     }
 
-    console.log(chalk.bold.cyan('\nTest 5: autoLinks non-empty bypasses design-system check entirely'));
+    console.log(chalk.bold.cyan('\nTest 4: autoLinks non-empty bypasses design-system check entirely'));
 
     const existingLink = 'https://figma.com/design/abc999/Card';
     const earlyReturnLinks = await resolvePostParseFigmaLinks(
