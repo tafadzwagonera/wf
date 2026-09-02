@@ -13,15 +13,15 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
     ).not.toThrow();
   });
 
-  it('accepts planStepVerification with maxRounds: 5', () => {
+  it('accepts planStepVerification with stallWindow: 5', () => {
     expect(() =>
-      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { maxRounds: 5 } }),
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { stallWindow: 5 } }),
     ).not.toThrow();
   });
 
-  it('rejects planStepVerification with maxRounds: 0', () => {
+  it('rejects planStepVerification with stallWindow: 0', () => {
     expect(() =>
-      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { maxRounds: 0 } }),
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { stallWindow: 0 } }),
     ).toThrow();
   });
 });
@@ -34,7 +34,7 @@ describe('normalizedImplementStageConfigSchema planStepVerification', () => {
       normalizedImplementStageConfigSchema.parse({
         provider: 'anthropic',
         backend: 'agent',
-        planStepVerification: { enabled: true, maxRounds: 3 },
+        planStepVerification: { enabled: true, stallWindow: 3 },
       }),
     ).not.toThrow();
   });

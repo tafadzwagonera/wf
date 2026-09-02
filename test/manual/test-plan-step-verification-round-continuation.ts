@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     planSummary: 'round continuation smoke test',
     repoDir,
     sessionId: 'sess-1',
-    maxRounds: 3,
+    stallWindow: 3,
     silent: true,
     runFixRound: async () => ({ sessionId: 'sess-1', passCount: 1 }),
   });

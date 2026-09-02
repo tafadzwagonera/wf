@@ -194,7 +194,7 @@ const implementStageSchema = z
     planStepVerification: z
       .object({
         enabled: z.boolean().optional(),
-        maxRounds: z.number().int().min(1).optional(),
+        stallWindow: z.number().int().min(1).optional(),
       })
       .strict()
       .optional(),

@@ -53,6 +53,8 @@ interface FileResolution {
 
 type NormalizedEntry = ReturnType<typeof normalizeFileEntries>[number];
 
+const DEFAULT_STALL_WINDOW = 3;
+
 const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
   feature: 'feature',
   fix: 'bugfix',
@@ -220,17 +222,16 @@ export class ImplementerAgent {
     filteredSteps: string[], result: ImplementerResult,
     baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
-    const cfg = this.configService.get<{ enabled?: boolean; maxRounds?: number }>('stages.implement.planStepVerification');
+    const cfg = this.configService.get<{ enabled?: boolean; stallWindow?: number }>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
-    const DEFAULT_MAX_ROUNDS = 3;
-    const maxRounds = Math.max(1, cfg?.maxRounds ?? DEFAULT_MAX_ROUNDS);
+    const stallWindow = Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW);
+    const repoDir = options.repoDir ?? process.cwd();
     const params = this.buildVerificationRunParams({
-      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, maxRounds, baseline,
-      assessedSteps,
-      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), maxRounds, baseline?.sha),
+      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, stallWindow, baseline, assessedSteps,
+      refreshSteps: this.buildFidelityRefresher(assessedSteps, repoDir, stallWindow, baseline?.sha),
     });
     const outcome = await this.planStepVerification.run(params);
     return this.mergeVerificationOutcome(result, outcome);
@@ -282,18 +283,18 @@ export class ImplementerAgent {
   private buildVerificationRunParams(args: {
     ticket: TicketArtifact; scopedPlan: PlanArtifact;
     options: ImplementerOptions; resolved: FileResolution;
-    assessedSteps: string[]; sessionId: string; maxRounds: number;
+    assessedSteps: string[]; sessionId: string; stallWindow: number;
     baseline: { sha: string; branch: string } | null;
     refreshSteps?: () => Promise<string[] | null>;
   }): PlanStepVerificationRunParams {
-    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, maxRounds, baseline, refreshSteps } = args;
+    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, stallWindow, refreshSteps } = args;
     return {
       steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
       repoDir: options.repoDir ?? process.cwd(),
-      baseRef: baseline?.sha,
+      baseRef: args.baseline?.sha,
       sessionId,
-      maxRounds,
+      stallWindow,
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
       refreshSteps,
@@ -313,7 +314,7 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(
-    originalSteps: string[], repoDir: string, stallBudget: number, baseRef?: string,
+    originalSteps: string[], repoDir: string, stallWindow: number, baseRef?: string,
   ): () => Promise<string[] | null> {
     const recentKeys: string[] = [];
     return async () => {
@@ -323,7 +324,7 @@ export class ImplementerAgent {
       const key = JSON.stringify(enriched);
       if (recentKeys.includes(key)) return null;
       recentKeys.push(key);
-      if (recentKeys.length > stallBudget) recentKeys.shift();
+      if (recentKeys.length > stallWindow) recentKeys.shift();
       return enriched;
     };
   }

@@ -58,7 +58,7 @@ export const wfImplementStageModelsConfigSchema = z.object({
 
 export const wfPlanStepVerificationConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  maxRounds: z.number().int().min(1).optional(),
+  stallWindow: z.number().int().min(1).optional(),
 });
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({

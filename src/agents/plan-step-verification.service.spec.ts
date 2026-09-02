@@ -94,7 +94,7 @@ describe('buildPlanStepVerificationPrompt', () => {
   it('includes the round header', () => {
     const pending: StepAssessment[] = [{ index: 0, status: 'not-done', missing: 'implementation' }];
     const prompt = buildPlanStepVerificationPrompt(pending, 1, 3);
-    expect(prompt).toContain('Verification round 1 of 3');
+    expect(prompt).toContain('Verification round 1 (stall window: 3)');
   });
 
   it('includes only the pending step text', () => {
@@ -133,7 +133,7 @@ describe('PlanStepVerificationService', () => {
     planSummary: 'summary',
     repoDir: '/repo',
     sessionId: 'sess-1',
-    maxRounds: 3,
+    stallWindow: 3,
     silent: true,
     runFixRound: jest.fn().mockResolvedValue({ sessionId: 'sess-2' }),
     ...overrides,
@@ -185,14 +185,14 @@ describe('PlanStepVerificationService', () => {
     expect(outcome.summary).toBeUndefined();
   });
 
-  it('exhausts budget after maxRounds and returns pending count', async () => {
+  it('exhausts budget after stallWindow and returns pending count', async () => {
     mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
     });
     const mockFixRound = jest.fn().mockResolvedValue({ sessionId: 'sess-2' });
 
-    const outcome = await service.run(makeRunParams({ maxRounds: 2, runFixRound: mockFixRound }));
+    const outcome = await service.run(makeRunParams({ stallWindow: 2, runFixRound: mockFixRound }));
 
     expect(mockFixRound).toHaveBeenCalledTimes(1);
     expect(outcome.summary?.pending).toBe(1);
@@ -226,6 +226,21 @@ describe('PlanStepVerificationService', () => {
     });
 
     await expect(service.run(makeRunParams())).resolves.toBeDefined();
+  });
+
+  it('terminates when refreshSteps is set and assessor consistently returns invalid JSON', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute.mockResolvedValue({ content: 'not json' });
+    const mockRefreshSteps = jest.fn().mockResolvedValue(['Step A enriched']);
+
+    const outcome = await service.run(makeRunParams({
+      stallWindow: 2,
+      refreshSteps: mockRefreshSteps,
+      runFixRound: jest.fn(),
+    }));
+
+    expect(outcome.summary).toBeUndefined();
+    expect(mockRefreshSteps).toHaveBeenCalledTimes(2);
   });
 
   it('accumulates extraPassCount from fix rounds', async () => {
