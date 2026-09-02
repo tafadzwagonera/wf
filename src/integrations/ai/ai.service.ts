@@ -970,7 +970,6 @@ export class AiService {
 
   async execute(request: AIRequest): Promise<AIResponse> {
     const target = this.resolveAiTarget(request.stage, request.provider, request.model);
-    this.logger.info(`ai.execute stage=${request.stage ?? 'default'} provider=${target.provider ?? 'inherit'} model=${target.model ?? 'inherit'}`);
     return this.adapter.execute({ ...request, ...target });
   }
 
@@ -983,7 +982,6 @@ export class AiService {
    */
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     const target = this.resolveAiTarget(request.stage, request.provider, request.model);
-    this.logger.info(`ai.execute stage=${request.stage ?? 'default'} provider=${target.provider ?? 'inherit'} model=${target.model ?? 'inherit'}`);
     return this.adapter.executeWithHistory({ ...request, ...target });
   }
 
