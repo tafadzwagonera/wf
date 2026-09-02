@@ -212,6 +212,9 @@ stages:
   commit:
     provider: google
     backend: standard
+  create:
+    verificationConditions:
+      policyFile: verification.policy.json
 ```
 
 Example verification manifest:
