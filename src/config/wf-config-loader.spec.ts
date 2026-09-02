@@ -130,6 +130,8 @@ describe('wf-config-loader', () => {
   });
 
   describe('normalizeWfConfig', () => {
+    afterEach(() => jest.restoreAllMocks());
+
     it('accepts a single AI provider when none is explicitly marked as default', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
