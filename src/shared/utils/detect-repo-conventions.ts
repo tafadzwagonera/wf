@@ -961,7 +961,7 @@ const assembleStructuralConventions = (
 
 type DesignSystemContext = NonNullable<RepoConventionsContext['designSystem']>;
 
-const COMPONENT_LIBRARY_DEPS: ReadonlyArray<string> = [
+const componentLibraryDeps: ReadonlyArray<string> = [
   '@nuxt/ui', '@mui/material', '@chakra-ui/react', 'vuetify', 'primevue', 'styled-components',
 ];
 
@@ -1194,7 +1194,7 @@ const detectUiPatternExemplars = (
 const detectComponentLibrary = (repoDir: string, keyDeps: string[]): DesignSystemContext['componentLibrary'] =>
   fs.existsSync(path.join(repoDir, 'components.json'))
     ? 'shadcn-ui'
-    : COMPONENT_LIBRARY_DEPS.find(dep => keyDeps.includes(dep)) ?? null;
+    : componentLibraryDeps.find(dep => keyDeps.includes(dep)) ?? null;
 
 const detectDesignSystemContext = (
   repoDir: string, keyDeps: string[], sourceRoots: string[], skipDirs: Set<string>
@@ -1208,7 +1208,9 @@ const detectDesignSystemContext = (
     darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
     componentLibrary: componentLib, hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
     interactionPatterns: patterns, classConventions: conventions,
-    hasUiEnvironment: !!(framework || componentLib || tailwindConfig || patterns.length || conventions.length),
+    hasUiEnvironment: !!(
+      framework || componentLib || tailwindConfig || patterns.some(p => p.found) || conventions.length
+    ),
   };
 };
 
