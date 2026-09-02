@@ -60,7 +60,8 @@ export const LlmAdapterFactory = {
   ): LlmAdapter => {
     const defaultProvider = configService.get<string>('ai.provider', 'anthropic');
     const defaultModel = configService.get<string>('ai.model', '');
-    logger.info(`llm.adapter default-provider=${defaultProvider}${defaultModel ? ` default-model=${defaultModel}` : ''}`);
+    const modelSuffix = defaultModel ? ` default-model=${defaultModel}` : '';
+    logger.info(`llm.adapter default-provider=${defaultProvider}${modelSuffix}`);
     return buildRoutingAdapter({ configService, anthropicAdapter, openaiAdapter, geminiAdapter, deepseekAdapter });
   },
   inject: [ConfigService, LoggerService, AnthropicAdapter, OpenAIAdapter, GeminiAdapter, DeepSeekAdapter],
