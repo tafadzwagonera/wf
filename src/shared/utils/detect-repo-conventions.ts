@@ -990,9 +990,7 @@ const detectTailwindConfig = (repoDir: string): DesignSystemContext['tailwindCon
   try {
     const content = fs.readFileSync(path.join(repoDir, cssFile), 'utf-8');
     if (content.includes('@theme')) return { path: cssFile, mode: 'inline-theme' };
-    if (content.includes('@config') || (content.includes(':root') && content.includes('--'))) {
-      return { path: cssFile, mode: 'css-variables' };
-    }
+    if (content.includes('@config')) return { path: cssFile, mode: 'css-variables' };
   } catch { /* ignore */ }
   return null;
 };
