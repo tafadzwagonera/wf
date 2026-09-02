@@ -3099,6 +3099,15 @@ describe('IssueCommand', () => {
 
       expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(sessionState, 'implement', 'fallback-sid');
     });
+
+    it('persists primaryRepoSessionId even when merged result is undefined', async () => {
+      const command = await buildCommand();
+      const sessionState: any = { stages: { implement: {} } };
+
+      await (command as any).finalizeImplementSession(sessionState, undefined, mockPlanArtifact, 'primary-sid');
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(sessionState, 'implement', 'primary-sid');
+    });
   });
 
   describe('runReviewForRepo multi-repo session scoping', () => {
