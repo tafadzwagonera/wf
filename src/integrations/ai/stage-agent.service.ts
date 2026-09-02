@@ -748,6 +748,7 @@ const STALE_RESUME_PATTERNS = [
   /(?:invalid|unknown|expired|stale).*session/i,
   /resume.*(?:fail|invalid|not found)/i,
   /(?:conversation|thread).*(?:not found|invalid|expired)/i,
+  /no conversation found/i,
 ];
 
 const isStaleResumeError = (error: unknown): boolean => {

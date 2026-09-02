@@ -2205,6 +2205,26 @@ describe('StageAgentService', () => {
       ).rejects.toThrow('network timeout');
       expect(mockDispatch).toHaveBeenCalledTimes(1);
     });
+
+    it('retries fresh when the CLI reports No conversation found with session ID', async () => {
+      const service = new StageAgentService(createClaudeCliConfigService());
+      const mockDispatch = jest.fn()
+        .mockRejectedValueOnce(new Error('No conversation found with session ID: bb330ac9-691d-4df9-aec6-575029e72777'))
+        .mockResolvedValueOnce({ content: 'fresh cli result', sessionId: 'new-sid' });
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const result = await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+      }).runStagePrompt({
+        stage: 'implement', prompt: 'test', systemPrompt: 'sys',
+        resumeProviderSessionId: 'bb330ac9-691d-4df9-aec6-575029e72777',
+      });
+
+      expect(result.content).toBe('fresh cli result');
+      expect(mockDispatch).toHaveBeenCalledTimes(2);
+      expect(mockDispatch.mock.calls[1][0].resumeProviderSessionId).toBeUndefined();
+    });
   });
 
   describe('JSON validation gate', () => {

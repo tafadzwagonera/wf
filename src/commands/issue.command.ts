@@ -139,6 +139,7 @@ type ReviewRepoContext = {
   isMultiRepo: boolean;
   options: IssueOptions;
   planArtifact: PlanArtifact | undefined;
+  primaryRepo?: string;
   repos: (string | undefined)[];
   sessionContext: ReviewLoopContext;
   ticketArtifact: TicketArtifact;
@@ -674,9 +675,12 @@ export class IssueCommand extends CommandRunner {
     const { stagesToRun, options } = ctx;
     const { ticketArtifact, planArtifact } = artifacts;
 
+    const primaryRepo = ctx.repos[0];
     let implementerResult: ImplementerResult | undefined;
     if (stagesToRun.includes(WorkflowStage.IMPLEMENT) && planArtifact) {
-      const result = await this.executeImplementStage(ticketArtifact, planArtifact, ctx.repos, options, sessionState);
+      const result = await this.executeImplementStage(
+        ticketArtifact, planArtifact, ctx.repos, options, sessionState, primaryRepo
+      );
       implementerResult = result.implementerResult;
       sessionState = result.sessionState;
       ctx.repos = result.expandedRepos;
@@ -689,7 +693,7 @@ export class IssueCommand extends CommandRunner {
     if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate' && !skipReview) {
       const result = await this.executeReviewStage(
         ticketArtifact, planArtifact, ctx.repos, options, sessionState,
-        implementerResult, ctx.ticketKey
+        implementerResult, { ticketKey: ctx.ticketKey, primaryRepo }
       );
       sessionState = result.sessionState;
     } else if (skipReview && !options?.silent) {
@@ -1252,25 +1256,35 @@ export class IssueCommand extends CommandRunner {
     );
   }
 
+  // eslint-disable-next-line max-lines-per-function
   private async executeImplementStage(
     ticketArtifact: TicketArtifact,
     planArtifact: PlanArtifact,
     repos: (string | undefined)[],
     options: IssueOptions,
-    sessionState: SessionState | undefined
+    sessionState: SessionState | undefined,
+    primaryRepo: string | undefined
   ): Promise<{
     implementerResult: ImplementerResult | undefined;
     sessionState: SessionState | undefined;
     earlyReturn: boolean;
     expandedRepos: (string | undefined)[];
+    primaryRepoSessionId?: string;
   }> {
     const { sessionContext, sessionState: started } = await this.prepareStageSession(sessionState, 'implement');
     sessionState = started;
     const expandedRepos = await this.prepareImplementRepos(repos, planArtifact, options);
-    const result = await this.runImplementLoop(ticketArtifact, planArtifact, expandedRepos, options, sessionContext);
+    const result = await this.runImplementLoop(
+      ticketArtifact, planArtifact, expandedRepos, options, sessionContext, primaryRepo
+    );
     if (result.earlyReturn) return { ...result, expandedRepos, sessionState };
-    sessionState = await this.finalizeImplementSession(sessionState, result.implementerResult, planArtifact);
-    return { implementerResult: result.implementerResult, sessionState, earlyReturn: false, expandedRepos };
+    sessionState = await this.finalizeImplementSession(
+      sessionState, result.implementerResult, planArtifact, result.primaryRepoSessionId
+    );
+    return {
+      implementerResult: result.implementerResult, sessionState,
+      earlyReturn: false, expandedRepos, primaryRepoSessionId: result.primaryRepoSessionId,
+    };
   }
 
   private async prepareImplementRepos(
@@ -1420,23 +1434,35 @@ export class IssueCommand extends CommandRunner {
     };
   }
 
+  // eslint-disable-next-line max-lines-per-function
   private async runImplementLoop(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
     repos: (string | undefined)[], options: IssueOptions,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string }
-  ): Promise<{ implementerResult: ImplementerResult | undefined; earlyReturn: boolean }> {
+    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
+    primaryRepo: string | undefined
+  ): Promise<{
+    implementerResult: ImplementerResult | undefined;
+    earlyReturn: boolean;
+    primaryRepoSessionId?: string;
+  }> {
     const isMultiRepo = repos.length > 1;
     let implementerResult: ImplementerResult | undefined;
     let anyHasChanges = false;
+    let primaryRepoSessionId: string | undefined;
     for (const repo of repos) {
       if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
+      const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
       const result = await this.executeRepoImplementation(
-        ticketArtifact, planArtifact, repo, repos, options, isMultiRepo, sessionContext
+        ticketArtifact, planArtifact, repo, repos, options, isMultiRepo, scopedContext
       );
-      if (result.earlyReturn) return result;
+      if (result.implementerResult?.type === 'implementation'
+        && resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo)) {
+        primaryRepoSessionId = result.implementerResult.sessionId;
+      }
+      if (result.earlyReturn) return { ...result, primaryRepoSessionId };
       ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));
     }
-    return this.finalizeImplementResult(implementerResult, anyHasChanges);
+    return { ...this.finalizeImplementResult(implementerResult, anyHasChanges), primaryRepoSessionId };
   }
 
   private mergeImplementResult(
@@ -1474,10 +1500,13 @@ export class IssueCommand extends CommandRunner {
   }
 
   private async finalizeImplementSession(
-    sessionState: SessionState | undefined, result: ImplementerResult | undefined, planArtifact: PlanArtifact
+    sessionState: SessionState | undefined, result: ImplementerResult | undefined,
+    planArtifact: PlanArtifact, primaryRepoSessionId: string | undefined
   ): Promise<SessionState | undefined> {
-    if (sessionState && result?.type === 'implementation' && result.sessionId) {
-      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', result.sessionId);
+    const resumableSessionId = primaryRepoSessionId
+      ?? (result?.type === 'implementation' ? result.sessionId : undefined);
+    if (sessionState && resumableSessionId) {
+      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', resumableSessionId);
     }
     if (sessionState && result?.type === 'implementation' && result.modelsUsed?.length) {
       sessionState = await this.sessionService.recordStageModels(sessionState, 'implement', result.modelsUsed);
@@ -1506,7 +1535,8 @@ export class IssueCommand extends CommandRunner {
   private async executeReviewStage(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions, sessionState: SessionState | undefined,
-    implementerResult: ImplementerResult | undefined, ticketKey: string
+    implementerResult: ImplementerResult | undefined,
+    { ticketKey, primaryRepo }: { ticketKey: string; primaryRepo: string | undefined }
   ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
     const passCount = implementerResult?.type === 'implementation' ? implementerResult.passCount : undefined;
     const estimatedComplexity = planArtifact?.plan.estimatedComplexity;
@@ -1515,7 +1545,7 @@ export class IssueCommand extends CommandRunner {
     this.printStageHeader(repos.length > 1, options?.silent, '🔍 STAGE 4: Code Review');
     const reviewArtifact = await this.runReviewLoop(
       ticketArtifact, planArtifact, repos, options,
-      { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount }, ticketKey
+      { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount }, ticketKey, primaryRepo
     );
     sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
@@ -1564,10 +1594,11 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions,
     sessionContext: ReviewLoopContext,
-    ticketKey: string
+    ticketKey: string,
+    primaryRepo: string | undefined
   ): Promise<ReviewArtifact | null> {
     const reviewContext = this.createReviewRepoContext(
-      ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey
+      ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey, primaryRepo
     );
     const reviewArtifacts = await this.collectReviewArtifacts(repos, reviewContext);
     return reviewArtifacts.at(-1) ?? null;
@@ -1601,16 +1632,27 @@ export class IssueCommand extends CommandRunner {
     if (!options?.silent) console.log(chalk.yellow(`⚠ ${message}`));
   }
 
+  private scopeSessionContextToRepo<T extends { resumeProviderSessionId?: string }>(
+    sessionContext: T,
+    repo: string | undefined,
+    primaryRepo: string | undefined
+  ): T {
+    if (!sessionContext.resumeProviderSessionId) return sessionContext;
+    const isPrimary = resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo);
+    return isPrimary ? sessionContext : { ...sessionContext, resumeProviderSessionId: undefined } as T;
+  }
+
   private async runReviewForRepo(
     repo: string | undefined,
     reviewContext: ReviewRepoContext
   ): Promise<ReviewArtifact | null> {
-    const { isMultiRepo, options, planArtifact, repos, sessionContext, ticketArtifact } = reviewContext;
+    const { isMultiRepo, options, planArtifact, primaryRepo, repos, sessionContext, ticketArtifact } = reviewContext;
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
+    const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
     const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
       suppressHeader: isMultiRepo, silent: options?.silent,
-      sonar: options?.sonar, figma: options?.figma, ...sessionContext,
+      sonar: options?.sonar, figma: options?.figma, ...scopedContext,
     });
     if (!reviewArtifact) return null;
 
@@ -1624,12 +1666,14 @@ export class IssueCommand extends CommandRunner {
     repos: (string | undefined)[],
     options: IssueOptions,
     sessionContext: ReviewLoopContext,
-    ticketKey: string
+    ticketKey: string,
+    primaryRepo: string | undefined
   ): ReviewRepoContext {
     return {
       isMultiRepo: repos.length > 1,
       options,
       planArtifact,
+      primaryRepo,
       repos,
       sessionContext,
       ticketArtifact,

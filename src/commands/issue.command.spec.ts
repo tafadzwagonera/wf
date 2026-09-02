@@ -2809,7 +2809,7 @@ describe('IssueCommand', () => {
       (command as any).agents = { implementer: { execute: executeMock } };
 
       const result = await (command as any).runImplementLoop(
-        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA'
       );
 
       expect(result.implementerResult.hasChanges).toBe(true);
@@ -2822,7 +2822,7 @@ describe('IssueCommand', () => {
       (command as any).agents = { implementer: { execute: executeMock } };
 
       const result = await (command as any).runImplementLoop(
-        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA'
       );
 
       expect(result.implementerResult.hasChanges).toBe(false);
@@ -2836,7 +2836,7 @@ describe('IssueCommand', () => {
       (command as any).agents = { implementer: { execute: executeMock } };
 
       const result = await (command as any).runImplementLoop(
-        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA'
       );
 
       expect(result.implementerResult.hasChanges).toBe(true);
@@ -2873,7 +2873,8 @@ describe('IssueCommand', () => {
       await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
 
       expect(reviewSpy).toHaveBeenCalledWith(
-        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything(), expect.anything(), expect.anything()
+        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything(), expect.anything(),
+        expect.objectContaining({ primaryRepo: 'repoA' })
       );
     });
 
@@ -2939,6 +2940,237 @@ describe('IssueCommand', () => {
 
     it('returns true at the passCount boundary one above threshold', () => {
       expect(shouldForkReviewSession('medium', 6, 'session-123')).toBe(true);
+    });
+  });
+
+  describe('scopeSessionContextToRepo', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns context unchanged when resumeProviderSessionId is absent', async () => {
+      const command = await buildCommand();
+      const ctx = { priorStageSummary: 'summary' };
+      const result = (command as any).scopeSessionContextToRepo(ctx, 'repoA', 'repoA');
+      expect(result).toBe(ctx);
+    });
+
+    it('returns context with resumeProviderSessionId when repo matches primaryRepo', async () => {
+      const command = await buildCommand();
+      const ctx = { resumeProviderSessionId: 'sid-123', priorStageSummary: 'summary' };
+      const result = (command as any).scopeSessionContextToRepo(ctx, 'repoA', 'repoA');
+      expect(result.resumeProviderSessionId).toBe('sid-123');
+      expect(result.priorStageSummary).toBe('summary');
+    });
+
+    it('clears resumeProviderSessionId while preserving other fields when repo differs from primaryRepo', async () => {
+      const command = await buildCommand();
+      const ctx = { resumeProviderSessionId: 'sid-123', priorStageSummary: 'summary' };
+      const result = (command as any).scopeSessionContextToRepo(ctx, 'repoB', 'repoA');
+      expect(result.resumeProviderSessionId).toBeUndefined();
+      expect(result.priorStageSummary).toBe('summary');
+      expect(result).not.toBe(ctx);
+    });
+
+    it('treats repo and primaryRepo both undefined as equal', async () => {
+      const command = await buildCommand();
+      const ctx = { resumeProviderSessionId: 'sid-123' };
+      const result = (command as any).scopeSessionContextToRepo(ctx, undefined, undefined);
+      expect(result.resumeProviderSessionId).toBe('sid-123');
+    });
+  });
+
+  describe('runImplementLoop multi-repo session scoping', () => {
+    const mockTicketArtifact: any = {
+      ticketKey: 'WBP-SCOPE',
+      content: '# WBP-SCOPE',
+      path: '/tmp/.wf/consumer-app/jira/WBP-SCOPE.md',
+    };
+
+    const mockPlanArtifact: any = {
+      action: 'fix',
+      path: '/tmp/.wf/consumer-app/jira/WBP-SCOPE-plan.json',
+      plan: {
+        action: 'fix',
+        summary: 'Test',
+        steps: [],
+        estimatedComplexity: 'low',
+        affectedFiles: [],
+        affectedRepositories: ['repoA', 'repoB'],
+      },
+    };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes resumeProviderSessionId only to the primary repo implementer call', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockResolvedValue({
+        type: 'implementation', hasChanges: true, branchName: null,
+        sessionId: 'primary-sid', verificationOutcomes: [],
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const sessionCtx = { resumeProviderSessionId: 'plan-sid', priorStageSummary: 'summary' };
+
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, sessionCtx, 'repoA'
+      );
+
+      expect(executeMock.mock.calls[0][2].resumeProviderSessionId).toBe('plan-sid');
+      expect(executeMock.mock.calls[1][2].resumeProviderSessionId).toBeUndefined();
+      expect(executeMock.mock.calls[1][2].priorStageSummary).toBe('summary');
+    });
+
+    it('returns primaryRepoSessionId from primary repo result', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValueOnce({
+          type: 'implementation', hasChanges: true, branchName: null,
+          sessionId: 'primary-sid', verificationOutcomes: [],
+        })
+        .mockResolvedValueOnce({
+          type: 'implementation', hasChanges: false, branchName: null,
+          sessionId: 'secondary-sid', verificationOutcomes: [],
+        });
+      (command as any).agents = { implementer: { execute: executeMock } };
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA'
+      );
+
+      expect(result.primaryRepoSessionId).toBe('primary-sid');
+    });
+
+    it('carries primaryRepoSessionId through early-return path', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValueOnce({
+          type: 'implementation', hasChanges: true, branchName: null,
+          sessionId: 'primary-sid', verificationOutcomes: [],
+        })
+        .mockResolvedValueOnce({ type: 'investigation', artifact: {} });
+      (command as any).agents = { implementer: { execute: executeMock } };
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA'
+      );
+
+      expect(result.earlyReturn).toBe(true);
+      expect(result.primaryRepoSessionId).toBe('primary-sid');
+    });
+  });
+
+  describe('finalizeImplementSession primaryRepoSessionId', () => {
+    const mockPlanArtifact: any = {
+      action: 'fix',
+      path: '/tmp/.wf/consumer-app/jira/WBP-FIN-plan.json',
+      plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+    };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('persists primaryRepoSessionId when provided instead of result.sessionId', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'recordSessionSourceBranch').mockResolvedValue({});
+      const sessionState: any = { stages: { implement: {} } };
+      const lastRepoResult: any = {
+        type: 'implementation', hasChanges: true, branchName: null,
+        sessionId: 'last-repo-sid', verificationOutcomes: [],
+      };
+
+      await (command as any).finalizeImplementSession(sessionState, lastRepoResult, mockPlanArtifact, 'primary-sid');
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(sessionState, 'implement', 'primary-sid');
+    });
+
+    it('falls back to result.sessionId when primaryRepoSessionId is undefined', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'recordSessionSourceBranch').mockResolvedValue({});
+      const sessionState: any = { stages: { implement: {} } };
+      const result: any = {
+        type: 'implementation', hasChanges: true, branchName: null,
+        sessionId: 'fallback-sid', verificationOutcomes: [],
+      };
+
+      await (command as any).finalizeImplementSession(sessionState, result, mockPlanArtifact, undefined);
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(sessionState, 'implement', 'fallback-sid');
+    });
+  });
+
+  describe('runReviewForRepo multi-repo session scoping', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes resumeProviderSessionId to primary repo reviewer call', async () => {
+      const command = await buildCommand();
+      const mockReviewerExecute = jest.fn().mockResolvedValue(null);
+      (command as any).agents = { reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() } };
+
+      await (command as any).runReviewForRepo('repoA', {
+        isMultiRepo: true,
+        options: { silent: true },
+        planArtifact: undefined,
+        repos: ['repoA', 'repoB'],
+        sessionContext: { resumeProviderSessionId: 'plan-sid', priorStageSummary: 'summary' },
+        ticketArtifact: { ticketKey: 'WBP-1', content: '#WBP-1', path: '/tmp/jira/WBP-1.md' },
+        ticketKey: 'WBP-1',
+        primaryRepo: 'repoA',
+      });
+
+      expect(mockReviewerExecute.mock.calls[0][1].resumeProviderSessionId).toBe('plan-sid');
+    });
+
+    it('clears resumeProviderSessionId for non-primary repo reviewer call', async () => {
+      const command = await buildCommand();
+      const mockReviewerExecute = jest.fn().mockResolvedValue(null);
+      (command as any).agents = { reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() } };
+
+      await (command as any).runReviewForRepo('repoB', {
+        isMultiRepo: true,
+        options: { silent: true },
+        planArtifact: undefined,
+        repos: ['repoA', 'repoB'],
+        sessionContext: { resumeProviderSessionId: 'plan-sid', priorStageSummary: 'summary' },
+        ticketArtifact: { ticketKey: 'WBP-1', content: '#WBP-1', path: '/tmp/jira/WBP-1.md' },
+        ticketKey: 'WBP-1',
+        primaryRepo: 'repoA',
+      });
+
+      expect(mockReviewerExecute.mock.calls[0][1].resumeProviderSessionId).toBeUndefined();
+      expect(mockReviewerExecute.mock.calls[0][1].priorStageSummary).toBe('summary');
+    });
+
+    it('primaryRepo captured before expandReposFromPlan is passed to executeReviewStage', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'executeImplementStage').mockResolvedValue({
+        implementerResult: { type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] },
+        sessionState: undefined,
+        earlyReturn: false,
+        expandedRepos: ['newRepo', 'repoA'],
+        primaryRepoSessionId: undefined,
+      });
+      const reviewSpy = jest.spyOn(command as any, 'executeReviewStage').mockResolvedValue({ sessionState: undefined });
+      jest.spyOn(command as any, 'executeCommitStage').mockResolvedValue(undefined);
+
+      const ctx: any = {
+        stagesToRun: ['implement', 'review'],
+        options: { silent: true },
+        repos: ['repoA'],
+        ticketKey: 'WBP-EXPAND',
+      };
+      const planArtifact: any = {
+        action: 'fix',
+        plan: { action: 'fix', summary: '', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+      };
+
+      await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
+
+      expect(reviewSpy.mock.calls[0][6]).toEqual(expect.objectContaining({ primaryRepo: 'repoA' }));
     });
   });
 });
