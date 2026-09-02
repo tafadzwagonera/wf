@@ -54,6 +54,13 @@ const CONFIG_FILE_NAMES = [
 
 type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
+const MODEL_STAGE_NAMES = ['plan', 'review', 'generate', 'commit'] as const;
+
+type AssertEqual<A, B> = A extends B ? (B extends A ? true : never) : never;
+/** Fails to build if MODEL_STAGE_NAMES and SupportedModelStageName ever diverge. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof MODEL_STAGE_NAMES)[number]> = true;
+
 const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
 const IGNORED_CREATE_STAGE_KEYS = ['provider', 'model', 'backend', 'skills'] as const;
 
@@ -876,7 +883,7 @@ const buildAiStageTargets = (
   configuredProviderNames: Set<WfAiProviderName>,
   configuredProvidersByName: Map<WfAiProviderName, { model: string }>
 ): Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>> =>
-  (['plan', 'review', 'generate', 'commit'] as const).reduce(
+  MODEL_STAGE_NAMES.reduce(
     (result, stageName) =>
       addStageTarget(result, validatedConfig, stageName, configuredProviderNames, configuredProvidersByName),
     {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>
