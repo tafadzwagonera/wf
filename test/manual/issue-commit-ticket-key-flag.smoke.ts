@@ -74,10 +74,10 @@ async function main(): Promise<void> {
 
   // Test 2: --help no longer shows [ticket-key] positional
   console.log(' Test 2: --help no longer shows [ticket-key] positional');
-  if (!help.includes('[ticket-key]')) {
-    pass('issue:commit --help does not show [ticket-key] positional');
-  } else {
+  if (help.includes('[ticket-key]')) {
     fail('issue:commit --help still shows [ticket-key] positional');
+  } else {
+    pass('issue:commit --help does not show [ticket-key] positional');
   }
 
   // Test 3: issue:commit accepts --ticket-key via NestJS options

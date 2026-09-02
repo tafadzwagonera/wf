@@ -78,10 +78,10 @@ async function main(): Promise<void> {
       { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } }
     );
 
-    if (failureResult.status !== 0) {
-      pass('Commit against a repo with nothing staged exits non-zero');
-    } else {
+    if (failureResult.status === 0) {
       fail('Expected a non-zero exit code for the failure case');
+    } else {
+      pass('Commit against a repo with nothing staged exits non-zero');
     }
     if (countLockFiles(wfHome) === 0) {
       pass('No lock file remains after a failed commit');

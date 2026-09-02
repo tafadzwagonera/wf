@@ -221,11 +221,11 @@ async function main(): Promise<void> {
       fail('expected --sandbox workspace-write in args', `args: ${s1.args}`);
       exitCode = 1;
     }
-    if (!s1.args.includes('--full-auto')) {
-      pass('args do NOT contain --full-auto');
-    } else {
+    if (s1.args.includes('--full-auto')) {
       fail('--full-auto should not appear for v0.147', `args: ${s1.args}`);
       exitCode = 1;
+    } else {
+      pass('args do NOT contain --full-auto');
     }
 
     // Scenario 2: v0.146.1 → --full-auto
@@ -239,11 +239,11 @@ async function main(): Promise<void> {
       fail('expected --full-auto in args', `args: ${s2.args}`);
       exitCode = 1;
     }
-    if (!s2.args.includes('--sandbox')) {
-      pass('args do NOT contain --sandbox');
-    } else {
+    if (s2.args.includes('--sandbox')) {
       fail('--sandbox should not appear for v0.146', `args: ${s2.args}`);
       exitCode = 1;
+    } else {
+      pass('args do NOT contain --sandbox');
     }
 
     // Scenario 3: version check bypassed → --full-auto fallback
@@ -258,11 +258,11 @@ async function main(): Promise<void> {
       fail('expected --full-auto as fallback when version check is skipped', `args: ${s3.args}`);
       exitCode = 1;
     }
-    if (!s3.args.includes('--sandbox')) {
-      pass('args do NOT contain --sandbox');
-    } else {
+    if (s3.args.includes('--sandbox')) {
       fail('--sandbox should not appear when version is unknown', `args: ${s3.args}`);
       exitCode = 1;
+    } else {
+      pass('args do NOT contain --sandbox');
     }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -174,10 +174,10 @@ async function main(): Promise<void> {
       ? fs.readFileSync(invocationLogPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
       : [];
 
-    if (result.status !== 0) {
-      pass('command exits non-zero');
-    } else {
+    if (result.status === 0) {
       fail('command should exit non-zero on a repair-pass stall', output);
+    } else {
+      pass('command exits non-zero');
     }
 
     if (output.includes('No result message received from Codex CLI')) {
@@ -186,10 +186,10 @@ async function main(): Promise<void> {
       fail('output should show a stalled repair pass', output);
     }
 
-    if (!output.includes('Failed to parse resolution plan from agent response')) {
-      pass('stall is not relabeled as a resolution-plan parse failure');
-    } else {
+    if (output.includes('Failed to parse resolution plan from agent response')) {
       fail('stall should not be masked as a parse failure', output);
+    } else {
+      pass('stall is not relabeled as a resolution-plan parse failure');
     }
 
     if (invocations.length === 2) {
@@ -198,10 +198,10 @@ async function main(): Promise<void> {
       fail('expected exactly 2 Codex invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
     }
 
-    if (!fs.existsSync(planPath)) {
-      pass('no plan artifact was written');
-    } else {
+    if (fs.existsSync(planPath)) {
       fail('unexpected plan artifact exists after failure', planPath);
+    } else {
+      pass('no plan artifact was written');
     }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

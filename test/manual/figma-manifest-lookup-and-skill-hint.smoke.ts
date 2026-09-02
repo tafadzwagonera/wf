@@ -102,12 +102,14 @@ async function main(): Promise<void> {
       artifactDir,
     });
 
-    if (!result) {
-      fail('resolveIfEnabled returned undefined — manifest was not found via artifactDir');
-    } else if (result.figmaLinks.length === 1 && result.figmaLinks[0] === figmaLinks[0]) {
-      pass('resolveIfEnabled returned correct figmaLinks from tracker-namespaced manifest');
+    if (result) {
+      if (result.figmaLinks.length === 1 && result.figmaLinks[0] === figmaLinks[0]) {
+        pass('resolveIfEnabled returned correct figmaLinks from tracker-namespaced manifest');
+      } else {
+        fail('resolveIfEnabled returned unexpected figmaLinks', JSON.stringify(result));
+      }
     } else {
-      fail('resolveIfEnabled returned unexpected figmaLinks', JSON.stringify(result));
+      fail('resolveIfEnabled returned undefined — manifest was not found via artifactDir');
     }
 
     if (result?.baseBranch === sourceBranch) {
@@ -139,10 +141,10 @@ async function main(): Promise<void> {
       artifactDir: path.join(wfHome, 'nonexistent-repo', 'jira'),
     });
 
-    if (!noManifestResult) {
-      pass('resolveIfEnabled returns undefined when no manifest found');
-    } else {
+    if (noManifestResult) {
       fail('Expected undefined when no manifest exists', JSON.stringify(noManifestResult));
+    } else {
+      pass('resolveIfEnabled returns undefined when no manifest found');
     }
   } finally {
     (configService as unknown as Record<string, unknown>)['get'] = originalGet;

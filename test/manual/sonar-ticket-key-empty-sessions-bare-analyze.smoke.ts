@@ -56,10 +56,10 @@ async function main(): Promise<void> {
   git(repoDir, ['commit', '-q', '-am', 'feature work']);
 
   const sessionDir = sessionService.getSessionDir();
-  if (!fs.existsSync(sessionDir)) {
-    pass(`Session directory ${sessionDir} genuinely does not exist on disk`);
-  } else {
+  if (fs.existsSync(sessionDir)) {
     fail(`Expected no session directory to exist yet at ${sessionDir}`);
+  } else {
+    pass(`Session directory ${sessionDir} genuinely does not exist on disk`);
   }
 
   const found = await sessionService.findByTicketKey('WBP-1');

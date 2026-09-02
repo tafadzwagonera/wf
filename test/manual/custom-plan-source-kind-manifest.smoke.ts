@@ -65,14 +65,10 @@ async function main(): Promise<void> {
 
       const manifestPath = buildPlanArtifactManifestPath(artifact.path);
 
-      if (!fs.existsSync(manifestPath)) {
-        fail('Manifest file was not written to disk', `expected at ${manifestPath}`);
-      } else {
+      if (fs.existsSync(manifestPath)) {
         const manifest = readPlanArtifactManifest(manifestPath);
 
-        if (!manifest) {
-          fail('Manifest could not be read back from disk');
-        } else {
+        if (manifest) {
           if (manifest.sourceKind === 'custom') {
             pass('manifest.sourceKind is "custom"');
           } else {
@@ -90,7 +86,11 @@ async function main(): Promise<void> {
           } else {
             fail('manifest.ticketKey should be undefined for custom source', `got: ${manifest.ticketKey}`);
           }
+        } else {
+          fail('Manifest could not be read back from disk');
         }
+      } else {
+        fail('Manifest file was not written to disk', `expected at ${manifestPath}`);
       }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -120,14 +120,10 @@ async function main(): Promise<void> {
 
       const manifestPath = buildPlanArtifactManifestPath(artifact.path);
 
-      if (!fs.existsSync(manifestPath)) {
-        fail('Manifest file was not written to disk', `expected at ${manifestPath}`);
-      } else {
+      if (fs.existsSync(manifestPath)) {
         const manifest = readPlanArtifactManifest(manifestPath);
 
-        if (!manifest) {
-          fail('Manifest could not be read back from disk');
-        } else {
+        if (manifest) {
           if (manifest.sourceKind === 'ticket') {
             pass('manifest.sourceKind defaults to "ticket"');
           } else {
@@ -145,7 +141,11 @@ async function main(): Promise<void> {
           } else {
             fail('manifest.customArtifactName should be undefined', `got: ${manifest.customArtifactName}`);
           }
+        } else {
+          fail('Manifest could not be read back from disk');
         }
+      } else {
+        fail('Manifest file was not written to disk', `expected at ${manifestPath}`);
       }
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });

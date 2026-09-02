@@ -189,11 +189,11 @@ async function runCase(
       ok = false;
     }
   } else {
-    if (captured.body.stream !== true) {
-      pass('Request body does NOT have stream: true (non-streaming path)');
-    } else {
+    if (captured.body.stream === true) {
       fail('Expected no stream: true in request body', JSON.stringify(captured.body));
       ok = false;
+    } else {
+      pass('Request body does NOT have stream: true (non-streaming path)');
     }
   }
 

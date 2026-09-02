@@ -54,10 +54,10 @@ async function main(): Promise<void> {
     });
 
     const withoutTicketA = freeformMessage.replace(/^WBP-9999:\s*/, '');
-    if (!CONVENTIONAL_TYPE_PATTERN.test(withoutTicketA)) {
-      pass(`freeform message has no conventional type prefix: "${freeformMessage}"`);
-    } else {
+    if (CONVENTIONAL_TYPE_PATTERN.test(withoutTicketA)) {
       fail('freeform message unexpectedly contains a conventional type prefix', freeformMessage);
+    } else {
+      pass(`freeform message has no conventional type prefix: "${freeformMessage}"`);
     }
 
     if (freeformMessage.startsWith('WBP-9999:')) {

@@ -120,11 +120,11 @@ async function main(): Promise<void> {
       }
 
       // Test 7
-      if (!out.includes('Repository:')) {
-        pass('Repository line absent when --repos is an absolute path (not a named repo)');
-      } else {
+      if (out.includes('Repository:')) {
         // The repo was passed as an absolute path; the code shows repos[0] — this is fine
         pass('Repository line present (showing resolved path)');
+      } else {
+        pass('Repository line absent when --repos is an absolute path (not a named repo)');
       }
     }
 

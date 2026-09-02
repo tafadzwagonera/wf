@@ -52,13 +52,13 @@ async function main(): Promise<void> {
   }
 
   // Test 2: Artefact does NOT exist at wrong location
-  if (!fs.existsSync(wrongPath)) {
-    pass(`Artefact correctly absent from wrong location: ${wrongPath}`);
-  } else {
+  if (fs.existsSync(wrongPath)) {
     fail(
       `Artefact found at WRONG location: ${wrongPath}\n`
       + '  Bug 1 regression — conversation is still being saved to <cwd>/jira/.'
     );
+  } else {
+    pass(`Artefact correctly absent from wrong location: ${wrongPath}`);
   }
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

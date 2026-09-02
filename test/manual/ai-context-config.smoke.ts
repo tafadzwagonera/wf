@@ -145,16 +145,16 @@ async function main(): Promise<void> {
       fail('Anthropic warning missing', output || '(no warnings captured)');
     }
 
-    if (!output.includes('No global or project-level configuration found for deepseek')) {
-      pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
-    } else {
+    if (output.includes('No global or project-level configuration found for deepseek')) {
       fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
+    } else {
+      pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
     }
 
-    if (!output.includes('No global or project-level configuration found for openai')) {
-      pass('OpenAI does not warn when provider intent is incomplete');
-    } else {
+    if (output.includes('No global or project-level configuration found for openai')) {
       fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
+    } else {
+      pass('OpenAI does not warn when provider intent is incomplete');
     }
   } finally {
     warnSpy.restore();

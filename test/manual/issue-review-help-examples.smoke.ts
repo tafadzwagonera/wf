@@ -59,15 +59,15 @@ async function main(): Promise<void> {
   console.log('Test 3: Catalog examples never reference yarn start');
   const catalog = getCommandHelpCatalog(path.join(__dirname, '../../src/commands'));
   const reviewEntry = catalog['issue:review'];
-  if (!reviewEntry) {
-    fail('issue:review not found in help catalog');
-  } else {
+  if (reviewEntry) {
     const catalogYarnStart = (reviewEntry.examples ?? []).filter(e => e.command.includes('yarn start'));
     if (catalogYarnStart.length === 0) {
       pass('Catalog examples all use wf');
     } else {
       fail(`Catalog has yarn start: ${catalogYarnStart.map(e => e.command).join('; ')}`);
     }
+  } else {
+    fail('issue:review not found in help catalog');
   }
 
   console.log(`\nResults: ${counts.passed} passed, ${counts.failed} failed`);

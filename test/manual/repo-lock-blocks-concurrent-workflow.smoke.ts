@@ -77,10 +77,10 @@ async function main(): Promise<void> {
     const result = runCli(['issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoDir], wfHome);
     const combined = result.stdout + result.stderr;
 
-    if (result.status !== 0) {
-      pass('CLI exits non-zero while the lock is held');
-    } else {
+    if (result.status === 0) {
       fail('Expected a non-zero exit code', String(result.status));
+    } else {
+      pass('CLI exits non-zero while the lock is held');
     }
 
     if (combined.includes('RepoLockError') && combined.includes('Another wf workflow is already running')) {

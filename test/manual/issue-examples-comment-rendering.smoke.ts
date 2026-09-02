@@ -65,7 +65,9 @@ async function main(): Promise<void> {
     const reviewLines = reviewHelp.split('\n');
     const longCommentStart = reviewLines.findIndex(l => l.includes('Resume a provider-backed review session'));
 
-    if (longCommentStart !== -1) {
+    if (longCommentStart === -1) {
+      fail('Could not locate the long "Resume a provider-backed" comment in issue:review --help');
+    } else {
       const wrappedLines = [reviewLines[longCommentStart]];
       if (reviewLines[longCommentStart + 1]?.trim().startsWith('human-readable summary')) {
         wrappedLines.push(reviewLines[longCommentStart + 1]);
@@ -75,8 +77,6 @@ async function main(): Promise<void> {
       } else {
         fail('Long comment did not wrap as expected', wrappedLines.join('\\n'));
       }
-    } else {
-      fail('Could not locate the long "Resume a provider-backed" comment in issue:review --help');
     }
 
     const examplesStart = reviewLines.findIndex(l => l.trim() === 'Examples:');

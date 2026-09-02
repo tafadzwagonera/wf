@@ -107,13 +107,13 @@ async function main(): Promise<void> {
       affectedRepositories: ['repo'],
     });
 
-    if (planPartial.provider !== 'google') {
-      pass(`partial metadata (provider only) triggers fallback ("${planPartial.provider}")`);
-    } else {
+    if (planPartial.provider === 'google') {
       fail(
         'partial metadata (provider only, no model) should fall back to resolveAiTarget',
         `got provider="${planPartial.provider}" — expected fallback, not the partial response value`
       );
+    } else {
+      pass(`partial metadata (provider only) triggers fallback ("${planPartial.provider}")`);
     }
   } finally {
     AiService.prototype.execute = originalExecute;

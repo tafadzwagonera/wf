@@ -64,10 +64,10 @@ function main(): void {
       fail(`-k WBP-9 on branch '${defaultBranch}' should have exited 0`, `exit code ${noKeyBranchResult.exitCode}\n${noKeyBranchOutput.slice(0, 500)}`);
     }
 
-    if (!/does not match/i.test(noKeyBranchOutput)) {
-      pass('no mismatch warning printed when the branch has no parseable ticket key');
-    } else {
+    if (/does not match/i.test(noKeyBranchOutput)) {
       fail('unexpected mismatch warning on a branch with no ticket key', noKeyBranchOutput.slice(0, 500));
+    } else {
+      pass('no mismatch warning printed when the branch has no parseable ticket key');
     }
 
     const logNoKeyBranch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
@@ -83,10 +83,10 @@ function main(): void {
     git('add .');
 
     const withKeyBranchResult = runCli('issue:commit -k WBP-9', tmpDir);
-    if (withKeyBranchResult.exitCode !== 0) {
-      pass('the same -k value DOES trigger the mismatch path once the branch embeds a different ticket key');
-    } else {
+    if (withKeyBranchResult.exitCode === 0) {
       fail('expected the mismatch path to fire on feature/WBP-1__add-thing', `exit code ${withKeyBranchResult.exitCode}`);
+    } else {
+      pass('the same -k value DOES trigger the mismatch path once the branch embeds a different ticket key');
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

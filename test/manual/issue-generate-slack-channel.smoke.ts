@@ -126,7 +126,9 @@ async function main(): Promise<void> {
     fs.promises.writeFile = originalWriteFile;
   }
 
-  if (slackFetchCallArgs !== null) {
+  if (slackFetchCallArgs === null) {
+    fail('SlackService.fetchChannelHistory was NOT called');
+  } else {
     const channelId = slackFetchCallArgs[0];
     const limit = slackFetchCallArgs[1];
     if (channelId === EXPECTED_CHANNEL_ID && limit === EXPECTED_LIMIT) {
@@ -137,8 +139,6 @@ async function main(): Promise<void> {
         `Expected ('${EXPECTED_CHANNEL_ID}', ${EXPECTED_LIMIT}) but got ('${channelId}', ${limit})`
       );
     }
-  } else {
-    fail('SlackService.fetchChannelHistory was NOT called');
   }
 
   const expectedLine0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;

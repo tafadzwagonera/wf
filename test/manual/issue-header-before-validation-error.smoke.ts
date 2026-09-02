@@ -49,10 +49,10 @@ async function main(): Promise<void> {
     const result = runCli(CONFLICTING_ARGS, scratchDir);
     const combined = result.stdout + result.stderr;
 
-    if (result.status !== 0) {
-      pass('Process exits non-zero on the --session-id/plan-token conflict');
-    } else {
+    if (result.status === 0) {
       fail('Expected a non-zero exit code', String(result.status));
+    } else {
+      pass('Process exits non-zero on the --session-id/plan-token conflict');
     }
 
     if (result.stdout.includes('Complete workflow: fetch, plan, implement, review, and commit.')) {
@@ -70,10 +70,10 @@ async function main(): Promise<void> {
     const silentResult = runCli([...CONFLICTING_ARGS, '--silent'], scratchDir);
     const silentCombined = silentResult.stdout + silentResult.stderr;
 
-    if (!silentResult.stdout.includes('Complete workflow: fetch, plan, implement, review, and commit.')) {
-      pass('--silent suppresses the header');
-    } else {
+    if (silentResult.stdout.includes('Complete workflow: fetch, plan, implement, review, and commit.')) {
       fail('--silent did not suppress the header', silentResult.stdout.slice(0, 300));
+    } else {
+      pass('--silent suppresses the header');
     }
 
     if (silentCombined.includes('Provide either --session-id or a plan token, not both') && silentResult.status !== 0) {

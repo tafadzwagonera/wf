@@ -67,10 +67,10 @@ async function main(): Promise<void> {
     fail('Expected commit to contain only a.ts', JSON.stringify(filesInCommit));
   }
 
-  if (!filesInCommit.includes('unrelated-feature.ts')) {
-    pass('Unrelated untracked file was NOT swept into the commit');
-  } else {
+  if (filesInCommit.includes('unrelated-feature.ts')) {
     fail('Unrelated file was incorrectly included in the commit', JSON.stringify(filesInCommit));
+  } else {
+    pass('Unrelated untracked file was NOT swept into the commit');
   }
 
   const statusAfter = git(repoDir, ['status', '--porcelain']);

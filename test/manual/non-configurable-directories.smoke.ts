@@ -93,12 +93,12 @@ async function main(): Promise<void> {
   try {
     const wfHome = path.join(os.homedir(), '.wf');
 
-    if (!fs.existsSync(wfHome)) {
-      fail('~/.wf does not exist — cannot test no-op behaviour');
-    } else {
+    if (fs.existsSync(wfHome)) {
       const { ensureWfHome } = require('../../src/shared/utils/ensure-wf-home');
       await ensureWfHome();
       pass('ensureWfHome returned without prompting');
+    } else {
+      fail('~/.wf does not exist — cannot test no-op behaviour');
     }
   } catch (err: any) {
     fail(`Error: ${err.message}`);

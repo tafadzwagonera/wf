@@ -84,10 +84,10 @@ async function main(): Promise<void> {
       fail('Expected exactly 2 commits (init + new)', log);
     }
 
-    if (!fs.existsSync(lockPath)) {
-      pass('No lock file remains after the run');
-    } else {
+    if (fs.existsSync(lockPath)) {
       fail('Stale lock file was not cleared and replaced correctly');
+    } else {
+      pass('No lock file remains after the run');
     }
   } finally {
     fs.rmSync(repoDir, { recursive: true, force: true });

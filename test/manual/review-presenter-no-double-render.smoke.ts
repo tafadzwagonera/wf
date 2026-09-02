@@ -115,10 +115,10 @@ async function main(): Promise<void> {
     fail(`Silent mode output: "${silentOutput}", expected: "${mockArtifact.path}"`);
   }
 
-  if (!silentOutput.includes('Summary')) {
-    pass('Silent mode does not contain review content');
-  } else {
+  if (silentOutput.includes('Summary')) {
     fail('Silent mode unexpectedly contains review content');
+  } else {
+    pass('Silent mode does not contain review content');
   }
 
   originalLog(`\n${counts.passed} passed, ${counts.failed} failed`);

@@ -348,10 +348,10 @@ async function main(): Promise<void> {
       );
       // Commander emits: "error: required option '-r, --repos <repos>' not supplied"
       const commanderRequiredError = output.includes('required option') && output.includes('--repos');
-      if (!commanderRequiredError) {
-        pass('Omitting --repos does not produce a "required" error');
-      } else {
+      if (commanderRequiredError) {
         fail(`Test 7: got required-option error. Output:\n${output}`);
+      } else {
+        pass('Omitting --repos does not produce a "required" error');
       }
     } finally {
       process.chdir(originalCwd);

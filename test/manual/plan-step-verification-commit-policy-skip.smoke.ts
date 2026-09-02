@@ -119,10 +119,10 @@ async function main(): Promise<void> {
   const logContentAfter = fs.existsSync(logPathBefore)
     ? fs.readFileSync(logPathBefore, 'utf-8').slice(logSizeBefore)
     : '';
-  if (!logContentAfter.includes('step-verify.')) {
-    pass('No step-verify.* lines written to the log file for this run');
-  } else {
+  if (logContentAfter.includes('step-verify.')) {
     fail('Expected no step-verify.* log lines', logContentAfter.slice(0, 300));
+  } else {
+    pass('No step-verify.* lines written to the log file for this run');
   }
 
   (planStepVerification as any).run = originalRun;

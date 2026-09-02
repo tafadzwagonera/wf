@@ -202,10 +202,10 @@ async function main(): Promise<void> {
     } else {
       // The command may fail downstream for unrelated reasons (missing git repo, etc.)
       // As long as the --from guard was bypassed, the default worked
-      if (!stderr.includes('--from option is required')) {
-        pass('Plan token without --from bypassed the --from guard (downstream error expected in smoke test)');
-      } else {
+      if (stderr.includes('--from option is required')) {
         fail('Unexpected failure', `stderr: ${stderr.slice(0, 300)}\nstdout: ${stdout.slice(0, 300)}`);
+      } else {
+        pass('Plan token without --from bypassed the --from guard (downstream error expected in smoke test)');
       }
     }
   }

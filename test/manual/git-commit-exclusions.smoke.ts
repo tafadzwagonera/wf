@@ -111,24 +111,24 @@ async function main(): Promise<void> {
       fail('index.ts was NOT committed — exclusion too broad', files1);
     }
 
-    if (!files1.includes('.wf/')) {
-      pass('.wf/** runtime artifacts were NOT committed');
-    } else {
+    if (files1.includes('.wf/')) {
       fail('.wf/** artifacts leaked into commit', files1);
+    } else {
+      pass('.wf/** runtime artifacts were NOT committed');
     }
 
     for (const cfgFile of wfConfigFiles) {
-      if (!files1.includes(cfgFile)) {
-        pass(`${cfgFile} was NOT committed`);
-      } else {
+      if (files1.includes(cfgFile)) {
         fail(`${cfgFile} leaked into commit`, files1);
+      } else {
+        pass(`${cfgFile} was NOT committed`);
       }
     }
 
-    if (!files1.includes('dist/')) {
-      pass('dist/ build output was NOT committed');
-    } else {
+    if (files1.includes('dist/')) {
       fail('dist/ build output leaked into commit', files1);
+    } else {
+      pass('dist/ build output was NOT committed');
     }
 
     // ── Scenario 2: pre-staged files are used as-is ────────────────────────
@@ -162,10 +162,10 @@ async function main(): Promise<void> {
       fail('Pre-staged index.ts was NOT committed', files2);
     }
 
-    if (!files2.includes('.wf/')) {
-      pass('.wf/** artifact NOT in commit (was never staged)');
-    } else {
+    if (files2.includes('.wf/')) {
       fail('.wf/** artifact leaked into pre-staged commit', files2);
+    } else {
+      pass('.wf/** artifact NOT in commit (was never staged)');
     }
 
     // ── Scenario 3: staged .gitignore must fail hard ───────────────────────

@@ -102,33 +102,33 @@ async function main(): Promise<void> {
     }
 
     // 2. .wf/** is NOT staged
-    if (!staged.includes('.wf/')) {
-      pass('.wf/** runtime artifacts were NOT staged');
-    } else {
+    if (staged.includes('.wf/')) {
       fail('.wf/** artifacts leaked into staged files', staged);
+    } else {
+      pass('.wf/** runtime artifacts were NOT staged');
     }
 
     // 3. Each wf.config.* variant is NOT staged
     for (const cfgFile of wfConfigFiles) {
-      if (!staged.includes(cfgFile)) {
-        pass(`${cfgFile} was NOT staged`);
-      } else {
+      if (staged.includes(cfgFile)) {
         fail(`${cfgFile} leaked into staged files`, staged);
+      } else {
+        pass(`${cfgFile} was NOT staged`);
       }
     }
 
     // 4. dist/ build output is NOT staged
-    if (!staged.includes('dist/')) {
-      pass('dist/ build output was NOT staged');
-    } else {
+    if (staged.includes('dist/')) {
       fail('dist/ build output leaked into staged files', staged);
+    } else {
+      pass('dist/ build output was NOT staged');
     }
 
     // 5. .gitignore is NOT staged
-    if (!staged.includes('.gitignore')) {
-      pass('.gitignore was NOT staged');
-    } else {
+    if (staged.includes('.gitignore')) {
       fail('.gitignore leaked into staged files', staged);
+    } else {
+      pass('.gitignore was NOT staged');
     }
   } finally {
     await app.close();

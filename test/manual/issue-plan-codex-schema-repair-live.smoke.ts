@@ -107,11 +107,11 @@ process.stdin.on('end', () => {
   fs.appendFileSync(${JSON.stringify(invocationLogPath)}.replace(/\\.log$/, '.prompts.log'), input + '\\n---\\n');
 
   const isResume = args.includes('resume');
-  if (!isResume) {
+  if (isResume) {
+    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ${JSON.stringify(validPlanJson)} } }));
+  } else {
     console.log(JSON.stringify({ type: 'thread.started', thread_id: 'tid-1' }));
     console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ${JSON.stringify(incidentShapeJson)} } }));
-  } else {
-    console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ${JSON.stringify(validPlanJson)} } }));
   }
 });
 `;

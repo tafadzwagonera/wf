@@ -186,10 +186,10 @@ async function main(): Promise<void> {
       ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
       : [];
 
-    if (result.status !== 0) {
-      pass('command exits non-zero');
-    } else {
+    if (result.status === 0) {
       fail('command should exit non-zero when both passes are schema-invalid', output);
+    } else {
+      pass('command exits non-zero');
     }
 
     if (invocations.length === 2) {
@@ -216,10 +216,10 @@ async function main(): Promise<void> {
       );
     }
 
-    if (!fs.existsSync(planPath)) {
-      pass('no plan artifact was written');
-    } else {
+    if (fs.existsSync(planPath)) {
       fail('unexpected plan artifact exists after failure', planPath);
+    } else {
+      pass('no plan artifact was written');
     }
 
     if (!/\b429\b/.test(output) && !output.includes('workload not decreasing')) {

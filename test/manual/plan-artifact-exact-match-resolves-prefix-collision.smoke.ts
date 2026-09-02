@@ -84,10 +84,10 @@ async function main(): Promise<void> {
       fail('Shorter identifier did not resolve to the expected artifact', shortOutput.slice(0, 500));
     }
 
-    if (!shortOutput.includes('Multiple plan artifacts found')) {
-      pass('Shorter identifier does not throw "Multiple plan artifacts found"');
-    } else {
+    if (shortOutput.includes('Multiple plan artifacts found')) {
       fail('Shorter identifier incorrectly threw an ambiguity error', shortOutput.slice(0, 500));
+    } else {
+      pass('Shorter identifier does not throw "Multiple plan artifacts found"');
     }
 
     const longOutput = runCli(['issue:implement', 'range-rename-implementation-plan', '--dry-run'], repoDir, wfHomeDir);

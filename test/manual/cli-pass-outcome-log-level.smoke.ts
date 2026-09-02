@@ -83,10 +83,10 @@ async function main(): Promise<void> {
   } else {
     fail('Expected a DEBUG cli.pass_outcome source=result line', logContent.slice(0, 500));
   }
-  if (!logContent.includes('cli.pass_unusable')) {
-    pass('Successful pass does NOT log cli.pass_unusable');
-  } else {
+  if (logContent.includes('cli.pass_unusable')) {
     fail('Did not expect cli.pass_unusable for a successful pass', logContent.slice(0, 500));
+  } else {
+    pass('Successful pass does NOT log cli.pass_unusable');
   }
 
   // Scenario 2: assistant-text-only stream — genuinely unusable.

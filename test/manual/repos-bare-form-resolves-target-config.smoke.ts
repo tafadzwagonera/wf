@@ -65,10 +65,10 @@ function main(): void {
       } else {
         fail('bare --repos sibling-repo did not pick up the sibling config', output.slice(0, 800));
       }
-      if (!output.includes(CALLER_MARKER)) {
-        pass('bare --repos sibling-repo does NOT fall back to the caller\'s own config marker');
-      } else {
+      if (output.includes(CALLER_MARKER)) {
         fail('bare --repos sibling-repo incorrectly used the caller\'s own config', output.slice(0, 800));
+      } else {
+        pass('bare --repos sibling-repo does NOT fall back to the caller\'s own config marker');
       }
     }
 

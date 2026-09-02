@@ -155,9 +155,7 @@ async function main(): Promise<void> {
       fail('command should exit 0', output);
     }
 
-    if (!fs.existsSync(outputPath)) {
-      fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
-    } else {
+    if (fs.existsSync(outputPath)) {
       const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
       const issue = Array.isArray(issues) ? issues[0] : undefined;
@@ -173,6 +171,8 @@ async function main(): Promise<void> {
       } else {
         fail('review issue file should match src.ts', JSON.stringify(issue));
       }
+    } else {
+      fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
     }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -57,10 +57,10 @@ function main(): void {
     const mismatchResult = runCli('issue:commit -k WBP-2', tmpDir);
     const mismatchOutput = mismatchResult.stdout + mismatchResult.stderr;
 
-    if (mismatchResult.exitCode !== 0) {
-      pass('mismatched -k exits with a non-zero code instead of silently committing');
-    } else {
+    if (mismatchResult.exitCode === 0) {
       fail('mismatched -k should have exited non-zero', `exit code ${mismatchResult.exitCode}`);
+    } else {
+      pass('mismatched -k exits with a non-zero code instead of silently committing');
     }
 
     if (mismatchOutput.includes('WBP-2') && mismatchOutput.includes('WBP-1')) {
@@ -73,10 +73,10 @@ function main(): void {
     try {
       logAfterMismatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
     } catch { /* no commits yet, expected */ }
-    if (!logAfterMismatch.includes('WBP-2')) {
-      pass('no commit was created under the mismatched ticket key');
-    } else {
+    if (logAfterMismatch.includes('WBP-2')) {
       fail('a commit was created despite the mismatch', logAfterMismatch);
+    } else {
+      pass('no commit was created under the mismatched ticket key');
     }
 
     // Case B: matching -k — must succeed and commit normally

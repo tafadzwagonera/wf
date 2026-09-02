@@ -181,10 +181,10 @@ async function main(): Promise<void> {
       committedFiles = '';
     }
 
-    if (!committedFiles.includes('.wf/')) {
-      pass('.wf/** artifact files were NOT committed');
-    } else {
+    if (committedFiles.includes('.wf/')) {
       fail('.wf/** files appeared in the commit — exclusion not working', committedFiles);
+    } else {
+      pass('.wf/** artifact files were NOT committed');
     }
 
     if (committedFiles.includes('passenger.service.ts')) {
@@ -251,10 +251,10 @@ async function main(): Promise<void> {
     }
 
     const leakedConfig = wfConfigFiles.find(f => committedFiles3.includes(f));
-    if (!leakedConfig) {
-      pass('wf.config.* files were NOT committed');
-    } else {
+    if (leakedConfig) {
       fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles3);
+    } else {
+      pass('wf.config.* files were NOT committed');
     }
 
     if (committedFiles3.includes('passenger.service.ts')) {

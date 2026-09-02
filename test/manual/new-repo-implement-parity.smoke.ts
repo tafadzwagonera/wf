@@ -142,10 +142,10 @@ async function main(): Promise<void> {
       }
 
       // In silent mode, the scaffold log is suppressed (if (!silent))
-      if (!output.includes('Scaffolded new repository:')) {
-        pass('silent mode suppresses scaffold log output');
-      } else {
+      if (output.includes('Scaffolded new repository:')) {
         fail('silent mode should suppress scaffold log output');
+      } else {
+        pass('silent mode suppresses scaffold log output');
       }
 
       // Find the options for the new-lib repo invocation
@@ -210,10 +210,10 @@ async function main(): Promise<void> {
         fail('error missing newRepositories suggestion');
       }
 
-      if (!implementerCalled) {
-        pass('implementer was NOT called');
-      } else {
+      if (implementerCalled) {
         fail('implementer should not have been called');
+      } else {
+        pass('implementer was NOT called');
       }
     } finally {
       implementer.execute = origExecute;
@@ -248,10 +248,10 @@ async function main(): Promise<void> {
         })
       );
 
-      if (!output.includes('Scaffolded new repository:')) {
-        pass('no scaffold output when newRepositories is absent');
-      } else {
+      if (output.includes('Scaffolded new repository:')) {
         fail('unexpected scaffold output');
+      } else {
+        pass('no scaffold output when newRepositories is absent');
       }
 
       if (capturedOptions.length > 0 && capturedOptions.every(o => o.isNewRepo === false)) {

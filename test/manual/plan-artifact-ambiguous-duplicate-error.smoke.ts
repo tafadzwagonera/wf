@@ -77,10 +77,10 @@ async function main(): Promise<void> {
 
     const { output, exitCode } = runCli(['issue:implement', 'test-dup', '--dry-run'], repoDir, wfHomeDir);
 
-    if (exitCode !== 0) {
-      pass('CLI exits non-zero on genuine ambiguity');
-    } else {
+    if (exitCode === 0) {
       fail('CLI unexpectedly exited 0', output.slice(0, 500));
+    } else {
+      pass('CLI exits non-zero on genuine ambiguity');
     }
 
     if (output.includes("Multiple plan artifacts found for 'test-dup'")) {
@@ -95,16 +95,16 @@ async function main(): Promise<void> {
       fail('Missing the new actionable remedy text', output.slice(0, 500));
     }
 
-    if (!output.includes('Detected plan artifact')) {
-      pass('Resolution never fell through to a guessed/legacy action');
-    } else {
+    if (output.includes('Detected plan artifact')) {
       fail('Resolution incorrectly proceeded to a resolved artifact', output.slice(0, 500));
+    } else {
+      pass('Resolution never fell through to a guessed/legacy action');
     }
 
-    if (!output.includes('Dry Run')) {
-      pass('No dry-run preview section was printed');
-    } else {
+    if (output.includes('Dry Run')) {
       fail('Dry-run preview was printed despite the ambiguity', output.slice(0, 500));
+    } else {
+      pass('No dry-run preview section was printed');
     }
   } finally {
     fs.rmSync(wfHomeDir, { recursive: true, force: true });

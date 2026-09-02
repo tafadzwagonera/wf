@@ -175,10 +175,10 @@ async function main(): Promise<void> {
       : [];
     const threadStartedCount = (output.match(/thread\.started/g) ?? []).length;
 
-    if (result.status !== 0) {
-      pass('command exits non-zero');
-    } else {
+    if (result.status === 0) {
       fail('command should exit non-zero when the repair pass fails', output);
+    } else {
+      pass('command exits non-zero');
     }
 
     if (!output.includes('Codex CLI failed: thread not found') && !/at Object|at Module|node:internal/.test(output)) {
@@ -199,10 +199,10 @@ async function main(): Promise<void> {
       fail('unexpected second thread.started — stale-resume full-stage restart was triggered', output);
     }
 
-    if (!fs.existsSync(planPath)) {
-      pass('no plan artifact was written');
-    } else {
+    if (fs.existsSync(planPath)) {
       fail('unexpected plan artifact exists after failure', planPath);
+    } else {
+      pass('no plan artifact was written');
     }
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
