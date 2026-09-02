@@ -748,20 +748,15 @@ const buildNormalizedStageTarget = (
 });
 
 const warnOnIgnoredCreateStageSettings = (createStageConfig: WfCreateStageConfig | undefined): void => {
-  if (!createStageConfig) {
-    return;
-  }
-
+  if (!createStageConfig) return;
   const ignoredKeys = IGNORED_CREATE_STAGE_KEYS.filter(key =>
     Object.hasOwn(createStageConfig as Record<string, unknown>, key)
   );
-  if (ignoredKeys.length === 0) {
-    return;
-  }
-
+  if (ignoredKeys.length === 0) return;
   console.warn(
-    `Invalid wf config: stages.create provider/model/backend/skills settings are currently ignored. `
-    + `Remove: ${ignoredKeys.join(', ')}. Only verificationConditions is consumed for issue:create today.`
+    `Invalid wf config: stages.create provider/model/backend/skills settings are currently ignored `
+    + `because the create stage has no AI-backed execution path. Remove: ${ignoredKeys.join(', ')}. `
+    + `This check runs whenever wf config is loaded, for any command.`
   );
 };
 
