@@ -12,9 +12,9 @@ export enum LogLevel {
 
 @Injectable()
 export class LoggerService implements NestLoggerService {
-  private logLevel: LogLevel;
+  private readonly logLevel: LogLevel;
 
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     const levelStr = this.configService.get<string>('logging.level', 'info');
     this.logLevel = this.parseLogLevel(levelStr);
   }
