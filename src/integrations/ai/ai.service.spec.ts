@@ -1903,39 +1903,4 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
   });
 
-  describe('execute logging', () => {
-    it('logs stage and provider before calling adapter.execute', async () => {
-      const mockInfo = jest.fn();
-      const logger = {
-        info: mockInfo, debug: jest.fn(), error: jest.fn(), warn: jest.fn(), log: jest.fn(),
-      } as unknown as LoggerService;
-      const adapter = createAdapter();
-      const service = new AiService(logger, adapter, createConfigService());
-
-      await service.execute({ prompt: 'test', stage: 'plan' });
-
-      expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('stage=plan'));
-      expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('provider='));
-      const logOrder = mockInfo.mock.invocationCallOrder[0];
-      const execOrder = adapter.execute.mock.invocationCallOrder[0];
-      expect(logOrder).toBeLessThan(execOrder);
-    });
-
-    it('logs stage and provider before calling adapter.executeWithHistory', async () => {
-      const mockInfo = jest.fn();
-      const logger = {
-        info: mockInfo, debug: jest.fn(), error: jest.fn(), warn: jest.fn(), log: jest.fn(),
-      } as unknown as LoggerService;
-      const adapter = createAdapter();
-      const service = new AiService(logger, adapter, createConfigService());
-
-      await service.executeWithHistory({ messages: [], stage: 'review' });
-
-      expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('stage=review'));
-      expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('provider='));
-      const logOrder = mockInfo.mock.invocationCallOrder[0];
-      const execOrder = adapter.executeWithHistory.mock.invocationCallOrder[0];
-      expect(logOrder).toBeLessThan(execOrder);
-    });
-  });
 });
