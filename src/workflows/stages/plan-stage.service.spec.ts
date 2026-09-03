@@ -632,6 +632,52 @@ describe('PlanStageService', () => {
     expect(manifest.figmaLinks).toEqual(['https://figma.com/design/abc123/Card']);
   });
 
+  it('logs warnNoFigmaLinks with reason no-links-found when interactive session returns no links', async () => {
+    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+
+    const { service } = await buildService();
+    const tempDir = createManagedTempDir('plan');
+    const ticketPath = path.join(tempDir, 'WBP-700.md');
+    fs.writeFileSync(ticketPath, '# WBP-700: Style the card');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'WBP-700', content: '# WBP-700: Style the card', path: ticketPath },
+      { action: 'fix', affectedRepositories: ['repo-a'] }
+    );
+
+    const line = appendSpy.mock.calls.map(call => String(call[1])).find(l => l.includes('No Figma frame links'));
+    expect(line).toContain('no-links-found');
+    expect(line).not.toContain('non-interactive-session');
+
+    appendSpy.mockRestore();
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+  });
+
+  it('logs warnNoFigmaLinks with reason non-interactive-session when session is non-TTY', async () => {
+    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+    const { service } = await buildService();
+    const tempDir = createManagedTempDir('plan');
+    const ticketPath = path.join(tempDir, 'WBP-800.md');
+    fs.writeFileSync(ticketPath, '# WBP-800: Style the nav');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'WBP-800', content: '# WBP-800: Style the nav', path: ticketPath },
+      { action: 'fix', affectedRepositories: ['repo-a'] }
+    );
+
+    const line = appendSpy.mock.calls.map(call => String(call[1])).find(l => l.includes('No Figma frame links'));
+    expect(line).toContain('non-interactive-session');
+    expect(line).not.toContain('no-links-found');
+
+    appendSpy.mockRestore();
+  });
+
   it('writes manifest with sourceKind custom when sourceKind option is custom', async () => {
     const { service } = await buildService();
     const tempDir = createManagedTempDir('plan');

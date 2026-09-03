@@ -159,15 +159,15 @@ export class PlanStageService {
     return { plan, action, path: planPath, fromCache: false };
   }
 
-  private warnNoFigmaLinks(): void {
-    appendToLogFile('WARN', 'No Figma frame links found in ticket — figma-implement/figma-design-check will be skipped.', 'figma-stage');
+  private warnNoFigmaLinks(reason: 'no-links-found' | 'non-interactive-session'): void {
+    appendToLogFile('WARN', `No Figma frame links found in ticket (${reason}) — figma-implement/figma-design-check will be skipped.`, 'figma-stage');
   }
 
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
     const { plan, sessionId, figmaLinks } = await this.executePlanGeneration(ticket, options);
-    if (!figmaLinks.length) this.warnNoFigmaLinks();
+    if (!figmaLinks.length) this.warnNoFigmaLinks(this.isInteractiveSession() ? 'no-links-found' : 'non-interactive-session');
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(plan, options.action, path.dirname(ticket.path),
       hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind, figmaLinks);
