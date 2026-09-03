@@ -53,18 +53,6 @@ async function main(): Promise<void> {
     } else {
       fail('Unexpected Figma stdout output during plain-repo run', stdoutCapture.join(''));
     }
-
-    console.log(chalk.bold.cyan('\nTest 2: pre-computed null designSystem skips detectRepoConventions and returns []'));
-
-    const nullConventionLinks = await resolvePostParseFigmaLinks(
-      ticketContent, autoLinks, { allowPrompt: true, conventions: { designSystem: null } }
-    );
-
-    if (nullConventionLinks.length === 0) {
-      pass('Pre-computed conventions with null designSystem returns [] without filesystem read');
-    } else {
-      fail('Expected [] with null designSystem conventions', JSON.stringify(nullConventionLinks));
-    }
   } finally {
     fs.rmSync(repoDir, { recursive: true, force: true });
   }

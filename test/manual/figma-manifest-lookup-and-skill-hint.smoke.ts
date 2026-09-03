@@ -141,10 +141,10 @@ async function main(): Promise<void> {
       artifactDir: path.join(wfHome, 'nonexistent-repo', 'jira'),
     });
 
-    if (noManifestResult) {
-      fail('Expected undefined when no manifest exists', JSON.stringify(noManifestResult));
-    } else {
+    if (!noManifestResult) {
       pass('resolveIfEnabled returns undefined when no manifest found');
+    } else {
+      fail('Expected undefined when no manifest exists', JSON.stringify(noManifestResult));
     }
   } finally {
     (configService as unknown as Record<string, unknown>)['get'] = originalGet;

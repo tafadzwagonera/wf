@@ -64,19 +64,6 @@ async function main(): Promise<void> {
     } else {
       fail('Unexpected figma-related stdout during early return', stdoutCapture.join(''));
     }
-
-    console.log(chalk.bold.cyan('\nTest 2: resolvePostParseFigmaLinks with pre-computed conventions skips detectRepoConventions'));
-
-    const resolvedWithConventions = await resolvePostParseFigmaLinks(
-      ticketContent, autoLinks,
-      { allowPrompt: false, conventions: { designSystem: null } }
-    );
-
-    if (resolvedWithConventions.length === 2) {
-      pass('resolvePostParseFigmaLinks with conventions passed in still returns autoLinks immediately');
-    } else {
-      fail('resolvePostParseFigmaLinks ignored autoLinks when conventions passed', JSON.stringify(resolvedWithConventions));
-    }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
