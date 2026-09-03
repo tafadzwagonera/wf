@@ -33,7 +33,7 @@ function makeRepo(): string {
 }
 
 async function main(): Promise<void> {
-  console.log('Manual smoke: fidelity sliding window terminates when refreshSteps returns null\n');
+  console.log('Manual smoke: sliding window stall detection terminates when pending count plateaus\n');
 
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const service = app.get(PlanStepVerificationService);
@@ -43,15 +43,19 @@ async function main(): Promise<void> {
   const repoDir = makeRepo();
   const logPath = todaysLogPath();
 
-  // Assertions 1–4: refreshSteps returns null on the first call — loop exits without
-  // running an assessment round, so no fix round is triggered
+  // Assertions 1–4: pending count stays at 1 for 2 rounds (stallWindow=2) — loop
+  // exits without running a fix round on the second stall detection
   let refreshCallsA = 0;
   let fixCallsA = 0;
   const logSizeA = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
 
+  (aiService as any).execute = async () => ({
+    content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
+  });
+
   const outcomeA = await service.run({
     steps: ['Step A'],
-    planSummary: 'stall-on-null smoke test',
+    planSummary: 'stall-on-plateau smoke test',
     repoDir,
     sessionId: 'sess-stall',
     stallWindow: 2,
@@ -62,48 +66,52 @@ async function main(): Promise<void> {
     },
     refreshSteps: async () => {
       refreshCallsA++;
-      return null;
+      return ['Step A'];
     },
   });
 
   const logA = fs.readFileSync(logPath, 'utf-8').slice(logSizeA);
 
-  if (refreshCallsA === 1) {
-    pass('refreshSteps called exactly once before the loop exited on null');
+  if (refreshCallsA === 2) {
+    pass('refreshSteps called twice (stallWindow rounds)');
   } else {
-    fail('Expected refreshSteps to be called exactly once', 'actual: ' + refreshCallsA);
+    fail('Expected refreshSteps to be called 2 times (stallWindow)', 'actual: ' + refreshCallsA);
   }
 
-  if (logA.includes('step-verify.fidelity.stalled round=1')) {
-    pass('step-verify.fidelity.stalled round=1 logged at WARN');
+  if (logA.includes('step-verify.stalled pending=1')) {
+    pass('step-verify.stalled pending=1 logged at WARN');
   } else {
-    fail('Expected step-verify.fidelity.stalled round=1 in the log', logA.slice(0, 500));
+    fail('Expected step-verify.stalled pending=1 in the log', logA.slice(0, 500));
   }
 
-  if (outcomeA.summary === undefined) {
-    pass('outcome.summary is undefined — graceful stall, not a scored outcome');
+  if (outcomeA.summary?.pending === 1) {
+    pass('outcome.summary.pending is 1 — stalled with one pending step');
   } else {
-    fail('Expected outcome.summary to be undefined', JSON.stringify(outcomeA.summary));
+    fail('Expected outcome.summary.pending to be 1', JSON.stringify(outcomeA.summary));
   }
 
-  if (fixCallsA === 0) {
-    pass('runFixRound was never called — stall fired before assessment');
+  if (fixCallsA === 1) {
+    pass('runFixRound was called once — before stall detected');
   } else {
-    fail('Expected runFixRound to not be called', 'called ' + fixCallsA + ' time(s)');
+    fail('Expected runFixRound to be called once', 'called ' + fixCallsA + ' time(s)');
   }
 
-  // Assertion 5: non-null on rounds 1 and 2, null on round 3 — proves the loop
-  // continued past round 2 (did not stall early on a non-null return)
-  (aiService as any).execute = async () => ({
-    content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
-  });
-
+  // Assertion 5: pending count decreases over time — loop should complete without stalling
   let refreshCallsB = 0;
+  let assessmentRoundB = 0;
   const logSizeB = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
+
+  (aiService as any).execute = async () => {
+    assessmentRoundB++;
+    if (assessmentRoundB === 1) {
+      return { content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }) };
+    }
+    return { content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) };
+  };
 
   await service.run({
     steps: ['Step A'],
-    planSummary: 'non-null on round 2 does not stall',
+    planSummary: 'pending decreases — does not stall',
     repoDir,
     sessionId: 'sess-continue',
     stallWindow: 3,
@@ -111,18 +119,17 @@ async function main(): Promise<void> {
     runFixRound: async () => ({ sessionId: 'sess-continue' }),
     refreshSteps: async () => {
       refreshCallsB++;
-      if (refreshCallsB >= 3) return null;
       return ['Step A variant ' + refreshCallsB];
     },
   });
 
   const logB = fs.readFileSync(logPath, 'utf-8').slice(logSizeB);
 
-  if (refreshCallsB >= 3 && logB.includes('step-verify.fidelity.stalled round=3')) {
-    pass('Non-null on rounds 1 and 2 did not stall — loop reached round 3 before stalling');
+  if (refreshCallsB >= 2 && logB.includes('step-verify.complete')) {
+    pass('Pending count decreased over time — loop completed without stalling');
   } else {
     fail(
-      'Expected loop to reach round 3 before stalling',
+      'Expected loop to complete when pending decreases',
       'refreshCallsB=' + refreshCallsB + ' log=' + logB.slice(0, 300),
     );
   }
@@ -133,7 +140,7 @@ async function main(): Promise<void> {
   console.log('\n' + counts.passed + ' passed, ' + counts.failed + ' failed');
   await app.close();
   if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: fidelity sliding window stall');
+  console.log('\nManual smoke test passed: sliding window stall detection');
 }
 
 main().catch(error => {

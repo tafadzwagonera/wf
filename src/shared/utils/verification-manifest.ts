@@ -25,19 +25,20 @@ const extractStepFields = (rawStep: Record<string, unknown>) => ({
   run: typeof rawStep.run === 'string' ? rawStep.run.trim() : '',
   policy: rawStep.policy,
   reason: typeof rawStep.reason === 'string' ? rawStep.reason.trim() || undefined : undefined,
+  repo: typeof rawStep.repo === 'string' ? rawStep.repo.trim() || undefined : undefined,
 });
 
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
     throw new ValidationError(`Verification step is not valid: ${filePath}`);
   }
-  const { id, run, policy, reason } = extractStepFields(value as Record<string, unknown>);
+  const { id, run, policy, reason, repo } = extractStepFields(value as Record<string, unknown>);
   if (!id) throw new ValidationError(`Verification step is missing id: ${filePath}`);
   if (!run) throw new ValidationError(`Verification step is missing run command: ${filePath}`);
   if (typeof policy !== 'string' || !VALID_POLICIES.has(policy)) {
     throw new ValidationError(`Verification step has an invalid policy: ${filePath}`);
   }
-  return { id, run, policy: policy as VerificationPolicy, reason };
+  return { id, run, policy: policy as VerificationPolicy, reason, repo };
 };
 
 const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver => {
@@ -86,6 +87,17 @@ export const mergeVerificationSteps = (
     if (!dominated) mergedById.set(step.id, step);
   }
   return [...mergedById.values()];
+};
+
+export const filterVerificationStepsForRepo = (
+  steps: VerificationStep[],
+  repoName: string | undefined,
+  affectedRepositories: string[],
+): { kept: VerificationStep[]; dropped: VerificationStep[] } => {
+  if (affectedRepositories.length <= 1) return { kept: steps, dropped: [] };
+  const kept = steps.filter(s => s.repo === repoName);
+  const dropped = steps.filter(s => s.repo !== repoName);
+  return { kept, dropped };
 };
 
 const DEPRECATED_FLAG_REWRITES: [RegExp, string][] = [

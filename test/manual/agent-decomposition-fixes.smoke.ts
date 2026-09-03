@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     const origGetCommits = gitService.getRecentCommits.bind(gitService);
     const origCommit = gitService.commit.bind(gitService);
 
-    gitService.getStatus = async () => ({ files: [{ path: 'src/a.ts' }] }) as any;
+    gitService.getStatus = async () => ({ files: [{ path: 'src/a.ts' }], staged: [] }) as any;
     gitService.stageAll = async (cwd?: string) => {
       stageAllCalled = true;
       stageAllCwd = cwd;
@@ -92,7 +92,6 @@ async function main(): Promise<void> {
       fail('getDiff was called with staged=false — should be true after stageAll');
     }
 
-    // Restore
     gitService.getStatus = origGetStatus;
     gitService.stageAll = origStageAll;
     gitService.getDiff = origGetDiff;
@@ -110,8 +109,7 @@ async function main(): Promise<void> {
     const reviewPath = deriveReviewArtifactPath(ticketPath);
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
 
-    // Write a review artifact using the constant (same format as review-stage.service.ts)
-    fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n\u2713 ${REVIEW_VERDICT_APPROVED}\n`);
+    fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n\u2714 ${REVIEW_VERDICT_APPROVED}\n`);
 
     const reviewer = app.get(ReviewerAgent);
     const result = await reviewer.execute(
@@ -119,20 +117,19 @@ async function main(): Promise<void> {
       { skipExisting: true, silent: true }
     );
 
-    if (result && result.approved === true) {
+    if (result?.approved === true) {
       pass('Cached review detected as approved via REVIEW_VERDICT_APPROVED constant');
     } else {
       fail('Cached review NOT detected as approved', `result: ${JSON.stringify(result)}`);
     }
 
-    // Write a review without the approval marker
     fs.writeFileSync(reviewPath, '# Code Review\n\n## Approval Status\nChanges Requested\n');
     const result2 = await reviewer.execute(
       { ticketKey: 'WBP-TEST', content: '# WBP-TEST: Test', path: ticketPath },
       { skipExisting: true, silent: true }
     );
 
-    if (result2 && result2.approved === false) {
+    if (result2?.approved === false) {
       pass('Cached review without approval marker detected as not-approved');
     } else {
       fail('Cached review without marker incorrectly detected as approved');

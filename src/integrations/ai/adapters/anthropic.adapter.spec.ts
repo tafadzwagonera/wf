@@ -240,6 +240,25 @@ describe('AnthropicAdapter', () => {
       expect(args?.model).toBe('claude-sonnet-4-6');
       expect(args?.temperature).toBe(0.7);
     });
+
+    it('uses caller-provided temperature for non-restricted models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-6';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello', temperature: 0 });
+
+      const args = mockCreate.mock.calls[0]?.[0];
+      expect(args?.temperature).toBe(0);
+    });
   });
 
   describe('executeWithHistory', () => {

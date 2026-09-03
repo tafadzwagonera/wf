@@ -37,7 +37,7 @@ import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stag
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import { loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
+import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
@@ -228,13 +228,17 @@ export class ImplementerAgent {
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
     const stallWindow = Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW);
-    const repoDir = options.repoDir ?? process.cwd();
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, stallWindow, baseline, assessedSteps,
-      refreshSteps: this.buildFidelityRefresher(assessedSteps, repoDir, stallWindow, baseline?.sha),
+      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
     });
+    this.logVerificationHeading();
     const outcome = await this.planStepVerification.run(params);
     return this.mergeVerificationOutcome(result, outcome);
+  }
+
+  private logVerificationHeading(): void {
+    console.log(chalk.bold('\n  Plan-step fidelity verification'));
   }
 
   private mergeVerificationOutcome(
@@ -285,7 +289,7 @@ export class ImplementerAgent {
     options: ImplementerOptions; resolved: FileResolution;
     assessedSteps: string[]; sessionId: string; stallWindow: number;
     baseline: { sha: string; branch: string } | null;
-    refreshSteps?: () => Promise<string[] | null>;
+    refreshSteps?: () => Promise<string[]>;
   }): PlanStepVerificationRunParams {
     const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, stallWindow, refreshSteps } = args;
     return {
@@ -314,19 +318,9 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(
-    originalSteps: string[], repoDir: string, stallWindow: number, baseRef?: string,
-  ): () => Promise<string[] | null> {
-    const recentKeys: string[] = [];
-    return async () => {
-      const enriched = await this.enrichStepsWithFidelityErrors(originalSteps, repoDir, baseRef).catch(
-        () => originalSteps,
-      );
-      const key = JSON.stringify(enriched);
-      if (recentKeys.includes(key)) return null;
-      recentKeys.push(key);
-      if (recentKeys.length > stallWindow) recentKeys.shift();
-      return enriched;
-    };
+    originalSteps: string[], repoDir: string, baseRef?: string,
+  ): () => Promise<string[]> {
+    return () => this.enrichStepsWithFidelityErrors(originalSteps, repoDir, baseRef).catch(() => originalSteps);
   }
 
   private async runVerificationFixRound(
@@ -799,7 +793,25 @@ export class ImplementerAgent {
   ): VerificationScript[] {
     if (isNewRepo) return [];
     const verificationConditions = this.getVerificationConditionsConfig();
-    return this.prepareVerificationScripts(repoDir, verificationConditions, planArtifact.plan.verification);
+    const scopedVerification = this.scopeVerificationToRepo(repoDir, planArtifact);
+    return this.prepareVerificationScripts(repoDir, verificationConditions, scopedVerification);
+  }
+
+  private scopeVerificationToRepo(
+    repoDir: string | undefined, planArtifact: PlanArtifact,
+  ): PlanArtifact['plan']['verification'] {
+    const planVerification = planArtifact.plan.verification;
+    const affectedRepositories = [...new Set(planArtifact.plan.affectedRepositories ?? [])];
+    const targeted = planVerification?.targeted ?? [];
+    const repoName = repoDir ? path.basename(repoDir) : undefined;
+    const { kept, dropped } = filterVerificationStepsForRepo(targeted, repoName, affectedRepositories);
+    if (dropped.length > 0) {
+      console.log(chalk.yellow(
+        `  ⚠ Dropped ${dropped.length} verification step(s) not scoped to ${repoName ?? '(unknown repo)'}: `
+        + dropped.map(s => s.id).join(', '),
+      ));
+    }
+    return planVerification ? { ...planVerification, targeted: kept } : planVerification;
   }
 
   /**

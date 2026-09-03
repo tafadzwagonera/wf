@@ -193,6 +193,33 @@ describe('OpenAIAdapter', () => {
       expect(request?.temperature).toBe(0.7);
     });
 
+    it('uses caller-provided temperature for non-restricted models', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest
+        .fn<
+        Promise<{
+          choices: Array<{ message: { content: string } }>;
+          usage: { prompt_tokens: number; completion_tokens: number };
+        }>,
+        [MockChatCompletionRequest]
+      >()
+        .mockResolvedValue({
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-4.1';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello', temperature: 0 });
+
+      const request = mockCreate.mock.calls[0]?.[0];
+      expect(request?.temperature).toBe(0);
+    });
+
     it('preserves empty-content diagnostics from the provider response', async () => {
       const adapter = createAdapter();
       const mockCreate = jest.fn().mockResolvedValue({

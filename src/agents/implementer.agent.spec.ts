@@ -235,6 +235,10 @@ describe('ImplementerAgent', () => {
   });
 
   describe('single-repo boundary', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
     it('fails when the plan spans multiple repositories', async () => {
       await expect(
         agent.execute(
@@ -386,6 +390,10 @@ describe('ImplementerAgent', () => {
   });
 
   describe('custom branch slug', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
     it('uses the custom branch slug when provided for non-ticket execution contexts', async () => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
@@ -433,6 +441,10 @@ describe('ImplementerAgent', () => {
   });
 
   describe('agent backend delegation', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
     it('delegates to AnthropicAgentAdapter when provider is anthropic', async () => {
       const adapterSpy = jest
         .spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
@@ -691,6 +703,10 @@ describe('ImplementerAgent', () => {
   });
 
   describe('hasChanges derivation', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
     it('runBackend returns hasChanges: true when git status reports files', async () => {
       gitService.getStatus.mockResolvedValue({
         isClean: () => false,
@@ -1879,6 +1895,100 @@ describe('ImplementerAgent', () => {
     });
   });
 
+  describe('verification step repo scoping', () => {
+    beforeEach(() => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: undefined,
+        verificationOutcomes: [],
+      });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('passes only repo-a targeted steps to adapter in a multi-repo plan', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+        const s = String(p);
+        return s.startsWith('/tmp/repo-a/src/') || s.endsWith('/package.json');
+      });
+
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a', 'shop-v1.1'],
+          verification: {
+            targeted: [
+              { id: 'typecheck-shop', run: 'yarn typecheck', policy: 'enforced', repo: 'shop-v1.1' },
+              { id: 'test-repo-a', run: 'yarn test -- src/example.spec.ts', policy: 'enforced', repo: 'repo-a' },
+            ],
+          },
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, allowMultiRepoScope: true },
+      );
+
+      const scripts = adapterSpy.mock.calls[0][0].verificationScripts as Array<{ id: string }>;
+      const ids = scripts.map(s => s.id);
+      expect(ids).toContain('test-repo-a');
+      expect(ids).not.toContain('typecheck-shop');
+    });
+
+    it('passes all targeted steps through in a single-repo plan', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+        const s = String(p);
+        return s.startsWith('/tmp/repo-a/src/') || s.endsWith('/package.json');
+      });
+
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a'],
+          verification: {
+            targeted: [
+              { id: 'typecheck-repo-a', run: 'yarn typecheck', policy: 'enforced', repo: 'repo-a' },
+            ],
+          },
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const scripts = adapterSpy.mock.calls[0][0].verificationScripts as Array<{ id: string }>;
+      expect(scripts.some(s => s.id === 'typecheck-repo-a')).toBe(true);
+    });
+
+    it('logs a warning when steps are dropped due to repo mismatch', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => {
+        const s = String(p);
+        return s.startsWith('/tmp/repo-a/src/') || s.endsWith('/package.json');
+      });
+
+      const consoleSpy = jest.spyOn(console, 'log');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          affectedRepositories: ['repo-a', 'shop-v1.1'],
+          verification: {
+            targeted: [
+              { id: 'typecheck-shop', run: 'yarn typecheck', policy: 'enforced', repo: 'shop-v1.1' },
+            ],
+          },
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, allowMultiRepoScope: true },
+      );
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('typecheck-shop'),
+      );
+    });
+  });
+
   describe('plan step filtering', () => {
     beforeEach(() => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
@@ -2476,6 +2586,35 @@ describe('ImplementerAgent', () => {
         expect.any(String),
         undefined,
       );
+    });
+
+    it('refreshSteps callback always returns a string array, never null, across repeated calls', async () => {
+      setupWithChanges();
+      stepSpecFidelityService.verifyAll.mockResolvedValue([
+        [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }],
+      ]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Add regex /\\.ts$/'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const { refreshSteps } = (planStepVerificationService.run).mock.calls[0][0];
+
+      const result1 = await refreshSteps();
+      const result2 = await refreshSteps();
+      const result3 = await refreshSteps();
+
+      expect(Array.isArray(result1)).toBe(true);
+      expect(Array.isArray(result2)).toBe(true);
+      expect(Array.isArray(result3)).toBe(true);
+      expect(result1).not.toBeNull();
+      expect(result2).not.toBeNull();
+      expect(result3).not.toBeNull();
     });
   });
 });

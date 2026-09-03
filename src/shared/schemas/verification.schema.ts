@@ -7,6 +7,9 @@ export const verificationStepSchema = z.object({
   run: z.string(),
   policy: verificationPolicySchema,
   reason: z.string().optional(),
+  repo: z.string().optional().describe(
+    'Repo name this verification step applies to (must match an entry in affectedRepositories). Required whenever affectedRepositories has more than one entry.'
+  ),
 });
 
 export const verificationWaiverSchema = z.object({

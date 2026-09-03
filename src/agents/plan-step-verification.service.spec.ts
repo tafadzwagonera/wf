@@ -254,4 +254,74 @@ describe('PlanStepVerificationService', () => {
 
     expect(outcome.extraPassCount).toBe(2);
   });
+
+  it('terminates as stalled when refreshSteps is set and pending count plateaus over stallWindow rounds', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
+    });
+    const refreshSteps = jest.fn().mockResolvedValue(['Step A']);
+    const runFixRound = jest.fn().mockResolvedValue({ sessionId: 'fix-sess' });
+
+    const outcome = await service.run(makeRunParams({ stallWindow: 3, refreshSteps, runFixRound }));
+
+    expect(outcome.summary?.pending).toBe(1);
+    expect(refreshSteps).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not stall when pending count strictly decreases each round (completes successfully)', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'not-done', missing: 'z' }] }) })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'not-done', missing: 'z' }] }) })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }, { index: 1, status: 'done' }, { index: 2, status: 'not-done', missing: 'z' }] }) })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }, { index: 1, status: 'done' }, { index: 2, status: 'done' }] }) });
+    const refreshSteps = jest.fn().mockResolvedValue(['Step A', 'Step B', 'Step C']);
+    const runFixRound = jest.fn().mockResolvedValue({ sessionId: 'fix-sess' });
+
+    const outcome = await service.run(makeRunParams({
+      steps: ['Step A', 'Step B', 'Step C'],
+      stallWindow: 3,
+      refreshSteps,
+      runFixRound,
+    }));
+
+    expect(outcome.summary?.pending).toBe(0);
+    expect(outcome.summary?.done).toBe(3);
+  });
+
+  it('terminates as stalled when pending count increases within stallWindow', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'done' }, { index: 2, status: 'done' }] }) })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'done' }] }) })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'not-done', missing: 'z' }] }) });
+    const refreshSteps = jest.fn().mockResolvedValue(['Step A', 'Step B', 'Step C']);
+    const runFixRound = jest.fn().mockResolvedValue({ sessionId: 'fix-sess' });
+
+    const outcome = await service.run(makeRunParams({
+      steps: ['Step A', 'Step B', 'Step C'],
+      stallWindow: 3,
+      refreshSteps,
+      runFixRound,
+    }));
+
+    expect(outcome.summary?.pending).toBeGreaterThan(0);
+    expect(refreshSteps).toHaveBeenCalledTimes(3);
+  });
+
+  it('terminates after one round when stallWindow is 1 and steps remain pending', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
+    });
+    const refreshSteps = jest.fn().mockResolvedValue(['Step A']);
+    const runFixRound = jest.fn().mockResolvedValue({ sessionId: 'fix-sess' });
+
+    const outcome = await service.run(makeRunParams({ stallWindow: 1, refreshSteps, runFixRound }));
+
+    expect(outcome.summary?.pending).toBe(1);
+    expect(refreshSteps).toHaveBeenCalledTimes(1);
+    expect(runFixRound).not.toHaveBeenCalled();
+  });
 });

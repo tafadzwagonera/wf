@@ -77,6 +77,24 @@ describe('DeepSeekAdapter', () => {
       );
     });
 
+    it('uses caller-provided temperature', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'deepseek-reasoner';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'hello', temperature: 0 });
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ temperature: 0 }));
+    });
+
     it('preserves empty DeepSeek completion diagnostics', async () => {
       const adapter = createAdapter();
       const mockCreate = jest.fn().mockResolvedValue({

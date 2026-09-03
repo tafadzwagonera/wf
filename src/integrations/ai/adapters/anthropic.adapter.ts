@@ -64,11 +64,12 @@ const buildCreateParams = (
   model: string,
   maxTokens: number,
   system: string | undefined,
-  messages: Anthropic.MessageParam[]
+  messages: Anthropic.MessageParam[],
+  temperature?: number,
 ): Anthropic.MessageCreateParamsNonStreaming => ({
   model,
   max_tokens: maxTokens,
-  ...(isTemperatureRestricted(model) ? {} : { temperature: 0.7 }),
+  ...(isTemperatureRestricted(model) ? {} : { temperature: temperature ?? 0.7 }),
   system,
   messages,
 });
@@ -258,7 +259,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     const maxTokens = request.maxTokens || this.maxTokens;
     const system = this.prependConfig(request.systemPrompt);
     const messages: Anthropic.MessageParam[] = [{ role: 'user', content: request.prompt }];
-    return callMessages(client, buildCreateParams(model, maxTokens, system, messages), model, 'Failed to execute AI request');
+    return callMessages(client, buildCreateParams(model, maxTokens, system, messages, request.temperature), model, 'Failed to execute AI request');
   }
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
@@ -269,6 +270,6 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     const maxTokens = request.maxTokens || this.maxTokens;
     const system = this.prependConfig(request.systemPrompt);
     const messages = buildMessageHistory(request);
-    return callMessages(client, buildCreateParams(model, maxTokens, system, messages), model, 'Failed to execute conversation request');
+    return callMessages(client, buildCreateParams(model, maxTokens, system, messages, request.temperature), model, 'Failed to execute conversation request');
   }
 }

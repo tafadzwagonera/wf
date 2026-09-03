@@ -104,6 +104,17 @@ describe('parseVerificationManifest', () => {
       parseVerificationManifest(JSON.stringify({ version: 99, baseline: [] }), '/tmp/verification.json')
     ).toThrow(/unsupported.*version/i);
   });
+
+  it('preserves the repo field on a baseline step when present', () => {
+    const manifest = parseVerificationManifest(
+      JSON.stringify({
+        version: 1,
+        baseline: [{ id: 'test', run: 'yarn test', policy: 'enforced', repo: 'shop-v1.1' }],
+      }),
+      '/tmp/verification.json',
+    );
+    expect(manifest.baseline[0].repo).toBe('shop-v1.1');
+  });
 });
 
 describe('normalizeTargetedStepCommand', () => {
@@ -249,5 +260,71 @@ describe('mergeVerificationSteps', () => {
     expect(result).toEqual([
       { id: 'lint', run: 'yarn lint', policy: 'enforced' },
     ]);
+  });
+});
+
+describe('filterVerificationStepsForRepo', () => {
+  const makeStep = (id: string, repo?: string) => ({
+    id,
+    run: `yarn ${id}`,
+    policy: 'enforced' as const,
+    ...(repo !== undefined && { repo }),
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns all steps as kept when affectedRepositories has exactly one entry', () => {
+    const steps = [makeStep('typecheck', 'shop-v1.1'), makeStep('test', 'repo-a')];
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      steps,
+      'repo-a',
+      ['repo-a'],
+    );
+    expect(kept).toEqual(steps);
+    expect(dropped).toEqual([]);
+  });
+
+  it('keeps only steps whose repo matches repoName in a multi-repo plan', () => {
+    const target = makeStep('test', 'repo-a');
+    const other = makeStep('typecheck', 'shop-v1.1');
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      [target, other],
+      'repo-a',
+      ['repo-a', 'shop-v1.1'],
+    );
+    expect(kept).toEqual([target]);
+    expect(dropped).toEqual([other]);
+  });
+
+  it('drops a step with a non-matching repo field in a multi-repo plan', () => {
+    const foreign = makeStep('typecheck', 'shop-v1.1');
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      [foreign],
+      'repo-a',
+      ['repo-a', 'shop-v1.1'],
+    );
+    expect(kept).toHaveLength(0);
+    expect(dropped).toEqual([foreign]);
+  });
+
+  it('drops a step with no repo field in a multi-repo plan (safe default)', () => {
+    const unscoped = makeStep('build');
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      [unscoped],
+      'repo-a',
+      ['repo-a', 'shop-v1.1'],
+    );
+    expect(kept).toHaveLength(0);
+    expect(dropped).toEqual([unscoped]);
+  });
+
+  it('returns empty kept and dropped for an empty steps array', () => {
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      [],
+      'repo-a',
+      ['repo-a', 'shop-v1.1'],
+    );
+    expect(kept).toEqual([]);
+    expect(dropped).toEqual([]);
   });
 });

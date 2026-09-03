@@ -105,17 +105,16 @@ async function main(): Promise<void> {
     runFixRound: async () => ({ sessionId: 'sess-stallwins' }),
     refreshSteps: async () => {
       refreshCallsB++;
-      if (refreshCallsB >= 2) return null;
       return ['Step A'];
     },
   });
 
   const logB = fs.readFileSync(logPath, 'utf-8').slice(logSizeB);
 
-  if (logB.includes('step-verify.fidelity.stalled') && !logB.includes('assessor-returned-invalid-json')) {
-    pass('Sliding-window stall fires first when refreshSteps returns null — consecutive-failure log absent');
+  if (logB.includes('assessor-returned-invalid-json-2-rounds-in-a-row') && logB.includes('stallWindow=2')) {
+    pass('Consecutive-failure limit fires when assessor returns invalid JSON across stallWindow rounds');
   } else {
-    fail('Expected fidelity.stalled without consecutive-failure log when stall occurs first', logB.slice(0, 600));
+    fail('Expected assessor-returned-invalid-json-2-rounds-in-a-row stallWindow=2 in log', logB.slice(0, 600));
   }
 
   (aiService as any).execute = originalExecute;

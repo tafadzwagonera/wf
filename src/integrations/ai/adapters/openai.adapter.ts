@@ -194,7 +194,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     const messages = buildMessageHistory(systemPrompt, [{ role: 'user', content: request.prompt }]);
     const model = request.model || this.model;
     const params = buildCompletionParams(
-      model, request.maxTokens || this.maxTokens, request.temperature || 0.7, messages
+      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages
     );
     return this.invokeCompletion(params, model, 'Failed to execute AI request');
   }
@@ -207,7 +207,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     const messages = buildMessageHistory(systemPrompt, request.messages);
     const model = request.model || this.model;
     const params = buildCompletionParams(
-      model, request.maxTokens || this.maxTokens, request.temperature || 0.7, messages
+      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages
     );
     return this.invokeCompletion(params, model, 'Failed to execute conversation request');
   }

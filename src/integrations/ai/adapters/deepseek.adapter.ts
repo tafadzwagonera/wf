@@ -67,7 +67,7 @@ const buildCompletionParams = (
 ): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming => ({
   model: request.model || defaultModel,
   max_tokens: request.maxTokens || defaultMaxTokens,
-  temperature: request.temperature || 0.7,
+  temperature: request.temperature ?? 0.7,
   messages,
 });
 
