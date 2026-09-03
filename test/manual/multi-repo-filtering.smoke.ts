@@ -93,13 +93,9 @@ async function main(): Promise<void> {
       'Run verification tests',
     ];
     const result5 = filterStepsForRepo(steps5, ['repo-a/src/services/booking.mapper.ts'], 'repo-a');
-    assert(
-      'excludes steps for other repos, keeps own + generic',
-      result5.length === 2
-      && result5.includes('Update repo-a/src/services/booking.mapper.ts')
-      && result5.includes('Run verification tests')
-      && !result5.includes('Update cop-nuxt-app/src/services/booking.service.ts'),
-    );
+    assert('keeps step referencing this repo', result5.includes('Update repo-a/src/services/booking.mapper.ts'));
+    assert('keeps generic step', result5.includes('Run verification tests'));
+    assert('cross-repo step is excluded (filtered count equals 2)', result5.length === 2);
 
     // 6. Passes all steps through for empty repoName
     const steps6 = ['Step A', 'Step B'];

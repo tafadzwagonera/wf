@@ -3,14 +3,16 @@
  * policy allows commits (low-complexity / stage-and-commit-per-change)
  *
  * Verifies:
- *   1. resolveCommitPolicy('low').allowsCommit === true
- *   2. ImplementerAgent.runPlanStepVerification (real, DI-wired instance)
- *      skips the call to PlanStepVerificationService.run for a low-complexity
- *      plan, returning the result unchanged
- *   3. No stepVerification summary is attached to the returned result
- *   4. No step-verify.* lines are written to the on-disk log file for this run
+ *   1. runPlanStepVerification returns the result unchanged — no stepVerification
+ *      summary is attached — for a low-complexity plan
  *
- * Run: nr test:manual -- test-plan-step-verification-commit-policy-skip
+ * Checks covered elsewhere:
+ *   - resolveCommitPolicy('low').allowsCommit === true: Jest unit spec
+ *   - planStepVerification.run is not called: plan-step-verification-skip-reason-log.smoke
+ *   - log emits step-verify.skipped reason=commit-policy-allows-direct-commit:
+ *     plan-step-verification-skip-reason-log.smoke
+ *
+ * Run: nr test:manual -- plan-step-verification-commit-policy-skip
  */
 
 import * as fs from 'node:fs';
@@ -18,38 +20,22 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
-import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
-import { PlanStepVerificationService } from '../../src/agents/plan-step-verification.service';
-import { resolveCommitPolicy } from '../../src/shared/utils/implement-commit-policy';
 import type { PlanArtifact } from '../../src/agents/interfaces';
-import { getWfLogDir } from '../../src/shared/utils/wf-paths';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const git = (dir: string, args: string[]): string =>
-  execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
-
-function todaysLogPath(): string {
-  const date = new Date().toISOString().slice(0, 10);
-  return path.join(getWfLogDir(), `agent-${date}.log`);
-}
+const git = (dir: string, args: string[]): void => {
+  execFileSync('git', args, { cwd: dir, encoding: 'utf-8' });
+};
 
 async function main(): Promise<void> {
   console.log('Manual smoke: plan-step verification skips when commit policy allows commits\n');
 
-  const policy = resolveCommitPolicy('low');
-  if (policy.allowsCommit === true) {
-    pass("resolveCommitPolicy('low').allowsCommit === true");
-  } else {
-    fail("Expected resolveCommitPolicy('low').allowsCommit === true", JSON.stringify(policy));
-  }
-
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const implementer = app.get(ImplementerAgent);
-  const planStepVerification = app.get(PlanStepVerificationService);
 
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'step-verify-skip-'));
   git(repoDir, ['init', '-q', '-b', 'master']);
@@ -59,16 +45,7 @@ async function main(): Promise<void> {
   fs.writeFileSync(path.join(repoDir, 'src', 'index.ts'), 'export const v = 1;\n');
   git(repoDir, ['add', '.']);
   git(repoDir, ['commit', '-q', '-m', 'baseline']);
-
-  // simulate the implement stage's uncommitted output
   fs.writeFileSync(path.join(repoDir, 'src', 'index.ts'), 'export const v = 2;\n');
-
-  const runCalls: unknown[] = [];
-  const originalRun = planStepVerification.run.bind(planStepVerification);
-  (planStepVerification as any).run = async (params: unknown) => {
-    runCalls.push(params);
-    return originalRun(params as any);
-  };
 
   const scopedPlan: PlanArtifact = {
     action: 'feature',
@@ -91,9 +68,6 @@ async function main(): Promise<void> {
     verificationOutcomes: [],
   };
 
-  const logPathBefore = todaysLogPath();
-  const logSizeBefore = fs.existsSync(logPathBefore) ? fs.statSync(logPathBefore).size : 0;
-
   const finalResult = await (implementer as any).runPlanStepVerification(
     { ticketKey: 'WBP-1', content: '', path: '' },
     scopedPlan,
@@ -104,28 +78,12 @@ async function main(): Promise<void> {
     null,
   );
 
-  if (runCalls.length === 0) {
-    pass('PlanStepVerificationService.run was never invoked');
-  } else {
-    fail('Expected PlanStepVerificationService.run to be skipped', `called ${runCalls.length} time(s)`);
-  }
-
   if ((finalResult).stepVerification === undefined) {
     pass('Returned result has no stepVerification summary attached');
   } else {
     fail('Expected no stepVerification field', JSON.stringify((finalResult).stepVerification));
   }
 
-  const logContentAfter = fs.existsSync(logPathBefore)
-    ? fs.readFileSync(logPathBefore, 'utf-8').slice(logSizeBefore)
-    : '';
-  if (logContentAfter.includes('step-verify.')) {
-    fail('Expected no step-verify.* log lines', logContentAfter.slice(0, 300));
-  } else {
-    pass('No step-verify.* lines written to the log file for this run');
-  }
-
-  (planStepVerification as any).run = originalRun;
   fs.rmSync(repoDir, { recursive: true, force: true });
 
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);

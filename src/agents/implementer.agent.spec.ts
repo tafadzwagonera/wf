@@ -49,7 +49,7 @@ describe('ImplementerAgent', () => {
   let aiService: jest.Mocked<AiService>;
   let presenter: ReturnType<typeof createMockPresenter>;
   let configService: ConfigService;
-  let planStepVerificationService: { run: jest.Mock };
+  let planStepVerificationService: { run: jest.Mock; logSkip: jest.Mock };
   let stepSpecFidelityService: { run: jest.Mock; verifyAll: jest.Mock };
   let mockIsRepoResolvable: jest.MockedFunction<typeof isRepoResolvable>;
 
@@ -165,6 +165,7 @@ describe('ImplementerAgent', () => {
               await params.refreshSteps?.();
               return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
             }),
+            logSkip: jest.fn(),
           },
         },
         {
@@ -2075,6 +2076,42 @@ describe('ImplementerAgent', () => {
       expect(passedPlan.steps).toContain('Check CI status');
       expect(passedPlan.steps).toContain('Update src/example.ts in repo-a');
     });
+
+    it('does not exclude a step using the "<repo> — src/..." planner format', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint'],
+          affectedFiles: ['api-gateway-v1/src/reviews/reviews.controller.ts'],
+          affectedRepositories: ['api-gateway-v1'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/api-gateway-v1', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toContain(
+        'api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint',
+      );
+    });
+
+    it('does not treat a step with an incidental src-like word without a trailing slash as a repo path', async () => {
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          steps: ['update docs/src-notes.md with changelog'],
+          affectedFiles: [],
+          affectedRepositories: ['repo-a'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
+      expect(passedPlan.steps).toContain('update docs/src-notes.md with changelog');
+    });
   });
 
   describe('verification skip for new repos', () => {
@@ -2448,6 +2485,123 @@ describe('ImplementerAgent', () => {
 
       expect(planStepVerificationService.run).toHaveBeenCalledWith(
         expect.objectContaining({ steps: ['repo-a/src/example.ts: update handler'] }),
+      );
+    });
+
+    it('does not zero out assessedSteps when steps use the "<repo> — src/..." planner format', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          steps: ['api-gateway-v1 — in src/example.ts add endpoint'],
+          estimatedComplexity: 'high',
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
+      );
+
+      expect(planStepVerificationService.run).toHaveBeenCalled();
+    });
+
+    it('logs skip reason "disabled" when cfg.enabled is false', async () => {
+      setupWithChanges();
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.planStepVerification') return { enabled: false };
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.logSkip).toHaveBeenCalledWith('disabled', true);
+    });
+
+    it('logs skip reason "no-changes" when result has no changes', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      (gitService.getStatus as jest.Mock).mockResolvedValue({
+        isClean: () => true,
+        modified: [],
+        staged: [],
+        deleted: [],
+        renamed: [],
+        conflicted: [],
+        not_added: [],
+        files: [],
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.logSkip).toHaveBeenCalledWith('no-changes', true);
+    });
+
+    it('logs skip reason "no-assessed-steps" when all steps are generic in multi-repo mode', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({
+          affectedFiles: ['repo-a/src/example.ts'],
+          steps: ['Run the tests', 'Update CHANGELOG'],
+        }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
+      );
+
+      expect(planStepVerificationService.logSkip).toHaveBeenCalledWith('no-assessed-steps', true);
+    });
+
+    it('logs skip reason "new-repo" when isNewRepo is true', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, isNewRepo: true },
+      );
+
+      expect(planStepVerificationService.logSkip).toHaveBeenCalledWith('new-repo', true);
+    });
+
+    it('logs skip reason "commit-policy-allows-direct-commit" for low estimated complexity', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low' }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.logSkip).toHaveBeenCalledWith(
+        'commit-policy-allows-direct-commit',
+        true,
       );
     });
 

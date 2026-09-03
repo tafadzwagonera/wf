@@ -417,6 +417,10 @@ export class PlanStepVerificationService {
     return sections;
   }
 
+  logSkip(reason: string, silent?: boolean): void {
+    this.logEventAndAppendToLogFile('INFO', `step-verify.skipped reason=${reason}`, silent);
+  }
+
   private logEventAndAppendToLogFile(level: string, message: string, silent?: boolean): void {
     appendToLogFile(level, message, 'step-verification');
     if (!silent) this.presenter.progress(`  [step-verify] ${message}`);

@@ -61,6 +61,10 @@ const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
   investigate: 'chore',
 };
 
+const REPO_RELATIVE_PATH_PATTERN = /\b(?:src|test|lib|app)\//i;
+
+type PlanStepVerificationSkipReason = 'disabled' | 'no-changes' | 'no-assessed-steps' | 'new-repo' | 'commit-policy-allows-direct-commit';
+
 @Injectable()
 export class ImplementerAgent {
   @Inject(CliPresenter)
@@ -150,11 +154,11 @@ export class ImplementerAgent {
       f.startsWith(`${repoName}/`) ? f.slice(repoName.length + 1) : f,
     );
 
-    const repoPathPattern = /\b[\w-]+\/(?:src|test|lib|app)\//i;
+    const repoPathPattern = REPO_RELATIVE_PATH_PATTERN;
 
     return steps.filter(step => {
       const referencesThisRepo = strippedPaths.some(p => step.includes(p));
-      const referencesAnyRepo = repoPathPattern.exec(step) !== null;
+      const referencesAnyRepo = repoPathPattern.test(step);
       return referencesThisRepo || !referencesAnyRepo;
     });
   }
@@ -217,19 +221,19 @@ export class ImplementerAgent {
   }
 
   private async runPlanStepVerification(
-    ticket: TicketArtifact, scopedPlan: PlanArtifact,
-    options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: string[], result: ImplementerResult,
+    ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions,
+    resolved: FileResolution, filteredSteps: string[], result: ImplementerResult,
     baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     const cfg = this.configService.get<{ enabled?: boolean; stallWindow?: number }>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
-    if (this.shouldSkipPlanStepVerification(cfg, result, assessedSteps, options, policy)) return result;
-    const stallWindow = Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW);
+    const skipReason = this.resolvePlanStepVerificationSkipReason(cfg, result, assessedSteps, options, policy);
+    if (skipReason) return (this.planStepVerification.logSkip(skipReason, options.silent), result);
     const params = this.buildVerificationRunParams({
-      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, stallWindow, baseline, assessedSteps,
+      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
+      stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW),
       refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
     });
     this.logVerificationHeading();
@@ -255,7 +259,7 @@ export class ImplementerAgent {
 
   private resolveAssessedSteps(filteredSteps: string[], options: ImplementerOptions): string[] {
     if (!options.additionalRepoDirs?.length) return filteredSteps;
-    const repoPathPattern = /\b[\w-]+\/(?:src|test|lib|app)\//i;
+    const repoPathPattern = REPO_RELATIVE_PATH_PATTERN;
     const assessedSteps = filteredSteps.filter(s => repoPathPattern.test(s));
     const excluded = filteredSteps.length - assessedSteps.length;
     if (excluded > 0) {
@@ -264,24 +268,19 @@ export class ImplementerAgent {
     return assessedSteps;
   }
 
-  /**
-   * Plan-step verification only earns its cost when the implement stage left
-   * uncommitted work for a separate review to audit (commit policy blocked,
-   * i.e. medium/high estimated complexity). Low-complexity, stage-and-commit
-   * changesets carry smaller downside risk and skip verification entirely.
-   */
-  private shouldSkipPlanStepVerification(
+  private resolvePlanStepVerificationSkipReason(
     cfg: { enabled?: boolean } | undefined,
     result: { hasChanges: boolean },
     assessedSteps: string[],
     options: ImplementerOptions,
     policy: CommitPolicy,
-  ): boolean {
-    return cfg?.enabled === false
-      || !result.hasChanges
-      || assessedSteps.length === 0
-      || options.isNewRepo
-      || policy.allowsCommit;
+  ): PlanStepVerificationSkipReason | null {
+    if (cfg?.enabled === false) return 'disabled';
+    if (!result.hasChanges) return 'no-changes';
+    if (assessedSteps.length === 0) return 'no-assessed-steps';
+    if (options.isNewRepo) return 'new-repo';
+    if (policy.allowsCommit) return 'commit-policy-allows-direct-commit';
+    return null;
   }
 
   private buildVerificationRunParams(args: {

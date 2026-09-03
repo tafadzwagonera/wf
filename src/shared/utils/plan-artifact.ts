@@ -12,10 +12,11 @@ import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, ValidationError,
 
 export type { PlanArtifactManifest, PlanArtifactReference } from '../types/plan-artifact.types';
 
-export const deriveReviewArtifactPath = (ticketPath: string): string => {
+export const deriveReviewArtifactPath = (ticketPath: string, repoScope?: string): string => {
   const ext = path.extname(ticketPath);
-  if (!ext) return ticketPath + '-review.md';
-  return ticketPath.slice(0, -ext.length) + '-review.md';
+  const stem = ext ? ticketPath.slice(0, -ext.length) : ticketPath;
+  const suffix = repoScope ? `-${repoScope}-review.md` : '-review.md';
+  return stem + suffix;
 };
 
 const VALID_ACTIONS: Set<string> = new Set(['feature', 'fix', 'investigate']);

@@ -193,12 +193,17 @@ export class ReviewStageService {
     };
   }
 
+  /**
+   * Assembles a ReviewArtifact without persisting it to disk.
+   * Pass `repoScope` (repo basename) in multi-repo runs to prevent artifact path collision across repos.
+   * Callers within ReviewStageService itself (e.g. `createReviewArtifact`) operate in single-repo context and omit it.
+   */
   buildReviewArtifact(
-    ticket: TicketArtifact, review: CodeReview, sessionId?: string
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string, repoScope?: string
   ): ReviewArtifact {
     return {
       review,
-      path: deriveReviewArtifactPath(ticket.path),
+      path: deriveReviewArtifactPath(ticket.path, repoScope),
       approved: review.approved,
       sessionId,
     };

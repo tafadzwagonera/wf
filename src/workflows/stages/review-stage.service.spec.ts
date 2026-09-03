@@ -743,4 +743,30 @@ describe('ReviewStageService', () => {
       expect(result.sessionId).toBe('review-sess-2');
     });
   });
+
+  describe('buildReviewArtifact', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('includes repoScope in the artifact path when provided', async () => {
+      const { service } = await buildService();
+      const artifact = service.buildReviewArtifact(
+        { ticketKey: 'WBP-300', content: '# WBP-300', path: '/tmp/.wf/WBP-300.md' },
+        { summary: 'ok', issues: [], suggestions: [], approved: true } as any,
+        undefined,
+        'api-gateway-v1',
+      );
+
+      expect(artifact.path).toBe('/tmp/.wf/WBP-300-api-gateway-v1-review.md');
+    });
+
+    it('omits repoScope suffix when repoScope is absent', async () => {
+      const { service } = await buildService();
+      const artifact = service.buildReviewArtifact(
+        { ticketKey: 'WBP-301', content: '# WBP-301', path: '/tmp/.wf/WBP-301.md' },
+        { summary: 'ok', issues: [], suggestions: [], approved: true } as any,
+      );
+
+      expect(artifact.path).toBe('/tmp/.wf/WBP-301-review.md');
+    });
+  });
 });

@@ -62,15 +62,19 @@ export class ReviewerAgent {
     const { review, sessionId } = await this.stageAndReview(
       ticket, repoDir, options, onProgress, sonarResult, figmaResult
     );
-    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId);
+    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId, this.deriveRepoScope(options));
   }
 
   persistArtifact(artifact: ReviewArtifact, ticketKey: string): void {
     this.reviewStageService.persistReviewArtifact(artifact, ticketKey);
   }
 
+  private deriveRepoScope(options: ReviewerOptions): string | undefined {
+    return options.repoDir ? path.basename(options.repoDir) : undefined;
+  }
+
   private tryLoadCachedReview(ticketPath: string, options: ReviewerOptions): ReviewArtifact | null {
-    const reviewPath = deriveReviewArtifactPath(ticketPath);
+    const reviewPath = deriveReviewArtifactPath(ticketPath, this.deriveRepoScope(options));
     if (!options.skipExisting || !fs.existsSync(reviewPath)) return null;
 
     if (!options.silent) {

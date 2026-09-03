@@ -113,6 +113,7 @@ describe('buildPlanStepVerificationPrompt', () => {
 
 describe('PlanStepVerificationService', () => {
   let service: PlanStepVerificationService;
+  let module: TestingModule;
   let mockConfigGet: jest.Mock;
   let mockAiExecute: jest.Mock;
   let mockGitGetStatus: jest.Mock;
@@ -149,7 +150,7 @@ describe('PlanStepVerificationService', () => {
     mockConfigGet = jest.fn();
     mockAiExecute = jest.fn();
     mockGitGetStatus = jest.fn().mockResolvedValue({ not_added: [] });
-    const module = await makeModule();
+    module = await makeModule();
     service = module.get(PlanStepVerificationService);
   });
 
@@ -323,5 +324,45 @@ describe('PlanStepVerificationService', () => {
     expect(outcome.summary?.pending).toBe(1);
     expect(refreshSteps).toHaveBeenCalledTimes(1);
     expect(runFixRound).not.toHaveBeenCalled();
+  });
+
+  describe('logSkip', () => {
+    it('emits step-verify.skipped with the given reason to the log file', () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+
+      service.logSkip('no-assessed-steps');
+
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO',
+        'step-verify.skipped reason=no-assessed-steps',
+        'step-verification',
+      );
+    });
+
+    it('emits to console when silent is not true', () => {
+      const presenter = module.get(CliPresenter);
+      const mockProgress = jest.spyOn(presenter, 'progress');
+
+      service.logSkip('disabled', false);
+
+      expect(mockProgress).toHaveBeenCalledWith(
+        expect.stringContaining('step-verify.skipped reason=disabled'),
+      );
+    });
+
+    it('suppresses console output when silent is true but still writes to the log file', () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const presenter = module.get(CliPresenter);
+      const mockProgress = jest.spyOn(presenter, 'progress');
+
+      service.logSkip('no-changes', true);
+
+      expect(mockProgress).not.toHaveBeenCalled();
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO',
+        'step-verify.skipped reason=no-changes',
+        'step-verification',
+      );
+    });
   });
 });

@@ -406,6 +406,22 @@ describe('deriveReviewArtifactPath', () => {
   it('only strips the last extension from multi-dot filenames', () => {
     expect(deriveReviewArtifactPath('file.backup.json')).toBe('file.backup-review.md');
   });
+
+  it('inserts repoScope before -review.md when repoScope is provided', () => {
+    expect(deriveReviewArtifactPath('/tmp/.wf/WBP-123.md', 'shop-v1')).toBe(
+      '/tmp/.wf/WBP-123-shop-v1-review.md',
+    );
+  });
+
+  it('omits repoScope suffix when repoScope is not provided', () => {
+    expect(deriveReviewArtifactPath('/tmp/.wf/WBP-123.md')).toBe('/tmp/.wf/WBP-123-review.md');
+  });
+
+  it('applies repoScope when ticketPath has no extension', () => {
+    expect(deriveReviewArtifactPath('/tmp/.wf/WBP-123', 'api-gw')).toBe(
+      '/tmp/.wf/WBP-123-api-gw-review.md',
+    );
+  });
 });
 
 describe('backward-compatible migration', () => {

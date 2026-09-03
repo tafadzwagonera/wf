@@ -130,7 +130,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
   name: 'issue:review',
   description:
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
-    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. '
+    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. In multi-repo runs, the review artifact is written to `<ticket>-<repo-basename>-review.md` — one file per repository — so each repo\'s cached result is stored independently; the first repository\'s cached review is never served to subsequent repositories in the same run. '
     + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
