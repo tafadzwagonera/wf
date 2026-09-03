@@ -307,14 +307,26 @@ describe('filterVerificationStepsForRepo', () => {
     expect(dropped).toEqual([foreign]);
   });
 
-  it('drops a step with no repo field in a multi-repo plan (safe default)', () => {
+  it('passes all steps through when no step has a repo field (legacy-plan bypass)', () => {
     const unscoped = makeStep('build');
     const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
       [unscoped],
       'repo-a',
       ['repo-a', 'shop-v1.1'],
     );
-    expect(kept).toHaveLength(0);
+    expect(kept).toEqual([unscoped]);
+    expect(dropped).toHaveLength(0);
+  });
+
+  it('drops an unscoped step when at least one step in the array carries a repo field', () => {
+    const scoped = makeStep('test', 'repo-a');
+    const unscoped = makeStep('build');
+    const { kept, dropped } = require('./verification-manifest').filterVerificationStepsForRepo(
+      [scoped, unscoped],
+      'repo-a',
+      ['repo-a', 'shop-v1.1'],
+    );
+    expect(kept).toEqual([scoped]);
     expect(dropped).toEqual([unscoped]);
   });
 

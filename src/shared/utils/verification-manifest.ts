@@ -95,6 +95,7 @@ export const filterVerificationStepsForRepo = (
   affectedRepositories: string[],
 ): { kept: VerificationStep[]; dropped: VerificationStep[] } => {
   if (affectedRepositories.length <= 1) return { kept: steps, dropped: [] };
+  if (steps.every(s => s.repo === undefined)) return { kept: steps, dropped: [] };
   const kept = steps.filter(s => s.repo === repoName);
   const dropped = steps.filter(s => s.repo !== repoName);
   return { kept, dropped };

@@ -238,7 +238,7 @@ Verification step policies:
 | `best_effort` | Failure is logged as a warning but does not block. |
 | `override` | Targeted-only. Replaces a baseline step with the same `id`. After dedup, executes as `enforced`. |
 
-When a plan includes `targeted` verification steps whose `id` matches a baseline step, the baseline entry wins unless the targeted step uses `policy: "override"`. Targeted steps with new IDs are appended after the baseline. In multi-repo plans, each targeted step may carry a `repo` field (matching an entry in `affectedRepositories`) to scope it to a specific repository; steps tagged for a different repo are silently dropped when `issue:implement` runs against another repo. Steps without a `repo` field are dropped in multi-repo plans as a safe default — add `repo` to every targeted step when `affectedRepositories` has more than one entry.
+When a plan includes `targeted` verification steps whose `id` matches a baseline step, the baseline entry wins unless the targeted step uses `policy: "override"`. Targeted steps with new IDs are appended after the baseline. In multi-repo plans, each targeted step may carry a `repo` field (matching an entry in `affectedRepositories`) to scope it to a specific repository; steps tagged for a different repo are silently dropped when `issue:implement` runs against another repo. When no targeted step carries a `repo` field the plan is treated as a legacy artifact and all steps pass through unchanged, preserving backward compatibility. In plans where at least one step has a `repo` field, steps that lack `repo` are dropped (treat them as unscoped).
 
 ### TypeScript Config Support
 
