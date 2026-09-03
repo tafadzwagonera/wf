@@ -22,6 +22,16 @@ describe('extractFigmaLinks', () => {
   it('does not return non-figma URLs', () => {
     expect(extractFigmaLinks('https://example.com/design/abc')).toEqual([]);
   });
+
+  it('returns a matching figma.com/proto URL', () => {
+    const text = 'Prototype at https://www.figma.com/proto/AbC123XyZ/Stories-Feed?node-id=12-34';
+    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/proto/AbC123XyZ/Stories-Feed']);
+  });
+
+  it('returns a matching figma.com/board URL', () => {
+    const text = 'Board at https://www.figma.com/board/AbC123XyZ/Stories-Brainstorm';
+    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/board/AbC123XyZ/Stories-Brainstorm']);
+  });
 });
 
 describe('searchFigmaLinksForTicket', () => {
