@@ -43,6 +43,20 @@ describe('formatCommitPolicyPromptSection', () => {
     expect(text).not.toContain('Do NOT create git commits');
   });
 
+  it('embeds the ticket key in the commit example when provided', () => {
+    const text = formatCommitPolicyPromptSection(resolveCommitPolicy('low'), 'WBP-42');
+    expect(text).toContain('WBP-42');
+    expect(text).toContain('wf issue:commit -m');
+    expect(text).toContain('uppercase letter');
+  });
+
+  it('uses a generic placeholder when no ticket key is provided', () => {
+    const text = formatCommitPolicyPromptSection(resolveCommitPolicy('low'));
+    expect(text).toContain('<ticket-key>');
+    expect(text).toContain('wf issue:commit -m');
+    expect(text).toContain('uppercase letter');
+  });
+
   it('includes the override clause in both the permissive and prohibitive text', () => {
     const prohibitive = formatCommitPolicyPromptSection(resolveCommitPolicy('high'));
     const permissive = formatCommitPolicyPromptSection(resolveCommitPolicy('low'));

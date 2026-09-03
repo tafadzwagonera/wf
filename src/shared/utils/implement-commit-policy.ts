@@ -27,14 +27,19 @@ export const resolveCommitPolicy = (complexity: string | undefined): CommitPolic
  * agent whether it may create git commits.
  *
  * @param policy - Resolved commit policy
+ * @param ticketKey - Ticket key to embed in the commit message format example
  * @returns Prompt text to append to the implement stage's conventions section
  */
-export const formatCommitPolicyPromptSection = (policy: CommitPolicy): string => {
+export const formatCommitPolicyPromptSection = (policy: CommitPolicy, ticketKey?: string): string => {
   if (!policy.allowsCommit) {
     return `Commit policy: this change is estimated **${policy.complexity}** complexity. `
       + 'Do NOT create git commits and do NOT run `git commit`. Leave your work in the working tree '
       + `— a separate review stage inspects the diff before it is committed. ${OVERRIDE_CLAUSE}`;
   }
+  const commitExample = ticketKey
+    ? `\`wf issue:commit -m "${ticketKey}: <Description beginning with an uppercase letter>"\``
+    : '`wf issue:commit -m "<ticket-key>: <Description beginning with an uppercase letter>"`';
   return `Commit policy: this change is estimated **${policy.complexity}** complexity. `
-    + `You MAY create a git commit for this change. ${OVERRIDE_CLAUSE}`;
+    + `You MAY create a git commit for this change using ${commitExample}. `
+    + `The commit description must begin with an uppercase letter. ${OVERRIDE_CLAUSE}`;
 };

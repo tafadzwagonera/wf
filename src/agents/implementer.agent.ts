@@ -474,7 +474,7 @@ export class ImplementerAgent {
     const { repoName, contextFiles } = resolved;
     const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact, options.isNewRepo);
     const tracked = await this.alignTrackedFiles(resolved.repoFiles, repoName, options.repoDir);
-    const conventionsSection = this.buildConventionsSection(options.repoDir, repoName, planArtifact);
+    const conventionsSection = this.buildConventionsSection(options.repoDir, repoName, planArtifact, ticket.ticketKey);
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
@@ -486,7 +486,7 @@ export class ImplementerAgent {
     });
   }
 
-  private buildConventionsSection(repoDir: string | undefined, repoName: string, planArtifact: PlanArtifact): string {
+  private buildConventionsSection(repoDir: string | undefined, repoName: string, planArtifact: PlanArtifact, ticketKey?: string): string {
     const conventions = detectRepoConventions(repoDir ?? process.cwd());
     const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
     console.log(chalk.cyan(
@@ -494,7 +494,7 @@ export class ImplementerAgent {
     ));
     return [
       formatRepoConventionsPromptSection(conventions, repoName),
-      formatCommitPolicyPromptSection(policy),
+      formatCommitPolicyPromptSection(policy, ticketKey),
     ].filter(Boolean).join('\n\n');
   }
 
