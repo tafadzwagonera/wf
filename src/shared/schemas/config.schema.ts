@@ -41,6 +41,7 @@ export const wfAiStageTargetConfigSchema = z.object({
 });
 
 export const wfPlanStageConfigSchema = wfAiStageTargetConfigSchema.extend({
+  figma: z.boolean().optional(),
   skills: z.array(wfPlanSkillNameSchema).optional(),
 });
 

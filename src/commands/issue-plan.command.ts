@@ -348,11 +348,15 @@ export class IssuePlanCommand extends CommandRunner {
     if (!this.returnCachedPlanIfExists(ctx.planPath, options)) await this.generateAndSaveCustomPlan(ctx, options);
   }
 
+  private isFigmaEnabled(options: IssuePlanOptions): boolean {
+    return options.figma === true || this.configService.get<boolean>('stages.plan.figma') === true;
+  }
+
   private async generateAndSaveCustomPlan(
     ctx: ReturnType<IssuePlanCommand['resolveCustomPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
     const sourceContent = fs.readFileSync(ctx.sourcePath, 'utf-8');
-    const autoLinks = extractFigmaLinks(sourceContent);
+    const autoLinks = this.isFigmaEnabled(options) ? extractFigmaLinks(sourceContent) : [];
     const { plan, figmaLinks } = await this.generatePlan(
       sourceContent, ctx.baseDir, { ...options, figmaLinks: autoLinks }
     );
@@ -416,7 +420,7 @@ export class IssuePlanCommand extends CommandRunner {
     ticketKey: string, ticketContent: string,
     ctx: ReturnType<IssuePlanCommand['resolveTicketPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
-    const autoLinks = extractFigmaLinks(ticketContent);
+    const autoLinks = this.isFigmaEnabled(options) ? extractFigmaLinks(ticketContent) : [];
     const { plan, figmaLinks } = await this.generatePlan(
       ticketContent, ctx.baseDir, { ...options, ticketKey, figmaLinks: autoLinks }
     );
@@ -475,9 +479,11 @@ export class IssuePlanCommand extends CommandRunner {
       resumeProviderSessionId: options?.sessionId,
     });
 
-    const figmaLinks = await resolvePostParseFigmaLinks(
-      content, options.figmaLinks ?? [], { allowPrompt: !options.silent, conventions: discovery.conventions }
-    );
+    const figmaLinks = this.isFigmaEnabled(options)
+      ? await resolvePostParseFigmaLinks(
+          content, options.figmaLinks ?? [], { allowPrompt: !options.silent, conventions: discovery.conventions }
+        )
+      : [];
     this.validateGeneratedPlan(
       plan, baseDir, this.resolveExpectedRepositories(baseDir, options?.repos), detectTestInfra(baseDir)
     );

@@ -485,7 +485,7 @@ describe('IssuePlanCommand', () => {
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
     const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
 
-    await command.run([], { action: 'fix', ticketKey: 'WBP-2', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-2', repos: ['repo-a'], figma: true });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       ticketContent,
@@ -1386,11 +1386,100 @@ describe('IssuePlanCommand', () => {
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
 
-    await command.run([], { action: 'fix', ticketKey: 'WBP-600', repos: ['repo-a'] });
+    await command.run([], { action: 'fix', ticketKey: 'WBP-600', repos: ['repo-a'], figma: true });
 
     expect(planStageService.generatePlan).toHaveBeenCalledWith(
       ticketContent,
       expect.objectContaining({ figmaLinks: [] }),
+    );
+    expect(writePlanArtifactManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
+    );
+  });
+
+  it('skips Figma link extraction when neither --figma nor stages.plan.figma is set', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../shared/utils/extract-figma-links');
+    (resolvePostParseFigmaLinks as jest.Mock).mockClear();
+    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+
+    const ticketContent = '# WBP-700: Style the button\n\nSee https://figma.com/design/abc123/Card for the frame.';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-700', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-700.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-700', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-700.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style the button', estimatedComplexity: 'low',
+        steps: ['Update styles'], affectedFiles: ['repo-a/src/Button.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-700', repos: ['repo-a'] });
+
+    expect(resolvePostParseFigmaLinks).not.toHaveBeenCalled();
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      ticketContent,
+      expect.objectContaining({ figmaLinks: [] }),
+    );
+    expect(writePlanArtifactManifest).toHaveBeenCalledWith(
+      expect.objectContaining({ figmaLinks: undefined }),
+    );
+  });
+
+  it('extracts Figma links when stages.plan.figma is true in config and --figma is not passed', async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        IssuePlanCommand,
+        { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'), getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions') } },
+        { provide: IssueTrackerService, useValue: {} },
+        { provide: FetchStageService, useValue: { fetchArtifact: jest.fn(), loadArtifact: jest.fn() } },
+        { provide: PlanStageService, useValue: { generatePlan: jest.fn(), enrichPlanWithDirectoryConfigs: jest.fn() } },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, defaultValue?: string) => {
+              if (key === 'tracker') return 'jira';
+              if (key === 'stages.plan.figma') return true;
+              return defaultValue;
+            }),
+          },
+        },
+        { provide: LoggerService, useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() } },
+        { provide: CliPresenter, useValue: { stageHeader: jest.fn(), separator: jest.fn(), progress: jest.fn(), outcome: jest.fn(), detail: jest.fn(), summaryBlock: jest.fn() } },
+        { provide: DryRunPreviewService, useValue: { showHeader: jest.fn(), showSummary: jest.fn(), showValidationResult: jest.fn(), previewApiCall: jest.fn(), previewFileRead: jest.fn(), previewFileWrite: jest.fn() } },
+      ],
+    }).compile();
+    const command = module.get(IssuePlanCommand);
+    const fetchStageService = module.get(FetchStageService) as jest.Mocked<FetchStageService>;
+    const planStageService = module.get(PlanStageService) as jest.Mocked<PlanStageService>;
+    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+
+    const ticketContent = '# WBP-800: Style the card\n\nSee https://figma.com/design/abc123/Card for the frame.';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-800', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-800.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-800', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-800.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style the card', estimatedComplexity: 'low',
+        steps: ['Match the frame'], affectedFiles: ['repo-a/src/Card.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-800', repos: ['repo-a'] });
+
+    expect(planStageService.generatePlan).toHaveBeenCalledWith(
+      ticketContent,
+      expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
     );
     expect(writePlanArtifactManifest).toHaveBeenCalledWith(
       expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
