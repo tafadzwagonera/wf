@@ -172,7 +172,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
     + 'outside the selected repository are rejected. '
-    + 'Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. '
+    + 'When `--figma` is passed or `stages.plan.figma` is `true`, Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. '
     + 'When no inline Figma links are found but a design system is detected in the repo, an interactive prompt asks for frame links in TTY sessions; links supplied this way are stored in the manifest but are not threaded into the AI generation context.',
   arguments: '',
 })
@@ -266,7 +266,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '--figma',
-    description: 'Marks this plan run as Figma-enabled; link resolution runs automatically when a UI design system is detected.',
+    description: 'Enable Figma link extraction; inline Figma links in the ticket are stored in the plan manifest for use by `issue:implement --figma` and `issue:review --figma`. Overrides `stages.plan.figma` config.',
   })
   parseFigma(): boolean {
     return true;

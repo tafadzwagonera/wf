@@ -336,11 +336,15 @@
       {
         "comment": "Preview changes without running the agent",
         "command": "wf issue:implement -k PROJ-123 --dry-run"
+      },
+      {
+        "comment": "Implement with Figma REST API design context from the plan manifest",
+        "command": "wf issue:implement -k PROJ-123 --figma"
       }
     ]
   },
   "issue:plan": {
-    "description": "Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected. Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. When no inline Figma links are found but a design system is detected in the repo, an interactive prompt asks for frame links in TTY sessions; links supplied this way are stored in the manifest but are not threaded into the AI generation context.",
+    "description": "Plan ticket implementation from a local artifact or repo-scoped custom artifact. If a local artifact is not found, the command will attempt to fetch it from the primary tracker. Use --force to fetch and recreate artifacts. Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. Targeted verification commands are interpreted as repo-root-relative: redundant `cd <repo>` prefixes are normalized away, while commands that change directories outside the selected repository are rejected. When `--figma` is passed or `stages.plan.figma` is `true`, Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. When no inline Figma links are found but a design system is detected in the repo, an interactive prompt asks for frame links in TTY sessions; links supplied this way are stored in the manifest but are not threaded into the AI generation context.",
     "usage": "wf issue:plan [options]",
     "options": [
       {
@@ -357,7 +361,7 @@
       },
       {
         "flags": "--figma",
-        "description": "Marks this plan run as Figma-enabled; link resolution runs automatically when a UI design system is detected."
+        "description": "Enable Figma link extraction; inline Figma links in the ticket are stored in the plan manifest for use by `issue:implement --figma` and `issue:review --figma`. Overrides `stages.plan.figma` config."
       },
       {
         "flags": "--force",
@@ -408,6 +412,10 @@
       {
         "comment": "Force re-fetch before planning",
         "command": "wf issue:plan -k WBP-2971 --action fix --force --tracker jira"
+      },
+      {
+        "comment": "Extract Figma links from ticket and store in plan manifest",
+        "command": "wf issue:plan -k WBP-2971 --action fix --figma"
       }
     ]
   },
@@ -560,6 +568,14 @@
       {
         "comment": "Resume a provider-backed review session; CLI review sessions fork the epilogue session so manual resume stays readable",
         "command": "wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3"
+      },
+      {
+        "comment": "Review with Figma design conformance context fetched from the plan manifest",
+        "command": "wf issue:review --ticket-key WBP-2971 --figma"
+      },
+      {
+        "comment": "Override plan manifest Figma links with explicit frame URLs",
+        "command": "wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?node-id=1-1"
       }
     ]
   },

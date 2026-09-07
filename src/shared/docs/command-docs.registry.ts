@@ -52,6 +52,10 @@ export const COMMAND_DOCS = {
         comment: 'Force re-fetch before planning',
         command: 'wf issue:plan -k WBP-2971 --action fix --force --tracker jira',
       },
+      {
+        comment: 'Extract Figma links from ticket and store in plan manifest',
+        command: 'wf issue:plan -k WBP-2971 --action fix --figma',
+      },
     ],
   },
   'issue:fetch': {
@@ -93,6 +97,10 @@ export const COMMAND_DOCS = {
       {
         comment: 'Preview changes without running the agent',
         command: 'wf issue:implement -k PROJ-123 --dry-run',
+      },
+      {
+        comment: 'Implement with Figma REST API design context from the plan manifest',
+        command: 'wf issue:implement -k PROJ-123 --figma',
       },
     ],
   },
@@ -139,6 +147,14 @@ export const COMMAND_DOCS = {
         comment:
           'Resume a provider-backed review session; CLI review sessions fork the epilogue session so manual resume stays readable',
         command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',
+      },
+      {
+        comment: 'Review with Figma design conformance context fetched from the plan manifest',
+        command: 'wf issue:review --ticket-key WBP-2971 --figma',
+      },
+      {
+        comment: 'Override plan manifest Figma links with explicit frame URLs',
+        command: 'wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?node-id=1-1',
       },
     ],
   },

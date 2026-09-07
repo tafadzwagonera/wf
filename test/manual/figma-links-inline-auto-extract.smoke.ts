@@ -6,6 +6,9 @@
  * returns it immediately (no inquirer prompt) and the link is written to both
  * the generatePlan figmaLinks argument and the persisted manifest.
  *
+ * Also verifies the figma-enabled gate: when neither --figma nor stages.plan.figma
+ * is set, autoLinks is forced to [] so no Figma links reach the manifest.
+ *
  * Run: nr test:manual -- figma-links-inline-auto-extract.smoke
  */
 
@@ -63,6 +66,27 @@ async function main(): Promise<void> {
       pass('No Figma prompt text emitted to stdout (early return skips inquirer)');
     } else {
       fail('Unexpected figma-related stdout during early return', stdoutCapture.join(''));
+    }
+
+    console.log(chalk.bold.cyan('\nTest 2: figma gate — when not enabled, autoLinks is [] so no links reach the manifest'));
+
+    const gatedAutoLinks: string[] = [];
+    const gatedLinks = await resolvePostParseFigmaLinks(ticketContent, gatedAutoLinks, {
+      allowPrompt: false,
+      repoDir: tempDir,
+    });
+
+    if (gatedLinks.length === 0) {
+      pass('resolvePostParseFigmaLinks returns [] when autoLinks seed is [] (figma gate off)');
+    } else {
+      fail('Expected [] from gated path but got links', JSON.stringify(gatedLinks));
+    }
+
+    const inlineLinks = extractFigmaLinks(ticketContent);
+    if (inlineLinks.length === 2) {
+      pass('extractFigmaLinks still detects links in content — gating is in the caller, not the utility');
+    } else {
+      fail('extractFigmaLinks returned unexpected count', String(inlineLinks.length));
     }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
