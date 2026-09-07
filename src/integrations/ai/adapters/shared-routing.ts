@@ -269,13 +269,15 @@ const buildPhaseCheckpointSection = (phases: PlanPhase[] | undefined, planSteps:
   return [phaseCheckpointHeader, ...phases.map((p, i) => formatPhaseEntry(p, i, planSteps))].join('\n');
 };
 
-const buildImplementSkillSection = (skillNames: string[] | undefined, figmaSkillHint?: string): string => {
-  if (!skillNames?.length && !figmaSkillHint) return '';
+const buildImplementSkillSection = (skillNames: string[] | undefined, figmaContextSection?: string): string => {
+  if (!skillNames?.length && !figmaContextSection) return '';
   const lines: string[] = (skillNames ?? []).map(s => `- Skill('${s}')`);
-  if (figmaSkillHint) lines.push(`- ${figmaSkillHint}`);
-  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
+  const skillBlock = lines.length
+    ? '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
     + lines.join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.';
+    + '\nFollow each skill\'s instructions fully before proceeding.'
+    : '';
+  return figmaContextSection ? `${skillBlock}\n\n${figmaContextSection}` : skillBlock;
 };
 
 const resolveTrackedFileList = (params: BuildTaskBriefParams): string => {
@@ -326,7 +328,7 @@ Tracked files:
 ${resolveTrackedFileList(params)}
 
 Verification commands:
-${formatVerificationList(params.verificationScripts)}${formatRisksSection(params.planRisks)}${buildPhaseCheckpointSection(params.phases, params.planSteps)}${buildImplementSkillSection(params.skillNames, params.figmaSkillHint)}`;
+${formatVerificationList(params.verificationScripts)}${formatRisksSection(params.planRisks)}${buildPhaseCheckpointSection(params.phases, params.planSteps)}${buildImplementSkillSection(params.skillNames, params.figmaContextSection)}`;
 
 /**
  * Backward-compatible wrapper that joins the behavioral context and task brief.

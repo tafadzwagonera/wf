@@ -155,7 +155,7 @@ type GenerateAndVerifyParams = {
   trackedFilePaths: string[];
   conventionsSection?: string;
   skillNames?: string[];
-  figmaSkillHint?: string;
+  figmaContextSection?: string;
 };
 
 const findSafePruneIndex = (
@@ -1295,7 +1295,7 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
-  skillNames: params.skillNames, figmaSkillHint: params.figmaSkillHint,
+  skillNames: params.skillNames, figmaContextSection: params.figmaContextSection,
   phases: params.planArtifact.plan.phases ?? undefined,
 });
 
@@ -1416,7 +1416,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
 
   private async buildSkillFragment(params: GenerateAndVerifyParams): Promise<string> {
     const skillPart = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames) : '';
-    const figmaPart = params.figmaSkillHint ? `\n- ${params.figmaSkillHint}` : '';
+    const figmaPart = params.figmaContextSection ? `\n\n${params.figmaContextSection}` : '';
     return `${skillPart}${figmaPart}`;
   }
 

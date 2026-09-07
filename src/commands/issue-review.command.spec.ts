@@ -474,6 +474,43 @@ describe('IssueReviewCommand', () => {
     jest.clearAllMocks();
   });
 
+  describe('parseFigma', () => {
+    it('returns empty array when called with no value', async () => {
+      const { command } = await buildCommand();
+      expect((command as any).parseFigma(undefined, [])).toEqual([]);
+    });
+
+    it('accumulates URLs across repeated calls', async () => {
+      const { command } = await buildCommand();
+      const first = (command as any).parseFigma('https://figma.com/design/A/F?node-id=1-1', []);
+      const second = (command as any).parseFigma('https://figma.com/design/B/F?node-id=2-2', first);
+      expect(second).toEqual([
+        'https://figma.com/design/A/F?node-id=1-1',
+        'https://figma.com/design/B/F?node-id=2-2',
+      ]);
+    });
+  });
+
+  describe('resolveFigmaResultForTarget', () => {
+    it('passes overrideLinks when options.figma has URLs', async () => {
+      const { command } = await buildCommand();
+      const figmaStageService = (command as any).figmaStageService as { resolveIfEnabled: jest.Mock };
+      figmaStageService.resolveIfEnabled.mockResolvedValue(undefined);
+
+      await (command as any).resolveFigmaResultForTarget(
+        { repoDir: '/tmp/repo' },
+        { figma: ['https://figma.com/design/A/F?node-id=1-1'] }
+      );
+
+      expect(figmaStageService.resolveIfEnabled).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overrideLinks: ['https://figma.com/design/A/F?node-id=1-1'],
+          force: true,
+        })
+      );
+    });
+  });
+
   describe('parseFormat', () => {
     it('accepts json|md|yaml|yml', async () => {
       const { command } = await buildCommand();

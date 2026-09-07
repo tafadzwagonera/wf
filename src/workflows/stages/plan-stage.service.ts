@@ -160,7 +160,7 @@ export class PlanStageService {
   }
 
   private warnNoFigmaLinks(reason: 'no-links-found' | 'non-interactive-session'): void {
-    appendToLogFile('WARN', `No Figma frame links found in ticket (${reason}) — figma-implement/figma-design-check will be skipped.`, 'figma-stage');
+    appendToLogFile('WARN', `No Figma frame links found in ticket (${reason}) — Figma REST API design context injection will be skipped.`, 'figma-stage');
   }
 
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {

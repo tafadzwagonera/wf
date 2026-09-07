@@ -2555,6 +2555,16 @@ describe('IssueCommand', () => {
     });
   });
 
+  describe('buildImplementerOptions figma forwarding', () => {
+    it('includes figma from IssueOptions in the returned options', async () => {
+      const command = await buildCommand();
+      const opts = (command as any).buildImplementerOptions(
+        'repo', ['repo'], { tracker: 'jira', figma: true }, false, {}
+      );
+      expect(opts).toHaveProperty('figma', true);
+    });
+  });
+
   describe('buildImplementerOptions isNewRepo', () => {
     it('sets isNewRepo when repo is in plan newRepositories', async () => {
       const command = await buildCommand();

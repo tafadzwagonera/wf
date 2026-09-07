@@ -604,7 +604,7 @@ type GenerateAndVerifyParams = {
   trackedFilePaths: string[];
   conventionsSection?: string;
   skillNames?: string[];
-  figmaSkillHint?: string;
+  figmaContextSection?: string;
 };
 
 const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: string): SystemPromptParams => ({
@@ -698,7 +698,7 @@ const buildAgentSessionTaskBriefParams = (s: AgentSessionParams): BuildTaskBrief
   trackedFilePaths: s.params.trackedFilePaths, verificationScripts: s.params.verificationScripts,
   planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
   planRisks: s.params.planArtifact.plan.risks, planAction: s.params.planArtifact.plan.action,
-  skillNames: s.params.skillNames, figmaSkillHint: s.params.figmaSkillHint,
+  skillNames: s.params.skillNames, figmaContextSection: s.params.figmaContextSection,
   phases: s.params.planArtifact.plan.phases,
 });
 

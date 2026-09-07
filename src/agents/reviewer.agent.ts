@@ -11,6 +11,7 @@ import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
@@ -102,13 +103,6 @@ export class ReviewerAgent {
     return true;
   }
 
-  private buildFigmaSkillHint(figmaResult?: FigmaResolveResult): string | undefined {
-    if (!figmaResult) return undefined;
-    const links = figmaResult.figmaLinks.join(' ');
-    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
-    return `Skill('figma-design-check', '${links}${branch}')`;
-  }
-
   private async stageAndReview(
     ticket: TicketArtifact, repoDir: string, options: ReviewerOptions,
     onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult
@@ -122,7 +116,7 @@ export class ReviewerAgent {
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
       onProgress,
-      figmaSkillHint: this.buildFigmaSkillHint(figmaResult),
+      figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []),
     });
   }
 

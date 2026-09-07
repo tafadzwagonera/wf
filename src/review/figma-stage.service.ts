@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { FigmaFrameContext, FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import {
@@ -12,15 +13,19 @@ import type { StageProgressCallback } from '../shared/types/agent.types';
 export interface FigmaStageOptions {
   repoDir: string;
   force?: boolean;
+  /** Config key to consult when `force` is absent. Defaults to `'stages.review.figma'`. */
+  configKey?: string;
   ticketKey?: string;
   trackerName?: string;
   artifactDir?: string;
+  overrideLinks?: string[];
   onProgress?: StageProgressCallback;
 }
 
 export interface FigmaResolveResult {
   figmaLinks: string[];
   baseBranch?: string;
+  frames: FigmaFrameContext[];
 }
 
 @Injectable()
@@ -29,23 +34,31 @@ export class FigmaStageService {
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
     private readonly logger: LoggerService,
+    private readonly figmaRestClient: FigmaRestClient,
   ) {}
 
   async resolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
-    const configEnabled = this.configService.get<boolean>('stages.review.figma') === true;
+    const key = options.configKey ?? 'stages.review.figma';
+    const configEnabled = this.configService.get<boolean>(key) === true;
     if (!options.force && !configEnabled) return undefined;
+    if (options.overrideLinks?.length) {
+      const frames = await this.figmaRestClient.fetchFrames(options.overrideLinks);
+      return { figmaLinks: options.overrideLinks, frames };
+    }
+    return this.resolveFromManifest(options);
+  }
 
+  private async resolveFromManifest(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
     const branchInfo = await this.gitService.getBranchInfo(options.repoDir);
     const manifest = this.findManifestByBranchName(options.repoDir, branchInfo.current, options);
-
     if (!manifest?.figmaLinks?.length) {
       const msg = '--figma enabled but no Figma links were captured during planning — skipping design-conformance check.';
       options.onProgress?.(msg);
       this.logger.warn(msg, 'figma-stage');
       return undefined;
     }
-
-    return { figmaLinks: manifest.figmaLinks, baseBranch: manifest.sourceBranch };
+    const frames = await this.figmaRestClient.fetchFrames(manifest.figmaLinks);
+    return { figmaLinks: manifest.figmaLinks, baseBranch: manifest.sourceBranch, frames };
   }
 
   private findManifestByBranchName(

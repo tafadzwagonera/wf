@@ -1441,6 +1441,7 @@ export class IssueCommand extends CommandRunner {
       silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
       skipInstall: options.skipInstall,
       isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
+      figma: options?.figma,
       ...sessionContext,
     };
   }

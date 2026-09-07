@@ -49,7 +49,7 @@ interface ReviewDiffOptions {
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
   skillNames?: string[];
-  figmaSkillHint?: string;
+  figmaContextSection?: string;
 }
 
 @Injectable()
@@ -158,11 +158,11 @@ export class ReviewStageService {
 
   private async reviewViaAgent(diff: string, guidelines: string[], options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string }> {
+    const { skillNames, forkSession, figmaContextSection } = options;
     try {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
-        options.resumeProviderSessionId, options.onProgress,
-        { skillNames: options.skillNames, forkSession: options.forkSession, figmaSkillHint: options.figmaSkillHint }
+        options.resumeProviderSessionId, options.onProgress, { skillNames, forkSession, figmaContextSection }
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {

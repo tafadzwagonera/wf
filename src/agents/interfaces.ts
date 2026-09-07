@@ -90,7 +90,7 @@ export interface ImplementerBackend {
     trackedFilePaths: string[];
     conventionsSection?: string;
     skillNames?: string[];
-    figmaSkillHint?: string;
+    figmaContextSection?: string;
   }): Promise<{
     sessionId?: string;
     verificationOutcomes: VerificationOutcome[];

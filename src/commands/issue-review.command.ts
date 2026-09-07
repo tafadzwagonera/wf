@@ -39,6 +39,7 @@ import * as YAML from 'yaml';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 
@@ -56,7 +57,7 @@ interface IssueReviewOptions {
   silent?: boolean;
   sessionId?: string;
   sonar?: boolean;
-  figma?: boolean;
+  figma?: string[];
   skipVerification?: boolean;
   estimatedComplexity?: string;
   passCount?: number;
@@ -136,7 +137,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
     + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact. '
-    + 'Runs a Figma design-conformance check when `stages.review.figma` is `true` or `--figma` is passed; Figma frame links captured from the ticket description during `issue:plan` are stored in the plan manifest and re-read at review time to inject a `figma-design-check` skill hint into the review prompt, directing the reviewer model to evaluate visual conformance against the original frames.',
+    + 'Runs a Figma design-conformance check when `stages.review.figma` is `true` or `--figma` is passed; Figma frame links captured from the ticket description during `issue:plan` are stored in the plan manifest and re-read at review time to fetch design context via the Figma REST API, injecting frame name, dimensions, and screenshot URL into the review prompt so the reviewer model can evaluate visual conformance against the original frames.',
   arguments: '[pr-url]',
   options: { isDefault: false },
 })
@@ -648,13 +649,6 @@ export class IssueReviewCommand extends CommandRunner {
     return review;
   }
 
-  private buildFigmaSkillHint(figmaResult: FigmaResolveResult | undefined): string | undefined {
-    if (!figmaResult) return undefined;
-    const links = figmaResult.figmaLinks.join(' ');
-    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
-    return `Skill('figma-design-check', '${links}${branch}')`;
-  }
-
   private buildReviewDiffOptions(
     target: ReviewTarget, context: string, extraCriteria: string[] | null,
     options: IssueReviewOptions | undefined, onProgress: ((line: string) => void) | undefined,
@@ -670,7 +664,7 @@ export class IssueReviewCommand extends CommandRunner {
       priorStageSummary: options?.priorStageSummary,
       forkSession: options?.forkSession,
       onProgress,
-      figmaSkillHint: this.buildFigmaSkillHint(figmaResult),
+      figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []),
     };
   }
 
@@ -702,9 +696,11 @@ export class IssueReviewCommand extends CommandRunner {
   private async resolveFigmaResultForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
   ): Promise<FigmaResolveResult | undefined> {
+    const overrideLinks = options?.figma?.length ? options.figma : undefined;
     return this.figmaStageService.resolveIfEnabled({
       repoDir: target.repoDir ?? process.cwd(),
-      force: options?.figma,
+      force: options?.figma !== undefined,
+      overrideLinks,
       ticketKey: options?.ticketKey,
       trackerName: this.resolveTrackerNameSafely(options?.tracker),
       onProgress,
@@ -882,11 +878,11 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--figma',
-    description: 'Enable Figma design-conformance check during REVIEW, overriding stages.review.figma config',
+    flags: '--figma [urls...]',
+    description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest.',
   })
-  parseFigma(): boolean {
-    return true;
+  parseFigma(val: string, prev: string[] = []): string[] {
+    return val ? [...prev, val] : prev;
   }
 
   @Option({

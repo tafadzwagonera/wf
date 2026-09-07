@@ -211,6 +211,13 @@ describe('IssuePlanCommand', () => {
     });
   });
 
+  describe('parseFigma', () => {
+    it('returns true', async () => {
+      const { command } = await buildCommand();
+      expect((command as any).parseFigma()).toBe(true);
+    });
+  });
+
   it('stores custom-mode plans under the artifact repo namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;

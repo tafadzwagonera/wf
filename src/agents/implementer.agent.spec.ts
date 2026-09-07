@@ -1858,6 +1858,53 @@ describe('ImplementerAgent', () => {
     });
   });
 
+  describe('Figma context injection', () => {
+    beforeEach(() => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('passes configKey stages.implement.figma so the service reads the correct config path', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      const figmaStageService = (agent as any).figmaStageService as { resolveIfEnabled: jest.Mock };
+      figmaStageService.resolveIfEnabled.mockResolvedValue(undefined);
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, figma: false,
+      });
+
+      expect(figmaStageService.resolveIfEnabled).toHaveBeenCalledWith(
+        expect.objectContaining({ configKey: 'stages.implement.figma' })
+      );
+    });
+
+    it('forwards figmaContextSection (not figmaSkillHint) to the adapter when frames are returned', async () => {
+      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'HeroCard', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png' }];
+      const figmaStageService = (agent as any).figmaStageService as { resolveIfEnabled: jest.Mock };
+      figmaStageService.resolveIfEnabled.mockResolvedValue({ figmaLinks: ['https://figma.com/design/A/F?node-id=1-1'], frames: mockFrames });
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'stages.implement.verificationConditions') return undefined;
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, figma: true,
+      });
+
+      const callArg = adapterSpy.mock.calls[0][0];
+      expect(callArg).toHaveProperty('figmaContextSection');
+      expect(callArg.figmaContextSection).toContain('HeroCard');
+    });
+  });
+
   describe('verification manifest resolution', () => {
     beforeEach(() => {
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });

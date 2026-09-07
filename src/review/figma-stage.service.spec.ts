@@ -9,9 +9,12 @@ jest.mock('../shared/utils/plan-artifact', () => {
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { FigmaStageService } from './figma-stage.service';
+import { FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { findPlanArtifactManifestByBranchName } from '../shared/utils/plan-artifact';
+
+const mockFigmaRestClient = { fetchFrames: jest.fn() };
 
 async function buildService() {
   const mockConfigService = { get: jest.fn().mockReturnValue(undefined) };
@@ -28,6 +31,7 @@ async function buildService() {
       { provide: ConfigService, useValue: mockConfigService },
       { provide: GitService, useValue: mockGitService },
       { provide: LoggerService, useValue: mockLoggerService },
+      { provide: FigmaRestClient, useValue: mockFigmaRestClient },
     ],
   }).compile();
 
@@ -42,6 +46,8 @@ async function buildService() {
 describe('FigmaStageService', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+    mockFigmaRestClient.fetchFrames.mockReset();
+    (findPlanArtifactManifestByBranchName as jest.Mock).mockClear();
   });
 
   describe('resolveIfEnabled', () => {
@@ -50,6 +56,26 @@ describe('FigmaStageService', () => {
       mockConfigService.get.mockReturnValue(false);
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: false });
       expect(result).toBeUndefined();
+    });
+
+    it('consults options.configKey instead of stages.review.figma when configKey is provided', async () => {
+      const { service, mockConfigService } = await buildService();
+      mockConfigService.get.mockImplementation((key: string) =>
+        key === 'stages.implement.figma'
+      );
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
+        sourceBranch: 'main',
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
+      });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
+
+      const result = await service.resolveIfEnabled({
+        repoDir: '/repo', force: false, configKey: 'stages.implement.figma',
+      });
+
+      expect(result).toBeDefined();
+      expect(mockConfigService.get).toHaveBeenCalledWith('stages.implement.figma');
+      expect(mockConfigService.get).not.toHaveBeenCalledWith('stages.review.figma');
     });
 
     it('returns undefined and warns when enabled but manifest has no figmaLinks', async () => {
@@ -66,18 +92,47 @@ describe('FigmaStageService', () => {
       expect(onProgress).toHaveBeenCalledTimes(1);
     });
 
-    it('returns figmaLinks and baseBranch when manifest has links', async () => {
+    it('returns figmaLinks, baseBranch, and frames when manifest has links', async () => {
       const { service, mockConfigService } = await buildService();
       mockConfigService.get.mockReturnValue(true);
       (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
         sourceBranch: 'main',
-        figmaLinks: ['https://figma.com/design/X/Page'],
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
       });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([
+        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' },
+      ]);
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true });
       expect(result).toEqual({
-        figmaLinks: ['https://figma.com/design/X/Page'],
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
         baseBranch: 'main',
+        frames: [{ url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' }],
       });
+    });
+
+    it('skips manifest lookup and uses overrideLinks when provided', async () => {
+      const { service } = await buildService();
+      const overrideLinks = ['https://figma.com/design/A/Page?node-id=2-3'];
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([
+        { url: overrideLinks[0], name: 'Override', width: 200, height: 300, screenshotUrl: 'https://img2' },
+      ]);
+      const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, overrideLinks });
+      expect(result?.figmaLinks).toEqual(overrideLinks);
+      expect(result?.frames).toHaveLength(1);
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+    });
+
+    it('returns frames: [] in degraded mode when fetchFrames returns empty', async () => {
+      const { service, mockConfigService } = await buildService();
+      mockConfigService.get.mockReturnValue(true);
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
+        sourceBranch: 'main',
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
+      });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
+      const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true });
+      expect(result?.figmaLinks).toEqual(['https://figma.com/design/X/Page?node-id=1-1']);
+      expect(result?.frames).toEqual([]);
     });
   });
 });

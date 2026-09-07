@@ -34,6 +34,7 @@ import { PlanStepVerificationService, type PlanStepVerificationRunParams } from 
 import { StepSpecFidelityService } from './step-spec-fidelity.service';
 import type { StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
@@ -170,19 +171,13 @@ export class ImplementerAgent {
     return skills.map(s => s.id);
   }
 
-  private buildFigmaSkillHint(figmaResult?: FigmaResolveResult): string | undefined {
-    if (!figmaResult) return undefined;
-    const links = figmaResult.figmaLinks.join(' ');
-    const branch = figmaResult.baseBranch ? ` ${figmaResult.baseBranch}` : '';
-    return `Skill('figma-implement', '${links}${branch}')`;
-  }
-
   private async runFigmaStage(
     ticket: TicketArtifact, options: ImplementerOptions
   ): Promise<FigmaResolveResult | undefined> {
     return this.figmaStageService.resolveIfEnabled({
       repoDir: options.repoDir ?? process.cwd(),
       force: options.figma,
+      configKey: 'stages.implement.figma',
       ticketKey: ticket.ticketKey,
       artifactDir: path.dirname(ticket.path),
     });
@@ -459,12 +454,12 @@ export class ImplementerAgent {
 
   private async resolveSkillParams(
     ticket: TicketArtifact, options: ImplementerOptions
-  ): Promise<{ skillNames?: string[]; figmaSkillHint?: string }> {
+  ): Promise<{ skillNames?: string[]; figmaContextSection?: string }> {
     const [skillNames, figmaResult] = await Promise.all([
       this.resolveImplementSkillNames(),
       this.runFigmaStage(ticket, options),
     ]);
-    return { skillNames, figmaSkillHint: this.buildFigmaSkillHint(figmaResult) };
+    return { skillNames, figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []) };
   }
 
   private async executeBackendAdapter(
@@ -486,7 +481,9 @@ export class ImplementerAgent {
     });
   }
 
-  private buildConventionsSection(repoDir: string | undefined, repoName: string, planArtifact: PlanArtifact, ticketKey?: string): string {
+  private buildConventionsSection(
+    repoDir: string | undefined, repoName: string, planArtifact: PlanArtifact, ticketKey?: string
+  ): string {
     const conventions = detectRepoConventions(repoDir ?? process.cwd());
     const policy = resolveCommitPolicy(planArtifact.plan.estimatedComplexity);
     console.log(chalk.cyan(

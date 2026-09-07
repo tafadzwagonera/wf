@@ -197,6 +197,7 @@ const implementStageSchema = z
     timeoutMs: z.number().int().min(0).optional(),
     inactivityTimeoutMs: z.number().int().min(0).optional(),
     skills: z.array(z.string()).optional(),
+    figma: z.boolean().optional(),
     verificationConditions: verificationConditionsSchema.optional(),
     planStepVerification: z
       .object({

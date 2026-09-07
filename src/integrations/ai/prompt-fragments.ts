@@ -1,4 +1,5 @@
 import { JSON_OUTPUT_RULES } from './json-output-rules';
+import { FigmaFrameContext } from '../figma/figma-rest.client';
 
 /**
  * Condensed step-writing principles for the plan prompt.
@@ -56,7 +57,7 @@ export const formatFigmaPlanPromptSection = (
   if (figmaLinks?.length) {
     const linkLines = figmaLinks.map(link => '- ' + link).join('\n');
     return 'Figma reference(s) captured for this ticket:\n' + linkLines + '\n'
-      + 'These frames will be fetched for exact tokens by the figma-implement/figma-design-check skills at '
+      + 'These frames will be fetched for exact tokens via the Figma REST API at '
       + 'implement/review time — do not guess spacing, typography, or colour values in this plan.';
   }
   if (!hasDesignSystem) return '';
@@ -131,13 +132,22 @@ export const buildPlanSkillSection = (skillNames?: string[]): string => {
     + '\nFollow each skill\'s instructions fully before proceeding.';
 };
 
-export const buildReviewSkillSection = (skillNames?: string[], figmaSkillHint?: string): string => {
-  if (!skillNames?.length && !figmaSkillHint) return '';
+export const buildFigmaContextSection = (frames: FigmaFrameContext[]): string => {
+  if (!frames.length) return '';
+  return frames
+    .map(f => `Frame: ${f.url}\nName: ${f.name} (${f.width}×${f.height}px)\nScreenshot: ${f.screenshotUrl}`)
+    .join('\n\n');
+};
+
+export const buildReviewSkillSection = (skillNames?: string[], figmaContextSection?: string): string => {
+  if (!skillNames?.length && !figmaContextSection) return '';
   const lines: string[] = (skillNames ?? []).map(s => `- Skill('${s}')`);
-  if (figmaSkillHint) lines.push(`- ${figmaSkillHint}`);
-  return '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
+  const skillBlock = lines.length
+    ? '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
     + lines.join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.\n';
+    + '\nFollow each skill\'s instructions fully before proceeding.\n'
+    : '';
+  return figmaContextSection ? `${skillBlock}\n\n${figmaContextSection}` : skillBlock;
 };
 
 export const deriveModelSource = (provider: string, model: string): string => {

@@ -1,6 +1,4 @@
 import './coding-style.skill';
-import './figma-design-check.skill';
-import './figma-implement.skill';
 import './frontend-design.skill';
 import './receiving-code-review.skill';
 import './test-driven-development.skill';

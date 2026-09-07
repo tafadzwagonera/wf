@@ -854,6 +854,56 @@ describe('ReviewerAgent', () => {
     });
   });
 
+  describe('Figma context injection', () => {
+    it('passes figmaContextSection (not figmaSkillHint) containing frame name to reviewDiff', async () => {
+      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'Hero', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png' }];
+      const mockReviewDiff = jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+      });
+
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: mockReviewDiff,
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          {
+            provide: FigmaStageService,
+            useValue: { resolveIfEnabled: jest.fn().mockResolvedValue({ figmaLinks: [], frames: mockFrames }) },
+          },
+        ],
+      }).compile();
+
+      const agent = module.get(ReviewerAgent);
+      await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo', figma: true }
+      );
+
+      const callArg = mockReviewDiff.mock.calls[0][1];
+      expect(callArg).toHaveProperty('figmaContextSection');
+      expect(callArg.figmaContextSection).toContain('Hero');
+    });
+  });
+
   describe('multi-repo repoScope threading', () => {
     afterEach(() => jest.restoreAllMocks());
 
