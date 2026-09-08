@@ -134,5 +134,60 @@ describe('FigmaStageService', () => {
       expect(result?.figmaLinks).toEqual(['https://figma.com/design/X/Page?node-id=1-1']);
       expect(result?.frames).toEqual([]);
     });
+
+    it('warns with a distinct message when figmaLinks are non-empty but all frame fetches return []', async () => {
+      const { service, mockConfigService, mockLoggerService } = await buildService();
+      mockConfigService.get.mockReturnValue(true);
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
+        sourceBranch: 'main',
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
+      });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
+      const onProgress = jest.fn();
+
+      const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
+
+      expect(result?.frames).toEqual([]);
+      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      const warnMsg: string = mockLoggerService.warn.mock.calls[0][0];
+      expect(warnMsg).not.toContain('no Figma links were captured');
+    });
+
+    it('does not warn when fetchFrames returns at least one frame (partial success)', async () => {
+      const { service, mockConfigService, mockLoggerService } = await buildService();
+      mockConfigService.get.mockReturnValue(true);
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
+        sourceBranch: 'main',
+        figmaLinks: [
+          'https://figma.com/design/X/Page?node-id=1-1',
+          'https://figma.com/design/X/Page?node-id=2-2',
+        ],
+      });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([
+        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' },
+        { url: 'https://figma.com/design/X/Page?node-id=2-2', name: '', width: 0, height: 0, screenshotUrl: '' },
+      ]);
+      const onProgress = jest.fn();
+
+      await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
+
+      expect(mockLoggerService.warn).not.toHaveBeenCalled();
+      expect(onProgress).not.toHaveBeenCalled();
+    });
+
+    it('warns via the overrideLinks branch when all frame fetches return []', async () => {
+      const { service, mockLoggerService } = await buildService();
+      const overrideLinks = ['https://figma.com/design/A/Page?node-id=2-3'];
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
+      const onProgress = jest.fn();
+
+      const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, overrideLinks, onProgress });
+
+      expect(result?.frames).toEqual([]);
+      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(onProgress).toHaveBeenCalledTimes(1);
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+    });
   });
 });

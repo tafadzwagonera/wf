@@ -31,6 +31,7 @@ import { validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
+import { detectReuseCandidates } from '../shared/utils/detect-reuse-candidates';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -167,12 +168,13 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Use --force to fetch and recreate artifacts. '
     + 'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. '
     + 'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. '
-    + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
+    + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices, responsive grid-cols breakpoint tiers mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
+    + 'Existing components and composables whose names share significant vocabulary with the ticket are surfaced in the plan prompt as reuse candidates so the planner can reference them before creating new files; repos that place UI files outside `app/components` or `app/composables` receive no candidates. '
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
     + 'outside the selected repository are rejected. '
-    + 'When `--figma` is passed or `stages.plan.figma` is `true`, Figma frame links found in the ticket description or acceptance criteria are extracted and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. '
+    + 'When `--figma` is passed or `stages.plan.figma` is `true`, Figma frame links found in the ticket description or acceptance criteria are extracted with their full query strings (including `?node-id=` parameters) and stored in the plan manifest, enabling Figma REST API design context injection during a later `issue:implement --figma` run and `issue:review --figma` run. '
     + 'When no inline Figma links are found but a design system is detected in the repo, an interactive prompt asks for frame links in TTY sessions; links supplied this way are stored in the manifest but are not threaded into the AI generation context.',
   arguments: '',
 })
@@ -370,15 +372,14 @@ export class IssuePlanCommand extends CommandRunner {
   private resolveCustomPlanContext(options: IssuePlanOptions) {
     const baseDir = resolveRepoBasePath(options?.repos?.[0]);
     const format = this.resolvePlanFormat(options);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const stem = path.basename(options.customPlan!, '.md');
+    const customPlan = options.customPlan ?? '';
+    const stem = path.basename(customPlan, '.md');
     const hash = hashPlanArtifactSources([stem]);
     const artifactDir = resolveCustomArtifactDir(baseDir);
     const extension = getPlanArtifactExtension(format);
     const planFilename = buildPlanArtifactFilename({ hash, action: options.action, format: extension });
     const planPath = path.join(artifactDir, planFilename);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const sourcePath = resolveCustomSourcePath(options.customPlan!, baseDir, options?.repos);
+    const sourcePath = resolveCustomSourcePath(customPlan, baseDir, options?.repos);
     return { baseDir, format, stem, hash, artifactDir, planFilename, planPath, sourcePath };
   }
 
@@ -469,24 +470,22 @@ export class IssuePlanCommand extends CommandRunner {
   private async generatePlan(
     content: string, baseDir: string, options: IssuePlanOptions
   ): Promise<{ plan: any; figmaLinks: string[] }> {
-    const { action } = options;
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
     const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
 
     const { plan } = await this.planStageService.generatePlan(content, {
-      action, ticketKey: options.ticketKey, affectedRepositories: options?.repos ?? [path.basename(baseDir)],
+      action: options.action, ticketKey: options.ticketKey,
+      affectedRepositories: options?.repos ?? [path.basename(baseDir)],
       repoDir: baseDir, ...discovery, figmaLinks: options.figmaLinks, onProgress,
       resumeProviderSessionId: options?.sessionId,
     });
 
+    const figmaResolveOpts = { allowPrompt: !options.silent, conventions: discovery.conventions };
     const figmaLinks = this.isFigmaEnabled(options)
-      ? await resolvePostParseFigmaLinks(
-          content, options.figmaLinks ?? [], { allowPrompt: !options.silent, conventions: discovery.conventions }
-        )
+      ? await resolvePostParseFigmaLinks(content, options.figmaLinks ?? [], figmaResolveOpts)
       : [];
-    this.validateGeneratedPlan(
-      plan, baseDir, this.resolveExpectedRepositories(baseDir, options?.repos), detectTestInfra(baseDir)
-    );
+    const expectedRepos = this.resolveExpectedRepositories(baseDir, options?.repos);
+    this.validateGeneratedPlan(plan, baseDir, expectedRepos, detectTestInfra(baseDir));
     this.planStageService.enrichPlanWithDirectoryConfigs(plan, baseDir);
     return { plan, figmaLinks };
   }
@@ -495,11 +494,12 @@ export class IssuePlanCommand extends CommandRunner {
     const conventions = detectRepoConventions(baseDir);
     const priorPlans = detectPriorPlans(path.basename(baseDir));
     const planCorrelation = correlatePlans(content, priorPlans, baseDir);
-    const crossRepoPatterns = (options?.repos?.length ?? 0) > 1
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      ? detectCrossRepoPatterns(baseDir, options.repos!.slice(1).map(r => resolveRepoBasePath(r)))
+    const repos = options?.repos ?? [];
+    const crossRepoPatterns = repos.length > 1
+      ? detectCrossRepoPatterns(baseDir, repos.slice(1).map(r => resolveRepoBasePath(r)))
       : undefined;
-    return { conventions, priorPlans, planCorrelation, crossRepoPatterns };
+    const reuseCandidates = detectReuseCandidates(baseDir, content);
+    return { conventions, priorPlans, planCorrelation, crossRepoPatterns, reuseCandidates };
   }
 
   private async savePlan(

@@ -32,6 +32,10 @@ import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
 } from '../../shared/utils/detect-cross-repo-patterns';
+import {
+  formatReuseCandidatesPromptSection,
+  type ReuseCandidateContext,
+} from '../../shared/utils/detect-reuse-candidates';
 import type {
   AIRequest,
   AIResponse,
@@ -279,7 +283,7 @@ const resolvePlanPromptRepoExample = (repositories?: string[]): string => {
   return firstRepository?.trim() || 'current-repo';
 };
 
-const REVIEW_TRACE_META_PATTERNS: RegExp[] = [
+const reviewTraceMetaPatterns: RegExp[] = [
   /\banalyz(?:e|ed|ing|is)?\b/i,
   /\breviewer?\b/i,
   /\bdiff[_\s-]?loaded\b/i,
@@ -296,7 +300,7 @@ const REVIEW_TRACE_META_PATTERNS: RegExp[] = [
   /\breviewed\b/i,
 ];
 
-const REVIEW_TRACE_ANCHOR_PATTERNS: RegExp[] = [
+const reviewTraceAnchorPatterns: RegExp[] = [
   /(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
   /\bclass\s+([A-Za-z_$][\w$]*)/g,
   /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
@@ -304,7 +308,7 @@ const REVIEW_TRACE_ANCHOR_PATTERNS: RegExp[] = [
   /\b(?:this\.)?([A-Za-z_$][\w$]*)\s*=\s*/g,
 ];
 
-const REVIEW_TRACE_STOP_WORDS = new Set([
+const reviewTraceStopWords = new Set([
   'async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'constructor',
   'default', 'delete', 'do', 'else', 'false', 'finally', 'for', 'function', 'if', 'import',
   'let', 'new', 'null', 'protected', 'private', 'public', 'return', 'static', 'super',
@@ -323,7 +327,7 @@ const collectAnchorMatches = (diff: string, pattern: RegExp): Set<string> => {
     const candidate = match[1]?.trim();
     if (!candidate) continue;
     const lowered = candidate.toLowerCase();
-    if (!REVIEW_TRACE_STOP_WORDS.has(lowered)) found.add(lowered);
+    if (!reviewTraceStopWords.has(lowered)) found.add(lowered);
   }
   return found;
 };
@@ -335,7 +339,7 @@ const collectAnchorMatches = (diff: string, pattern: RegExp): Set<string> => {
  */
 const extractReviewTraceAnchors = (diff: string): string[] => {
   const anchors = new Set<string>();
-  for (const pattern of REVIEW_TRACE_ANCHOR_PATTERNS) {
+  for (const pattern of reviewTraceAnchorPatterns) {
     for (const id of collectAnchorMatches(diff, pattern)) anchors.add(id);
   }
   return [...anchors];
@@ -345,7 +349,7 @@ const traceContainsCodeAnchors = (traceText: string, anchors: string[]): boolean
   anchors.some(anchor => traceText.includes(anchor));
 
 const traceContainsReviewerAnalysisLanguage = (traceText: string): boolean =>
-  REVIEW_TRACE_META_PATTERNS.some(pattern => pattern.test(traceText));
+  reviewTraceMetaPatterns.some(pattern => pattern.test(traceText));
 
 /**
  * Build the lowercase JSON text used for trace contamination checks.
@@ -522,6 +526,7 @@ const collectDiscoverySections = (context: Record<string, unknown>, issueContent
     context.crossRepoPatterns && formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext),
     context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
     context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
+    context.reuseCandidates && formatReuseCandidatesPromptSection(context.reuseCandidates as ReuseCandidateContext),
     formatFigmaPlanPromptSection(context.figmaLinks as string[] | undefined, Boolean(conventions?.designSystem)),
   ];
   return candidates.filter((s): s is string => typeof s === 'string' && s.length > 0);
@@ -802,6 +807,7 @@ const buildPlanProseErrorDetails = (
  * Execute one review attempt with unusable-response retry logic.
  * Retries when the response is blank or non-blank prose without JSON.
  * @param executeFn Async function that performs a single AI review call
+ * @param validateFn
  * @param maxRetries Maximum number of recoverable retries
  * @returns Final AIResponse after retries are exhausted or a usable response arrives
  */
@@ -908,15 +914,17 @@ const buildDiffContextSections = (diff: string): { statSummary: string; diffExce
 
 const buildCommitPromptPrinciples = (detectedFormat: 'conventional' | 'freeform', correction?: string): string => {
   const styleRule = detectedFormat === 'conventional' ? 'follows conventional commits format' : 'follows the existing commit message style';
+  const styleRuleBullet = `Match the repository's existing commit style and ${styleRule}`;
   const bullets = [
     "Capture the ticket's intent, not just the mechanical code change",
-    `Match the repository's existing commit style and ${styleRule}`,
+    styleRuleBullet,
     'Be concise but informative — a reader should understand the "why" without opening the diff',
     'Omit ticket IDs or project codes (e.g. WBP-1234) — the prefix is added automatically',
     'The type/scope must reflect the full file list above, not just the first files in the diff',
   ];
+  const bulletLines = bullets.map(b => `- ${b}`).join('\n');
   const correctionLine = correction ? `\n\n${correction}` : '';
-  return `Commit message principles:\n${bullets.map(b => `- ${b}`).join('\n')}${correctionLine}`;
+  return `Commit message principles:\n${bulletLines}${correctionLine}`;
 };
 
 interface CommitPromptParams {

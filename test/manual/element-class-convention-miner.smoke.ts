@@ -145,10 +145,13 @@ async function main(): Promise<void> {
       } else {
         fail('Variant C: modalClasses missing "gap-4"', conv?.modalClasses);
       }
-      if (!conv?.modalClasses.includes('grid-cols-3') && !conv?.modalClasses.includes('grid ') && conv?.modalClasses !== 'grid') {
-        pass('Variant C: modalClasses contains only gap-* token (no "grid" or "grid-cols-3")');
-      } else {
+      const hasNonGapToken = (conv?.modalClasses?.includes('grid-cols-3') ?? false)
+        || (conv?.modalClasses?.includes('grid ') ?? false)
+        || conv?.modalClasses === 'grid';
+      if (hasNonGapToken) {
         fail('Variant C: modalClasses contains non-gap tokens', conv?.modalClasses);
+      } else {
+        pass('Variant C: modalClasses contains only gap-* token (no "grid" or "grid-cols-3")');
       }
     }
 

@@ -451,7 +451,7 @@ const eslintCandidates = [
   '.eslintrc.yml',
   '.eslintrc.yaml',
 ];
-const PRETTIER_CANDIDATES = [
+const prettierCandidates = [
   '.prettierrc',
   '.prettierrc.json',
   '.prettierrc.yml',
@@ -470,7 +470,7 @@ const PRETTIER_CANDIDATES = [
   'prettier.config.mts',
   'prettier.config.cts',
 ];
-const BIOME_CANDIDATES = ['biome.json'];
+const biomeCandidates = ['biome.json'];
 
 /**
  * Detect the linter configuration for the repository.
@@ -488,7 +488,7 @@ const detectLinter = (repoDir: string): RepoConventionsContext['linter'] => {
     return { tool: 'eslint', keyRules: extractEslintKeyRules(eslintConfig as Record<string, unknown>) };
   }
 
-  const biomeFile = findFirst(repoDir, BIOME_CANDIDATES);
+  const biomeFile = findFirst(repoDir, biomeCandidates);
   if (biomeFile) return extractLinterRules('biome', path.join(repoDir, biomeFile));
 
   return null;
@@ -501,7 +501,7 @@ const detectLinter = (repoDir: string): RepoConventionsContext['linter'] => {
  * @returns Formatter context or null
  */
 const detectFormatter = (repoDir: string): RepoConventionsContext['formatter'] => {
-  const prettierFile = findFirst(repoDir, PRETTIER_CANDIDATES);
+  const prettierFile = findFirst(repoDir, prettierCandidates);
   if (prettierFile) return extractLinterRules('prettier', path.join(repoDir, prettierFile));
 
   const pkg = readPackageJson(repoDir);
@@ -839,7 +839,7 @@ const detectLanguageContexts = (inputs: ConventionsInputs): Pick<
  * @param lefthookPath - Path to lefthook.yml or .lefthook.yml
  * @returns Parsed hooks record, or null on failure
  */
-const LEFTHOOK_HOOK_NAMES = new Set(['pre-commit', 'pre-push', 'commit-msg']);
+const lefthookHookNames = new Set(['pre-commit', 'pre-push', 'commit-msg']);
 
 /**
  * Extract run commands from a lefthook hook config entry.
@@ -861,7 +861,7 @@ const parseLefthookConfig = (lefthookPath: string): Record<string, string[]> | n
     const parsed = YAML.parse(raw) as Record<string, unknown>;
     const hooks: Record<string, string[]> = {};
     for (const [hookName, hookConfig] of Object.entries(parsed)) {
-      if (!LEFTHOOK_HOOK_NAMES.has(hookName)) continue;
+      if (!lefthookHookNames.has(hookName)) continue;
       const cmds = extractLefthookCommands(hookConfig);
       if (cmds.length > 0) hooks[hookName] = cmds;
     }
@@ -1102,6 +1102,33 @@ const extractGridGapSamples = (
   return results;
 };
 
+const breakpointOrder: Readonly<Record<string, number>> = { '': 0, sm: 1, md: 2, lg: 3, xl: 4, '2xl': 5 };
+
+const breakpointRank = (token: string): number => {
+  const colon = token.indexOf(':');
+  return breakpointOrder[colon === -1 ? '' : token.slice(0, colon)] ?? 99;
+};
+
+const sortByBreakpoint = (tokens: string[]): string =>
+  [...tokens].sort((a, b) => breakpointRank(a) - breakpointRank(b)).join(' ');
+
+const GRID_COLS_TOKEN_RE = /^(?:[a-z0-9]{2,3}:)?grid-cols-/;
+
+const extractGridColsSamples = (
+  content: string,
+  relPath: string,
+): Array<{ element: string; classes: string; file: string }> => {
+  const results: Array<{ element: string; classes: string; file: string }> = [];
+  const re = /(?<!:)\bclass="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const tokens = m[1].split(/\s+/).filter(t => GRID_COLS_TOKEN_RE.test(t));
+    if (tokens.length < 3) continue;
+    results.push({ element: 'grid-cols', classes: canonicalizeClasses(tokens.join(' ')), file: relPath });
+  }
+  return results;
+};
+
 const rankClassSamples = (samples: Array<{ classes: string; file: string }>) => {
   const counts = new Map<string, { count: number; files: Set<string> }>();
   for (const s of samples) {
@@ -1146,6 +1173,15 @@ const accumulateSamples = (
   }
 };
 
+const collectSamplesFromFile = (
+  content: string,
+  relPath: string,
+): Array<{ element: string; classes: string; file: string }> => [
+  ...extractHeadingClassSamples(content, relPath),
+  ...extractGridGapSamples(content, relPath),
+  ...extractGridColsSamples(content, relPath),
+];
+
 const collectClassSamples = (
   repoDir: string,
   candidateFiles: string[],
@@ -1154,11 +1190,21 @@ const collectClassSamples = (
   for (const filePath of candidateFiles) {
     const content = readFileContentOrNull(filePath);
     if (content === null) continue;
-    const relPath = path.relative(repoDir, filePath);
-    const allSamples = [...extractHeadingClassSamples(content, relPath), ...extractGridGapSamples(content, relPath)];
-    accumulateSamples(samplesMap, allSamples);
+    accumulateSamples(samplesMap, collectSamplesFromFile(content, path.relative(repoDir, filePath)));
   }
   return samplesMap;
+};
+
+const applyGridColsSort = (conv: ElementClassConvention): ElementClassConvention =>
+  ({ ...conv, modalClasses: sortByBreakpoint(conv.modalClasses.split(/\s+/)) });
+
+const toElementConventions = (
+  element: string,
+  elementSamples: Array<{ classes: string; file: string }>,
+): ElementClassConvention[] => {
+  const conv = computeElementConvention(element, elementSamples);
+  if (conv === null) return [];
+  return element === 'grid-cols' ? [applyGridColsSort(conv)] : [conv];
 };
 
 const detectElementClassConventions = (
@@ -1170,10 +1216,7 @@ const detectElementClassConventions = (
     walkDir(root, filePath => elementClassExtensions.has(path.extname(filePath)), skipDirs),
   );
   const samplesMap = collectClassSamples(repoDir, candidateFiles);
-  return [...samplesMap.entries()].flatMap(([element, elementSamples]) => {
-    const conv = computeElementConvention(element, elementSamples);
-    return conv ? [conv] : [];
-  });
+  return [...samplesMap.entries()].flatMap(([element, s]) => toElementConventions(element, s));
 };
 
 const detectUiPatternExemplars = (
@@ -1201,14 +1244,12 @@ const detectDesignSystemContext = (
   const componentLib = detectComponentLibrary(repoDir, keyDeps);
   const patterns = detectUiPatternExemplars(repoDir, sourceRoots, skipDirs);
   const conventions = detectElementClassConventions(repoDir, sourceRoots, skipDirs);
+  const hasUiEnv = !!(framework || componentLib || tailwindConfig || patterns.some(p => p.found) || conventions.length);
   return {
     framework, configFile: resolveDesignSystemConfigFile(repoDir, framework), tailwindConfig,
     darkModeConvention: detectDarkModeConvention(repoDir, tailwindConfig),
     componentLibrary: componentLib, hasStorybook: fs.existsSync(path.join(repoDir, '.storybook')),
-    interactionPatterns: patterns, classConventions: conventions,
-    hasUiEnvironment: !!(
-      framework || componentLib || tailwindConfig || patterns.some(p => p.found) || conventions.length
-    ),
+    interactionPatterns: patterns, classConventions: conventions, hasUiEnvironment: hasUiEnv,
   };
 };
 

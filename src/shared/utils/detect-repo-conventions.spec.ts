@@ -1283,6 +1283,65 @@ describe('detectRepoConventions — designSystem.classConventions', () => {
     expect(conv?.confidence).toBe('high');
   });
 
+  it('detects grid-cols convention when 3+ files each have 3+ grid-cols-* tokens and no bare grid token', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">A</div>' },
+      { name: 'B.vue', content: '<div class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">B</div>' },
+      { name: 'C.vue', content: '<div class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">C</div>' },
+    ]);
+
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-cols');
+    expect(conv).toBeDefined();
+    expect(conv?.confidence).toBe('high');
+    expect(conv?.modalClasses).toBe('grid-cols-1 sm:grid-cols-2 lg:grid-cols-3');
+  });
+
+  it('does not emit a grid-cols sample when fewer than 3 grid-cols-* tokens co-occur in one class string', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div class="grid-cols-1 sm:grid-cols-2">A</div>' },
+      { name: 'B.vue', content: '<div class="grid-cols-1 sm:grid-cols-2">B</div>' },
+      { name: 'C.vue', content: '<div class="grid-cols-1 sm:grid-cols-2">C</div>' },
+    ]);
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-cols');
+    expect(conv).toBeUndefined();
+  });
+
+  it('produces identical breakpoint-ordered modalClasses regardless of source token order', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div class="sm:grid-cols-2 grid-cols-1 lg:grid-cols-3">A</div>' },
+      { name: 'B.vue', content: '<div class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">B</div>' },
+      { name: 'C.vue', content: '<div class="lg:grid-cols-3 sm:grid-cols-2 grid-cols-1">C</div>' },
+    ]);
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-cols');
+    expect(conv?.confidence).toBe('high');
+    expect(conv?.modalClasses).toBe('grid-cols-1 sm:grid-cols-2 lg:grid-cols-3');
+  });
+
+  it('skips :class bindings containing grid-cols-* tokens without throwing', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div :class="{ \'grid-cols-1\': true, \'sm:grid-cols-2\': sm, \'lg:grid-cols-3\': lg }">A</div>' },
+    ]);
+    expect(() => detectRepoConventions(REPO_DIR)).not.toThrow();
+    const ctx = detectRepoConventions(REPO_DIR);
+    const conv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-cols');
+    expect(conv).toBeUndefined();
+  });
+
+  it('existing grid-gap detection still passes after adding grid-cols extractor', () => {
+    mockAppDirFiles([
+      { name: 'A.vue', content: '<div class="grid gap-4 grid-cols-3">A</div>' },
+      { name: 'B.vue', content: '<div class="grid gap-4 grid-cols-3">B</div>' },
+      { name: 'C.vue', content: '<div class="grid gap-4 grid-cols-3">C</div>' },
+    ]);
+    const ctx = detectRepoConventions(REPO_DIR);
+    const gapConv = ctx.designSystem?.classConventions.find(c => c.element === 'grid-gap');
+    expect(gapConv).toBeDefined();
+    expect(gapConv?.confidence).toBe('high');
+  });
+
   it('hasMeaningfulConventionsData returns true when classConventions has high-confidence entries', () => {
     mockAppDirFiles([
       { name: 'A.vue', content: '<h2 class="font-bold text-2xl">T</h2>' },

@@ -73,6 +73,10 @@ import {
   type CrossRepoContext,
   formatCrossRepoPatternsPromptSection,
 } from '../../shared/utils/detect-cross-repo-patterns';
+import {
+  type ReuseCandidateContext,
+  formatReuseCandidatesPromptSection,
+} from '../../shared/utils/detect-reuse-candidates';
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
 
@@ -81,7 +85,7 @@ const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
 const READ_ONLY_OPENAI_MODEL = 'gpt-5.4-mini';
 const READ_ONLY_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_STAGE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash'] as const;
-const ALLOWED_READ_ONLY_COMMAND_PREFIXES = [
+const allowedReadOnlyCommandPrefixes = [
   'pwd',
   'ls',
   'find ',
@@ -256,7 +260,7 @@ const resolveStagePromptRepoExample = (repositories?: string[]): string => {
 };
 
 const isReadOnlyCommand = (command: string): boolean =>
-  ALLOWED_READ_ONLY_COMMAND_PREFIXES.some(prefix => command === prefix || command.startsWith(prefix));
+  allowedReadOnlyCommandPrefixes.some(prefix => command === prefix || command.startsWith(prefix));
 
 type GeneratePlanParams = {
   action: 'fix' | 'feature' | 'investigate';
@@ -268,6 +272,7 @@ type GeneratePlanParams = {
   planCorrelation?: PlanCorrelationResult;
   planQualityFeedback?: string[];
   priorPlans?: PriorPlanContext;
+  reuseCandidates?: ReuseCandidateContext;
   skillNames?: string[];
   testInfra?: TestInfraContext;
   ticketKey?: string;
@@ -281,6 +286,7 @@ const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
     params.crossRepoPatterns ? formatCrossRepoPatternsPromptSection(params.crossRepoPatterns) : '',
     params.planCorrelation ? formatPlanCorrelationPromptSection(params.planCorrelation) : '',
     params.priorPlans ? formatPriorPlansPromptSection(params.priorPlans) : '',
+    params.reuseCandidates ? formatReuseCandidatesPromptSection(params.reuseCandidates) : '',
     formatFigmaPlanPromptSection(params.figmaLinks, Boolean(params.conventions?.designSystem)),
   ].filter(Boolean);
   return parts.length > 0 ? `\n${parts.join('\n\n')}\n` : '';

@@ -27,6 +27,7 @@ import type { RepoConventionsContext,
   PlanCorrelationResult,
   CrossRepoContext
 } from '../../shared/types/detection.types';
+import type { ReuseCandidateContext } from '../../shared/utils/detect-reuse-candidates';
 
 type PlanResult = { plan: ResolutionPlan; sessionId?: string };
 
@@ -48,6 +49,7 @@ interface GeneratePlanOptions {
   planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
   figmaLinks?: string[];
+  reuseCandidates?: ReuseCandidateContext;
   onProgress?: (line: string) => void;
   priorStageSummary?: string;
   resumeProviderSessionId?: string;
@@ -372,7 +374,7 @@ export class PlanStageService {
       priorPlans: o.priorPlans,
       planCorrelation: o.planCorrelation,
       crossRepoPatterns: o.crossRepoPatterns,
-      figmaLinks: o.figmaLinks,
+      figmaLinks: o.figmaLinks, reuseCandidates: o.reuseCandidates,
       skillNames: skillIds.length ? skillIds : undefined,
     };
   }
@@ -383,7 +385,7 @@ export class PlanStageService {
       action: o.action, issueContent: ticketContent, planQualityFeedback: feedback,
       ticketKey: o.ticketKey, affectedRepositories: o.affectedRepositories, testInfra,
       conventions: o.conventions, priorPlans: o.priorPlans, planCorrelation: o.planCorrelation,
-      crossRepoPatterns: o.crossRepoPatterns, figmaLinks: o.figmaLinks,
+      crossRepoPatterns: o.crossRepoPatterns, figmaLinks: o.figmaLinks, reuseCandidates: o.reuseCandidates,
       skillNames: skillIds.length ? skillIds : undefined,
       onProgress: o.onProgress, priorStageSummary: o.priorStageSummary,
       resumeProviderSessionId: o.resumeProviderSessionId,

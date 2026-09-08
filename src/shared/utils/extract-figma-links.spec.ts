@@ -7,7 +7,7 @@ jest.mock('./detect-repo-conventions');
 describe('extractFigmaLinks', () => {
   it('returns a matching figma.com/design URL', () => {
     const text = 'Design at https://www.figma.com/design/abc123/My-Page?node-id=1';
-    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/design/abc123/My-Page']);
+    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/design/abc123/My-Page?node-id=1']);
   });
 
   it('returns empty array when no figma URL is present', () => {
@@ -25,12 +25,47 @@ describe('extractFigmaLinks', () => {
 
   it('returns a matching figma.com/proto URL', () => {
     const text = 'Prototype at https://www.figma.com/proto/AbC123XyZ/Stories-Feed?node-id=12-34';
-    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/proto/AbC123XyZ/Stories-Feed']);
+    expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/proto/AbC123XyZ/Stories-Feed?node-id=12-34']);
   });
 
   it('returns a matching figma.com/board URL', () => {
     const text = 'Board at https://www.figma.com/board/AbC123XyZ/Stories-Brainstorm';
     expect(extractFigmaLinks(text)).toEqual(['https://www.figma.com/board/AbC123XyZ/Stories-Brainstorm']);
+  });
+
+  it('preserves both distinct node-id params when two links on the same file differ only by ?node-id', () => {
+    const urlA = 'https://figma.com/design/abc123/Page?node-id=17-4';
+    const urlB = 'https://figma.com/design/abc123/Page?node-id=30-10616';
+    const result = extractFigmaLinks(`Desktop: ${urlA} Mobile: ${urlB}`);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toBe(urlA);
+    expect(result[1]).toBe(urlB);
+  });
+
+  it('excludes trailing prose punctuation (comma, period, closing-paren) without dropping the query string', () => {
+    expect(extractFigmaLinks('See https://figma.com/design/abc/Page?node-id=1-2, done.')).toEqual([
+      'https://figma.com/design/abc/Page?node-id=1-2',
+    ]);
+    expect(extractFigmaLinks('End of sentence https://figma.com/design/abc/Page?node-id=1-2. See above.')).toEqual([
+      'https://figma.com/design/abc/Page?node-id=1-2',
+    ]);
+    expect(extractFigmaLinks('(https://figma.com/design/abc/Page?node-id=1-2)')).toEqual([
+      'https://figma.com/design/abc/Page?node-id=1-2',
+    ]);
+  });
+
+  it('preserves a query string that contains multiple params joined by &', () => {
+    const text = 'See https://figma.com/design/abc/Page?node-id=1-2&t=abc123 here';
+    expect(extractFigmaLinks(text)).toEqual([
+      'https://figma.com/design/abc/Page?node-id=1-2&t=abc123',
+    ]);
+  });
+
+  it('does not fold a prose ? immediately after the URL into the query string', () => {
+    const text = 'Did you see https://figma.com/design/abc/Page?node-id=1-2? Yes.';
+    expect(extractFigmaLinks(text)).toEqual([
+      'https://figma.com/design/abc/Page?node-id=1-2',
+    ]);
   });
 });
 

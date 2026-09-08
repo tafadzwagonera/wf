@@ -43,6 +43,7 @@ export class FigmaStageService {
     if (!options.force && !configEnabled) return undefined;
     if (options.overrideLinks?.length) {
       const frames = await this.figmaRestClient.fetchFrames(options.overrideLinks);
+      this.warnIfFramesDegenerate(frames, options.overrideLinks, options);
       return { figmaLinks: options.overrideLinks, frames };
     }
     return this.resolveFromManifest(options);
@@ -58,7 +59,19 @@ export class FigmaStageService {
       return undefined;
     }
     const frames = await this.figmaRestClient.fetchFrames(manifest.figmaLinks);
+    this.warnIfFramesDegenerate(frames, manifest.figmaLinks, options);
     return { figmaLinks: manifest.figmaLinks, baseBranch: manifest.sourceBranch, frames };
+  }
+
+  private warnIfFramesDegenerate(
+    frames: FigmaFrameContext[],
+    figmaLinks: string[],
+    options: FigmaStageOptions,
+  ): void {
+    if (frames.length > 0 || figmaLinks.length === 0) return;
+    const msg = '--figma enabled but all Figma frame fetches failed — check FIGMA_TOKEN validity and node IDs.';
+    options.onProgress?.(msg);
+    this.logger.warn(msg, 'figma-stage');
   }
 
   private findManifestByBranchName(
