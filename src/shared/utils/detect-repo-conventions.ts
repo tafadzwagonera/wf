@@ -1392,6 +1392,7 @@ const formatPythonLine = (python: NonNullable<RepoConventionsContext['python']>)
  * @param lines - Mutable array of output lines
  */
 const appendToolingLines = (ctx: RepoConventionsContext, lines: string[]): void => {
+  lines.push(`- Package manager: ${ctx.packageManager}`);
   if (ctx.linter) lines.push(formatLinterLine(ctx.linter));
   if (ctx.formatter) lines.push(formatFormatterLine(ctx.formatter));
   if (ctx.typescript) lines.push(formatTypescriptLine(ctx.typescript));

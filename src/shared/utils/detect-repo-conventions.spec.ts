@@ -690,6 +690,7 @@ describe('formatRepoConventionsPromptSection', () => {
       expect(result).toContain('Folder structure: agents, commands, integrations, shared');
       expect(result).toContain('Naming: kebab-case');
       expect(result).toContain('Framework: NestJS');
+      expect(result).toContain('Package manager: npm');
       expect(result).toContain('Import style: commonjs');
       expect(result).toContain('Key deps: @nestjs/core, jest');
       expect(result).toContain('Error utilities: src/shared/utils/errors.ts');
