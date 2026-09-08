@@ -546,14 +546,104 @@ describe('ReviewStageService', () => {
     );
   });
 
-  it('routes diff summarisation through stageAgentService.chatTurn when review backend is agent', async () => {
+  it('uses stages.review.maxDiffLength from config as the diff threshold', async () => {
+    const customThreshold = 200;
+    const module = await Test.createTestingModule({
+      providers: [
+        ReviewStageService,
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string, fallback?: unknown) => {
+              if (key === 'stages.review.maxDiffLength') return customThreshold;
+              if (key === 'stages.review.backend') return fallback;
+              if (key === 'stages.review.skills') return [];
+              return fallback;
+            }),
+          },
+        },
+        {
+          provide: AiService,
+          useValue: {
+            reviewCode: jest.fn().mockResolvedValue(mockReview),
+            execute: jest.fn().mockResolvedValue({ content: '- '.repeat(200) }),
+          },
+        },
+        {
+          provide: StageAgentService,
+          useValue: {
+            isEnabledForStage: jest.fn().mockReturnValue(false),
+            reviewCode: jest.fn().mockResolvedValue({ review: mockReview }),
+            chatTurn: jest.fn(),
+          },
+        },
+      ],
+    }).compile();
+
+    const service = module.get(ReviewStageService);
+    const onProgress = jest.fn();
+    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(500)}\n+${'x'.repeat(500)}y`;
+
+    await service.reviewDiff(diff, { context: 'test context', onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith(expect.stringContaining(`/${customThreshold} chars`));
+    expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining(`/${customThreshold} chars`), 'review-stage');
+  });
+
+  it('batches oversized file summarisation into a single stageAgentService.chatTurn call with batch prompt format', async () => {
     const { service, stageAgentService, aiService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
     const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+    (stageAgentService as any).chatTurn.mockResolvedValue({
+      content: '=== FILE: file ===\n- agent summary',
+      session: {},
+    });
 
     await service.reviewDiff(largeDiff, { context: 'test context' });
 
-    expect((stageAgentService as any).chatTurn).toHaveBeenCalledWith(expect.objectContaining({ stage: 'review' }));
+    expect((stageAgentService as any).chatTurn).toHaveBeenCalledTimes(1);
+    const call = (stageAgentService as any).chatTurn.mock.calls[0][0];
+    expect(call.userMessage).toMatch(/^File:/);
+    expect(call.systemPrompt).toContain('=== FILE: <path> ===');
     expect((aiService as any).execute).not.toHaveBeenCalled();
+  });
+
+  it('sends a single chatTurn call for multiple oversized files when they fit within one chunk', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const patch = 'x'.repeat(20_000);
+    const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'];
+    const diff = files.map(f => `diff --git a/${f} b/${f}\n${patch}`).join('\n');
+    (stageAgentService as any).chatTurn.mockResolvedValue({
+      content: files.map(f => `=== FILE: ${f} ===\n- changed ${f}`).join('\n'),
+      session: {},
+    });
+
+    await service.reviewDiff(diff, { context: 'test context' });
+
+    expect((stageAgentService as any).chatTurn).toHaveBeenCalledTimes(1);
+    const call = (stageAgentService as any).chatTurn.mock.calls[0][0];
+    expect(call.userMessage).toContain('File: a.ts');
+    expect(call.userMessage).toContain('File: b.ts');
+  });
+
+  it('calls chatTurn once per chunk when selected segments span multiple chunks', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const patch = 'x'.repeat(20_000);
+    const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts', 'g.ts'];
+    const diff = files.map(f => `diff --git a/${f} b/${f}\n${patch}`).join('\n');
+    (stageAgentService as any).chatTurn
+      .mockResolvedValueOnce({
+        content: ['a.ts', 'b.ts'].map(f => `=== FILE: ${f} ===\n- changed ${f}`).join('\n'),
+        session: {},
+      })
+      .mockResolvedValueOnce({
+        content: ['c.ts', 'd.ts'].map(f => `=== FILE: ${f} ===\n- changed ${f}`).join('\n'),
+        session: {},
+      });
+
+    await service.reviewDiff(diff, { context: 'test context' });
+
+    expect((stageAgentService as any).chatTurn).toHaveBeenCalledTimes(2);
   });
 
   it('should forward onProgress to stageAgentService.reviewCode when agent backend is enabled', async () => {

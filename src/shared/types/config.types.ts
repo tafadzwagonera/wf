@@ -5,6 +5,7 @@ import type {
   normalizedAiStageTargetConfigSchema,
   normalizedCreateStageConfigSchema,
   normalizedImplementStageConfigSchema,
+  normalizedReviewStageConfigSchema,
   normalizedVerificationConditionsConfigSchema,
   wfAiProviderConfigSchema,
   wfAiProviderNameSchema,
@@ -18,6 +19,7 @@ import type {
   wfPlanSkillNameSchema,
   wfPlanStageConfigSchema,
   wfReviewSkillNameSchema,
+  wfReviewStageConfigSchema,
   wfVerificationConditionsConfigSchema,
 } from '../schemas/config.schema';
 
@@ -38,5 +40,7 @@ export type WfImplementStageConfig = z.infer<typeof wfImplementStageConfigSchema
 export type WfImplementStageModelsConfig = z.infer<typeof wfImplementStageModelsConfigSchema>;
 export type WfPlanSkillName = z.infer<typeof wfPlanSkillNameSchema>;
 export type WfPlanStageConfig = z.infer<typeof wfPlanStageConfigSchema>;
+export type NormalizedReviewStageConfig = z.infer<typeof normalizedReviewStageConfigSchema>;
 export type WfReviewSkillName = z.infer<typeof wfReviewSkillNameSchema>;
+export type WfReviewStageConfig = z.infer<typeof wfReviewStageConfigSchema>;
 export type WfVerificationConditionsConfig = z.infer<typeof wfVerificationConditionsConfigSchema>;

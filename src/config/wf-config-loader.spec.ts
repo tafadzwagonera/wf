@@ -902,6 +902,36 @@ describe('wf-config-loader', () => {
 
       expect(config.stages.implement?.backend).toBe('standard');
     });
+
+    describe('review stage knob propagation', () => {
+      afterEach(() => jest.restoreAllMocks());
+
+      it('carries maxDiffLength and epilogueTimeoutMs into the normalized config', () => {
+        const config = normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'anthropic-key', model: 'claude-sonnet-4-6', default: true }],
+          stages: {
+            review: {
+              provider: 'anthropic',
+              maxDiffLength: 50_000,
+              epilogueTimeoutMs: 60_000,
+            },
+          },
+        });
+        expect(config.stages.review?.maxDiffLength).toBe(50_000);
+        expect(config.stages.review?.epilogueTimeoutMs).toBe(60_000);
+      });
+
+      it('omits knobs from normalized config when not present in raw config', () => {
+        const config = normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'anthropic-key', model: 'claude-sonnet-4-6', default: true }],
+          stages: {
+            review: { provider: 'anthropic' },
+          },
+        });
+        expect(config.stages.review?.maxDiffLength).toBeUndefined();
+        expect(config.stages.review?.epilogueTimeoutMs).toBeUndefined();
+      });
+    });
   });
 
   describe('loadWfConfig', () => {

@@ -23,6 +23,7 @@ import type {
   NormalizedVerificationConditionsConfig,
   NormalizedImplementStageConfig,
   NormalizedCreateStageConfig,
+  NormalizedReviewStageConfig,
 } from '../shared/types/config.types';
 
 export type {
@@ -30,6 +31,7 @@ export type {
   NormalizedVerificationConditionsConfig,
   NormalizedImplementStageConfig,
   NormalizedCreateStageConfig,
+  NormalizedReviewStageConfig,
 } from '../shared/types/config.types';
 
 import {
@@ -82,7 +84,7 @@ export interface NormalizedWfConfig {
     plan?: NormalizedAiStageTargetConfig;
     implement?: NormalizedImplementStageConfig;
     create?: NormalizedCreateStageConfig;
-    review?: NormalizedAiStageTargetConfig;
+    review?: NormalizedReviewStageConfig;
     generate?: NormalizedAiStageTargetConfig;
     commit?: NormalizedAiStageTargetConfig;
   };
@@ -289,7 +291,10 @@ const configSchema = z
         plan: aiStageTargetSchema.optional(),
         implement: implementStageSchema.optional(),
         create: createStageSchema.optional(),
-        review: aiStageTargetSchema.optional(),
+        review: aiStageTargetSchema.extend({
+          maxDiffLength: z.number().int().min(1).optional(),
+          epilogueTimeoutMs: z.number().int().min(0).optional(),
+        }).optional(),
         generate: aiStageTargetSchema.optional(),
         fetch: z.string().optional(),
         commit: aiStageTargetSchema.optional(),
@@ -836,6 +841,17 @@ const normalizeCreateStageConfig = (
   return { verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions) };
 };
 
+const normalizeReviewStageConfig = (
+  reviewConfig: { maxDiffLength?: number; epilogueTimeoutMs?: number } | undefined,
+  reviewTarget: NormalizedAiStageTargetConfig | undefined
+): NormalizedReviewStageConfig | undefined => {
+  if (!reviewTarget) return undefined;
+  const normalized: NormalizedReviewStageConfig = { ...reviewTarget };
+  if (reviewConfig?.maxDiffLength !== undefined) normalized.maxDiffLength = reviewConfig.maxDiffLength;
+  if (reviewConfig?.epilogueTimeoutMs !== undefined) normalized.epilogueTimeoutMs = reviewConfig.epilogueTimeoutMs;
+  return normalized;
+};
+
 const getInputProviders = (validatedConfig: WfConfig): WfAiProviderConfig[] =>
   validatedConfig.ai?.length
     ? validatedConfig.ai
@@ -966,18 +982,36 @@ const buildLoggingConfig = (loggingSource: LoggingSourceConfig): { directory?: s
   level: loggingSource.level ?? 'info',
 });
 
-const buildNormalizedStages = (
+type NormalizedStages = {
+  aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>;
+  normalizedImplementStage: NormalizedImplementStageConfig | undefined;
+  normalizedCreateStage: NormalizedCreateStageConfig | undefined;
+  normalizedReviewStage: NormalizedReviewStageConfig | undefined;
+};
+
+const buildNormalizedStagesFromAiStages = (
+  aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>,
   validatedConfig: WfConfig,
   configuredProviderNames: Set<WfAiProviderName>,
   configuredProvidersByName: Map<WfAiProviderName, { model: string }>
-) => ({
-  aiStages: buildAiStageTargets(validatedConfig, configuredProviderNames, configuredProvidersByName),
+): NormalizedStages => ({
+  aiStages,
   normalizedImplementStage: normalizeImplementStageConfig({
     implementStageConfig: validatedConfig.stages?.implement,
     implementTarget: resolveImplementStageTarget(validatedConfig, configuredProviderNames, configuredProvidersByName),
   }),
   normalizedCreateStage: normalizeCreateStageConfig(validatedConfig.stages?.create),
+  normalizedReviewStage: normalizeReviewStageConfig(validatedConfig.stages?.review, aiStages.review),
 });
+
+const buildNormalizedStages = (
+  validatedConfig: WfConfig,
+  configuredProviderNames: Set<WfAiProviderName>,
+  configuredProvidersByName: Map<WfAiProviderName, { model: string }>
+): NormalizedStages => buildNormalizedStagesFromAiStages(
+  buildAiStageTargets(validatedConfig, configuredProviderNames, configuredProvidersByName),
+  validatedConfig, configuredProviderNames, configuredProvidersByName
+);
 
 const buildAiApiKeys = (providers: NormalizedAiProviderConfig[]) => ({
   anthropicApiKey: getProviderConfig(providers, 'anthropic')?.apiKey,
@@ -1003,12 +1037,13 @@ const buildAiSection = (
 const buildStageSection = (
   aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>,
   normalizedImplementStage: NormalizedImplementStageConfig | undefined,
-  normalizedCreateStage: NormalizedCreateStageConfig | undefined
+  normalizedCreateStage: NormalizedCreateStageConfig | undefined,
+  normalizedReviewStage: NormalizedReviewStageConfig | undefined
 ): NormalizedWfConfig['stages'] => ({
   plan: aiStages.plan,
   implement: normalizedImplementStage,
   create: normalizedCreateStage,
-  review: aiStages.review,
+  review: normalizedReviewStage,
   generate: aiStages.generate,
   commit: aiStages.commit,
 });
@@ -1064,6 +1099,7 @@ type BuildNormalizedWfConfigInput = {
   aiStages: Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>;
   normalizedImplementStage: NormalizedImplementStageConfig | undefined;
   normalizedCreateStage: NormalizedCreateStageConfig | undefined;
+  normalizedReviewStage: NormalizedReviewStageConfig | undefined;
   loggingSource: LoggingSourceConfig;
 };
 
@@ -1073,7 +1109,9 @@ const buildNormalizedWfConfig = (input: BuildNormalizedWfConfigInput): Normalize
     input.validatedConfig,
     input.validatedConfig.atlassian?.jira?.apiToken ?? input.validatedConfig.atlassian?.apiToken,
     buildAiSection(input.providers, input.activeProvider, input.aiStages),
-    buildStageSection(input.aiStages, input.normalizedImplementStage, input.normalizedCreateStage),
+    buildStageSection(
+      input.aiStages, input.normalizedImplementStage, input.normalizedCreateStage, input.normalizedReviewStage
+    ),
     input.loggingSource
   ),
 });
@@ -1102,15 +1140,12 @@ const normalizeValidatedWfConfig = (validatedConfig: WfConfig): NormalizedWfConf
   const { providers, activeProvider } = buildNormalizedProviderContext(validatedConfig);
   if (hasFetchStageOverride(validatedConfig)) throw new ValidationError('Invalid wf config: fetch stage cannot be overridden in stages.');
   const { configuredProviderNames, configuredProvidersByName } = buildConfiguredProviderLookup(providers);
-  const normalizedStages = buildNormalizedStages(validatedConfig, configuredProviderNames, configuredProvidersByName);
   return buildNormalizedWfConfig({
     validatedConfig,
     providers,
     activeProvider,
-    aiStages: normalizedStages.aiStages,
-    normalizedImplementStage: normalizedStages.normalizedImplementStage,
-    normalizedCreateStage: normalizedStages.normalizedCreateStage,
     loggingSource: validatedConfig.logging ?? validatedConfig.log ?? {},
+    ...buildNormalizedStages(validatedConfig, configuredProviderNames, configuredProvidersByName),
   });
 };
 

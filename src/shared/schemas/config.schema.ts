@@ -73,6 +73,8 @@ export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   skills: z.array(wfReviewSkillNameSchema).optional(),
   sonar: z.boolean().optional(),
   figma: z.boolean().optional(),
+  maxDiffLength: z.number().int().min(1).optional(),
+  epilogueTimeoutMs: z.number().int().min(0).optional(),
 });
 
 export const wfCreateStageConfigSchema = z.object({
@@ -181,6 +183,11 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   timeoutMs: z.number().int().min(0).optional(),
   inactivityTimeoutMs: z.number().int().min(0).optional(),
   skills: z.array(z.string()).optional(),
+});
+
+export const normalizedReviewStageConfigSchema = normalizedAiStageTargetConfigSchema.extend({
+  maxDiffLength: z.number().int().min(1).optional(),
+  epilogueTimeoutMs: z.number().int().min(0).optional(),
 });
 
 export const normalizedVerificationConditionsConfigSchema = z.object({

@@ -1723,7 +1723,7 @@ describe('StageAgentService', () => {
         process.cwd(),
         expect.stringContaining('Summarize the review for the developer'),
         undefined,
-        5000
+        30000
       );
     });
 
@@ -1757,7 +1757,7 @@ describe('StageAgentService', () => {
         process.cwd(),
         expect.stringContaining('Summarize the review for the developer'),
         undefined,
-        5000
+        30000
       );
     });
 
@@ -1900,6 +1900,142 @@ describe('StageAgentService', () => {
         sessionId: 'claude-review-session-42',
       });
       expect(spawnCli).toHaveBeenCalledTimes(2);
+    });
+
+    it('includes the thrown error message as a reason in the epilogue failure log', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(() => {
+          throw new Error('network timeout on epilogue');
+        });
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('network timeout on epilogue'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review epilogue failed'));
+    });
+
+    it('includes the CLI is_error result as a reason in the epilogue failure log', async () => {
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'error',
+            is_error: true,
+            result: 'timed out',
+          })
+        );
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('timed out'));
+      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review epilogue failed'));
+    });
+
+    it('uses stages.review.epilogueTimeoutMs from config as the spawn timeout', async () => {
+      const customTimeout = 45_000;
+      spawnCodex
+        .mockImplementationOnce(
+          makeCodexStream(
+            { type: 'thread.started', thread_id: 'review-session-99' },
+            { type: 'item.completed', item: { type: 'agent_message', text: validReviewJson } }
+          )
+        )
+        .mockImplementationOnce(
+          makeCodexStream({
+            type: 'item.completed',
+            item: { type: 'agent_message', text: 'Epilogue text.' },
+          })
+        );
+
+      const configService = {
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.review.backend': 'cli',
+            'stages.review.provider': 'openai',
+            'stages.review.model': 'gpt-4.1',
+            'ai.provider': 'openai',
+            'ai.model': 'gpt-4.1',
+            'stages.review.epilogueTimeoutMs': customTimeout,
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      } as unknown as ConfigService;
+
+      const service = new StageAgentService(configService);
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(spawnCodex).toHaveBeenLastCalledWith(
+        expect.any(Array),
+        process.cwd(),
+        expect.stringContaining('Summarize the review for the developer'),
+        undefined,
+        customTimeout
+      );
+    });
+
+    it('uses stages.review.epilogueTimeoutMs from config as the Claude CLI epilogue spawn timeout', async () => {
+      const customTimeout = 45_000;
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: 'Epilogue text.',
+          })
+        );
+
+      const configService = {
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.review.backend': 'cli',
+            'stages.review.provider': 'anthropic',
+            'stages.review.model': 'claude-sonnet-4-5-20250514',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-5-20250514',
+            'stages.review.epilogueTimeoutMs': customTimeout,
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      } as unknown as ConfigService;
+
+      const service = new StageAgentService(configService);
+      await service.reviewCode('diff --git a/f b/f', []);
+
+      expect(spawnCli).toHaveBeenLastCalledWith(
+        expect.any(Array),
+        process.cwd(),
+        expect.stringContaining('Summarize the review for the developer'),
+        undefined,
+        customTimeout
+      );
     });
 
     it('skips epilogue when no sessionId is returned', async () => {

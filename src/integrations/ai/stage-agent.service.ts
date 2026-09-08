@@ -112,7 +112,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 
 const CLI_STAGE_LABEL = 'claude-cli';
 const CLI_STALL_THRESHOLD = DEFAULT_STALL_THRESHOLD;
-const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 5000;
+const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 30_000;
 const cliEpiloguePrompt
   = 'Summarize the review for the developer: approval status, issue count by severity, '
     + 'and your top suggestions. Keep it brief and human-readable.';
@@ -1018,6 +1018,10 @@ export class StageAgentService {
     return postProcessCodeReview(sanitizeCodeReviewTrace(parsed, diff), diff).review;
   }
 
+  private epilogueFailureOutcome(error: unknown): { sent: false; reason: string } {
+    return { sent: false, reason: error instanceof Error ? error.message.split('\n')[0] : String(error) };
+  }
+
   private async trySendReviewEpilogue(
     backend: WfBackendMode, sessionId: string | undefined, repoDir: string | undefined,
     systemPrompt: string, priorStageSummary: string | undefined
@@ -1025,12 +1029,12 @@ export class StageAgentService {
     if (backend !== 'cli' || !sessionId) return;
     const label = this.resolveReviewEpilogueLabel();
     try {
-      const sent = await this.sendCliReviewEpilogue(
+      const outcome = await this.sendCliReviewEpilogue(
         this.buildReviewEpilogueParams(sessionId, repoDir, systemPrompt, priorStageSummary)
       );
-      this.logReviewEpilogueOutcome(label, sent);
-    } catch {
-      this.logReviewEpilogueOutcome(label, false);
+      this.logReviewEpilogueOutcome(label, outcome);
+    } catch (error) {
+      this.logReviewEpilogueOutcome(label, this.epilogueFailureOutcome(error));
     }
   }
 
@@ -1047,12 +1051,12 @@ export class StageAgentService {
     return { sessionId, repoDir: repoDir ?? process.cwd(), systemPrompt, priorStageSummary };
   }
 
-  private logReviewEpilogueOutcome(label: string, sent: boolean): void {
-    if (sent) {
+  private logReviewEpilogueOutcome(label: string, outcome: { sent: true } | { sent: false; reason: string }): void {
+    if (outcome.sent) {
       console.log(chalk.gray(`  [${label}] Review epilogue sent`));
       return;
     }
-    console.log(chalk.yellow(`  [${label}] Review epilogue failed — manual resume may show raw JSON`));
+    console.log(chalk.yellow(`  [${label}] Review epilogue failed (${outcome.reason}) — manual resume may show raw JSON`));
   }
 
   async generateFromPrompt(
@@ -1541,7 +1545,7 @@ export class StageAgentService {
     repoDir: string;
     systemPrompt: string;
     priorStageSummary?: string;
-  }): Promise<boolean> {
+  }): Promise<{ sent: true } | { sent: false; reason: string }> {
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
     if (provider === 'openai') {
@@ -1552,28 +1556,30 @@ export class StageAgentService {
     );
   }
 
-  private async sendCodexEpilogue(sessionId: string, repoDir: string, model: string): Promise<boolean> {
+  private async sendCodexEpilogue(
+    sessionId: string, repoDir: string, model: string
+  ): Promise<{ sent: true } | { sent: false; reason: string }> {
     const args = buildCodexCliArgs({
       prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir, forkSession: true,
     });
     const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
     for await (const message of stream) {
-      if (message.is_error) return false;
+      if (message.is_error) return { sent: false, reason: extractCliDiagnostic(message) ?? 'CLI error' };
     }
-    return true;
+    return { sent: true };
   }
 
   private async sendClaudeEpilogue(
     sessionId: string, repoDir: string, model: string, systemPrompt: string, priorStageSummary?: string
-  ): Promise<boolean> {
+  ): Promise<{ sent: true } | { sent: false; reason: string }> {
     const preamble = buildPriorStagePreamble(priorStageSummary);
     const appendSystemPrompt = this.buildClaudeEpilogueSystemPrompt(systemPrompt, preamble);
     const args = this.buildClaudeEpilogueArgs({ sessionId, repoDir, model, appendSystemPrompt });
     const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
     for await (const message of stream) {
-      if (message.is_error) return false;
+      if (message.is_error) return { sent: false, reason: extractCliDiagnostic(message) ?? 'CLI error' };
     }
-    return true;
+    return { sent: true };
   }
 
   private buildClaudeEpilogueArgs(opts: {

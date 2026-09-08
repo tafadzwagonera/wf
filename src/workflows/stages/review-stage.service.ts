@@ -14,13 +14,26 @@ import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
 import { formatIssueFileLocation } from '../../shared/schemas/review.schema';
-import { splitDiffByFile, summariseDiff, MAX_REVIEW_DIFF_LENGTH } from '../../review/summarise-diff';
+import {
+  splitDiffByFile,
+  summariseDiff,
+  summariseDiffBatched,
+  MAX_REVIEW_DIFF_LENGTH,
+  BatchSummariseFn,
+  SummariseDiffOptions,
+  DiffSegment,
+} from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveSkills } from '../../skills';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
+
+const batchSummarisationSystemPrompt
+  = "Summarize each file's diff as concise Markdown bullets. "
+    + 'Precede each file\'s summary with a line containing exactly `=== FILE: <path> ===`. '
+    + 'Output nothing else.';
 
 const defaultReviewGuidelines = [
   "Accessibility: Verify interactive elements have correct roles, labels, and focus states; check that keyboard and screen-reader operability isn't regressed (e.g. aria-hidden on a focusable element, missing alt text, a removed native affordance); flag contrast or motion-reduction regressions in visual changes.",
@@ -61,14 +74,50 @@ export class ReviewStageService {
   ) {}
 
   async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<{ review: CodeReview; sessionId?: string }> {
+    const threshold = this.resolveReviewDiffThreshold();
     const guidelines = this.buildReviewGuidelines(options);
     const segments = splitDiffByFile(diff);
-    const summariseCallback = this.createSummariseCallback(options);
-    const processedDiff = await summariseDiff(segments, MAX_REVIEW_DIFF_LENGTH, summariseCallback, {
-      onError: failure => this.handleSummariseFailure(failure, options.onProgress),
-    });
-    this.signalOversizedSummarisedDiff(processedDiff, options.onProgress);
+    const processedDiff = await this.summariseReviewDiff(segments, threshold, options);
+    this.signalOversizedSummarisedDiff(processedDiff, options.onProgress, threshold);
     return this.executeReview(processedDiff, guidelines, options);
+  }
+
+  private async summariseReviewDiff(
+    segments: DiffSegment[],
+    threshold: number,
+    options: ReviewDiffOptions
+  ): Promise<string> {
+    const onError: SummariseDiffOptions['onError'] = failure =>
+      this.handleSummariseFailure(failure, options.onProgress);
+    if (this.shouldUseCliSummarisation()) {
+      return summariseDiffBatched(segments, threshold, this.createBatchSummariseCallback(options), { onError });
+    }
+    return summariseDiff(segments, threshold, this.createSummariseCallback(options), { onError });
+  }
+
+  private createBatchSummariseCallback(options: ReviewDiffOptions): BatchSummariseFn {
+    return async (segments: DiffSegment[]) => {
+      const files = segments.map(s => s.file).join(', ');
+      options.onProgress?.(`Summarising changes in ${segments.length} file(s): ${files}...`);
+      const prompt = this.buildBatchSummarisationPrompt(segments);
+      const content = await this.runCliSummarisation(prompt, options.repoDir, batchSummarisationSystemPrompt);
+      return this.parseBatchSummaryResponse(content);
+    };
+  }
+
+  private buildBatchSummarisationPrompt(segments: DiffSegment[]): string {
+    return segments.map(s => `File: ${s.file}\n\`\`\`diff\n${s.patch}\n\`\`\``).join('\n\n');
+  }
+
+  private parseBatchSummaryResponse(content: string): Map<string, string> {
+    const result = new Map<string, string>();
+    const parts = content.split(/^===\s*FILE:\s*(.+?)\s*===\s*$/m);
+    for (let i = 1; i < parts.length; i += 2) {
+      const file = path.normalize(parts[i].trim());
+      const body = parts[i + 1]?.trim() ?? '';
+      if (file && body) result.set(file, body);
+    }
+    return result;
   }
 
   private buildReviewGuidelines(options: ReviewDiffOptions): string[] {
@@ -94,7 +143,11 @@ export class ReviewStageService {
 
   private async executeSummarisePrompt(prompt: string, options: ReviewDiffOptions): Promise<string> {
     if (this.shouldUseCliSummarisation()) {
-      return this.runCliSummarisation(prompt, options.repoDir);
+      return this.runCliSummarisation(
+        prompt,
+        options.repoDir,
+        'Summarize diffs as concise Markdown bullets. Do not return JSON or commentary.'
+      );
     }
     const response = await this.aiService.execute({
       prompt,
@@ -109,11 +162,15 @@ export class ReviewStageService {
     return backend !== 'standard' && this.stageAgentService.isEnabledForStage('review');
   }
 
-  private async runCliSummarisation(prompt: string, repoDir: string | undefined): Promise<string> {
+  private async runCliSummarisation(
+    prompt: string,
+    repoDir: string | undefined,
+    systemPrompt: string
+  ): Promise<string> {
     const result = await this.stageAgentService.chatTurn({
       stage: 'review',
       userMessage: prompt,
-      systemPrompt: 'Summarize diffs as concise Markdown bullets. Do not return JSON or commentary.',
+      systemPrompt,
       repoDir,
     });
     return result.content.trim();
@@ -355,9 +412,15 @@ export class ReviewStageService {
     onProgress?.(message);
   }
 
-  private signalOversizedSummarisedDiff(diff: string, onProgress?: StageProgressCallback): void {
-    if (diff.length <= MAX_REVIEW_DIFF_LENGTH) return;
-    const message = `Review diff remains oversized after summarisation (${diff.length}/${MAX_REVIEW_DIFF_LENGTH} chars)`;
+  private resolveReviewDiffThreshold(): number {
+    return this.configService.get<number>('stages.review.maxDiffLength', MAX_REVIEW_DIFF_LENGTH);
+  }
+
+  private signalOversizedSummarisedDiff(
+    diff: string, onProgress?: StageProgressCallback, threshold = MAX_REVIEW_DIFF_LENGTH
+  ): void {
+    if (diff.length <= threshold) return;
+    const message = `Review diff remains oversized after summarisation (${diff.length}/${threshold} chars)`;
     appendToLogFile('WARN', message, 'review-stage');
     onProgress?.(message);
   }

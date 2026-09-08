@@ -90,14 +90,17 @@ describe('loadAiContextConfig', () => {
       expect(result).toBe('');
     });
 
-    it('logs a chalk.yellow warning', async () => {
+    it('logs a chalk.yellow warning naming the looked-for paths', async () => {
       mockReadFile.mockRejectedValue(new Error('ENOENT'));
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
       await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
 
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('No global or project-level configuration found for anthropic')
+        expect.stringContaining('No anthropic context file found (looked for')
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('does not affect provider credentials or routing')
       );
       warnSpy.mockRestore();
     });

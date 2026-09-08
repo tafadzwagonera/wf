@@ -1,4 +1,9 @@
-import { normalizedImplementStageConfigSchema, wfImplementStageConfigSchema } from './config.schema';
+import {
+  normalizedImplementStageConfigSchema,
+  wfImplementStageConfigSchema,
+  wfReviewStageConfigSchema,
+  normalizedReviewStageConfigSchema,
+} from './config.schema';
 
 describe('wfImplementStageConfigSchema planStepVerification', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -37,5 +42,67 @@ describe('normalizedImplementStageConfigSchema planStepVerification', () => {
         planStepVerification: { enabled: true, stallWindow: 3 },
       }),
     ).not.toThrow();
+  });
+});
+
+describe('wfReviewStageConfigSchema knobs', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('accepts maxDiffLength and epilogueTimeoutMs alongside required provider', () => {
+    const result = wfReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      maxDiffLength: 50_000,
+      epilogueTimeoutMs: 60_000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects maxDiffLength of 0', () => {
+    const result = wfReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      maxDiffLength: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects negative epilogueTimeoutMs', () => {
+    const result = wfReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      epilogueTimeoutMs: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-integer maxDiffLength', () => {
+    const result = wfReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      maxDiffLength: 1.5,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('normalizedReviewStageConfigSchema', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('accepts both knobs alongside required normalized fields', () => {
+    const result = normalizedReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      backend: 'agent',
+      maxDiffLength: 50_000,
+      epilogueTimeoutMs: 30_000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts zero epilogueTimeoutMs (disables wait)', () => {
+    const result = normalizedReviewStageConfigSchema.safeParse({
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      backend: 'agent',
+      epilogueTimeoutMs: 0,
+    });
+    expect(result.success).toBe(true);
   });
 });

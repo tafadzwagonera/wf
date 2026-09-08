@@ -40,6 +40,14 @@ const readConfigSections = async (globalPath: string | null, projectPath: string
  * @param shouldWarnWhenMissing - Whether a missing config should emit a warning.
  * @returns Combined config block string, or empty string if no config found.
  */
+const warnMissingContextConfig = (providerName: string, globalPath: string | null, projectFileName: string): void => {
+  const lookedFor = [globalPath, `./${projectFileName}`].filter(Boolean).join(' and ');
+  console.warn(chalk.yellow(
+    `⚠ No ${providerName} context file found (looked for ${lookedFor}); `
+    + `prompts will not include this context. This does not affect provider credentials or routing.`
+  ));
+};
+
 export const loadAiContextConfig = async (
   globalPath: string | null,
   projectFileName: string,
@@ -48,7 +56,7 @@ export const loadAiContextConfig = async (
 ): Promise<string> => {
   const sections = await readConfigSections(globalPath, path.join(process.cwd(), projectFileName));
   if (sections.length === 0 && shouldWarnWhenMissing) {
-    console.warn(chalk.yellow(`⚠ No global or project-level configuration found for ${providerName}`));
+    warnMissingContextConfig(providerName, globalPath, projectFileName);
     return '';
   }
   return sections.join('');

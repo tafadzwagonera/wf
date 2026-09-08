@@ -139,22 +139,22 @@ async function main(): Promise<void> {
 
     const output = warnSpy.messages.join('\n');
 
-    if (output.includes('No global or project-level configuration found for anthropic')) {
+    if (output.includes('No anthropic context file found (looked for')) {
       pass('Anthropic warns when usage intent exists and context files are missing');
     } else {
       fail('Anthropic warning missing', output || '(no warnings captured)');
     }
 
-    if (output.includes('No global or project-level configuration found for deepseek')) {
-      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
-    } else {
+    if (!output.includes('No deepseek context file found')) {
       pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
+    } else {
+      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
     }
 
-    if (output.includes('No global or project-level configuration found for openai')) {
-      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
-    } else {
+    if (!output.includes('No openai context file found')) {
       pass('OpenAI does not warn when provider intent is incomplete');
+    } else {
+      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
     }
   } finally {
     warnSpy.restore();
