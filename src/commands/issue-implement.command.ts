@@ -116,7 +116,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '--figma',
-    description: 'Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest',
+    description: 'Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var.',
   })
   parseFigma(): boolean {
     return true;

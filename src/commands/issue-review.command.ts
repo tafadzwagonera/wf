@@ -879,7 +879,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--figma [urls...]',
-    description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest.',
+    description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var.',
   })
   parseFigma(val: string, prev: string[] = []): string[] {
     return val ? [...prev, val] : prev;

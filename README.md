@@ -476,7 +476,7 @@ wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?
 | `--comment` | Post review as a comment on supported pull requests |
 | `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
 | `--dry-run` | Preview the review operation without making changes |
-| `--figma [urls...]` | Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. |
+| `--figma [urls...]` | Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var. |
 | `--force` | Force recreate review artifacts, ignoring any cached files |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
@@ -803,7 +803,7 @@ wf issue:implement -k PROJ-123 --figma
 | ---- | ----------- |
 | `--branch-name-pattern <pattern>` | Override branch name validation pattern from git.branchNamePattern config |
 | `--dry-run` | Preview branch, file, and investigation work without making changes |
-| `--figma` | Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest |
+| `--figma` | Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var. |
 | `--model-routing <mode>` | Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the current branch |
 | `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos |
