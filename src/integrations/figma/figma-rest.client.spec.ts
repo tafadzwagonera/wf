@@ -106,15 +106,30 @@ describe('FigmaRestClient', () => {
         key === 'figma.token' ? 'config-token' : undefined
       );
       const client = await buildClient();
-      jest.spyOn(global, 'fetch')
+      const fetchSpy = jest.spyOn(global, 'fetch')
         .mockResolvedValueOnce(makeNodesResponse('1-2', 'Frame', 800, 600))
         .mockResolvedValueOnce(makeImagesResponse('1-2', 'https://img.example.com/f.png'));
 
       await client.fetchFrames([DESIGN_URL]);
 
-      expect(jest.spyOn(global, 'fetch').mock.calls[0]?.[1]).toMatchObject({
+      expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({
         headers: { 'X-Figma-Token': 'config-token' },
       });
+    });
+
+    it('skips a URL that has no node-id query param and returns []', async () => {
+      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'test-token');
+      const client = await buildClient();
+      const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(() => {
+        throw new Error('fetch should not be called');
+      });
+
+      const result = await client.fetchFrames([
+        'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed',
+      ]);
+
+      expect(result).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('skips a URL and returns [] when the Figma API responds with a non-2xx status', async () => {

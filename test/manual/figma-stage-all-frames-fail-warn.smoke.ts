@@ -98,7 +98,10 @@ async function main(): Promise<void> {
 
       const warnMessages: string[] = [];
       const origWarn = logger.warn.bind(logger);
-      (logger as any).warn = (msg: string, ctx?: string) => { warnMessages.push(msg); origWarn(msg, ctx); };
+      (logger as any).warn = (msg: string, ctx?: string) => {
+        warnMessages.push(msg);
+        origWarn(msg, ctx);
+      };
 
       await service.resolveIfEnabled({ repoDir, force: true, overrideLinks: fakeLinks });
       const warnAfterFull = warnMessages.filter(m => /all Figma frame fetches failed/i.test(m)).length;

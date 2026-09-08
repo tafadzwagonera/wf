@@ -179,6 +179,7 @@ export class ImplementerAgent {
       force: options.figma,
       configKey: 'stages.implement.figma',
       ticketKey: ticket.ticketKey,
+      artifactPath: ticket.path,
       artifactDir: path.dirname(ticket.path),
     });
   }

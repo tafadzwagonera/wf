@@ -3,6 +3,7 @@ jest.mock('../shared/utils/plan-artifact', () => {
   return {
     ...actual,
     findPlanArtifactManifestByBranchName: jest.fn().mockReturnValue(undefined),
+    readPlanArtifactManifest: jest.fn().mockReturnValue(null),
   };
 });
 
@@ -12,7 +13,7 @@ import { FigmaStageService } from './figma-stage.service';
 import { FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
 import { LoggerService } from '../shared/logger/logger.service';
-import { findPlanArtifactManifestByBranchName } from '../shared/utils/plan-artifact';
+import { findPlanArtifactManifestByBranchName, readPlanArtifactManifest } from '../shared/utils/plan-artifact';
 
 const mockFigmaRestClient = { fetchFrames: jest.fn() };
 
@@ -48,6 +49,8 @@ describe('FigmaStageService', () => {
     jest.restoreAllMocks();
     mockFigmaRestClient.fetchFrames.mockReset();
     (findPlanArtifactManifestByBranchName as jest.Mock).mockClear();
+    (readPlanArtifactManifest as jest.Mock).mockClear();
+    (readPlanArtifactManifest as jest.Mock).mockReturnValue(null);
   });
 
   describe('resolveIfEnabled', () => {
@@ -188,6 +191,38 @@ describe('FigmaStageService', () => {
       expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
       expect(onProgress).toHaveBeenCalledTimes(1);
       expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+    });
+
+    it('loads manifest by artifact path when artifactPath is set, skipping branch lookup', async () => {
+      const { service, mockGitService } = await buildService();
+      (readPlanArtifactManifest as jest.Mock).mockReturnValue({
+        artifactPath: '/artifacts/2026-09-08-abc-fix-plan.json',
+        action: 'fix',
+        createdAt: '2026-09-08T00:00:00.000Z',
+        format: 'json',
+        hash: 'abc123',
+        sourceKind: 'ticket',
+        sourceName: 'PROJ-1',
+        figmaLinks: ['https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1'],
+        sourceBranch: 'main',
+      });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([
+        { url: 'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1', name: 'Feed Frame', width: 800, height: 600, screenshotUrl: 'https://s3.example.com/img.png' },
+      ]);
+
+      const result = await service.resolveIfEnabled({
+        repoDir: '/repo',
+        force: true,
+        artifactPath: '/artifacts/2026-09-08-abc-fix-plan.json',
+      });
+
+      expect(readPlanArtifactManifest).toHaveBeenCalledWith(expect.stringContaining('.sources.json'));
+      expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+      expect(mockGitService.getBranchInfo).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        figmaLinks: ['https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1'],
+        baseBranch: 'main',
+      });
     });
   });
 });

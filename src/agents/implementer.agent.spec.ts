@@ -1879,7 +1879,7 @@ describe('ImplementerAgent', () => {
       });
 
       expect(figmaStageService.resolveIfEnabled).toHaveBeenCalledWith(
-        expect.objectContaining({ configKey: 'stages.implement.figma' })
+        expect.objectContaining({ configKey: 'stages.implement.figma', artifactPath: ticketArtifact.path })
       );
     });
 

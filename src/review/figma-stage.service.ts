@@ -5,6 +5,8 @@ import { GitService } from '../integrations/git/git.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import {
   findPlanArtifactManifestByBranchName,
+  buildPlanArtifactManifestPath,
+  readPlanArtifactManifest,
   type PlanArtifactManifest,
 } from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveCustomArtifactDir } from '../agents/utils';
@@ -18,6 +20,7 @@ export interface FigmaStageOptions {
   ticketKey?: string;
   trackerName?: string;
   artifactDir?: string;
+  artifactPath?: string;
   overrideLinks?: string[];
   onProgress?: StageProgressCallback;
 }
@@ -50,8 +53,10 @@ export class FigmaStageService {
   }
 
   private async resolveFromManifest(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
-    const branchInfo = await this.gitService.getBranchInfo(options.repoDir);
-    const manifest = this.findManifestByBranchName(options.repoDir, branchInfo.current, options);
+    const { artifactPath, repoDir } = options;
+    const manifest = artifactPath
+      ? readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))
+      : this.findManifestByBranchName(repoDir, (await this.gitService.getBranchInfo(repoDir)).current, options);
     if (!manifest?.figmaLinks?.length) {
       const msg = '--figma enabled but no Figma links were captured during planning — skipping design-conformance check.';
       options.onProgress?.(msg);

@@ -1449,14 +1449,29 @@ describe('IssuePlanCommand', () => {
             }),
           },
         },
-        { provide: LoggerService, useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() } },
-        { provide: CliPresenter, useValue: { stageHeader: jest.fn(), separator: jest.fn(), progress: jest.fn(), outcome: jest.fn(), detail: jest.fn(), summaryBlock: jest.fn() } },
-        { provide: DryRunPreviewService, useValue: { showHeader: jest.fn(), showSummary: jest.fn(), showValidationResult: jest.fn(), previewApiCall: jest.fn(), previewFileRead: jest.fn(), previewFileWrite: jest.fn() } },
+        {
+          provide: LoggerService,
+          useValue: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn() },
+        },
+        {
+          provide: CliPresenter,
+          useValue: {
+            stageHeader: jest.fn(), separator: jest.fn(), progress: jest.fn(),
+            outcome: jest.fn(), detail: jest.fn(), summaryBlock: jest.fn(),
+          },
+        },
+        {
+          provide: DryRunPreviewService,
+          useValue: {
+            showHeader: jest.fn(), showSummary: jest.fn(), showValidationResult: jest.fn(),
+            previewApiCall: jest.fn(), previewFileRead: jest.fn(), previewFileWrite: jest.fn(),
+          },
+        },
       ],
     }).compile();
     const command = module.get(IssuePlanCommand);
-    const fetchStageService = module.get(FetchStageService) as jest.Mocked<FetchStageService>;
-    const planStageService = module.get(PlanStageService) as jest.Mocked<PlanStageService>;
+    const fetchStageService = module.get<jest.Mocked<FetchStageService>>(FetchStageService);
+    const planStageService = module.get<jest.Mocked<PlanStageService>>(PlanStageService);
     const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
 
     const ticketContent = '# WBP-800: Style the card\n\nSee https://figma.com/design/abc123/Card for the frame.';

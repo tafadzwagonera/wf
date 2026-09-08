@@ -27,7 +27,7 @@ const docsSnapshotPath = path.join(
 const catalog = getCommandHelpCatalog(commandsDir);
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.mkdirSync(path.dirname(docsSnapshotPath), { recursive: true });
-fs.writeFileSync(outputPath, JSON.stringify(catalog, null, 2), 'utf8');
-fs.writeFileSync(docsSnapshotPath, JSON.stringify(catalog, null, 2), 'utf8');
+fs.writeFileSync(outputPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
+fs.writeFileSync(docsSnapshotPath, JSON.stringify(catalog, null, 2) + '\n', 'utf8');
 console.log(`Help catalog written to ${outputPath}`);
 console.log(`Help catalog snapshot written to ${docsSnapshotPath}`);

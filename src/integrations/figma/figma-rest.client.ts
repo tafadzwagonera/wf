@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ValidationError } from '../../shared/utils/errors';
 
 export interface FigmaFrameContext {
   url: string;
@@ -29,7 +30,8 @@ function parseUrl(url: string): { fileKey: string; nodeId: string } {
   const segments = parsed.pathname.split('/');
   const keyIndex = segments.findIndex(s => s === 'file' || s === 'design');
   const fileKey = segments[keyIndex + 1] ?? '';
-  const nodeId = parsed.searchParams.get('node-id') ?? '';
+  const nodeId = parsed.searchParams.get('node-id');
+  if (!nodeId) throw new ValidationError(`Missing node-id query param in Figma URL: ${url}`);
   return { fileKey, nodeId };
 }
 
