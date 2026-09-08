@@ -1666,7 +1666,8 @@ export class IssueCommand extends CommandRunner {
     const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
       suppressHeader: isMultiRepo, silent: options?.silent,
-      sonar: options?.sonar, figma: options?.figma, ...scopedContext,
+      sonar: options?.sonar, figma: options?.figma,
+      planArtifactPath: planArtifact?.path, ...scopedContext,
     });
     if (!reviewArtifact) return null;
 

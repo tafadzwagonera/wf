@@ -172,15 +172,15 @@ export class ImplementerAgent {
   }
 
   private async runFigmaStage(
-    ticket: TicketArtifact, options: ImplementerOptions
+    ticket: TicketArtifact, options: ImplementerOptions, planArtifactPath: string
   ): Promise<FigmaResolveResult | undefined> {
     return this.figmaStageService.resolveIfEnabled({
       repoDir: options.repoDir ?? process.cwd(),
       force: options.figma,
       configKey: 'stages.implement.figma',
       ticketKey: ticket.ticketKey,
-      artifactPath: ticket.path,
-      artifactDir: path.dirname(ticket.path),
+      artifactPath: planArtifactPath,
+      artifactDir: path.dirname(planArtifactPath),
     });
   }
 
@@ -454,11 +454,11 @@ export class ImplementerAgent {
   }
 
   private async resolveSkillParams(
-    ticket: TicketArtifact, options: ImplementerOptions
+    ticket: TicketArtifact, options: ImplementerOptions, planArtifactPath: string
   ): Promise<{ skillNames?: string[]; figmaContextSection?: string }> {
     const [skillNames, figmaResult] = await Promise.all([
       this.resolveImplementSkillNames(),
-      this.runFigmaStage(ticket, options),
+      this.runFigmaStage(ticket, options, planArtifactPath),
     ]);
     return { skillNames, figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []) };
   }
@@ -474,7 +474,7 @@ export class ImplementerAgent {
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
-    const skillParams = await this.resolveSkillParams(ticket, options);
+    const skillParams = await this.resolveSkillParams(ticket, options, planArtifact.path);
     return this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
       contextFiles, repoName, ...tracked,

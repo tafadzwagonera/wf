@@ -400,7 +400,7 @@ describe('StageAgentService', () => {
     const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
     expect(prompt).toContain('Figma reference(s) captured for this ticket:');
     expect(prompt).toContain('https://figma.com/design/abc123/Card');
-    expect(prompt).toContain('do not guess spacing, typography, or colour values in this plan');
+    expect(prompt).toContain('Do not write any plan step that fetches Figma data');
   });
 
   it('warns when no Figma link was captured for a repo with a detected design system', async () => {

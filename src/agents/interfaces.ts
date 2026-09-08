@@ -71,6 +71,8 @@ export interface ReviewerOptions {
   figma?: boolean;
   /** Tracker name (e.g. 'jira') used to locate plan manifests stored under tracker-namespaced artifact dirs. */
   trackerName?: string;
+  /** Absolute path to the plan JSON artifact; used to locate the `.sources.json` manifest for Figma links. */
+  planArtifactPath?: string;
 }
 
 /**

@@ -51,14 +51,18 @@ export const planMinimalChangePrinciple = `Minimal-change principle: propose the
  * @returns A formatted section instructing the model on Figma-derived values, or empty string
  *   when there is nothing actionable to say (no links, and no detected design system to warn about)
  */
+const FIGMA_TOOL_FETCH_NOTICE = 'The wf tool will fetch these frames automatically from the Figma REST API '
+  + 'and inject the design context before passing the plan to the implementer. Do not write any plan step '
+  + 'that fetches Figma data — that is handled transparently by the tool. Instead, write steps that apply '
+  + 'the design tokens and component conventions already detected in the repository '
+  + '(linter rules, design system, class conventions) to implement the UI.';
+
 export const formatFigmaPlanPromptSection = (
   figmaLinks: string[] | undefined, hasDesignSystem: boolean
 ): string => {
   if (figmaLinks?.length) {
     const linkLines = figmaLinks.map(link => '- ' + link).join('\n');
-    return 'Figma reference(s) captured for this ticket:\n' + linkLines + '\n'
-      + 'These frames will be fetched for exact tokens via the Figma REST API at '
-      + 'implement/review time — do not guess spacing, typography, or colour values in this plan.';
+    return 'Figma reference(s) captured for this ticket:\n' + linkLines + '\n' + FIGMA_TOOL_FETCH_NOTICE;
   }
   if (!hasDesignSystem) return '';
   return 'No Figma reference was found for this ticket. Do not assert exact spacing, typography, or colour '

@@ -1879,7 +1879,7 @@ describe('ImplementerAgent', () => {
       });
 
       expect(figmaStageService.resolveIfEnabled).toHaveBeenCalledWith(
-        expect.objectContaining({ configKey: 'stages.implement.figma', artifactPath: ticketArtifact.path })
+        expect.objectContaining({ configKey: 'stages.implement.figma', artifactPath: '/tmp/.wf/repo-a/jira/WBP-1000-plan-feature.json' })
       );
     });
 

@@ -151,7 +151,10 @@ export class ReviewerAgent {
       repoDir,
       force: options.figma,
       ticketKey: ticket.ticketKey,
-      artifactDir: path.dirname(ticket.path),
+      artifactPath: options.planArtifactPath,
+      artifactDir: options.planArtifactPath
+        ? path.dirname(options.planArtifactPath)
+        : path.dirname(ticket.path),
       onProgress,
     });
   }
