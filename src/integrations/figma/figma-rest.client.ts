@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 export interface FigmaFrameContext {
   url: string;
@@ -69,10 +70,12 @@ async function attemptFetch(
 export class FigmaRestClient {
   private readonly logger = new Logger(FigmaRestClient.name);
 
+  constructor(private readonly configService: ConfigService) {}
+
   async fetchFrames(urls: string[]): Promise<FigmaFrameContext[]> {
-    const token = process.env.FIGMA_TOKEN;
+    const token = this.configService.get<string>('figma.token') ?? process.env.FIGMA_TOKEN;
     if (!token) {
-      if (urls.length) this.logger.warn('FIGMA_TOKEN not set — Figma frame fetch skipped');
+      if (urls.length) this.logger.warn('FIGMA_TOKEN not set and figma.token not configured — Figma frame fetch skipped');
       return [];
     }
     const headers = { 'X-Figma-Token': token };

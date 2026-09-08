@@ -149,6 +149,11 @@ export const wfConfigSchema = z.object({
       userToken: z.string().optional(),
     })
     .optional(),
+  figma: z
+    .object({
+      token: z.string().optional(),
+    })
+    .optional(),
   stages: z
     .object({
       plan: wfPlanStageConfigSchema.optional(),

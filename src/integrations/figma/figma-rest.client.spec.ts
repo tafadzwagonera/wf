@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { FigmaFrameContext, FigmaRestClient } from './figma-rest.client';
 
 const DESIGN_URL_K1 = 'https://www.figma.com/design/K1/File?node-id=1-1';
@@ -23,8 +24,15 @@ function makeImagesResponse(nodeId: string, screenshotUrl: string) {
   } as unknown as Response;
 }
 
+const mockConfigService = { get: jest.fn().mockReturnValue(undefined) };
+
 async function buildClient() {
-  const module = await Test.createTestingModule({ providers: [FigmaRestClient] }).compile();
+  const module = await Test.createTestingModule({
+    providers: [
+      FigmaRestClient,
+      { provide: ConfigService, useValue: mockConfigService },
+    ],
+  }).compile();
   return module.get(FigmaRestClient);
 }
 
@@ -35,6 +43,7 @@ describe('FigmaRestClient', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    mockConfigService.get.mockReturnValue(undefined);
     delete process.env.FIGMA_TOKEN;
   });
 
@@ -90,6 +99,22 @@ describe('FigmaRestClient', () => {
       const result = await client.fetchFrames([DESIGN_URL]);
 
       expect(result).toEqual([]);
+    });
+
+    it('uses figma.token from config when set, falling back to FIGMA_TOKEN env var', async () => {
+      mockConfigService.get.mockImplementation((key: string) =>
+        key === 'figma.token' ? 'config-token' : undefined
+      );
+      const client = await buildClient();
+      jest.spyOn(global, 'fetch')
+        .mockResolvedValueOnce(makeNodesResponse('1-2', 'Frame', 800, 600))
+        .mockResolvedValueOnce(makeImagesResponse('1-2', 'https://img.example.com/f.png'));
+
+      await client.fetchFrames([DESIGN_URL]);
+
+      expect(jest.spyOn(global, 'fetch').mock.calls[0]?.[1]).toMatchObject({
+        headers: { 'X-Figma-Token': 'config-token' },
+      });
     });
 
     it('skips a URL and returns [] when the Figma API responds with a non-2xx status', async () => {

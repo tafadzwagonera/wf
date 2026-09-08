@@ -127,6 +127,9 @@ export interface NormalizedWfConfig {
     botToken?: string;
     userToken?: string;
   };
+  figma: {
+    token?: string;
+  };
 }
 
 interface TypeScriptConfigLoadOptions {
@@ -274,6 +277,11 @@ const configSchema = z
       .object({
         botToken: z.string().optional(),
         userToken: z.string().optional(),
+      })
+      .optional(),
+    figma: z
+      .object({
+        token: z.string().optional(),
       })
       .optional(),
     stages: z
@@ -1015,6 +1023,7 @@ const buildOutputConfigSection = (validatedConfig: WfConfig, jiraApiToken: strin
   logging: buildLoggingConfig(loggingSource),
   log: buildLoggingConfig(loggingSource),
   slack: buildSlackConfig(validatedConfig),
+  figma: buildFigmaConfig(validatedConfig),
 });
 
 const buildGitHubConfig = (validatedConfig: WfConfig) => ({
@@ -1029,6 +1038,10 @@ const buildStateConfig = (validatedConfig: WfConfig) => ({
 const buildSlackConfig = (validatedConfig: WfConfig) => ({
   botToken: validatedConfig.slack?.botToken,
   userToken: validatedConfig.slack?.userToken,
+});
+
+const buildFigmaConfig = (validatedConfig: WfConfig) => ({
+  token: validatedConfig.figma?.token,
 });
 
 const buildNormalizedProviderContext = (
