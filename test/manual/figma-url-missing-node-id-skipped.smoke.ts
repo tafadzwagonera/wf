@@ -1,10 +1,9 @@
 /**
  * Manual smoke test: FigmaRestClient skips Figma URLs that have no node-id query param
  *
- * Verifies that `fetchFrames` returns `[]` for a URL without `?node-id=` and issues
- * no HTTP request to the Figma REST API. Previously `parseUrl` returned `nodeId: ''`
- * which produced an `?ids=` REST call that Figma rejects silently. The fix throws
- * `ValidationError` so `attemptFetch` skips the URL and logs a WARN.
+ * Verifies that `fetchFrames` returns `[]` for a URL without `?node-id=` and emits
+ * a WARN to the console. Also confirms mixed-batch sequencing: the no-node-id URL is
+ * guarded out before any HTTP request while the node-id URL is attempted.
  *
  * Run: nr test:manual -- figma-url-missing-node-id-skipped.smoke
  */
@@ -29,35 +28,10 @@ async function main(): Promise<void> {
   console.log('Manual smoke: FigmaRestClient skips URLs missing ?node-id=\n');
 
   const origToken = process.env.FIGMA_TOKEN;
-
   const origFetch = global.fetch;
 
   try {
-    console.log(chalk.bold.cyan('\nTest 1: URL without ?node-id= returns [] without calling fetch'));
-    {
-      let fetchCalled = false;
-      (global as any).fetch = async () => {
-        fetchCalled = true;
-        throw new Error('fetch must not be called for a URL with no node-id');
-      };
-
-      const client = buildClient(SENTINEL_TOKEN);
-      const result = await client.fetchFrames([URL_WITHOUT_NODE_ID]);
-
-      if (result.length === 0) {
-        pass('fetchFrames returns [] for URL without node-id');
-      } else {
-        fail('expected [], got non-empty result', JSON.stringify(result));
-      }
-
-      if (fetchCalled) {
-        fail('fetch was called despite the URL having no node-id');
-      } else {
-        pass('fetch was not called — URL skipped before any HTTP request');
-      }
-    }
-
-    console.log(chalk.bold.cyan('\nTest 2: WARN containing ValidationError message emitted to console'));
+    console.log(chalk.bold.cyan('\nTest 1: WARN containing ValidationError message emitted to console'));
     {
       (global as any).fetch = async () => {
         throw new Error('fetch must not be called');
@@ -66,15 +40,12 @@ async function main(): Promise<void> {
       const captured: string[] = [];
       const origStdout = process.stdout.write.bind(process.stdout);
       const origStderr = process.stderr.write.bind(process.stderr);
-      const collect = (chunk: string | Buffer, ...rest: any[]) => {
-        captured.push(typeof chunk === 'string' ? chunk : chunk.toString());
-      };
       (process.stdout as any).write = (chunk: string | Buffer, ...rest: any[]) => {
-        collect(chunk);
+        captured.push(typeof chunk === 'string' ? chunk : chunk.toString());
         return origStdout(chunk, ...rest);
       };
       (process.stderr as any).write = (chunk: string | Buffer, ...rest: any[]) => {
-        collect(chunk);
+        captured.push(typeof chunk === 'string' ? chunk : chunk.toString());
         return origStderr(chunk, ...rest);
       };
 
@@ -83,6 +54,7 @@ async function main(): Promise<void> {
 
       (process.stdout as any).write = origStdout;
       (process.stderr as any).write = origStderr;
+
       const output = captured.join('');
       if (/Missing node-id query param in Figma URL/i.test(output)) {
         pass('WARN with "Missing node-id query param" emitted to console');
@@ -91,25 +63,7 @@ async function main(): Promise<void> {
       }
     }
 
-    console.log(chalk.bold.cyan('\nTest 3: URL with ?node-id= does invoke fetch (guard is not over-eager)'));
-    {
-      let fetchCalled = false;
-      (global as any).fetch = async () => {
-        fetchCalled = true;
-        throw new Error('sentinel: fetch reached');
-      };
-
-      const client = buildClient(SENTINEL_TOKEN);
-      await client.fetchFrames([URL_WITH_NODE_ID]);
-
-      if (fetchCalled) {
-        pass('fetch was called for URL with node-id — guard correctly allows valid URLs through');
-      } else {
-        fail('fetch was not called for URL with node-id — guard is over-eager');
-      }
-    }
-
-    console.log(chalk.bold.cyan('\nTest 4: mixed batch — URL without node-id skipped, URL with node-id attempted'));
+    console.log(chalk.bold.cyan('\nTest 2: mixed batch — URL without node-id skipped, URL with node-id attempted'));
     {
       const attempted: string[] = [];
       (global as any).fetch = async (url: string) => {
@@ -137,7 +91,11 @@ async function main(): Promise<void> {
     }
   } finally {
     global.fetch = origFetch;
-    process.env.FIGMA_TOKEN = origToken ?? undefined;
+    if (origToken === undefined) {
+      delete process.env.FIGMA_TOKEN;
+    } else {
+      process.env.FIGMA_TOKEN = origToken;
+    }
   }
 
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
