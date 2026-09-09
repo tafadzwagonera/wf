@@ -19,15 +19,13 @@ const URL_WITH_NODE_ID = 'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/St
 const SENTINEL_TOKEN = 'smoke-test-sentinel-token';
 
 function buildClient(token: string): FigmaRestClient {
-  process.env.FIGMA_TOKEN = token;
-  const stubConfig = { get: () => undefined } as any;
+  const stubConfig = { get: (key: string) => (key === 'figma.token' ? token : undefined) } as any;
   return new FigmaRestClient(stubConfig);
 }
 
 async function main(): Promise<void> {
   console.log('Manual smoke: FigmaRestClient skips URLs missing ?node-id=\n');
 
-  const origToken = process.env.FIGMA_TOKEN;
   const origFetch = global.fetch;
 
   try {
@@ -97,11 +95,6 @@ async function main(): Promise<void> {
     }
   } finally {
     global.fetch = origFetch;
-    if (origToken === undefined) {
-      delete process.env.FIGMA_TOKEN;
-    } else {
-      process.env.FIGMA_TOKEN = origToken;
-    }
   }
 
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
