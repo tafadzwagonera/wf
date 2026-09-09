@@ -80,10 +80,10 @@ async function main(): Promise<void> {
       await service.resolveIfEnabled({ repoDir, force: true, overrideLinks: fakeLinks });
 
       const written = fs.readFileSync(todaysLogPath(), 'utf-8').slice(sizeBefore);
-      if (!/\[WARN\].*all Figma frame fetches failed/i.test(written)) {
-        pass('no WARN written when at least one frame succeeds');
-      } else {
+      if (/\[WARN\].*all Figma frame fetches failed/i.test(written)) {
         fail('unexpected WARN written for partial-success case', written.slice(0, 300));
+      } else {
+        pass('no WARN written when at least one frame succeeds');
       }
     }
 

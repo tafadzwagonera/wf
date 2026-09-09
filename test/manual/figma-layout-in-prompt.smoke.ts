@@ -61,76 +61,104 @@ async function main(): Promise<void> {
   {
     const out = buildFigmaContextSection([heroFrame]);
 
-    out.includes(`Frame: ${HERO_URL}`)
-      ? pass('output includes Frame URL')
-      : fail('Frame URL missing', out.slice(0, 200));
+    if (out.includes(`Frame: ${HERO_URL}`)) {
+      pass('output includes Frame URL');
+    } else {
+      fail('Frame URL missing', out.slice(0, 200));
+    }
 
-    out.includes('Name: Hero (1440×900px)')
-      ? pass('output includes Name line with dimensions')
-      : fail('Name line missing or wrong', out.slice(0, 200));
+    if (out.includes('Name: Hero (1440×900px)')) {
+      pass('output includes Name line with dimensions');
+    } else {
+      fail('Name line missing or wrong', out.slice(0, 200));
+    }
 
-    out.includes('Screenshot: https://s3.example.com/hero.png')
-      ? pass('output includes Screenshot URL')
-      : fail('Screenshot line missing', out.slice(0, 200));
+    if (out.includes('Screenshot: https://s3.example.com/hero.png')) {
+      pass('output includes Screenshot URL');
+    } else {
+      fail('Screenshot line missing', out.slice(0, 200));
+    }
 
-    out.includes('Layout:')
-      ? pass('output includes "Layout:" section header')
-      : fail('"Layout:" section header missing', out.slice(0, 300));
+    if (out.includes('Layout:')) {
+      pass('output includes "Layout:" section header');
+    } else {
+      fail('"Layout:" section header missing', out.slice(0, 300));
+    }
   }
 
   console.log(chalk.bold.cyan('\nTest 2: layout annotations — layoutMode, padding, gap, fill'));
   {
     const out = buildFigmaContextSection([heroFrame]);
 
-    /hero.*horizontal/i.test(out)
-      ? pass('layoutMode "horizontal" appears after node name')
-      : fail('layoutMode "horizontal" missing', out.slice(0, 400));
+    if (/hero.*horizontal/i.test(out)) {
+      pass('layoutMode "horizontal" appears after node name');
+    } else {
+      fail('layoutMode "horizontal" missing', out.slice(0, 400));
+    }
 
-    out.includes('pad:32px')
-      ? pass('pad:32px emitted (all sides equal → compact form)')
-      : fail('pad:32px missing', out.slice(0, 400));
+    if (out.includes('pad:32px')) {
+      pass('pad:32px emitted (all sides equal → compact form)');
+    } else {
+      fail('pad:32px missing', out.slice(0, 400));
+    }
 
-    out.includes('gap:24px')
-      ? pass('gap:24px present')
-      : fail('gap:24px missing', out.slice(0, 400));
+    if (out.includes('gap:24px')) {
+      pass('gap:24px present');
+    } else {
+      fail('gap:24px missing', out.slice(0, 400));
+    }
 
-    out.includes('fill:#ffffff')
-      ? pass('fill:#ffffff present')
-      : fail('fill:#ffffff missing', out.slice(0, 400));
+    if (out.includes('fill:#ffffff')) {
+      pass('fill:#ffffff present');
+    } else {
+      fail('fill:#ffffff missing', out.slice(0, 400));
+    }
   }
 
   console.log(chalk.bold.cyan('\nTest 3: child node with typography and text annotation'));
   {
     const out = buildFigmaContextSection([heroFrame]);
 
-    out.includes('Headline (600×80px)')
-      ? pass('child node "Headline" with dimensions emitted')
-      : fail('child node "Headline" missing', out.slice(0, 500));
+    if (out.includes('Headline (600×80px)')) {
+      pass('child node "Headline" with dimensions emitted');
+    } else {
+      fail('child node "Headline" missing', out.slice(0, 500));
+    }
 
-    out.includes('[font:48px w700 lh:56px]')
-      ? pass('[font:48px w700 lh:56px] present')
-      : fail('[font:...] annotation missing or wrong', out.slice(0, 500));
+    if (out.includes('[font:48px w700 lh:56px]')) {
+      pass('[font:48px w700 lh:56px] present');
+    } else {
+      fail('[font:...] annotation missing or wrong', out.slice(0, 500));
+    }
 
-    out.includes('[text:"Welcome to the platform"]')
-      ? pass('[text:"Welcome to the platform"] present')
-      : fail('[text:...] annotation missing', out.slice(0, 500));
+    if (out.includes('[text:"Welcome to the platform"]')) {
+      pass('[text:"Welcome to the platform"] present');
+    } else {
+      fail('[text:...] annotation missing', out.slice(0, 500));
+    }
   }
 
   console.log(chalk.bold.cyan('\nTest 4: multi-frame output separated by "---"'));
   {
     const out = buildFigmaContextSection([heroFrame, mobileFrame]);
 
-    out.includes('---')
-      ? pass('"---" separator present between frames')
-      : fail('"---" separator missing', out.slice(0, 200));
+    if (out.includes('---')) {
+      pass('"---" separator present between frames');
+    } else {
+      fail('"---" separator missing', out.slice(0, 200));
+    }
 
-    out.includes(`Frame: ${MOBILE_URL}`)
-      ? pass('second frame URL present')
-      : fail('second frame URL missing', out.slice(0, 400));
+    if (out.includes(`Frame: ${MOBILE_URL}`)) {
+      pass('second frame URL present');
+    } else {
+      fail('second frame URL missing', out.slice(0, 400));
+    }
 
-    out.includes('Name: Mobile (390×844px)')
-      ? pass('second frame name and dimensions present')
-      : fail('second frame name/dimensions wrong', out.slice(0, 400));
+    if (out.includes('Name: Mobile (390×844px)')) {
+      pass('second frame name and dimensions present');
+    } else {
+      fail('second frame name/dimensions wrong', out.slice(0, 400));
+    }
   }
 
   console.log(chalk.bold.cyan('\nTest 5: asymmetric padding uses full four-value form'));
@@ -144,18 +172,22 @@ async function main(): Promise<void> {
     };
     const out = buildFigmaContextSection([asymFrame]);
 
-    out.includes('pad:8px 16px 24px 32px')
-      ? pass('pad:8px 16px 24px 32px emitted for asymmetric padding')
-      : fail('asymmetric padding annotation missing or wrong', out.slice(0, 300));
+    if (out.includes('pad:8px 16px 24px 32px')) {
+      pass('pad:8px 16px 24px 32px emitted for asymmetric padding');
+    } else {
+      fail('asymmetric padding annotation missing or wrong', out.slice(0, 300));
+    }
   }
 
   console.log(chalk.bold.cyan('\nTest 6: empty frames array returns empty string'));
   {
     const out = buildFigmaContextSection([]);
 
-    out === ''
-      ? pass('empty frames array returns empty string')
-      : fail('expected empty string', JSON.stringify(out.slice(0, 100)));
+    if (out === '') {
+      pass('empty frames array returns empty string');
+    } else {
+      fail('expected empty string', JSON.stringify(out.slice(0, 100)));
+    }
   }
 
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);

@@ -43,7 +43,7 @@ export class FigmaStageService {
   async resolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
     const key = options.configKey ?? 'stages.review.figma';
     const configEnabled = this.configService.get<boolean>(key) === true;
-    if (!options.force && !configEnabled) return undefined;
+    if (!options.force && !options.artifactPath && !configEnabled) return undefined;
     if (options.overrideLinks?.length) {
       const frames = await this.figmaRestClient.fetchFrames(options.overrideLinks);
       this.warnIfFramesDegenerate(frames, options.overrideLinks, options);

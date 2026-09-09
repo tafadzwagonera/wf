@@ -83,10 +83,16 @@ async function main(): Promise<void> {
         fail('expected [] from mixed batch', JSON.stringify(result));
       }
 
-      if (withNodeIdAttempted && !withoutNodeIdAttempted) {
-        pass('only the URL with node-id reached fetch; the no-node-id URL was guarded out');
+      if (withNodeIdAttempted) {
+        pass('URL with node-id reached fetch');
       } else {
-        fail('fetch call pattern unexpected', JSON.stringify(attempted));
+        fail('URL with node-id never attempted', JSON.stringify(attempted));
+      }
+
+      if (withoutNodeIdAttempted) {
+        fail('URL without node-id was unexpectedly attempted', JSON.stringify(attempted));
+      } else {
+        pass('URL without node-id guarded out before fetch');
       }
     }
   } finally {

@@ -212,7 +212,7 @@ describe('FigmaStageService', () => {
 
       const result = await service.resolveIfEnabled({
         repoDir: '/repo',
-        force: true,
+        force: false,
         artifactPath: '/artifacts/2026-09-08-abc-fix-plan.json',
       });
 
