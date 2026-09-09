@@ -43,19 +43,14 @@ async function buildClient() {
 }
 
 describe('FigmaRestClient', () => {
-  beforeEach(() => {
-    process.env.FIGMA_TOKEN = '';
-  });
-
   afterEach(() => {
     jest.restoreAllMocks();
     mockConfigService.get.mockReturnValue(undefined);
-    delete process.env.FIGMA_TOKEN;
   });
 
   describe('fetchFrames', () => {
     it('parses design URL, calls nodes then images endpoint with X-Figma-Token header, returns FigmaFrameContext', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'test-token');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'test-token' : undefined);
       const client = await buildClient();
       const mockFetch = jest.spyOn(global, 'fetch')
         .mockResolvedValueOnce(makeNodesResponse('1-2', 'Hero Frame', 1440, 900))
@@ -80,7 +75,7 @@ describe('FigmaRestClient', () => {
     });
 
     it('extracts layout properties including fills, padding, gap, and children from the Nodes API response', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'tok');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'tok' : undefined);
       const client = await buildClient();
       jest.spyOn(global, 'fetch')
         .mockResolvedValueOnce(makeNodesResponse('1-2', 'Card', 360, 240, {
@@ -137,7 +132,7 @@ describe('FigmaRestClient', () => {
     });
 
     it('omits layoutMode when value is NONE', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'tok');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'tok' : undefined);
       const client = await buildClient();
       jest.spyOn(global, 'fetch')
         .mockResolvedValueOnce(makeNodesResponse('1-2', 'Static', 100, 100, { layoutMode: 'NONE' }))
@@ -149,7 +144,7 @@ describe('FigmaRestClient', () => {
     });
 
     it('fetches URLs sequentially — K1 requests precede K2 requests', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'tok');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'tok' : undefined);
       const client = await buildClient();
       const callOrder: string[] = [];
       jest.spyOn(global, 'fetch').mockImplementation(async url => {
@@ -168,8 +163,7 @@ describe('FigmaRestClient', () => {
       expect(firstK1).toBeLessThan(firstK2);
     });
 
-    it('returns [] and does not throw when FIGMA_TOKEN is absent', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', '');
+    it('returns [] when figma.token is not configured', async () => {
       const client = await buildClient();
 
       const result = await client.fetchFrames([DESIGN_URL]);
@@ -177,7 +171,7 @@ describe('FigmaRestClient', () => {
       expect(result).toEqual([]);
     });
 
-    it('uses figma.token from config when set, falling back to FIGMA_TOKEN env var', async () => {
+    it('uses figma.token from config', async () => {
       mockConfigService.get.mockImplementation((key: string) =>
         key === 'figma.token' ? 'config-token' : undefined
       );
@@ -194,7 +188,7 @@ describe('FigmaRestClient', () => {
     });
 
     it('skips a URL that has no node-id query param and returns []', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'test-token');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'test-token' : undefined);
       const client = await buildClient();
       const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(() => {
         throw new Error('fetch should not be called');
@@ -209,7 +203,7 @@ describe('FigmaRestClient', () => {
     });
 
     it('skips a URL and returns [] when the Figma API responds with a non-2xx status', async () => {
-      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'test-token');
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'test-token' : undefined);
       const client = await buildClient();
       jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: false,

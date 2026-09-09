@@ -179,9 +179,9 @@ export class FigmaRestClient {
   constructor(private readonly configService: ConfigService) {}
 
   async fetchFrames(urls: string[]): Promise<FigmaFrameContext[]> {
-    const token = this.configService.get<string>('figma.token') ?? process.env.FIGMA_TOKEN;
+    const token = this.configService.get<string>('figma.token');
     if (!token) {
-      if (urls.length) this.logger.warn('FIGMA_TOKEN not set and figma.token not configured — Figma frame fetch skipped');
+      if (urls.length) this.logger.warn('figma.token not configured — Figma frame fetch skipped');
       return [];
     }
     const headers = { 'X-Figma-Token': token };
