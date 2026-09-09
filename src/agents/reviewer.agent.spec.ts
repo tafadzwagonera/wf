@@ -856,7 +856,7 @@ describe('ReviewerAgent', () => {
 
   describe('Figma context injection', () => {
     it('passes figmaContextSection (not figmaSkillHint) containing frame name to reviewDiff', async () => {
-      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'Hero', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png' }];
+      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'Hero', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png', layout: { name: 'Hero', width: 1440, height: 900 } }];
       const mockReviewDiff = jest.fn().mockResolvedValue({
         review: { summary: 'ok', issues: [], suggestions: [], approved: true },
       });

@@ -1,5 +1,5 @@
 import { JSON_OUTPUT_RULES } from './json-output-rules';
-import { FigmaFrameContext } from '../figma/figma-rest.client';
+import { FigmaFrameContext, FigmaNodeLayout } from '../figma/figma-rest.client';
 
 /**
  * Condensed step-writing principles for the plan prompt.
@@ -136,11 +136,50 @@ export const buildPlanSkillSection = (skillNames?: string[]): string => {
     + '\nFollow each skill\'s instructions fully before proceeding.';
 };
 
+function formatNodeLayout(node: FigmaNodeLayout, indent = ''): string {
+  const lines: string[] = [];
+  const dims = node.width !== undefined && node.height !== undefined
+    ? ` (${node.width}×${node.height}px)`
+    : '';
+  const attrs: string[] = [];
+  if (node.layoutMode) attrs.push(node.layoutMode.toLowerCase());
+  if (node.primaryAxisAlign) attrs.push(node.primaryAxisAlign.toLowerCase().replace('_', '-'));
+  lines.push(`${indent}${node.name}${dims}${attrs.length ? ` [${attrs.join(' | ')}]` : ''}`);
+  const props: string[] = [];
+  const { paddingTop: pt, paddingRight: pr, paddingBottom: pb, paddingLeft: pl } = node;
+  if (pt !== undefined && pr !== undefined && pb !== undefined && pl !== undefined) {
+    props.push(pt === pr && pr === pb && pb === pl ? `pad:${pt}px` : `pad:${pt}px ${pr}px ${pb}px ${pl}px`);
+  }
+  if (node.gap !== undefined) props.push(`gap:${node.gap}px`);
+  if (node.cornerRadius !== undefined) props.push(`radius:${node.cornerRadius}px`);
+  if (node.fills?.length) props.push(`fill:${node.fills.map(f => f.hex ?? f.type).join(',')}`);
+  if (props.length) lines.push(`${indent}  [${props.join(' | ')}]`);
+  if (node.typography) {
+    const t = node.typography;
+    const parts = [
+      t.fontSize ? `${t.fontSize}px` : '',
+      t.fontWeight ? `w${t.fontWeight}` : '',
+      t.lineHeightPx ? `lh:${Math.round(t.lineHeightPx)}px` : '',
+      t.textDecoration ? t.textDecoration.toLowerCase() : '',
+    ].filter(Boolean).join(' ');
+    if (parts) lines.push(`${indent}  [font:${parts}]`);
+  }
+  if (node.text) {
+    const preview = node.text.length > 60 ? node.text.slice(0, 60) + '…' : node.text;
+    lines.push(`${indent}  [text:"${preview}"]`);
+  }
+  if (node.children?.length) {
+    for (const child of node.children) lines.push(formatNodeLayout(child, `${indent}  `));
+  }
+  return lines.join('\n');
+}
+
 export const buildFigmaContextSection = (frames: FigmaFrameContext[]): string => {
   if (!frames.length) return '';
-  return frames
-    .map(f => `Frame: ${f.url}\nName: ${f.name} (${f.width}×${f.height}px)\nScreenshot: ${f.screenshotUrl}`)
-    .join('\n\n');
+  return frames.map(f => {
+    const header = `Frame: ${f.url}\nName: ${f.name} (${f.width}×${f.height}px)\nScreenshot: ${f.screenshotUrl}`;
+    return `${header}\n\nLayout:\n${formatNodeLayout(f.layout)}`;
+  }).join('\n\n---\n\n');
 };
 
 export const buildReviewSkillSection = (skillNames?: string[], figmaContextSection?: string): string => {

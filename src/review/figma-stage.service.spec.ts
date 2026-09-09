@@ -103,13 +103,13 @@ describe('FigmaStageService', () => {
         figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
       });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([
-        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' },
+        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img', layout: { name: 'F', width: 100, height: 100 } },
       ]);
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true });
       expect(result).toEqual({
         figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
         baseBranch: 'main',
-        frames: [{ url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' }],
+        frames: [{ url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img', layout: { name: 'F', width: 100, height: 100 } }],
       });
     });
 
@@ -117,7 +117,7 @@ describe('FigmaStageService', () => {
       const { service } = await buildService();
       const overrideLinks = ['https://figma.com/design/A/Page?node-id=2-3'];
       mockFigmaRestClient.fetchFrames.mockResolvedValue([
-        { url: overrideLinks[0], name: 'Override', width: 200, height: 300, screenshotUrl: 'https://img2' },
+        { url: overrideLinks[0], name: 'Override', width: 200, height: 300, screenshotUrl: 'https://img2', layout: { name: 'Override', width: 200, height: 300 } },
       ]);
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, overrideLinks });
       expect(result?.figmaLinks).toEqual(overrideLinks);
@@ -168,8 +168,8 @@ describe('FigmaStageService', () => {
         ],
       });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([
-        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img' },
-        { url: 'https://figma.com/design/X/Page?node-id=2-2', name: '', width: 0, height: 0, screenshotUrl: '' },
+        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img', layout: { name: 'F', width: 100, height: 100 } },
+        { url: 'https://figma.com/design/X/Page?node-id=2-2', name: '', width: 0, height: 0, screenshotUrl: '', layout: { name: '' } },
       ]);
       const onProgress = jest.fn();
 
@@ -207,7 +207,7 @@ describe('FigmaStageService', () => {
         sourceBranch: 'main',
       });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([
-        { url: 'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1', name: 'Feed Frame', width: 800, height: 600, screenshotUrl: 'https://s3.example.com/img.png' },
+        { url: 'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1', name: 'Feed Frame', width: 800, height: 600, screenshotUrl: 'https://s3.example.com/img.png', layout: { name: 'Feed Frame', width: 800, height: 600 } },
       ]);
 
       const result = await service.resolveIfEnabled({

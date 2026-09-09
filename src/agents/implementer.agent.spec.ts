@@ -1884,7 +1884,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('forwards figmaContextSection (not figmaSkillHint) to the adapter when frames are returned', async () => {
-      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'HeroCard', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png' }];
+      const mockFrames = [{ url: 'https://figma.com/design/A/F?node-id=1-1', name: 'HeroCard', width: 1440, height: 900, screenshotUrl: 'https://s3/img.png', layout: { name: 'HeroCard', width: 1440, height: 900 } }];
       const figmaStageService = (agent as any).figmaStageService as { resolveIfEnabled: jest.Mock };
       figmaStageService.resolveIfEnabled.mockResolvedValue({ figmaLinks: ['https://figma.com/design/A/F?node-id=1-1'], frames: mockFrames });
       (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {

@@ -1,17 +1,23 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { FigmaFrameContext, FigmaRestClient } from './figma-rest.client';
+import { FigmaFrameContext, FigmaNodeLayout, FigmaRestClient } from './figma-rest.client';
 
 const DESIGN_URL_K1 = 'https://www.figma.com/design/K1/File?node-id=1-1';
 const DESIGN_URL_K2 = 'https://www.figma.com/design/K2/File?node-id=1-1';
 const DESIGN_URL = 'https://www.figma.com/design/ABC123/MyFile?node-id=1-2';
 
-function makeNodesResponse(nodeId: string, name: string, width: number, height: number) {
+function makeNodesResponse(
+  nodeId: string,
+  name: string,
+  width: number,
+  height: number,
+  extraDoc: Record<string, unknown> = {}
+) {
   return {
     ok: true,
     json: async () => ({
       nodes: {
-        [nodeId]: { document: { name, absoluteBoundingBox: { width, height } } },
+        [nodeId]: { document: { name, absoluteBoundingBox: { width, height }, ...extraDoc } },
       },
     }),
   } as unknown as Response;
@@ -63,6 +69,7 @@ describe('FigmaRestClient', () => {
         width: 1440,
         height: 900,
         screenshotUrl: 'https://s3.example.com/hero.png',
+        layout: { name: 'Hero Frame', width: 1440, height: 900 },
       };
       expect(result).toEqual([expectedFrame]);
       expect(mockFetch.mock.calls[0][1]).toMatchObject({
@@ -70,6 +77,75 @@ describe('FigmaRestClient', () => {
       });
       expect(String(mockFetch.mock.calls[0][0])).toContain('/v1/files/ABC123/nodes?ids=1-2');
       expect(String(mockFetch.mock.calls[1][0])).toContain('/v1/images/ABC123?ids=1-2&format=png&scale=2');
+    });
+
+    it('extracts layout properties including fills, padding, gap, and children from the Nodes API response', async () => {
+      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'tok');
+      const client = await buildClient();
+      jest.spyOn(global, 'fetch')
+        .mockResolvedValueOnce(makeNodesResponse('1-2', 'Card', 360, 240, {
+          type: 'FRAME',
+          layoutMode: 'VERTICAL',
+          primaryAxisAlignItems: 'MIN',
+          paddingTop: 16,
+          paddingRight: 16,
+          paddingBottom: 16,
+          paddingLeft: 16,
+          itemSpacing: 8,
+          cornerRadius: 4,
+          fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 1 } }],
+          children: [
+            {
+              name: 'Label',
+              type: 'TEXT',
+              absoluteBoundingBox: { width: 328, height: 20 },
+              characters: 'Hello world',
+              style: { fontSize: 14, fontWeight: 600, lineHeightPx: 20 },
+            },
+          ],
+        }))
+        .mockResolvedValueOnce(makeImagesResponse('1-2', 'https://s3.example.com/card.png'));
+
+      const [frame] = await client.fetchFrames([DESIGN_URL]);
+
+      const expected: FigmaNodeLayout = {
+        name: 'Card',
+        type: 'FRAME',
+        width: 360,
+        height: 240,
+        layoutMode: 'VERTICAL',
+        primaryAxisAlign: 'MIN',
+        paddingTop: 16,
+        paddingRight: 16,
+        paddingBottom: 16,
+        paddingLeft: 16,
+        gap: 8,
+        cornerRadius: 4,
+        fills: [{ type: 'SOLID', hex: '#ffffff' }],
+        children: [
+          {
+            name: 'Label',
+            type: 'TEXT',
+            width: 328,
+            height: 20,
+            text: 'Hello world',
+            typography: { fontSize: 14, fontWeight: 600, lineHeightPx: 20, textDecoration: undefined },
+          },
+        ],
+      };
+      expect(frame.layout).toEqual(expected);
+    });
+
+    it('omits layoutMode when value is NONE', async () => {
+      jest.replaceProperty(process.env, 'FIGMA_TOKEN', 'tok');
+      const client = await buildClient();
+      jest.spyOn(global, 'fetch')
+        .mockResolvedValueOnce(makeNodesResponse('1-2', 'Static', 100, 100, { layoutMode: 'NONE' }))
+        .mockResolvedValueOnce(makeImagesResponse('1-2', 'https://img'));
+
+      const [frame] = await client.fetchFrames([DESIGN_URL]);
+
+      expect(frame.layout.layoutMode).toBeUndefined();
     });
 
     it('fetches URLs sequentially — K1 requests precede K2 requests', async () => {
