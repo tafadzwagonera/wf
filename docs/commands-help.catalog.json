@@ -277,7 +277,7 @@
       },
       {
         "flags": "--figma",
-        "description": "Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var."
+        "description": "Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest. Requires `figma.token` in `wf.config`."
       },
       {
         "flags": "--model-routing <mode>",
@@ -481,7 +481,7 @@
       },
       {
         "flags": "--figma [urls...]",
-        "description": "Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in config or `FIGMA_TOKEN` env var."
+        "description": "Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`."
       },
       {
         "flags": "--force",

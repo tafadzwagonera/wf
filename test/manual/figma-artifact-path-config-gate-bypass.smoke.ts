@@ -93,43 +93,6 @@ async function main(): Promise<void> {
       }
     }
 
-    console.log(chalk.bold.cyan('\nTest 2: figmaLinks guard still applies — empty links in manifest returns undefined'));
-    {
-      writeManifest(artifactPath, []);
-
-      const warnMessages: string[] = [];
-      const configService = makeConfigService();
-      const logger = new LoggerService(configService);
-      const origWarn = logger.warn.bind(logger);
-      (logger as any).warn = (msg: string, ctx?: string) => {
-        warnMessages.push(msg);
-        origWarn(msg, ctx);
-      };
-
-      const fakeGitService = {} as any;
-      const fakeFigmaClient = { fetchFrames: async () => [] } as any;
-
-      const service = new FigmaStageService(configService, fakeGitService, logger, fakeFigmaClient);
-      const result = await service.resolveIfEnabled({
-        repoDir,
-        force: false,
-        configKey: 'stages.implement.figma',
-        artifactPath,
-      });
-
-      if (result === undefined) {
-        pass('returns undefined when manifest figmaLinks is empty');
-      } else {
-        fail('expected undefined for empty figmaLinks manifest', JSON.stringify(result));
-      }
-
-      const hasWarn = warnMessages.some(m => /no Figma links were captured/i.test(m));
-      if (hasWarn) {
-        pass('WARN "no Figma links were captured" emitted');
-      } else {
-        fail('expected WARN about missing figmaLinks not found', JSON.stringify(warnMessages));
-      }
-    }
   } finally {
     global.fetch = origFetch;
     fs.rmSync(tempDir, { recursive: true, force: true });

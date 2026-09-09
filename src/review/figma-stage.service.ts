@@ -74,7 +74,7 @@ export class FigmaStageService {
     options: FigmaStageOptions,
   ): void {
     if (frames.length > 0 || figmaLinks.length === 0) return;
-    const msg = '--figma enabled but all Figma frame fetches failed — check FIGMA_TOKEN validity and node IDs.';
+    const msg = '--figma enabled but all Figma frame fetches failed — check figma.token validity and node IDs.';
     options.onProgress?.(msg);
     this.logger.warn(msg, 'figma-stage');
   }

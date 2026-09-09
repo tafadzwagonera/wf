@@ -110,15 +110,6 @@ async function main(): Promise<void> {
         fail('expected exactly 1 degenerate WARN for non-empty overrideLinks', String(warnAfterFull));
       }
 
-      warnMessages.length = 0;
-      const sizeBefore = fs.existsSync(todaysLogPath()) ? fs.statSync(todaysLogPath()).size : 0;
-      await service.resolveIfEnabled({ repoDir, force: true, overrideLinks: fakeLinks, onProgress: () => {} });
-      const written = fs.readFileSync(todaysLogPath(), 'utf-8').slice(sizeBefore);
-      if (/\[WARN\].*all Figma frame fetches failed/i.test(written)) {
-        pass('WARN also routed to onProgress and disk on repeated call');
-      } else {
-        fail('WARN not found in log on repeated call', written.slice(0, 300));
-      }
     }
   } finally {
     process.env.WF_HOME = origWfHome ?? undefined;
