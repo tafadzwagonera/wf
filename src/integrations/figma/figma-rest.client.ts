@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ValidationError } from '../../shared/utils/errors';
+import { ApiError, ERROR_CODE, ValidationError } from '../../shared/utils/errors';
 
 export interface FigmaFillContext {
   type: string;
@@ -103,7 +103,25 @@ function parseUrl(url: string): { fileKey: string; nodeId: string } {
 
 async function fetchJson<T>(req: RequestInfo, init: RequestInit): Promise<T> {
   const r = await fetch(req, init);
-  if (!r.ok) throw new Error(`Figma API ${r.status}: ${r.url}`);
+  if (!r.ok) {
+    if (r.status === 429) {
+      const retryAfter = r.headers.get('Retry-After');
+      const planTier = r.headers.get('X-Figma-Plan-Tier');
+      const limitType = r.headers.get('X-Figma-Rate-Limit-Type');
+      const detail = [
+        retryAfter ? `retry-after=${retryAfter}s` : null,
+        planTier ? `plan=${planTier}` : null,
+        limitType ? `limit-type=${limitType}` : null,
+      ].filter(Boolean).join(' ');
+      throw new ApiError(
+        ERROR_CODE.FIGMA_API_ERROR,
+        `Figma API rate-limited${detail ? ` (${detail})` : ''}`,
+        429,
+        String(r.url),
+      );
+    }
+    throw new ApiError(ERROR_CODE.FIGMA_API_ERROR, `Figma API error`, r.status, String(r.url));
+  }
   return r.json() as Promise<T>;
 }
 

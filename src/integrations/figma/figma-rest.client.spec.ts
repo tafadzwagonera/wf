@@ -208,12 +208,41 @@ describe('FigmaRestClient', () => {
       jest.spyOn(global, 'fetch').mockResolvedValue({
         ok: false,
         status: 401,
+        headers: { get: () => null },
         json: async () => ({ err: 'Unauthorized' }),
       } as unknown as Response);
 
       const result = await client.fetchFrames([DESIGN_URL]);
 
       expect(result).toEqual([]);
+    });
+
+    it('includes Retry-After, plan tier, and limit-type in the WARN when the API returns 429', async () => {
+      mockConfigService.get.mockImplementation((key: string) => key === 'figma.token' ? 'test-token' : undefined);
+      const client = await buildClient();
+      jest.spyOn(global, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 429,
+        url: 'https://api.figma.com/v1/files/ABC123/nodes?ids=1-2',
+        headers: {
+          get: (name: string) => ({
+            'Retry-After': '3600',
+            'X-Figma-Plan-Tier': 'free',
+            'X-Figma-Rate-Limit-Type': 'low',
+          }[name] ?? null),
+        },
+        json: async () => ({ status: 429, err: 'Rate limit exceeded' }),
+      } as unknown as Response);
+      const { Logger } = jest.requireActual('@nestjs/common');
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
+      const result = await client.fetchFrames([DESIGN_URL]);
+
+      expect(result).toEqual([]);
+      const warnText = warnSpy.mock.calls.map(c => String(c[0])).join('\n');
+      expect(warnText).toMatch(/retry-after=3600s/);
+      expect(warnText).toMatch(/plan=free/);
+      expect(warnText).toMatch(/limit-type=low/);
     });
   });
 });
