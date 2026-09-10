@@ -4,6 +4,7 @@ jest.mock('../shared/utils/plan-artifact', () => {
     ...actual,
     findPlanArtifactManifestByBranchName: jest.fn().mockReturnValue(undefined),
     readPlanArtifactManifest: jest.fn().mockReturnValue(null),
+    readFigmaLinksFromPlanArtifact: jest.fn().mockReturnValue(undefined),
   };
 });
 
@@ -13,7 +14,7 @@ import { FigmaStageService } from './figma-stage.service';
 import { FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
 import { LoggerService } from '../shared/logger/logger.service';
-import { findPlanArtifactManifestByBranchName, readPlanArtifactManifest } from '../shared/utils/plan-artifact';
+import { findPlanArtifactManifestByBranchName, readPlanArtifactManifest, readFigmaLinksFromPlanArtifact } from '../shared/utils/plan-artifact';
 
 const mockFigmaRestClient = { fetchFrames: jest.fn() };
 
@@ -51,6 +52,8 @@ describe('FigmaStageService', () => {
     (findPlanArtifactManifestByBranchName as jest.Mock).mockClear();
     (readPlanArtifactManifest as jest.Mock).mockClear();
     (readPlanArtifactManifest as jest.Mock).mockReturnValue(null);
+    (readFigmaLinksFromPlanArtifact as jest.Mock).mockClear();
+    (readFigmaLinksFromPlanArtifact as jest.Mock).mockReturnValue(undefined);
   });
 
   describe('resolveIfEnabled', () => {
@@ -193,19 +196,12 @@ describe('FigmaStageService', () => {
       expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
     });
 
-    it('loads manifest by artifact path when artifactPath is set, skipping branch lookup', async () => {
+    it('reads figmaLinks from the plan artifact and sourceBranch from the sidecar when artifactPath is set', async () => {
       const { service, mockGitService } = await buildService();
-      (readPlanArtifactManifest as jest.Mock).mockReturnValue({
-        artifactPath: '/artifacts/2026-09-08-abc-fix-plan.json',
-        action: 'fix',
-        createdAt: '2026-09-08T00:00:00.000Z',
-        format: 'json',
-        hash: 'abc123',
-        sourceKind: 'ticket',
-        sourceName: 'PROJ-1',
-        figmaLinks: ['https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1'],
-        sourceBranch: 'main',
-      });
+      (readFigmaLinksFromPlanArtifact as jest.Mock).mockReturnValue([
+        'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1',
+      ]);
+      (readPlanArtifactManifest as jest.Mock).mockReturnValue({ sourceBranch: 'main' });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([
         { url: 'https://www.figma.com/design/UZuMQg4xXa9cXvIPnghyz9/Stories-Feed?node-id=1-1', name: 'Feed Frame', width: 800, height: 600, screenshotUrl: 'https://s3.example.com/img.png', layout: { name: 'Feed Frame', width: 800, height: 600 } },
       ]);
@@ -216,6 +212,7 @@ describe('FigmaStageService', () => {
         artifactPath: '/artifacts/2026-09-08-abc-fix-plan.json',
       });
 
+      expect(readFigmaLinksFromPlanArtifact).toHaveBeenCalledWith('/artifacts/2026-09-08-abc-fix-plan.json');
       expect(readPlanArtifactManifest).toHaveBeenCalledWith(expect.stringContaining('.sources.json'));
       expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
       expect(mockGitService.getBranchInfo).not.toHaveBeenCalled();

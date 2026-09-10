@@ -7,6 +7,7 @@ import {
   findPlanArtifactManifestByBranchName,
   buildPlanArtifactManifestPath,
   readPlanArtifactManifest,
+  readFigmaLinksFromPlanArtifact,
   type PlanArtifactManifest,
 } from '../shared/utils/plan-artifact';
 import { resolveArtifactDir, resolveCustomArtifactDir } from '../agents/utils';
@@ -54,18 +55,27 @@ export class FigmaStageService {
 
   private async resolveFromManifest(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
     const { artifactPath, repoDir } = options;
-    const manifest = artifactPath
-      ? readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))
-      : this.findManifestByBranchName(repoDir, (await this.gitService.getBranchInfo(repoDir)).current, options);
-    if (!manifest?.figmaLinks?.length) {
+    let figmaLinks: string[] | undefined;
+    let sourceBranch: string | undefined;
+    if (artifactPath) {
+      figmaLinks = readFigmaLinksFromPlanArtifact(artifactPath);
+      sourceBranch = readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))?.sourceBranch;
+    } else {
+      const manifest = this.findManifestByBranchName(
+        repoDir, (await this.gitService.getBranchInfo(repoDir)).current, options,
+      );
+      figmaLinks = manifest?.figmaLinks;
+      sourceBranch = manifest?.sourceBranch;
+    }
+    if (!figmaLinks?.length) {
       const msg = '--figma enabled but no Figma links were captured during planning — skipping design-conformance check.';
       options.onProgress?.(msg);
       this.logger.warn(msg, 'figma-stage');
       return undefined;
     }
-    const frames = await this.figmaRestClient.fetchFrames(manifest.figmaLinks);
-    this.warnIfFramesDegenerate(frames, manifest.figmaLinks, options);
-    return { figmaLinks: manifest.figmaLinks, baseBranch: manifest.sourceBranch, frames };
+    const frames = await this.figmaRestClient.fetchFrames(figmaLinks);
+    this.warnIfFramesDegenerate(frames, figmaLinks, options);
+    return { figmaLinks, baseBranch: sourceBranch, frames };
   }
 
   private warnIfFramesDegenerate(

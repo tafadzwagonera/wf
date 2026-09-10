@@ -630,6 +630,10 @@ describe('PlanStageService', () => {
     expect(manifestFiles).toHaveLength(1);
     const manifest = JSON.parse(fs.readFileSync(path.join(tempDir, manifestFiles[0]), 'utf-8'));
     expect(manifest.figmaLinks).toEqual(['https://figma.com/design/abc123/Card']);
+    const planFiles = fs.readdirSync(tempDir).filter(f => f.endsWith('-plan.json'));
+    expect(planFiles).toHaveLength(1);
+    const savedPlan = JSON.parse(fs.readFileSync(path.join(tempDir, planFiles[0]), 'utf-8'));
+    expect(savedPlan.figmaLinks).toEqual(['https://figma.com/design/abc123/Card']);
   });
 
   it('logs warnNoFigmaLinks with reason no-links-found when interactive session returns no links', async () => {

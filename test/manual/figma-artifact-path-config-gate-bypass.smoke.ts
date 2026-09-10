@@ -92,7 +92,6 @@ async function main(): Promise<void> {
         fail('expected one frame in result', JSON.stringify(result?.frames));
       }
     }
-
   } finally {
     global.fetch = origFetch;
     fs.rmSync(tempDir, { recursive: true, force: true });

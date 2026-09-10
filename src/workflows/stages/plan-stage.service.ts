@@ -154,7 +154,8 @@ export class PlanStageService {
     const createdAt = new Date();
     const filename = buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' });
     const planPath = path.join(artifactDir, filename);
-    fs.writeFileSync(planPath, JSON.stringify(plan, null, 2));
+    const planToWrite = figmaLinks.length ? { ...plan, figmaLinks } : plan;
+    fs.writeFileSync(planPath, JSON.stringify(planToWrite, null, 2));
     const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: action, format: 'json', hash: planHash, sourceName: sourceName, sourceKind: sourceKind ?? 'ticket', createdAt: createdAt, figmaLinks: figmaLinks.length ? figmaLinks : undefined });
     writePlanArtifactManifest(manifest);
     this.deleteStalePlanArtifacts(artifactDir, planHash, action, planPath);

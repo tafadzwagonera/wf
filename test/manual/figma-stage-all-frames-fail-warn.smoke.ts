@@ -109,7 +109,6 @@ async function main(): Promise<void> {
       } else {
         fail('expected exactly 1 degenerate WARN for non-empty overrideLinks', String(warnAfterFull));
       }
-
     }
   } finally {
     process.env.WF_HOME = origWfHome ?? undefined;

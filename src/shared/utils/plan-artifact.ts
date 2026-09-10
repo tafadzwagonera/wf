@@ -203,6 +203,17 @@ export const updatePlanArtifactManifestFigmaLinks = (
   writePlanArtifactManifest({ ...existing, figmaLinks });
 };
 
+export const readFigmaLinksFromPlanArtifact = (artifactPath: string): string[] | undefined => {
+  if (!fs.existsSync(artifactPath)) return undefined;
+  try {
+    const value = JSON.parse(fs.readFileSync(artifactPath, 'utf-8')) as Record<string, unknown>;
+    const links = value.figmaLinks;
+    return Array.isArray(links) && links.length > 0 ? links.map(String) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const pickMostRecentManifest = (matches: PlanArtifactManifest[]): PlanArtifactManifest | undefined => {
   if (matches.length === 0) return undefined;
   return matches.reduce(
