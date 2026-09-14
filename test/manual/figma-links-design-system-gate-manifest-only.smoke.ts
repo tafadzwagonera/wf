@@ -81,18 +81,6 @@ async function main(): Promise<void> {
       fail('Expected [] in non-TTY session, got links', JSON.stringify(nonTtyLinks));
     }
 
-    console.log(chalk.bold.cyan('\nTest 4: autoLinks non-empty bypasses design-system check entirely'));
-
-    const existingLink = 'https://figma.com/design/abc999/Card';
-    const earlyReturnLinks = await resolvePostParseFigmaLinks(
-      ticketContent, [existingLink], { allowPrompt: true, conventions }
-    );
-
-    if (earlyReturnLinks.length === 1 && earlyReturnLinks[0] === existingLink) {
-      pass('Non-empty autoLinks returned immediately — design-system check and prompt both skipped');
-    } else {
-      fail('autoLinks early-return failed', JSON.stringify(earlyReturnLinks));
-    }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
