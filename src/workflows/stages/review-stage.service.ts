@@ -125,7 +125,7 @@ export class ReviewStageService {
 
   private parseBatchSummaryResponse(content: string): Map<string, string> {
     const structured = this.parseStructuredBatchSummary(content);
-    if (structured?.size) return structured;
+    if (structured !== undefined) return structured;
     const result = new Map<string, string>();
     const parts = content.split(/^===\s*FILE:\s*(.+?)\s*===\s*$/m);
     for (let i = 1; i < parts.length; i += 2) {

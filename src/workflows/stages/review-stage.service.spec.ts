@@ -640,6 +640,17 @@ describe('ReviewStageService', () => {
     expect(reviewedDiff).toContain('- delimiter summary');
   });
 
+  it('returns an empty Map without logging a parse miss when the structured response has no entries', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+    (stageAgentService as any).chatTurn.mockResolvedValue({ content: '{"summaries":[]}', session: {} });
+
+    await service.reviewDiff(largeDiff, { context: 'test context' });
+
+    expect(appendSpy).not.toHaveBeenCalledWith('DEBUG', expect.stringContaining('batch_summary_parse_miss'), expect.anything());
+  });
+
   it('logs a DEBUG parse miss with the raw content head when the batch response is unusable', async () => {
     const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
     const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
