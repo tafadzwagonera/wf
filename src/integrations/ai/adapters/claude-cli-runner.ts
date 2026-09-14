@@ -48,6 +48,12 @@ export interface ClaudeCliMessage {
   [key: string]: unknown;
 }
 
+/** Config keys named in timeout guidance when a run's limits come from non-default settings. */
+export interface CliTimeoutConfigKeys {
+  wallClock?: string;
+  inactivity?: string;
+}
+
 export interface CliRunnerParams {
   prompt: string;
   appendSystemPrompt?: string;
@@ -418,16 +424,16 @@ const cleanupCliStream = (
 };
 
 const resolveTimeoutMessage = (
-  state: TimeoutState,
-  inactivityMs: number,
-  wallMs: number
+  state: TimeoutState, inactivityMs: number, wallMs: number, timeoutConfigKeys?: CliTimeoutConfigKeys
 ): ClaudeCliMessage | null => {
   if (state.killReason === 'inactivity') {
-    const msg = `Claude CLI stalled — no output for ${Math.ceil(inactivityMs / 1000)}s. Increase stages.<stage>.inactivityTimeoutMs in wf.config.ts; models that think for long stretches can exceed the default.`;
+    const key = timeoutConfigKeys?.inactivity ?? 'stages.<stage>.inactivityTimeoutMs';
+    const msg = `Claude CLI stalled — no output for ${Math.ceil(inactivityMs / 1000)}s. Increase ${key} in wf.config.ts; models that think for long stretches can exceed the default.`;
     return buildTimeoutMessage(msg);
   }
   if (state.killReason === 'wall-clock') {
-    const msg = `Claude CLI exceeded the ${Math.round(wallMs / 1000)}s wall-clock limit. Increase stages.<stage>.timeoutMs in wf.config.ts.`;
+    const key = timeoutConfigKeys?.wallClock ?? 'stages.<stage>.timeoutMs';
+    const msg = `Claude CLI exceeded the ${Math.round(wallMs / 1000)}s wall-clock limit. Increase ${key} in wf.config.ts.`;
     return buildTimeoutMessage(msg);
   }
   return null;
@@ -560,11 +566,12 @@ const finalizeCliRun = (session: CliSession): void => {
 export async function* spawnCli(
   args: string[], cwd: string,
   prompt?: string, env?: Record<string, string>,
-  timeoutMs: number = CLI_TIMEOUT_MS, inactivityTimeoutMs: number = CLI_INACTIVITY_TIMEOUT_MS
+  timeoutMs: number = CLI_TIMEOUT_MS, inactivityTimeoutMs: number = CLI_INACTIVITY_TIMEOUT_MS,
+  timeoutConfigKeys?: CliTimeoutConfigKeys
 ): AsyncGenerator<ClaudeCliMessage, void, undefined> {
   const session = initCliSession({ args, cwd, prompt, env, timeoutMs, inactivityTimeoutMs });
   const s = yield* runCliStream(session);
-  const timeoutMsg = resolveTimeoutMessage(s.state, s.inactivityTimeoutMs, s.timeoutMs);
+  const timeoutMsg = resolveTimeoutMessage(s.state, s.inactivityTimeoutMs, s.timeoutMs, timeoutConfigKeys);
   if (timeoutMsg) {
     yield timeoutMsg;
     return;

@@ -603,9 +603,61 @@ describe('ReviewStageService', () => {
 
     expect((stageAgentService as any).chatTurn).toHaveBeenCalledTimes(1);
     const call = (stageAgentService as any).chatTurn.mock.calls[0][0];
-    expect(call.userMessage).toMatch(/^File:/);
+    expect(call.userMessage).toMatch(/summarise only/i);
+    expect(call.userMessage).toContain('File: file');
     expect(call.systemPrompt).toContain('=== FILE: <path> ===');
+    expect(typeof call.jsonSchema).toBe('string');
+    expect(call.jsonSchema).toContain('summaries');
     expect((aiService as any).execute).not.toHaveBeenCalled();
+  });
+
+  it('applies summaries from structured JSON batch responses', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+    (stageAgentService as any).chatTurn.mockResolvedValue({
+      content: JSON.stringify({ summaries: [{ file: 'file', summary: '- structured summary' }] }),
+      session: {},
+    });
+
+    await service.reviewDiff(largeDiff, { context: 'test context' });
+
+    const reviewedDiff = (stageAgentService as any).reviewCode.mock.calls[0][0] as string;
+    expect(reviewedDiff).toContain('- structured summary');
+    expect(reviewedDiff).toContain('(summarised)');
+  });
+
+  it('falls back to delimiter parsing when the batch response is not structured JSON', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+    (stageAgentService as any).chatTurn.mockResolvedValue({
+      content: '=== FILE: file ===\n- delimiter summary',
+      session: {},
+    });
+
+    await service.reviewDiff(largeDiff, { context: 'test context' });
+
+    const reviewedDiff = (stageAgentService as any).reviewCode.mock.calls[0][0] as string;
+    expect(reviewedDiff).toContain('- delimiter summary');
+  });
+
+  it('logs a DEBUG parse miss with the raw content head when the batch response is unusable', async () => {
+    const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
+    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
+    (stageAgentService as any).chatTurn.mockResolvedValue({ content: 'no delimiters here', session: {} });
+
+    await service.reviewDiff(largeDiff, { context: 'test context' });
+
+    expect(appendSpy).toHaveBeenCalledWith(
+      'DEBUG',
+      expect.stringContaining('review-stage.batch_summary_parse_miss contentChars=18'),
+      'review-stage'
+    );
+    expect(appendSpy).toHaveBeenCalledWith(
+      'DEBUG',
+      expect.stringContaining('head=no delimiters here'),
+      'review-stage'
+    );
   });
 
   it('sends a single chatTurn call for multiple oversized files when they fit within one chunk', async () => {

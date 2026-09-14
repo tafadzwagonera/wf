@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { StageAgentService } from './stage-agent.service';
+import { StageAgentService, buildSanitisedJsonSchema } from './stage-agent.service';
 import { ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 
@@ -1757,7 +1757,9 @@ describe('StageAgentService', () => {
         process.cwd(),
         expect.stringContaining('Summarize the review for the developer'),
         undefined,
-        30000
+        30000,
+        undefined,
+        { wallClock: 'stages.review.epilogueTimeoutMs' }
       );
     });
 
@@ -2034,7 +2036,9 @@ describe('StageAgentService', () => {
         process.cwd(),
         expect.stringContaining('Summarize the review for the developer'),
         undefined,
-        customTimeout
+        customTimeout,
+        undefined,
+        { wallClock: 'stages.review.epilogueTimeoutMs' }
       );
     });
 
@@ -2071,6 +2075,81 @@ describe('StageAgentService', () => {
       expect(result.review.approved).toBe(true);
       expect(spawnCodex).not.toHaveBeenCalled();
       expect(spawnCli).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('chatTurn with CLI backend', () => {
+    const makeStream = (...messages: object[]) =>
+      (async function* () {
+        for (const message of messages) yield message;
+      })();
+
+    beforeEach(() => {
+      spawnCli.mockReset();
+      buildCliArgs.mockClear();
+      buildCliArgs.mockReturnValue([]);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('completes a plain chat turn without forwarding a json schema', async () => {
+      spawnCli.mockReturnValueOnce(makeStream({
+        type: 'result', subtype: 'success', result: '- summary', session_id: 'chat-1',
+      }));
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'review', userMessage: 'hello', systemPrompt: 'sys', repoDir: '/tmp/repo',
+      });
+
+      expect(result.content).toBe('- summary');
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(buildCliArgs).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'hello', jsonSchema: undefined }));
+    });
+
+    it('forwards jsonSchema to buildCliArgs and returns structured output content', async () => {
+      spawnCli.mockReturnValueOnce(makeStream({
+        type: 'result', subtype: 'success',
+        structured_output: { summaries: [{ file: 'a.ts', summary: '- x' }] },
+        session_id: 'chat-2',
+      }));
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'review', userMessage: 'File: a.ts', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        jsonSchema: '{"type":"object"}',
+      });
+
+      expect(buildCliArgs).toHaveBeenCalledWith(expect.objectContaining({ jsonSchema: '{"type":"object"}' }));
+      expect(JSON.parse(result.content)).toEqual({ summaries: [{ file: 'a.ts', summary: '- x' }] });
+    });
+
+    it('retries with the schema retry prompt when a schema is set but structured output is missing', async () => {
+      spawnCli
+        .mockReturnValueOnce(makeStream({
+          type: 'result', subtype: 'success', result: 'not json', session_id: 'chat-3',
+        }))
+        .mockReturnValueOnce(makeStream({
+          type: 'result', subtype: 'success', structured_output: { summaries: [] }, session_id: 'chat-3',
+        }));
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'review', userMessage: 'File: a.ts', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        jsonSchema: '{"type":"object"}',
+      });
+
+      expect(spawnCli).toHaveBeenCalledTimes(2);
+      expect(buildCliArgs).toHaveBeenLastCalledWith(expect.objectContaining({
+        sessionId: 'chat-3',
+        jsonSchema: '{"type":"object"}',
+        prompt: expect.stringContaining('JSON object matching the JSON schema'),
+      }));
+      expect(JSON.parse(result.content)).toEqual({ summaries: [] });
+    });
+
+    it('exposes buildSanitisedJsonSchema stripping the $schema key', () => {
+      const json = buildSanitisedJsonSchema({ $schema: 'x', type: 'object' });
+      expect(json).toBe('{"type":"object"}');
     });
   });
 

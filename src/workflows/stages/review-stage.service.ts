@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { z } from 'zod';
 import {
   AiService,
   CodeReview,
@@ -11,8 +12,9 @@ import {
 } from '../../integrations/ai/ai.service';
 import { formatReviewCallStack, formatReviewStateTransition } from '../../integrations/ai/review-trace';
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
-import { StageAgentService } from '../../integrations/ai/stage-agent.service';
+import { StageAgentService, buildSanitisedJsonSchema } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
+import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
 import { formatIssueFileLocation } from '../../shared/schemas/review.schema';
 import {
   splitDiffByFile,
@@ -32,9 +34,16 @@ import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 
 const batchSummarisationSystemPrompt
-  = "Summarize each file's diff as concise Markdown bullets. "
-    + 'Precede each file\'s summary with a line containing exactly `=== FILE: <path> ===`. '
-    + 'Output nothing else.';
+  = "Summarize each file's diff from the user message as concise Markdown bullets. "
+    + 'When a structured output schema is enforced, return JSON matching it with one summaries entry per file, using each file path exactly as given. '
+    + 'Otherwise precede each file\'s summary with a line containing exactly `=== FILE: <path> ===`. '
+    + 'Summarise every file. Output nothing else and perform no other task.';
+
+const batchSummarisationUserInstruction
+  = 'Summarize the diff for each file below as concise Markdown bullets, following the output format from your instructions. '
+    + 'Cover every file listed. Do not review, plan, or investigate — summarise only.';
+
+const batchSummaryJsonSchema = buildSanitisedJsonSchema(z.toJSONSchema(batchSummarySchema));
 
 const defaultReviewGuidelines = [
   "Accessibility: Verify interactive elements have correct roles, labels, and focus states; check that keyboard and screen-reader operability isn't regressed (e.g. aria-hidden on a focusable element, missing alt text, a removed native affordance); flag contrast or motion-reduction regressions in visual changes.",
@@ -102,16 +111,21 @@ export class ReviewStageService {
       const files = segments.map(s => s.file).join(', ');
       options.onProgress?.(`Summarising changes in ${segments.length} file(s): ${files}...`);
       const prompt = this.buildBatchSummarisationPrompt(segments);
-      const content = await this.runCliSummarisation(prompt, options.repoDir, batchSummarisationSystemPrompt);
+      const content = await this.runCliSummarisation(
+        prompt, options.repoDir, batchSummarisationSystemPrompt, batchSummaryJsonSchema,
+      );
       return this.parseBatchSummaryResponse(content);
     };
   }
 
   private buildBatchSummarisationPrompt(segments: DiffSegment[]): string {
-    return segments.map(s => `File: ${s.file}\n\`\`\`diff\n${s.patch}\n\`\`\``).join('\n\n');
+    const body = segments.map(s => `File: ${s.file}\n\`\`\`diff\n${s.patch}\n\`\`\``).join('\n\n');
+    return `${batchSummarisationUserInstruction}\n\n${body}`;
   }
 
   private parseBatchSummaryResponse(content: string): Map<string, string> {
+    const structured = this.parseStructuredBatchSummary(content);
+    if (structured?.size) return structured;
     const result = new Map<string, string>();
     const parts = content.split(/^===\s*FILE:\s*(.+?)\s*===\s*$/m);
     for (let i = 1; i < parts.length; i += 2) {
@@ -119,7 +133,27 @@ export class ReviewStageService {
       const body = parts[i + 1]?.trim() ?? '';
       if (file && body) result.set(file, body);
     }
+    if (result.size === 0) this.logBatchSummaryParseMiss(content);
     return result;
+  }
+
+  private parseStructuredBatchSummary(content: string): Map<string, string> | undefined {
+    const validated = batchSummarySchema.safeParse(this.tryParseJson(content));
+    if (!validated.success) return undefined;
+    return new Map(validated.data.summaries.map(s => [path.normalize(s.file.trim()), s.summary]));
+  }
+
+  private tryParseJson(content: string): unknown {
+    try {
+      return JSON.parse(content);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private logBatchSummaryParseMiss(content: string): void {
+    appendToLogFile('DEBUG', `review-stage.batch_summary_parse_miss contentChars=${content.length}`, 'review-stage');
+    appendToLogFile('DEBUG', `head=${content.slice(0, 2048)}`, 'review-stage');
   }
 
   private buildReviewGuidelines(options: ReviewDiffOptions): string[] {
@@ -167,13 +201,15 @@ export class ReviewStageService {
   private async runCliSummarisation(
     prompt: string,
     repoDir: string | undefined,
-    systemPrompt: string
+    systemPrompt: string,
+    jsonSchema?: string
   ): Promise<string> {
     const result = await this.stageAgentService.chatTurn({
       stage: 'review',
       userMessage: prompt,
       systemPrompt,
       repoDir,
+      jsonSchema,
     });
     return result.content.trim();
   }

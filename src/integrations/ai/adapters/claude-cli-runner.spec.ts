@@ -557,6 +557,44 @@ describe('claude-cli-runner', () => {
       expect(timeoutMsg.result).toMatch(/no output/i);
     });
 
+    it('names the provided wall-clock config key in the timeout message', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 100, undefined, {
+        wallClock: 'stages.review.epilogueTimeoutMs',
+      });
+      child.stdout.push('{"type":"system","subtype":"init"}\n');
+
+      const messages: Array<{ type: string; subtype?: string; result?: string }> = [];
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
+      if (!timeoutMsg) throw new Error('expected timeoutMsg');
+      expect(timeoutMsg.result).toContain('Increase stages.review.epilogueTimeoutMs in wf.config.ts');
+      expect(timeoutMsg.result).not.toContain('stages.<stage>.timeoutMs');
+    });
+
+    it('names the provided inactivity config key in the inactivity timeout message', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 0, 50, {
+        inactivity: 'stages.review.inactivityTimeoutMs',
+      });
+
+      const messages: Array<{ type: string; subtype?: string; result?: string }> = [];
+      for await (const msg of gen) {
+        messages.push(msg);
+      }
+
+      const timeoutMsg = messages.find(m => m.type === 'error' && m.subtype === 'timeout');
+      if (!timeoutMsg) throw new Error('expected timeoutMsg');
+      expect(timeoutMsg.result).toContain('Increase stages.review.inactivityTimeoutMs in wf.config.ts');
+    });
+
     it('fires inactivity timeout despite system chatter messages', async () => {
       const child = createMockChildProcess();
       mockSpawn.mockReturnValue(child as any);

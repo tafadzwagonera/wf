@@ -92,10 +92,12 @@ describe('FigmaStageService', () => {
         figmaLinks: undefined,
       });
       const onProgress = jest.fn();
+      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
       expect(result).toBeUndefined();
-      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(mockLoggerService.warn).not.toHaveBeenCalled();
       expect(onProgress).toHaveBeenCalledTimes(1);
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('no Figma links were captured'), 'figma-stage');
     });
 
     it('returns figmaLinks, baseBranch, and frames when manifest has links', async () => {
@@ -150,14 +152,16 @@ describe('FigmaStageService', () => {
       });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
       const onProgress = jest.fn();
+      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
 
       expect(result?.frames).toEqual([]);
-      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(mockLoggerService.warn).not.toHaveBeenCalled();
       expect(onProgress).toHaveBeenCalledTimes(1);
-      const warnMsg: string = mockLoggerService.warn.mock.calls[0][0];
+      const warnMsg: string = onProgress.mock.calls[0][0];
       expect(warnMsg).not.toContain('no Figma links were captured');
+      expect(appendSpy).toHaveBeenCalledWith('WARN', warnMsg, 'figma-stage');
     });
 
     it('does not warn when fetchFrames returns at least one frame (partial success)', async () => {
@@ -175,11 +179,13 @@ describe('FigmaStageService', () => {
         { url: 'https://figma.com/design/X/Page?node-id=2-2', name: '', width: 0, height: 0, screenshotUrl: '', layout: { name: '' } },
       ]);
       const onProgress = jest.fn();
+      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
 
       expect(mockLoggerService.warn).not.toHaveBeenCalled();
       expect(onProgress).not.toHaveBeenCalled();
+      expect(appendSpy).not.toHaveBeenCalled();
     });
 
     it('warns via the overrideLinks branch when all frame fetches return []', async () => {
@@ -187,13 +193,70 @@ describe('FigmaStageService', () => {
       const overrideLinks = ['https://figma.com/design/A/Page?node-id=2-3'];
       mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
       const onProgress = jest.fn();
+      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, overrideLinks, onProgress });
 
       expect(result?.frames).toEqual([]);
-      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(mockLoggerService.warn).not.toHaveBeenCalled();
       expect(onProgress).toHaveBeenCalledTimes(1);
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('frame fetches failed'), 'figma-stage');
       expect(findPlanArtifactManifestByBranchName).not.toHaveBeenCalled();
+    });
+
+    it('warns via the logger when no onProgress callback is provided', async () => {
+      const { service, mockConfigService, mockLoggerService } = await buildService();
+      mockConfigService.get.mockReturnValue(true);
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue({
+        sourceBranch: 'main',
+        figmaLinks: undefined,
+      });
+
+      const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true });
+
+      expect(result).toBeUndefined();
+      expect(mockLoggerService.warn).toHaveBeenCalledTimes(1);
+      expect(mockLoggerService.warn).toHaveBeenCalledWith(
+        expect.stringContaining('no Figma links were captured'), 'figma-stage',
+      );
+    });
+
+    it('returns undefined without warning when artifactPath is set but config is disabled and the artifact has no links', async () => {
+      const { service, mockConfigService, mockLoggerService } = await buildService();
+      mockConfigService.get.mockReturnValue(false);
+      const onProgress = jest.fn();
+
+      const result = await service.resolveIfEnabled({
+        repoDir: '/repo', force: false, artifactPath: '/artifacts/plan.json', onProgress,
+      });
+
+      expect(result).toBeUndefined();
+      expect(readFigmaLinksFromPlanArtifact).toHaveBeenCalledWith('/artifacts/plan.json');
+      expect(mockLoggerService.warn).not.toHaveBeenCalled();
+      expect(onProgress).not.toHaveBeenCalled();
+      expect(mockFigmaRestClient.fetchFrames).not.toHaveBeenCalled();
+    });
+
+    it('runs the stage when the plan artifact captured figma links even though config is disabled', async () => {
+      const { service, mockConfigService } = await buildService();
+      mockConfigService.get.mockReturnValue(false);
+      (readFigmaLinksFromPlanArtifact as jest.Mock).mockReturnValue([
+        'https://figma.com/design/X/Page?node-id=1-1',
+      ]);
+      (readPlanArtifactManifest as jest.Mock).mockReturnValue({ sourceBranch: 'main' });
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([
+        { url: 'https://figma.com/design/X/Page?node-id=1-1', name: 'F', width: 100, height: 100, screenshotUrl: 'https://img', layout: { name: 'F', width: 100, height: 100 } },
+      ]);
+
+      const result = await service.resolveIfEnabled({
+        repoDir: '/repo', force: false, artifactPath: '/artifacts/plan.json',
+      });
+
+      expect(result).toMatchObject({
+        figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1'],
+        baseBranch: 'main',
+      });
+      expect(readFigmaLinksFromPlanArtifact).toHaveBeenCalledTimes(1);
     });
 
     it('reads figmaLinks from the plan artifact and sourceBranch from the sidecar when artifactPath is set', async () => {

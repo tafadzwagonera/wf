@@ -147,6 +147,7 @@ type CliPassResult = {
 
 type CliChatPassOpts = {
   initialSessionId?: string;
+  jsonSchema?: string;
   model: string;
   repoDir?: string;
   stage: AgentStageName;
@@ -255,6 +256,7 @@ type StagePromptParams = {
 };
 
 type ChatTurnParams = {
+  jsonSchema?: string;
   repoDir?: string;
   session?: AgentChatSession;
   stage: AgentStageName;
@@ -786,7 +788,8 @@ const extractAnthropicResultMessage = (
   return result.result;
 };
 
-const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
+/** Serialises a JSON-schema object for the CLI `--json-schema` flag, stripping the `$schema` key the CLI rejects. */
+export const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
   if (!zodSchema || typeof zodSchema !== 'object') return undefined;
   const sanitised = { ...(zodSchema as Record<string, unknown>) };
   delete sanitised['$schema'];
@@ -1602,7 +1605,8 @@ export class StageAgentService {
     const preamble = buildPriorStagePreamble(priorStageSummary);
     const appendSystemPrompt = this.buildClaudeEpilogueSystemPrompt(systemPrompt, preamble);
     const args = this.buildClaudeEpilogueArgs({ sessionId, repoDir, model, appendSystemPrompt });
-    const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
+    const stream = spawnCli(args, repoDir, cliEpiloguePrompt, undefined,
+      this.resolveReviewEpilogueTimeoutMs(), undefined, { wallClock: 'stages.review.epilogueTimeoutMs' });
     for await (const message of stream) {
       if (message.is_error) return { sent: false, reason: extractCliDiagnostic(message) ?? 'CLI error' };
     }
@@ -1647,7 +1651,7 @@ export class StageAgentService {
     const chatPassOpts: CliChatPassOpts = {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
       model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
-      initialSessionId: params.session?.sessionId,
+      initialSessionId: params.session?.sessionId, jsonSchema: params.jsonSchema,
     };
     const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
     return { content: result.content, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
@@ -1657,7 +1661,7 @@ export class StageAgentService {
     passOpts: CliChatPassOpts, stage: AgentStageName, initialSessionId?: string
   ): Promise<{ content: string; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
-      stage, initialSessionId, false,
+      stage, initialSessionId, Boolean(passOpts.jsonSchema),
       (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber })
     );
   }
@@ -1666,12 +1670,13 @@ export class StageAgentService {
     opts: CliChatPassOpts & { sessionId?: string; passNumber: number }
   ): Promise<CliPassResult> {
     const isResume = opts.passNumber > 1 && opts.sessionId;
-    const prompt = isResume ? cliChatRetryPrompt : opts.userMessage;
+    const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
+    const prompt = isResume ? retryPrompt : opts.userMessage;
     const resolvedRepoDir = opts.repoDir ?? process.cwd();
     const args = buildCliArgs({
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: resolvedRepoDir,
       sessionId: isResume ? opts.sessionId : opts.initialSessionId,
-      tools: this.resolveCliInspectionTools(opts.repoDir), permissionMode: 'plan',
+      tools: this.resolveCliInspectionTools(opts.repoDir), permissionMode: 'plan', jsonSchema: opts.jsonSchema,
     });
     return processCliPassMessages(args, resolvedRepoDir, prompt,
       this.resolveStageTimeoutMs(opts.stage), this.resolveStageInactivityTimeoutMs(opts.stage));
