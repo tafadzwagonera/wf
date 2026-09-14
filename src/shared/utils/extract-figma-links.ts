@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import { detectRepoConventions } from './detect-repo-conventions';
 
-const FIGMA_LINK_PATTERN = /https?:\/\/(www\.)?figma\.com\/(file|design|proto|board)\/[\w-]+(?:\/[^\s?#,;.)]*)*(?:\?[^\s#?,;.)]*)?/gi;
+const FIGMA_LINK_PATTERN = /https?:\/\/(www\.)?figma\.com\/(file|design|proto|board)\/[\w-]+(?:\/[^\s?#,;.)'"\]]*)*(?:\?[^\s#?,;.)'"\]]*)?/gi;
 
 const FIGMA_LINK_PROMPT_MESSAGE = 'Figma frame link(s), space-separated (optional, press Enter to skip) — '
   + 'e.g. https://figma.com/design/abc123/Screen-A https://figma.com/design/def456/Screen-B:';
@@ -47,8 +47,9 @@ export async function resolvePostParseFigmaLinks(
     conventions?: { designSystem?: { hasUiEnvironment?: boolean } | null };
   }
 ): Promise<string[]> {
-  if (autoLinks.length) return autoLinks;
+  const valid = autoLinks.filter(url => !/['"[\]>]$/.test(url));
+  if (valid.length) return valid;
   const resolved = conventions ?? detectRepoConventions(repoDir ?? process.cwd());
-  if (!resolved.designSystem?.hasUiEnvironment) return autoLinks;
+  if (!resolved.designSystem?.hasUiEnvironment) return valid;
   return searchFigmaLinksForTicket(content, allowPrompt);
 }

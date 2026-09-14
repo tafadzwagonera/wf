@@ -61,6 +61,15 @@ describe('extractFigmaLinks', () => {
     ]);
   });
 
+  it('excludes trailing string-literal delimiters when a URL appears inside a code snippet', () => {
+    expect(extractFigmaLinks("mockReturnValue(['https://figma.com/design/X/Page?node-id=1-1',"))
+      .toEqual(['https://figma.com/design/X/Page?node-id=1-1']);
+    expect(extractFigmaLinks('figmaLinks: ["https://figma.com/design/X/Page?node-id=1-1"]'))
+      .toEqual(['https://figma.com/design/X/Page?node-id=1-1']);
+    expect(extractFigmaLinks("figmaLinks: ['https://figma.com/design/X/Page?node-id=1-1']"))
+      .toEqual(['https://figma.com/design/X/Page?node-id=1-1']);
+  });
+
   it('does not fold a prose ? immediately after the URL into the query string', () => {
     const text = 'Did you see https://figma.com/design/abc/Page?node-id=1-2? Yes.';
     expect(extractFigmaLinks(text)).toEqual([
@@ -92,6 +101,7 @@ describe('resolvePostParseFigmaLinks', () => {
 
   beforeEach(() => {
     mockDetectRepoConventions = detectRepoConventions as jest.MockedFunction<typeof detectRepoConventions>;
+    mockDetectRepoConventions.mockClear();
     mockDetectRepoConventions.mockReturnValue({ designSystem: { hasUiEnvironment: false } } as any);
     mockInquirerPrompt = jest.spyOn(inquirer, 'prompt').mockResolvedValue({ input: '' } as any);
   });
@@ -138,6 +148,27 @@ describe('resolvePostParseFigmaLinks', () => {
 
     expect(result).toEqual([]);
     expect(mockInquirerPrompt).not.toHaveBeenCalled();
+  });
+
+  it('filters out malformed autoLinks with trailing string-literal punctuation, returns the valid subset', async () => {
+    const result = await resolvePostParseFigmaLinks(
+      'some content',
+      ["https://figma.com/design/X/Y'", 'https://figma.com/design/A/B'],
+      { allowPrompt: false, repoDir: '/repo' }
+    );
+    expect(result).toEqual(['https://figma.com/design/A/B']);
+    expect(mockDetectRepoConventions).not.toHaveBeenCalled();
+  });
+
+  it('falls through to design-system detection when all autoLinks are malformed', async () => {
+    mockDetectRepoConventions.mockReturnValue({ designSystem: { hasUiEnvironment: false } } as any);
+    const result = await resolvePostParseFigmaLinks(
+      'some content',
+      ["https://figma.com/design/X/Y'"],
+      { allowPrompt: false, repoDir: '/repo' }
+    );
+    expect(result).toEqual([]);
+    expect(mockDetectRepoConventions).toHaveBeenCalled();
   });
 
   it('returns empty array when conventions.designSystem is undefined', async () => {
