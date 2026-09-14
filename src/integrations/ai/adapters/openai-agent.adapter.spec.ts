@@ -1516,6 +1516,27 @@ describe('OpenAIAgentAdapter', () => {
       expect(initialPrompt).toContain('2. Update unit tests');
     });
 
+    it('appends UI design compliance to system prompt when uiDesignScreenshotPaths present', async () => {
+      const repoDir = createManagedTempDir('openai-ui-compliance');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      const runMock = jest.fn(async () => mockRunResult);
+      mockRunner.mockImplementation(() => ({ run: runMock, config: {} }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await adapter.generateAndVerify({
+        ...makeParams(repoDir),
+        uiDesignScreenshotPaths: ['/tmp/design.png'],
+      });
+
+      const agentConfig = mockAgent.mock.calls[0]?.[0] as { instructions: string };
+      expect(agentConfig.instructions).toContain('UI design compliance');
+    });
+
     it('includes task brief in continuation prompts', async () => {
       const repoDir = createManagedTempDir('openai-prompt-continuation');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });

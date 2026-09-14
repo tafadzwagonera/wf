@@ -101,24 +101,23 @@ function parseUrl(url: string): { fileKey: string; nodeId: string } {
   return { fileKey, nodeId };
 }
 
+function buildRateLimitDetail(headers: Headers): string {
+  const retryAfter = headers.get('Retry-After');
+  const planTier = headers.get('X-Figma-Plan-Tier');
+  const limitType = headers.get('X-Figma-Rate-Limit-Type');
+  return [
+    retryAfter ? `retry-after=${retryAfter}s` : null,
+    planTier ? `plan=${planTier}` : null,
+    limitType ? `limit-type=${limitType}` : null,
+  ].filter(Boolean).join(' ');
+}
+
 async function fetchJson<T>(req: RequestInfo, init: RequestInit): Promise<T> {
   const r = await fetch(req, init);
   if (!r.ok) {
     if (r.status === 429) {
-      const retryAfter = r.headers.get('Retry-After');
-      const planTier = r.headers.get('X-Figma-Plan-Tier');
-      const limitType = r.headers.get('X-Figma-Rate-Limit-Type');
-      const detail = [
-        retryAfter ? `retry-after=${retryAfter}s` : null,
-        planTier ? `plan=${planTier}` : null,
-        limitType ? `limit-type=${limitType}` : null,
-      ].filter(Boolean).join(' ');
-      throw new ApiError(
-        ERROR_CODE.FIGMA_API_ERROR,
-        `Figma API rate-limited${detail ? ` (${detail})` : ''}`,
-        429,
-        String(r.url),
-      );
+      const detail = buildRateLimitDetail(r.headers);
+      throw new ApiError(ERROR_CODE.FIGMA_API_ERROR, `Figma API rate-limited${detail ? ` (${detail})` : ''}`, 429, String(r.url));
     }
     throw new ApiError(ERROR_CODE.FIGMA_API_ERROR, `Figma API error`, r.status, String(r.url));
   }
@@ -131,32 +130,44 @@ function toHex(color: FigmaColor): string {
     .join('');
 }
 
-function extractNodeLayout(doc: FigmaNodeDoc): FigmaNodeLayout {
-  const bbox = doc.absoluteBoundingBox;
-  const fills: FigmaFillContext[] = (doc.fills ?? [])
-    .filter(f => f.type === 'SOLID' && f.color)
-    .map(f => ({ type: f.type, hex: f.color ? toHex(f.color) : undefined }));
+function extractTypography(doc: FigmaNodeDoc): FigmaTypographyContext | undefined {
   const s = doc.style;
-  const typography: FigmaTypographyContext | undefined = s
-    ? { fontSize: s.fontSize, fontWeight: s.fontWeight, lineHeightPx: s.lineHeightPx, textDecoration: s.textDecoration }
-    : undefined;
-  const hasTypo = typography && Object.values(typography).some(v => v !== undefined);
+  if (!s) return undefined;
+  const t: FigmaTypographyContext = {
+    fontSize: s.fontSize, fontWeight: s.fontWeight, lineHeightPx: s.lineHeightPx, textDecoration: s.textDecoration,
+  };
+  return Object.values(t).some(v => v !== undefined) ? t : undefined;
+}
 
-  const node: FigmaNodeLayout = { name: doc.name ?? '' };
+function applyNodeGeometry(node: FigmaNodeLayout, doc: FigmaNodeDoc): void {
+  const bbox = doc.absoluteBoundingBox;
   if (doc.type !== undefined) node.type = doc.type;
   if (bbox?.width !== undefined) node.width = bbox.width;
   if (bbox?.height !== undefined) node.height = bbox.height;
   if (doc.layoutMode && doc.layoutMode !== 'NONE') node.layoutMode = doc.layoutMode;
   if (doc.primaryAxisAlignItems) node.primaryAxisAlign = doc.primaryAxisAlignItems;
   if (doc.counterAxisAlignItems) node.counterAxisAlign = doc.counterAxisAlignItems;
+}
+
+function applyNodeSpacing(node: FigmaNodeLayout, doc: FigmaNodeDoc): void {
   if (doc.paddingTop !== undefined) node.paddingTop = doc.paddingTop;
   if (doc.paddingRight !== undefined) node.paddingRight = doc.paddingRight;
   if (doc.paddingBottom !== undefined) node.paddingBottom = doc.paddingBottom;
   if (doc.paddingLeft !== undefined) node.paddingLeft = doc.paddingLeft;
   if (doc.itemSpacing !== undefined) node.gap = doc.itemSpacing;
   if (doc.cornerRadius !== undefined) node.cornerRadius = doc.cornerRadius;
+}
+
+function extractNodeLayout(doc: FigmaNodeDoc): FigmaNodeLayout {
+  const fills: FigmaFillContext[] = (doc.fills ?? [])
+    .filter(f => f.type === 'SOLID' && f.color)
+    .map(f => ({ type: f.type, hex: f.color ? toHex(f.color) : undefined }));
+  const node: FigmaNodeLayout = { name: doc.name ?? '' };
+  applyNodeGeometry(node, doc);
+  applyNodeSpacing(node, doc);
   if (fills.length) node.fills = fills;
-  if (hasTypo) node.typography = typography;
+  const typo = extractTypography(doc);
+  if (typo) node.typography = typo;
   if (doc.characters) node.text = doc.characters;
   if (doc.children?.length) node.children = doc.children.map(extractNodeLayout);
   return node;
@@ -164,18 +175,14 @@ function extractNodeLayout(doc: FigmaNodeDoc): FigmaNodeLayout {
 
 async function fetchFrame(url: string, headers: Record<string, string>): Promise<FigmaFrameContext> {
   const { fileKey, nodeId } = parseUrl(url);
-  const nodesUrl = `${FIGMA_API_BASE}/v1/files/${fileKey}/nodes?ids=${nodeId}`;
-  const imagesUrl = `${FIGMA_API_BASE}/v1/images/${fileKey}?ids=${nodeId}&format=png&scale=2`;
-  const { nodes } = await fetchJson<FigmaNodesResponse>(nodesUrl, { headers });
-  const imagesRes = await fetchJson<FigmaImagesResponse>(imagesUrl, { headers });
+  const h = { headers };
+  const { nodes } = await fetchJson<FigmaNodesResponse>(`${FIGMA_API_BASE}/v1/files/${fileKey}/nodes?ids=${nodeId}`, h);
+  const imagesRes = await fetchJson<FigmaImagesResponse>(`${FIGMA_API_BASE}/v1/images/${fileKey}?ids=${nodeId}&format=png&scale=2`, h);
   const doc = nodes[nodeId]?.document ?? {};
   return {
-    url,
-    name: doc.name ?? '',
-    width: doc.absoluteBoundingBox?.width ?? 0,
-    height: doc.absoluteBoundingBox?.height ?? 0,
-    screenshotUrl: imagesRes.images[nodeId] ?? '',
-    layout: extractNodeLayout(doc),
+    url, name: doc.name ?? '',
+    width: doc.absoluteBoundingBox?.width ?? 0, height: doc.absoluteBoundingBox?.height ?? 0,
+    screenshotUrl: imagesRes.images[nodeId] ?? '', layout: extractNodeLayout(doc),
   };
 }
 

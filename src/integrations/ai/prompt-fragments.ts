@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { FigmaFrameContext, FigmaNodeLayout } from '../figma/figma-rest.client';
 
@@ -136,15 +137,17 @@ export const buildPlanSkillSection = (skillNames?: string[]): string => {
     + '\nFollow each skill\'s instructions fully before proceeding.';
 };
 
-function formatNodeLayout(node: FigmaNodeLayout, indent = ''): string {
-  const lines: string[] = [];
+function formatNodeHeader(node: FigmaNodeLayout, indent: string): string {
   const dims = node.width !== undefined && node.height !== undefined
     ? ` (${node.width}×${node.height}px)`
     : '';
   const attrs: string[] = [];
   if (node.layoutMode) attrs.push(node.layoutMode.toLowerCase());
   if (node.primaryAxisAlign) attrs.push(node.primaryAxisAlign.toLowerCase().replace('_', '-'));
-  lines.push(`${indent}${node.name}${dims}${attrs.length ? ` [${attrs.join(' | ')}]` : ''}`);
+  return `${indent}${node.name}${dims}${attrs.length ? ` [${attrs.join(' | ')}]` : ''}`;
+}
+
+function formatNodeProps(node: FigmaNodeLayout): string[] {
   const props: string[] = [];
   const { paddingTop: pt, paddingRight: pr, paddingBottom: pb, paddingLeft: pl } = node;
   if (pt !== undefined && pr !== undefined && pb !== undefined && pl !== undefined) {
@@ -153,17 +156,26 @@ function formatNodeLayout(node: FigmaNodeLayout, indent = ''): string {
   if (node.gap !== undefined) props.push(`gap:${node.gap}px`);
   if (node.cornerRadius !== undefined) props.push(`radius:${node.cornerRadius}px`);
   if (node.fills?.length) props.push(`fill:${node.fills.map(f => f.hex ?? f.type).join(',')}`);
+  return props;
+}
+
+function formatNodeTypography(node: FigmaNodeLayout, indent: string): string {
+  if (!node.typography) return '';
+  const t = node.typography;
+  const parts = [
+    t.fontSize ? `${t.fontSize}px` : '', t.fontWeight ? `w${t.fontWeight}` : '',
+    t.lineHeightPx ? `lh:${Math.round(t.lineHeightPx)}px` : '',
+    t.textDecoration ? t.textDecoration.toLowerCase() : '',
+  ].filter(Boolean).join(' ');
+  return parts ? `${indent}  [font:${parts}]` : '';
+}
+
+function formatNodeLayout(node: FigmaNodeLayout, indent = ''): string {
+  const lines: string[] = [formatNodeHeader(node, indent)];
+  const props = formatNodeProps(node);
   if (props.length) lines.push(`${indent}  [${props.join(' | ')}]`);
-  if (node.typography) {
-    const t = node.typography;
-    const parts = [
-      t.fontSize ? `${t.fontSize}px` : '',
-      t.fontWeight ? `w${t.fontWeight}` : '',
-      t.lineHeightPx ? `lh:${Math.round(t.lineHeightPx)}px` : '',
-      t.textDecoration ? t.textDecoration.toLowerCase() : '',
-    ].filter(Boolean).join(' ');
-    if (parts) lines.push(`${indent}  [font:${parts}]`);
-  }
+  const typo = formatNodeTypography(node, indent);
+  if (typo) lines.push(typo);
   if (node.text) {
     const preview = node.text.length > 60 ? node.text.slice(0, 60) + '…' : node.text;
     lines.push(`${indent}  [text:"${preview}"]`);
@@ -198,3 +210,16 @@ export const deriveModelSource = (provider: string, model: string): string => {
   const prefix = prefixMap[provider] ?? '';
   return model.startsWith(prefix) ? model.slice(prefix.length) : model;
 };
+
+export function formatUiDesignScreenshotsPlanPromptSection(paths: string[]): string {
+  if (!paths.length) return '';
+  const basenames = paths.map(p => `- ${path.basename(p)}`).join('\n');
+  return `UI design screenshots provided:\n${basenames}\nThese screenshots are injected as images into this prompt call. Do not guess spacing, colour, or typography values — derive all values from the design reference.`;
+}
+
+export function buildUiDesignComplianceSystemPromptSection(
+  context: { figmaLinks?: string[]; uiDesignScreenshots?: string[] }
+): string {
+  if (!context.figmaLinks?.length && !context.uiDesignScreenshots?.length) return '';
+  return '**UI design compliance (survives compaction)**\nDesign reference is active for this task. Implement the UI to strictly match the design provided — Figma frames or screenshots as listed. Every spacing value, colour token, typography rule, and layout property must come from the design reference or from existing design system conventions already in the repository. Never invent new CSS classes, Tailwind utilities, or style values not grounded in the design reference or the codebase design system.';
+}

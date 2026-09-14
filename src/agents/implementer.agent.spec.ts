@@ -10,6 +10,7 @@ import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { PlanStepVerificationService } from './plan-step-verification.service';
 import { StepSpecFidelityService } from './step-spec-fidelity.service';
 import { FigmaStageService } from '../review/figma-stage.service';
+import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
@@ -2816,6 +2817,110 @@ describe('ImplementerAgent', () => {
       expect(result1).not.toBeNull();
       expect(result2).not.toBeNull();
       expect(result3).not.toBeNull();
+    });
+  });
+
+  describe('UI design screenshots integration', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes uiDesignScreenshotPaths to adapter when UiDesignScreenshotsStageService resolves paths', async () => {
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const mockUiService = { resolveIfEnabled: jest.fn().mockResolvedValue({ screenshots: [], paths: ['/tmp/design.png'] }) };
+      const module = await Test.createTestingModule({
+        providers: [
+          ImplementerAgent,
+          {
+            provide: CliPresenter,
+            useValue: {
+              stageHeader: jest.fn(), separator: jest.fn(), progress: jest.fn(),
+              outcome: jest.fn(), detail: jest.fn(), summaryBlock: jest.fn(),
+            },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockImplementation((key: string, fallback?: unknown) => {
+                if (key === 'stages.implement.provider') return 'anthropic';
+                if (key === 'stages.implement.verificationConditions') return undefined;
+                if (key === 'git.branchPrefixMapping') {
+                  return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+                }
+                return fallback;
+              }),
+            },
+          },
+          {
+            provide: GitService,
+            useValue: {
+              getCurrentBranch: jest.fn().mockResolvedValue('main'),
+              createBranch: jest.fn().mockResolvedValue(undefined),
+              getStatus: jest.fn().mockResolvedValue({
+                isClean: () => true, modified: [], staged: [], deleted: [],
+                renamed: [], conflicted: [], not_added: [], files: [],
+              }),
+              getBranchInfo: jest.fn().mockResolvedValue({
+                current: 'main', all: ['main'], development: 'develop',
+                isClean: true, hasUncommittedChanges: false,
+              }),
+              detectDevelopmentBranches: jest.fn().mockReturnValue(['develop']),
+              detectMainBranch: jest.fn().mockReturnValue('main'),
+              hasUpstream: jest.fn().mockResolvedValue(true),
+              checkoutBranch: jest.fn().mockResolvedValue(undefined),
+              pull: jest.fn().mockResolvedValue(undefined),
+              stashChanges: jest.fn().mockResolvedValue(undefined),
+              stashPop: jest.fn().mockResolvedValue(undefined),
+              checkIgnored: jest.fn().mockResolvedValue([]),
+              getRecentCommits: jest.fn().mockResolvedValue([
+                { hash: 'abc', message: 'commit', author: 'tester', date: new Date() },
+              ]),
+              resetSoftToCommit: jest.fn().mockResolvedValue(undefined),
+              listCommitsInRange: jest.fn().mockResolvedValue([]),
+            },
+          },
+          { provide: AiService, useValue: { generateFindings: jest.fn() } },
+          {
+            provide: StageAgentService,
+            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+          },
+          {
+            provide: PlanStepVerificationService,
+            useValue: {
+              run: jest.fn().mockResolvedValue({ sessionId: undefined, summary: undefined, extraPassCount: 0 }),
+              logSkip: jest.fn(),
+            },
+          },
+          {
+            provide: StepSpecFidelityService,
+            useValue: { run: jest.fn().mockResolvedValue([]), verifyAll: jest.fn().mockResolvedValue([[]]) },
+          },
+          { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
+          { provide: UiDesignScreenshotsStageService, useValue: mockUiService },
+        ],
+      }).compile();
+
+      const testAgent = module.get(ImplementerAgent);
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined as any);
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) => String(p).startsWith('/tmp/repo-a/src/') || String(p).endsWith('/package.json'));
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((fp: string) => {
+        if (String(fp).includes('package.json')) return JSON.stringify({ scripts: {} });
+        throw new Error(`Unexpected read: ${fp}`);
+      });
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+
+      const adapterSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+
+      await testAgent.execute(
+        { ticketKey: 'WBP-1000', content: '# T', path: '/tmp/.wf/repo-a/jira/WBP-1000.md' },
+        { action: 'feature', path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-feature.json', plan: { action: 'feature', summary: 'Test', steps: ['Update src'], estimatedComplexity: 'medium', affectedFiles: ['repo-a/src/example.ts'], affectedRepositories: ['repo-a'] } },
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const callArg = adapterSpy.mock.calls[0][0];
+      expect(callArg).toHaveProperty('uiDesignScreenshotPaths', ['/tmp/design.png']);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
@@ -34,6 +34,7 @@ import { PlanStepVerificationService, type PlanStepVerificationRunParams } from 
 import { StepSpecFidelityService } from './step-spec-fidelity.service';
 import type { StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -70,6 +71,10 @@ type PlanStepVerificationSkipReason = 'disabled' | 'no-changes' | 'no-assessed-s
 export class ImplementerAgent {
   @Inject(CliPresenter)
   private readonly presenter: CliPresenter;
+
+  @Optional()
+  @Inject(UiDesignScreenshotsStageService)
+  private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService;
 
   constructor(
     private readonly configService: ConfigService,
@@ -455,12 +460,17 @@ export class ImplementerAgent {
 
   private async resolveSkillParams(
     ticket: TicketArtifact, options: ImplementerOptions, planArtifactPath: string
-  ): Promise<{ skillNames?: string[]; figmaContextSection?: string }> {
-    const [skillNames, figmaResult] = await Promise.all([
+  ): Promise<{ skillNames?: string[]; figmaContextSection?: string; uiDesignScreenshotPaths?: string[] }> {
+    const [skillNames, figmaResult, uiResult] = await Promise.all([
       this.resolveImplementSkillNames(),
       this.runFigmaStage(ticket, options, planArtifactPath),
+      this.uiDesignScreenshotsStageService
+        ? this.uiDesignScreenshotsStageService.resolveIfEnabled({ artifactPath: planArtifactPath })
+        : Promise.resolve(undefined),
     ]);
-    return { skillNames, figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []) };
+    const uiDesignScreenshotPaths = uiResult?.paths?.length ? uiResult.paths : undefined;
+    const figmaContextSection = buildFigmaContextSection(figmaResult?.frames ?? []);
+    return { skillNames, figmaContextSection, uiDesignScreenshotPaths };
   }
 
   private async executeBackendAdapter(

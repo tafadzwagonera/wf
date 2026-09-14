@@ -8,6 +8,7 @@ import { DeepSeekAdapter } from './adapters/deepseek.adapter';
 import { StageAgentService } from './stage-agent.service';
 import { ConversationService } from './conversation/conversation.service';
 import { ChatUIService } from './conversation/chat-ui.service';
+import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
 
 @Module({
   providers: [
@@ -20,6 +21,7 @@ import { ChatUIService } from './conversation/chat-ui.service';
     StageAgentService,
     ConversationService,
     ChatUIService,
+    UiDesignScreenshotsStageService,
   ],
   exports: [AiService, StageAgentService, ConversationService, ChatUIService],
 })

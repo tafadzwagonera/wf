@@ -49,6 +49,7 @@ interface GeneratePlanOptions {
   planCorrelation?: PlanCorrelationResult;
   crossRepoPatterns?: CrossRepoContext;
   figmaLinks?: string[];
+  uiDesignScreenshots?: string[];
   reuseCandidates?: ReuseCandidateContext;
   onProgress?: (line: string) => void;
   priorStageSummary?: string;
@@ -146,18 +147,40 @@ export class PlanStageService {
     }
   }
 
+  private writePlanFile(
+    plan: ResolutionPlan, planPath: string,
+    figmaLinks: string[], uiDesignScreenshots: string[],
+  ): void {
+    const planToWrite = {
+      ...plan,
+      ...(figmaLinks.length ? { figmaLinks } : {}),
+      ...(uiDesignScreenshots.length ? { uiDesignScreenshots } : {}),
+    };
+    fs.writeFileSync(planPath, JSON.stringify(planToWrite, null, 2));
+  }
+
+  private writeManifest(
+    planPath: string, action: ResolutionAction, planHash: string,
+    sourceName: string, sourceKind: 'ticket' | 'custom' | undefined,
+    createdAt: Date, figmaLinks: string[],
+  ): void {
+    writePlanArtifactManifest(buildPlanArtifactManifest({
+      artifactPath: planPath, action, format: 'json', hash: planHash,
+      sourceName, sourceKind: sourceKind ?? 'ticket', createdAt,
+      figmaLinks: figmaLinks.length ? figmaLinks : undefined,
+    }));
+  }
+
   private persistPlanArtifact(
     plan: ResolutionPlan, action: ResolutionAction, artifactDir: string,
     planHash: string, sourceName: string, sourceKind: 'ticket' | 'custom' | undefined,
-    figmaLinks: string[]
+    links: { figmaLinks: string[]; uiDesignScreenshots: string[] }
   ): PlanArtifact {
+    const { figmaLinks, uiDesignScreenshots } = links;
     const createdAt = new Date();
-    const filename = buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' });
-    const planPath = path.join(artifactDir, filename);
-    const planToWrite = figmaLinks.length ? { ...plan, figmaLinks } : plan;
-    fs.writeFileSync(planPath, JSON.stringify(planToWrite, null, 2));
-    const manifest = buildPlanArtifactManifest({ artifactPath: planPath, action: action, format: 'json', hash: planHash, sourceName: sourceName, sourceKind: sourceKind ?? 'ticket', createdAt: createdAt, figmaLinks: figmaLinks.length ? figmaLinks : undefined });
-    writePlanArtifactManifest(manifest);
+    const planPath = path.join(artifactDir, buildPlanArtifactFilename({ createdAt, hash: planHash, action, format: 'json' }));
+    this.writePlanFile(plan, planPath, figmaLinks, uiDesignScreenshots);
+    this.writeManifest(planPath, action, planHash, sourceName, sourceKind, createdAt, figmaLinks);
     this.deleteStalePlanArtifacts(artifactDir, planHash, action, planPath);
     return { plan, action, path: planPath, fromCache: false };
   }
@@ -172,8 +195,11 @@ export class PlanStageService {
     const { plan, sessionId, figmaLinks } = await this.executePlanGeneration(ticket, options);
     if (!figmaLinks.length) this.warnNoFigmaLinks(this.isInteractiveSession() ? 'no-links-found' : 'non-interactive-session');
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
-    const result = this.persistPlanArtifact(plan, options.action, path.dirname(ticket.path),
-      hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind, figmaLinks);
+    const result = this.persistPlanArtifact(
+      plan, options.action, path.dirname(ticket.path),
+      hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind,
+      { figmaLinks, uiDesignScreenshots: options.uiDesignScreenshots ?? [] },
+    );
     return { ...result, sessionId };
   }
 
@@ -182,7 +208,7 @@ export class PlanStageService {
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
-      figmaLinks: autoLinks,
+      figmaLinks: autoLinks, uiDesignScreenshots: options.uiDesignScreenshots,
     });
     const figmaLinks = await resolvePostParseFigmaLinks(
       ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
@@ -375,8 +401,8 @@ export class PlanStageService {
       priorPlans: o.priorPlans,
       planCorrelation: o.planCorrelation,
       crossRepoPatterns: o.crossRepoPatterns,
-      figmaLinks: o.figmaLinks, reuseCandidates: o.reuseCandidates,
-      skillNames: skillIds.length ? skillIds : undefined,
+      figmaLinks: o.figmaLinks, uiDesignScreenshots: o.uiDesignScreenshots,
+      reuseCandidates: o.reuseCandidates, skillNames: skillIds.length ? skillIds : undefined,
     };
   }
 

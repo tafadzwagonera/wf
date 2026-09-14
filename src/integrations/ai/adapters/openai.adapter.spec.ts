@@ -250,6 +250,56 @@ describe('OpenAIAdapter', () => {
       });
     });
 
+    it('sends image_url content parts when screenshots present in context', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.4';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({
+        prompt: 'Review code',
+        context: {
+          screenshots: [{ path: '/p/a.png', mediaType: 'image/png', base64: 'xyz' }],
+        },
+      });
+
+      const call = mockCreate.mock.calls[0][0];
+      const userMsg = call.messages.find((m: { role: string }) => m.role === 'user');
+      expect(Array.isArray(userMsg.content)).toBe(true);
+      expect(userMsg.content[0]).toMatchObject({
+        type: 'image_url',
+        image_url: { url: 'data:image/png;base64,xyz' },
+      });
+      expect(userMsg.content[1]).toMatchObject({ type: 'text', text: 'Review code' });
+    });
+
+    it('sends plain string content when no screenshots in context', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        choices: [{ message: { content: 'ok' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: OpenAI }).client = {
+        chat: { completions: { create: mockCreate } },
+      } as unknown as OpenAI;
+      (adapter as unknown as { model: string }).model = 'gpt-5.4';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'Review code' });
+
+      const call = mockCreate.mock.calls[0][0];
+      const userMsg = call.messages.find((m: { role: string }) => m.role === 'user');
+      expect(typeof userMsg.content).toBe('string');
+    });
+
     it('omits temperature for temperature-restricted models in executeWithHistory', async () => {
       const adapter = createAdapter();
       const mockCreate = jest

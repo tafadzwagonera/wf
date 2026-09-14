@@ -12,10 +12,11 @@ import { hasProviderUsageIntent, extractStageProviders } from './provider-intent
 import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
+import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 
 const DEFAULT_MODEL = 'gpt-4.1';
 
-type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+type ChatMessage = OpenAI.Chat.ChatCompletionMessageParam;
 
 /**
  * Resolves the OpenAI API key from config, emitting a one-time warning when absent.
@@ -107,6 +108,19 @@ const getApiErrorDetails = (error: unknown): { status?: number } =>
     ? { status: error.status }
     : {};
 
+const buildOpenAiUserContent = (
+  prompt: string, screenshots: UiDesignScreenshot[] | undefined,
+): string | OpenAI.Chat.ChatCompletionContentPart[] => {
+  if (!screenshots?.length) return prompt;
+  return [
+    ...screenshots.map(s => ({
+      type: 'image_url' as const,
+      image_url: { url: `data:${s.mediaType};base64,${s.base64}` },
+    })),
+    { type: 'text' as const, text: prompt },
+  ];
+};
+
 @Injectable()
 export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
   private client?: OpenAI;
@@ -191,10 +205,13 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     this.assertClient();
     this.logger.debug('Executing AI request via OpenAI');
     const systemPrompt = this.prependConfig(request.systemPrompt);
-    const messages = buildMessageHistory(systemPrompt, [{ role: 'user', content: request.prompt }]);
+    const userContent = buildOpenAiUserContent(
+      request.prompt, request.context?.screenshots as UiDesignScreenshot[] | undefined,
+    );
+    const messages = buildMessageHistory(systemPrompt, [{ role: 'user', content: userContent }]);
     const model = request.model || this.model;
     const params = buildCompletionParams(
-      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages
+      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages,
     );
     return this.invokeCompletion(params, model, 'Failed to execute AI request');
   }

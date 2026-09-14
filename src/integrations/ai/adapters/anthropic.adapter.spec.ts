@@ -259,6 +259,55 @@ describe('AnthropicAdapter', () => {
       const args = mockCreate.mock.calls[0]?.[0];
       expect(args?.temperature).toBe(0);
     });
+
+    it('sends multimodal content when screenshots present in context', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-20250514';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({
+        prompt: 'Generate plan',
+        context: {
+          screenshots: [{ path: '/p/a.png', mediaType: 'image/png', base64: 'abc123' }],
+        },
+      });
+
+      const call = mockCreate.mock.calls[0][0];
+      const userContent = call.messages[0].content;
+      expect(Array.isArray(userContent)).toBe(true);
+      expect(userContent[0]).toMatchObject({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: 'abc123' },
+      });
+      expect(userContent[1]).toMatchObject({ type: 'text', text: 'Generate plan' });
+    });
+
+    it('sends plain string content when no screenshots in context', async () => {
+      const adapter = createAdapter();
+      const mockCreate = jest.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+
+      (adapter as unknown as { client: Anthropic }).client = {
+        messages: { create: mockCreate },
+      } as unknown as Anthropic;
+      (adapter as unknown as { model: string }).model = 'claude-sonnet-4-20250514';
+      (adapter as unknown as { maxTokens: number }).maxTokens = 4096;
+
+      await adapter.execute({ prompt: 'Generate plan' });
+
+      const call = mockCreate.mock.calls[0][0];
+      expect(typeof call.messages[0].content).toBe('string');
+    });
   });
 
   describe('executeWithHistory', () => {

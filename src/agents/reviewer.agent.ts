@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
@@ -11,6 +11,8 @@ import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
+import type { UiDesignScreenshotsResult } from '../shared/types/ui-design-screenshot';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
@@ -24,7 +26,8 @@ export class ReviewerAgent {
     private readonly reviewStageService: ReviewStageService,
     private readonly sonarStageService: SonarStageService,
     private readonly figmaStageService: FigmaStageService,
-    private readonly presenter: CliPresenter
+    private readonly presenter: CliPresenter,
+    @Optional() private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService
   ) {}
 
   /**
@@ -55,15 +58,20 @@ export class ReviewerAgent {
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
     const repoDir = options.repoDir ?? process.cwd();
+    const { review, sessionId } = await this.runStages(ticket, repoDir, options, onProgress);
+    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId, this.deriveRepoScope(options));
+  }
+
+  private async runStages(
+    ticket: TicketArtifact, repoDir: string, options: ReviewerOptions, onProgress: ((line: string) => void) | undefined,
+  ) {
     await this.gitService.stageAll(repoDir);
-    const [sonarResult, figmaResult] = await Promise.all([
+    const [sonarResult, figmaResult, uiResult] = await Promise.all([
       this.runSonarStage(repoDir, ticket, options, onProgress),
       this.runFigmaStage(repoDir, ticket, options, onProgress),
+      this.runUiDesignScreenshotsStage(options, onProgress),
     ]);
-    const { review, sessionId } = await this.stageAndReview(
-      ticket, repoDir, options, onProgress, sonarResult, figmaResult
-    );
-    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId, this.deriveRepoScope(options));
+    return this.stageAndReview(ticket, repoDir, options, onProgress, sonarResult, figmaResult, uiResult);
   }
 
   persistArtifact(artifact: ReviewArtifact, ticketKey: string): void {
@@ -105,7 +113,8 @@ export class ReviewerAgent {
 
   private async stageAndReview(
     ticket: TicketArtifact, repoDir: string, options: ReviewerOptions,
-    onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult
+    onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult,
+    uiResult?: UiDesignScreenshotsResult
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
     return this.reviewStageService.reviewDiff(diff, {
@@ -117,6 +126,17 @@ export class ReviewerAgent {
       forkSession: options.forkSession,
       onProgress,
       figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []),
+      ...(uiResult ? { screenshots: uiResult.screenshots } : {}),
+    });
+  }
+
+  private async runUiDesignScreenshotsStage(
+    options: ReviewerOptions, onProgress?: (line: string) => void
+  ): Promise<UiDesignScreenshotsResult | undefined> {
+    if (!this.uiDesignScreenshotsStageService || !options.planArtifactPath) return undefined;
+    return this.uiDesignScreenshotsStageService.resolveIfEnabled({
+      artifactPath: options.planArtifactPath,
+      onProgress,
     });
   }
 

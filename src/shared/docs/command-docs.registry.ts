@@ -27,6 +27,10 @@ export const COMMAND_DOCS = {
         comment: 'Resume a saved workflow session without restating source flags',
         command: 'wf issue --session-id 550e8400-e29b-41d4-a716-446655440000',
       },
+      {
+        comment: 'Inject local design screenshots during plan generation (stored in plan artifact, re-read at review)',
+        command: 'wf issue -k WBP-2971 --from fetch --action feature --ui-design-screenshots hero.png card.webp',
+      },
     ],
   },
   'issue:plan': {
@@ -55,6 +59,14 @@ export const COMMAND_DOCS = {
       {
         comment: 'Extract Figma links from ticket and store in plan manifest',
         command: 'wf issue:plan -k WBP-2971 --action fix --figma',
+      },
+      {
+        comment: 'Inject local design screenshots during planning (no-arg: scans <artifactDir>/<ticketKey>/)',
+        command: 'wf issue:plan -k WBP-2971 --action fix --ui-design-screenshots',
+      },
+      {
+        comment: 'Inject explicit screenshots; paths stored in plan artifact and re-read at review time',
+        command: 'wf issue:plan -k WBP-2971 --action fix --ui-design-screenshots hero.png card.webp',
       },
     ],
   },

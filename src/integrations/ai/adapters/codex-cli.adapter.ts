@@ -32,6 +32,7 @@ type GenerateAndVerifyParams = {
   trackedFilePaths: string[];
   conventionsSection?: string;
   skillNames?: string[];
+  uiDesignScreenshotPaths?: string[];
 };
 
 type AssistantBlock = { type: string; name?: string; input?: Record<string, unknown> };
@@ -72,7 +73,10 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
 const buildCodexImplementPrompt = (params: GenerateAndVerifyParams, repoDir: string): string => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
-  return `${preamble}${systemPrompt}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
+  const screenshotPaths = params.uiDesignScreenshotPaths?.length
+    ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.uiDesignScreenshotPaths.map(p => `- ${p}`).join('\n')
+    : '';
+  return `${preamble}${systemPrompt}${screenshotPaths}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
 };
 
 const logCommandStarted = (message: CodexCliMessage): boolean => {

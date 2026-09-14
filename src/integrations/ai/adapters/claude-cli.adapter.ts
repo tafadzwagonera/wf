@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ExecutionError } from '../../../shared/utils/errors';
 import type {
   TicketArtifact,
@@ -69,6 +70,7 @@ type GenerateAndVerifyParams = {
   conventionsSection?: string;
   skillNames?: string[];
   figmaContextSection?: string;
+  uiDesignScreenshotPaths?: string[];
 };
 
 type CliSessionParams = {
@@ -81,6 +83,7 @@ type CliSessionParams = {
   model: string;
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
+  uiDesignScreenshotPaths?: string[];
 };
 
 type ContinuationLoopParams = {
@@ -331,6 +334,22 @@ const logToolResultVerification = (
 const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
+const SCREENSHOT_MEDIA_TYPES: Record<string, UiDesignScreenshot['mediaType']> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.svg': 'image/svg+xml',
+};
+
+const toScreenshot = (imgPath: string): UiDesignScreenshot => ({
+  path: imgPath,
+  mediaType: SCREENSHOT_MEDIA_TYPES[path.extname(imgPath).toLowerCase()] ?? 'image/png',
+  base64: '',
+});
+
 const buildImplementCliArgs = (p: CliSessionParams) =>
   buildCliArgs({
     prompt: p.options.initialPromptOverride ?? buildInitialUserPrompt(p.taskBriefParams),
@@ -341,6 +360,7 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
     permissionMode: 'acceptEdits',
     addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
     sessionId: p.options.resumeProviderSessionId,
+    screenshots: p.uiDesignScreenshotPaths?.map(toScreenshot),
   });
 
 const buildCliSystemPromptParams = (params: GenerateAndVerifyParams): Parameters<typeof buildSystemPrompt>[0] => ({
@@ -376,6 +396,7 @@ const createCliSessionParams = (
   additionalRepoDirs: resolveAdditionalRepoDirs(params),
   verificationScripts: params.verificationScripts,
   taskBriefParams: buildCliTaskBriefParams(params, repoDir),
+  uiDesignScreenshotPaths: params.uiDesignScreenshotPaths,
 });
 
 const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>

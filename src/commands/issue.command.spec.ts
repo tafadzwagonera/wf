@@ -55,6 +55,10 @@ jest.mock('../shared/utils/repo-lock', () => ({
   withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
 }));
 
+jest.mock('../shared/utils/resolve-ui-design-screenshots', () => ({
+  resolveUiDesignScreenshots: jest.fn().mockReturnValue([]),
+}));
+
 jest.mock('../config/wf-config-loader', () => ({
   initializeWfConfig: jest.fn().mockResolvedValue({}),
   getLoadedWfConfig: jest.fn().mockReturnValue({ tracker: 'jira' }),
@@ -2562,6 +2566,26 @@ describe('IssueCommand', () => {
         'repo', ['repo'], { tracker: 'jira', figma: true }, false, {}
       );
       expect(opts).toHaveProperty('figma', true);
+    });
+  });
+
+  describe('assertMutualExclusions uiDesignScreenshots', () => {
+    it('throws when --figma and --ui-design-screenshots both provided', async () => {
+      const command = await buildCommand();
+      expect(() =>
+        (command as any).assertMutualExclusions(undefined, {
+          ticketKey: 'WBP-1', figma: true, uiDesignScreenshots: ['design.png'],
+        })
+      ).toThrow('mutually exclusive');
+    });
+
+    it('does not throw when only --ui-design-screenshots provided', async () => {
+      const command = await buildCommand();
+      expect(() =>
+        (command as any).assertMutualExclusions(undefined, {
+          ticketKey: 'WBP-1', uiDesignScreenshots: ['design.png'],
+        })
+      ).not.toThrow();
     });
   });
 

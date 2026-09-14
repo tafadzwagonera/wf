@@ -1,6 +1,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
+import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
@@ -59,6 +60,7 @@ export interface CliRunnerParams {
   env?: Record<string, string>;
   jsonSchema?: string;
   forkSession?: boolean;
+  screenshots?: UiDesignScreenshot[];
 }
 
 export const CLI_TIMEOUT_MS = 15 * 60 * 1000;
@@ -235,6 +237,7 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
   if (params.tools?.length) args.push('--allowedTools', params.tools.join(','));
   appendAddDirs(args, params.addDirs);
   appendOptionalArg(args, '--json-schema', params.jsonSchema);
+  for (const s of (params.screenshots ?? [])) args.push('--image', s.path);
   const noMcpConfig = path.join(__dirname, '..', '..', '..', 'bootstrap', 'no-mcp.json');
   args.push('--mcp-config', noMcpConfig, '--strict-mcp-config');
   return args;

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
 import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/errors';
@@ -54,8 +54,10 @@ import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
   buildReviewSkillSection,
+  buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
+  formatUiDesignScreenshotsPlanPromptSection,
   planFileListingInstructions,
   planMinimalChangePrinciple,
   planStepPrinciples,
@@ -63,6 +65,8 @@ import {
   reviewOutputSchema,
   reviewTraceGuidance,
 } from './prompt-fragments';
+import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
+import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 
 export type {
   AIRequest,
@@ -516,19 +520,25 @@ export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =
  * @param issueContent
  * @returns Array of non-empty section strings
  */
+const buildDiscoveryCandidates = (
+  context: Record<string, unknown>, conventions: RepoConventionsContext | undefined,
+  repoName: string, isUiRelevant: boolean,
+) => [
+  conventions && formatRepoConventionsPromptSection(conventions, repoName, { includeDesignSystem: isUiRelevant }),
+  context.crossRepoPatterns && formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext),
+  context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
+  context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
+  context.reuseCandidates && formatReuseCandidatesPromptSection(context.reuseCandidates as ReuseCandidateContext),
+  formatFigmaPlanPromptSection(context.figmaLinks as string[] | undefined, Boolean(conventions?.designSystem)),
+  formatUiDesignScreenshotsPlanPromptSection(context.uiDesignScreenshots as string[] ?? []),
+];
+
 const collectDiscoverySections = (context: Record<string, unknown>, issueContent = ''): string[] => {
   const repoName = (context.affectedRepositories as string[] | undefined)?.[0] ?? 'repo';
   const conventions = context.conventions as RepoConventionsContext | undefined;
   const figmaLinks = context.figmaLinks as string[] | undefined;
   const isUiRelevant = Boolean(figmaLinks?.length) || isUiRelevantTicket(issueContent);
-  const candidates = [
-    conventions && formatRepoConventionsPromptSection(conventions, repoName, { includeDesignSystem: isUiRelevant }),
-    context.crossRepoPatterns && formatCrossRepoPatternsPromptSection(context.crossRepoPatterns as CrossRepoContext),
-    context.planCorrelation && formatPlanCorrelationPromptSection(context.planCorrelation as PlanCorrelationResult),
-    context.priorPlans && formatPriorPlansPromptSection(context.priorPlans as PriorPlanContext),
-    context.reuseCandidates && formatReuseCandidatesPromptSection(context.reuseCandidates as ReuseCandidateContext),
-    formatFigmaPlanPromptSection(context.figmaLinks as string[] | undefined, Boolean(conventions?.designSystem)),
-  ];
+  const candidates = buildDiscoveryCandidates(context, conventions, repoName, isUiRelevant);
   return candidates.filter((s): s is string => typeof s === 'string' && s.length > 0);
 };
 
@@ -970,6 +980,10 @@ const resolveStageModel = (configService: ConfigService, stage: string): string 
 
 @Injectable()
 export class AiService {
+  @Optional()
+  @Inject(UiDesignScreenshotsStageService)
+  private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService;
+
   constructor(
     private readonly logger: LoggerService,
     @Inject(LLM_ADAPTER) private readonly adapter: LlmAdapter,
@@ -998,14 +1012,21 @@ export class AiService {
     issueContent: string,
     context?: Record<string, unknown>
   ): Promise<ResolutionPlan> {
+    const screenshots = this.encodeUiScreenshots(context);
     const { prompt, planMaxTokens } = this.buildPlanGenerationRequest(action, issueContent, context);
     const response = await retryOnUnusableResponse(
-      () => this.executePlanPrompt(prompt, planMaxTokens),
+      () => this.executePlanPrompt(prompt, planMaxTokens, screenshots),
       response => this.requirePlanJsonContent(response),
       PLAN_EMPTY_RESPONSE_RETRY_LIMIT
     );
     throwIfTruncated(response, 'Plan');
     return this.parsePlanResponse(response);
+  }
+
+  private encodeUiScreenshots(context?: Record<string, unknown>): UiDesignScreenshot[] {
+    const paths = context?.uiDesignScreenshots as string[] | undefined;
+    if (!paths?.length || !this.uiDesignScreenshotsStageService) return [];
+    return this.uiDesignScreenshotsStageService.encodeFromPaths(paths).screenshots;
   }
 
   /**
@@ -1189,8 +1210,14 @@ export class AiService {
     plan.timestamp = dayjs().toISOString();
   }
 
-  private executePlanPrompt(prompt: string, maxTokens: number): Promise<AIResponse> {
-    return this.execute({ prompt, systemPrompt: planSystemPrompt, temperature: 0.5, maxTokens, stage: 'plan' });
+  private executePlanPrompt(
+    prompt: string, maxTokens: number, screenshots?: UiDesignScreenshot[],
+  ): Promise<AIResponse> {
+    const paths = screenshots?.map(s => s.path);
+    const compliance = buildUiDesignComplianceSystemPromptSection({ uiDesignScreenshots: paths });
+    const systemPrompt = compliance ? `${planSystemPrompt}\n\n${compliance}` : planSystemPrompt;
+    const context = screenshots?.length ? { screenshots } : undefined;
+    return this.execute({ prompt, systemPrompt, temperature: 0.5, maxTokens, stage: 'plan', context });
   }
 
   private executeReviewPrompt(prompt: string, maxTokens: number): Promise<AIResponse> {

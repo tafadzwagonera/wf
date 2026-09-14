@@ -4,6 +4,7 @@ import { AiProviderError, ConfigurationError, ExecutionError } from '../../../sh
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import { parseNdjsonLine } from './claude-cli-runner';
+import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 
 export interface CodexCliMessage {
   type: string;
@@ -43,7 +44,14 @@ export interface CodexCliRunnerParams {
   permissionMode?: string;
   env?: Record<string, string>;
   codexVersion?: { major: number; minor: number; patch: number };
+  screenshots?: UiDesignScreenshot[];
 }
+
+export const buildCodexStdinPrompt = (params: Pick<CodexCliRunnerParams, 'prompt' | 'screenshots'>): string => {
+  if (!params.screenshots?.length) return params.prompt;
+  const paths = params.screenshots.map(s => `- ${s.path}`).join('\n');
+  return `${params.prompt}\n\nDesign screenshots (accessible via filesystem):\n${paths}`;
+};
 
 export const CLI_TIMEOUT_MS = 15 * 60 * 1000;
 export const CLI_INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;

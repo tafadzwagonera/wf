@@ -52,6 +52,7 @@ export interface PlannerOptions {
   silent?: boolean;
   sourceKind?: 'ticket' | 'custom';
   onProgress?: (line: string) => void;
+  uiDesignScreenshots?: string[];
 }
 
 export interface ReviewerOptions {
@@ -93,6 +94,7 @@ export interface ImplementerBackend {
     conventionsSection?: string;
     skillNames?: string[];
     figmaContextSection?: string;
+    uiDesignScreenshotPaths?: string[];
   }): Promise<{
     sessionId?: string;
     verificationOutcomes: VerificationOutcome[];

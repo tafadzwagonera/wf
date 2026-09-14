@@ -47,6 +47,7 @@ import type { SessionState, StageConfigFingerprint } from '../shared/types/sessi
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import { resolveProviderModel } from '../integrations/ai/adapters/shared-routing';
 import * as crypto from 'node:crypto';
+import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
 
 const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
@@ -103,6 +104,7 @@ interface IssueOptions {
   silent?: boolean;
   sonar?: boolean;
   figma?: boolean;
+  uiDesignScreenshots?: string[];
   skipInstall?: boolean;
   ticketKey?: string;
   to?: string;
@@ -294,6 +296,14 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--ui-design-screenshots [files...]',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at review time. Mutually exclusive with --figma.',
+  })
+  parseUiDesignScreenshots(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '--skip-install',
     description: 'Skip automatic dependency install after branch pull',
   })
@@ -445,6 +455,13 @@ export class IssueCommand extends CommandRunner {
       throw new ValidationError(
         '--no-branch and --branch-name-pattern are mutually exclusive.\n'
         + '  Use --no-branch to stay on the current branch, or\n  Use --branch-name-pattern <pattern> to validate a generated branch name.'
+      );
+    }
+    if (options?.figma && options?.uiDesignScreenshots !== undefined) {
+      throw new ValidationError(
+        '--figma and --ui-design-screenshots are mutually exclusive.\n'
+        + '  Use --figma to pull design context from Figma links embedded in the ticket, or\n'
+        + '  Use --ui-design-screenshots to supply local design screenshots.'
       );
     }
     if (options?.ticketKey && options?.customPlan) {
@@ -1228,12 +1245,16 @@ export class IssueCommand extends CommandRunner {
   private async generatePlanArtifact(
     ticketArtifact: TicketArtifact, action: ResolutionAction, ctx: ResolvedWorkflowContext
   ): Promise<PlanArtifact> {
+    const uiDesignScreenshots = ctx.options?.uiDesignScreenshots?.length
+      ? resolveUiDesignScreenshots(ctx.options.uiDesignScreenshots, ctx.repoBaseDir, ticketArtifact.ticketKey)
+      : undefined;
     const planArtifact = await this.agents.planner.execute(ticketArtifact, {
       action, skipExisting: ctx.skipExisting,
       affectedRepositories: ctx.options?.repos ?? [path.basename(ctx.repoBaseDir)],
       repoDir: ctx.repoBaseDir,
       silent: ctx.options?.silent,
       sourceKind: ctx.customSourcePath ? 'custom' : 'ticket',
+      uiDesignScreenshots,
     });
     if (ctx.options?.silent) console.log(planArtifact.path);
     return planArtifact;

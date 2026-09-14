@@ -54,6 +54,7 @@ import {
   type BuildPlanContextParams,
 } from './shared-routing';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
+import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 import type { ResolutionPlan } from '../ai.service';
 
 const execAsync = promisify(exec);
@@ -156,6 +157,7 @@ type GenerateAndVerifyParams = {
   conventionsSection?: string;
   skillNames?: string[];
   figmaContextSection?: string;
+  uiDesignScreenshotPaths?: string[];
 };
 
 const findSafePruneIndex = (
@@ -1398,12 +1400,19 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     return { agent, prompt };
   }
 
+  private buildAgentSystemPrompt(params: GenerateAndVerifyParams, repoDir: string): string {
+    const base = buildSystemPromptFromParams(params, repoDir);
+    const compliance = buildUiDesignComplianceSystemPromptSection({
+      uiDesignScreenshots: params.uiDesignScreenshotPaths,
+    });
+    return compliance ? `${base}\n\n${compliance}` : base;
+  }
+
   private async createAgent(
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
   ): Promise<OaiAgent> {
-    const tools = createAllTools(mutable, vs);
-    const sysPrompt = buildSystemPromptFromParams(params, repoDir);
+    const sysPrompt = this.buildAgentSystemPrompt(params, repoDir);
     const preamble = buildPriorStagePreamble(options.priorStageSummary);
     const skillFragment = await this.buildSkillFragment(params);
     if (options.resumeProviderSessionId) {
@@ -1411,7 +1420,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
         '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
       ));
     }
-    return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, tools);
+    return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, createAllTools(mutable, vs));
   }
 
   private async buildSkillFragment(params: GenerateAndVerifyParams): Promise<string> {

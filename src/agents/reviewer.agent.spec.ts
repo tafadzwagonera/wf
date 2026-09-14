@@ -5,6 +5,7 @@ import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
+import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import * as fs from 'fs';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
@@ -950,6 +951,114 @@ describe('ReviewerAgent', () => {
 
       expect(mockA.mock.calls[0][3]).toBe('repo-shop');
       expect(mockB.mock.calls[0][3]).toBe('repo-api');
+    });
+  });
+
+  describe('UI design screenshots integration', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('calls resolveIfEnabled and passes screenshots to reviewDiff', async () => {
+      const mockScreenshot = { path: '/p/a.png', mediaType: 'image/png' as const, base64: 'x' };
+      const mockReviewDiff = jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+      });
+      const mockResolveIfEnabled = jest.fn().mockResolvedValue({
+        screenshots: [mockScreenshot], paths: ['/p/a.png'],
+      });
+
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: mockReviewDiff,
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+          {
+            provide: UiDesignScreenshotsStageService,
+            useValue: { resolveIfEnabled: mockResolveIfEnabled },
+          },
+        ],
+      }).compile();
+
+      const agent = module.get(ReviewerAgent);
+
+      await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123: Fix auth', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo', planArtifactPath: '/tmp/.wf/repo/jira/WBP-123-plan.json' }
+      );
+
+      expect(mockResolveIfEnabled).toHaveBeenCalledWith(
+        expect.objectContaining({ artifactPath: '/tmp/.wf/repo/jira/WBP-123-plan.json' })
+      );
+      expect(mockReviewDiff).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ screenshots: [mockScreenshot] })
+      );
+    });
+
+    it('omits screenshots from reviewDiff when service is not provided', async () => {
+      const mockReviewDiff = jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+      });
+
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: mockReviewDiff,
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+        ],
+      }).compile();
+
+      const agent = module.get(ReviewerAgent);
+      await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123: Fix auth', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo' }
+      );
+
+      expect(mockReviewDiff).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.not.objectContaining({ screenshots: expect.anything() })
+      );
     });
   });
 });

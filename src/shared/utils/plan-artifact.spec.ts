@@ -15,6 +15,7 @@ import {
   findPlanArtifactManifestByBranchName,
   hashPlanArtifactSources,
   resolvePlanToken,
+  readUiDesignScreenshotsFromPlanArtifact,
 } from './plan-artifact';
 import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError } from '../errors/app.error';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
@@ -808,5 +809,35 @@ describe('resolvePlanToken cross-directory resolution', () => {
     );
 
     expect(() => resolvePlanToken('range-rename', trackerDir, repoBaseDir)).toThrow(AmbiguousPlanArtifactError);
+  });
+});
+
+describe('readUiDesignScreenshotsFromPlanArtifact', () => {
+  it('returns string[] when artifact JSON has a non-empty uiDesignScreenshots array', () => {
+    const tempDir = createManagedTempDir('ui-screenshots-present');
+    const artifactPath = path.join(tempDir, 'plan.json');
+    fs.writeFileSync(artifactPath, JSON.stringify({ uiDesignScreenshots: ['/abs/a.png'] }));
+
+    expect(readUiDesignScreenshotsFromPlanArtifact(artifactPath)).toEqual(['/abs/a.png']);
+  });
+
+  it('returns undefined when the uiDesignScreenshots key is absent', () => {
+    const tempDir = createManagedTempDir('ui-screenshots-absent');
+    const artifactPath = path.join(tempDir, 'plan.json');
+    fs.writeFileSync(artifactPath, JSON.stringify({ action: 'fix' }));
+
+    expect(readUiDesignScreenshotsFromPlanArtifact(artifactPath)).toBeUndefined();
+  });
+
+  it('returns undefined when the uiDesignScreenshots array is empty', () => {
+    const tempDir = createManagedTempDir('ui-screenshots-empty');
+    const artifactPath = path.join(tempDir, 'plan.json');
+    fs.writeFileSync(artifactPath, JSON.stringify({ uiDesignScreenshots: [] }));
+
+    expect(readUiDesignScreenshotsFromPlanArtifact(artifactPath)).toBeUndefined();
+  });
+
+  it('returns undefined when the artifact file does not exist', () => {
+    expect(readUiDesignScreenshotsFromPlanArtifact('/non-existent/plan.json')).toBeUndefined();
   });
 });

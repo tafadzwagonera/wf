@@ -20,6 +20,7 @@ import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
   buildReviewSkillSection,
+  buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
   planFileListingInstructions,
@@ -29,6 +30,7 @@ import {
   reviewOutputSchema,
   reviewTraceGuidance,
 } from './prompt-fragments';
+import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
@@ -161,6 +163,7 @@ type CliStagePassOpts = {
   prompt: string;
   repoDir?: string;
   resumeProviderSessionId?: string;
+  screenshots?: UiDesignScreenshot[];
   sessionId?: string;
   stage: AgentStageName;
   systemPrompt: string;
@@ -235,6 +238,10 @@ type OpenAiStageContext = {
   repoDir: string;
 };
 
+type ReviewCodeOpts = {
+  skillNames?: string[]; forkSession?: boolean; figmaContextSection?: string; screenshots?: UiDesignScreenshot[];
+};
+
 type StagePromptParams = {
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
@@ -242,6 +249,7 @@ type StagePromptParams = {
   prompt: string;
   repoDir?: string;
   resumeProviderSessionId?: string;
+  screenshots?: UiDesignScreenshot[];
   stage: AgentStageName;
   systemPrompt: string;
 };
@@ -890,6 +898,11 @@ const applySchemaRetry = (
   return true;
 };
 
+const appendAgentSdkScreenshotPaths = (prompt: string, screenshots: UiDesignScreenshot[] | undefined): string => {
+  if (!screenshots?.length) return prompt;
+  return `${prompt}\n\nDesign screenshots (accessible via filesystem):\n${screenshots.map(s => `- ${s.path}`).join('\n')}`;
+};
+
 @Injectable()
 export class StageAgentService {
   constructor(private readonly configService: ConfigService) {}
@@ -978,20 +991,31 @@ export class StageAgentService {
     return plan;
   }
 
-  async reviewCode(
-    diff: string,
-    guidelines: string[],
-    repoDir?: string,
-    priorStageSummary?: string,
-    resumeProviderSessionId?: string,
-    onProgress?: StageProgressCallback,
-    opts?: { skillNames?: string[]; forkSession?: boolean; figmaContextSection?: string }
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
-    const { content: response, sessionId } = await this.runStagePrompt({
-      stage: 'review', prompt: buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.figmaContextSection), systemPrompt: reviewSystemPrompt,
-      repoDir, priorStageSummary, resumeProviderSessionId, onProgress, forkSession: opts?.forkSession,
+  private buildReviewSystemPrompt(screenshots?: UiDesignScreenshot[]): string {
+    const compliance = buildUiDesignComplianceSystemPromptSection({
+      uiDesignScreenshots: screenshots?.map(s => s.path),
     });
-    return this.parseStageReviewResponse(diff, response, sessionId, repoDir, reviewSystemPrompt, priorStageSummary);
+    return compliance ? `${reviewSystemPrompt}\n\n${compliance}` : reviewSystemPrompt;
+  }
+
+  async reviewCode(
+    diff: string, guidelines: string[], repoDir?: string, priorStageSummary?: string,
+    resumeProviderSessionId?: string, onProgress?: StageProgressCallback, opts?: ReviewCodeOpts,
+  ): Promise<{ review: CodeReview; sessionId?: string }> {
+    const systemPrompt = this.buildReviewSystemPrompt(opts?.screenshots);
+    const prompt = buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.figmaContextSection);
+    const base = { prompt, systemPrompt, repoDir, priorStageSummary, resumeProviderSessionId, onProgress };
+    const { content: response, sessionId } = await this.runReviewStagePrompt(
+      base, opts?.forkSession, opts?.screenshots,
+    );
+    return this.parseStageReviewResponse(diff, response, sessionId, repoDir, systemPrompt, priorStageSummary);
+  }
+
+  private async runReviewStagePrompt(
+    base: Pick<StagePromptParams, 'prompt' | 'systemPrompt' | 'repoDir' | 'priorStageSummary' | 'resumeProviderSessionId' | 'onProgress'>,
+    forkSession?: boolean, screenshots?: UiDesignScreenshot[],
+  ) {
+    return this.runStagePrompt({ stage: 'review', ...base, forkSession, screenshots });
   }
 
   private async parseStageReviewResponse(
@@ -1157,9 +1181,10 @@ export class StageAgentService {
   private async dispatchToBackend(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') return this.dispatchCliStagePrompt(params);
+    const enriched = { ...params, prompt: appendAgentSdkScreenshotPaths(params.prompt, params.screenshots) };
     const provider = this.resolveStageProvider(params.stage);
-    if (provider === 'anthropic') return this.runAnthropicStagePrompt(params);
-    const content = await this.runOpenAiStagePrompt(params);
+    if (provider === 'anthropic') return this.runAnthropicStagePrompt(enriched);
+    const content = await this.runOpenAiStagePrompt(enriched);
     return { content };
   }
 
@@ -1326,7 +1351,7 @@ export class StageAgentService {
       model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
       jsonSchema: this.resolveStageJsonSchema(params.stage),
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
-      forkSession: params.forkSession,
+      forkSession: params.forkSession, screenshots: params.screenshots,
     };
     return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
   }
@@ -1443,15 +1468,11 @@ export class StageAgentService {
     opts: CliStagePassOpts & { passNumber: number }, prompt: string, isResume: boolean
   ): ReturnType<typeof buildCliArgs> {
     return buildCliArgs({
-      prompt,
-      appendSystemPrompt: opts.systemPrompt,
-      model: opts.model,
-      cwd: opts.repoDir ?? process.cwd(),
-      tools: this.resolveCliInspectionTools(opts.repoDir),
-      permissionMode: 'plan',
-      sessionId: isResume ? opts.sessionId : undefined,
-      jsonSchema: opts.jsonSchema,
-      forkSession: opts.passNumber === 1 ? opts.forkSession : undefined,
+      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model,
+      cwd: opts.repoDir ?? process.cwd(), tools: this.resolveCliInspectionTools(opts.repoDir),
+      permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined,
+      jsonSchema: opts.jsonSchema, forkSession: opts.passNumber === 1 ? opts.forkSession : undefined,
+      screenshots: opts.screenshots,
     });
   }
 
@@ -1474,15 +1495,21 @@ export class StageAgentService {
     );
   }
 
+  private buildCodexPrompt(params: StagePromptParams): string {
+    const preamble = buildPriorStagePreamble(params.priorStageSummary);
+    const schemaSection = buildCodexSchemaSection(params.stage);
+    const screenshotPaths = params.screenshots?.length
+      ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.screenshots.map(s => `- ${s.path}`).join('\n')
+      : '';
+    return `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}${schemaSection}${screenshotPaths}`;
+  }
+
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertCodexCliAvailable();
     const model = this.resolveStageModel(params.stage);
     const repoDir = params.repoDir ?? process.cwd();
-    const preamble = buildPriorStagePreamble(params.priorStageSummary);
-    const schemaSection = buildCodexSchemaSection(params.stage);
-    const basePrompt = `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}${schemaSection}`;
     return this.runCodexRetryLoop({
-      stage: params.stage, model, repoDir, initialPrompt: basePrompt,
+      stage: params.stage, model, repoDir, initialPrompt: this.buildCodexPrompt(params),
       initialSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),

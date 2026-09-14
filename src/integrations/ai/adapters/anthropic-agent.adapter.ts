@@ -34,6 +34,7 @@ import {
   buildImplementerRulesSection,
   type BuildTaskBriefParams,
 } from './shared-routing';
+import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 
 const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
@@ -605,26 +606,38 @@ type GenerateAndVerifyParams = {
   conventionsSection?: string;
   skillNames?: string[];
   figmaContextSection?: string;
+  uiDesignScreenshotPaths?: string[];
 };
 
 const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: string): SystemPromptParams => ({
   repoDir, conventionsSection: params.conventionsSection,
 });
 
-const resolveModelAndPrompt = (
-  params: GenerateAndVerifyParams,
-  configService: ConfigService,
-  repoDir: string
-): { model: string; systemPromptBody: string } => {
+const resolveRoutedModel = (
+  params: GenerateAndVerifyParams, configService: ConfigService,
+): { model: string; logMessage: string } => {
   const fallbackDefaultModel = resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6');
-  const modelRoutingResult = resolveModelRouting({
+  return resolveModelRouting({
     routing: params.options.modelRouting ?? 'auto', fallbackDefaultModel,
     defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL, configService,
     plan: params.planArtifact.plan, adapterLabel: ANTHROPIC_AGENT_LABEL,
   });
+};
+
+const buildAgentSystemPrompt = (params: GenerateAndVerifyParams, repoDir: string): string => {
+  const base = buildSystemPrompt(buildSystemPromptParams(params, repoDir));
+  const compliance = buildUiDesignComplianceSystemPromptSection({
+    uiDesignScreenshots: params.uiDesignScreenshotPaths,
+  });
+  return compliance ? `${base}\n\n${compliance}` : base;
+};
+
+const resolveModelAndPrompt = (
+  params: GenerateAndVerifyParams, configService: ConfigService, repoDir: string,
+): { model: string; systemPromptBody: string } => {
+  const modelRoutingResult = resolveRoutedModel(params, configService);
   console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
-  const systemPromptBody = buildSystemPrompt(buildSystemPromptParams(params, repoDir));
-  return { model: modelRoutingResult.model, systemPromptBody };
+  return { model: modelRoutingResult.model, systemPromptBody: buildAgentSystemPrompt(params, repoDir) };
 };
 
 type SessionOptionsInput = {

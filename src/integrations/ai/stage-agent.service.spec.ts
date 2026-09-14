@@ -2945,4 +2945,60 @@ describe('StageAgentService', () => {
       ]);
     });
   });
+
+  describe('reviewCode with screenshots', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes screenshots from opts into StagePromptParams', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({
+        content: JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true }),
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+      const mockScreenshot = { path: '/p/a.png', mediaType: 'image/png' as const, base64: 'x' };
+
+      await service.reviewCode('diff --git a/f b/f', [], undefined, undefined, undefined, undefined, {
+        screenshots: [mockScreenshot],
+      });
+
+      const params = mockRunStagePrompt.mock.calls[0][0];
+      expect(params.screenshots).toEqual([mockScreenshot]);
+    });
+
+    it('appends UI compliance section to systemPrompt when screenshots are present', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({
+        content: JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true }),
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+      const mockScreenshot = { path: '/p/a.png', mediaType: 'image/png' as const, base64: 'x' };
+
+      await service.reviewCode('diff --git a/f b/f', [], undefined, undefined, undefined, undefined, {
+        screenshots: [mockScreenshot],
+      });
+
+      const params = mockRunStagePrompt.mock.calls[0][0];
+      expect(params.systemPrompt).toContain('UI design compliance');
+    });
+
+    it('appends screenshot paths to prompt for agent-SDK dispatch', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockResponse = JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true });
+      let capturedParams: unknown;
+      jest.spyOn(service as any, 'runOpenAiStagePrompt').mockImplementation(async (p: unknown) => {
+        capturedParams = p;
+        return mockResponse;
+      });
+      const mockScreenshot = { path: '/p/design.png', mediaType: 'image/png' as const, base64: 'x' };
+
+      await service.reviewCode('diff --git a/f b/f', [], undefined, undefined, undefined, undefined, {
+        screenshots: [mockScreenshot],
+      });
+
+      expect((capturedParams as { prompt: string }).prompt).toContain('Design screenshots (accessible via filesystem)');
+      expect((capturedParams as { prompt: string }).prompt).toContain('/p/design.png');
+    });
+  });
 });

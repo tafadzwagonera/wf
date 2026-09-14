@@ -63,6 +63,10 @@ jest.mock('../shared/utils/extract-figma-links', () => {
   };
 });
 
+jest.mock('../shared/utils/resolve-ui-design-screenshots', () => ({
+  resolveUiDesignScreenshots: jest.fn().mockReturnValue([]),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from './issue-plan.command';
@@ -1499,5 +1503,74 @@ describe('IssuePlanCommand', () => {
     expect(writePlanArtifactManifest).toHaveBeenCalledWith(
       expect.objectContaining({ figmaLinks: ['https://figma.com/design/abc123/Card'] }),
     );
+  });
+
+  it('writes uiDesignScreenshots into plan JSON when --ui-design-screenshots provided', async () => {
+    const { resolveUiDesignScreenshots } = jest.requireMock('../shared/utils/resolve-ui-design-screenshots');
+    resolveUiDesignScreenshots.mockReturnValue(['/abs/design.png']);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const ticketContent = '# WBP-3: Style the button';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-3', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-3.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-3', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-3.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style button', estimatedComplexity: 'low',
+        steps: ['Update CSS'], affectedFiles: ['repo-a/src/Button.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    const writtenContents: string[] = [];
+    jest.spyOn(require('fs').promises, 'writeFile').mockImplementation((_p: any, data: any) => {
+      writtenContents.push(data as string);
+      return Promise.resolve();
+    });
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-3', repos: ['repo-a'], uiDesignScreenshots: ['design.png'] });
+
+    const written = JSON.parse(writtenContents[0]);
+    expect(written.uiDesignScreenshots).toEqual(['/abs/design.png']);
+  });
+
+  it('rejects --figma and --ui-design-screenshots together', async () => {
+    const { command } = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-4', repos: ['repo-a'], figma: true, uiDesignScreenshots: ['design.png'] } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('mutually exclusive');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('calls resolveUiDesignScreenshots with rawFiles=[] when --ui-design-screenshots has no files', async () => {
+    const { resolveUiDesignScreenshots } = jest.requireMock('../shared/utils/resolve-ui-design-screenshots');
+    resolveUiDesignScreenshots.mockReturnValue([]);
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    const ticketContent = '# WBP-5: Style the footer';
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-5', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-5.md',
+    });
+    fetchStageService.loadArtifact.mockReturnValue({
+      ticketKey: 'WBP-5', content: ticketContent, path: '/tmp/.wf/repo-a/jira/WBP-5.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix', summary: 'Style footer', estimatedComplexity: 'low',
+        steps: ['Update CSS'], affectedFiles: ['repo-a/src/Footer.vue'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+    jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-5', repos: ['repo-a'], uiDesignScreenshots: [] });
+
+    expect(resolveUiDesignScreenshots).toHaveBeenCalledWith([], expect.any(String), 'WBP-5');
   });
 });

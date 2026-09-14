@@ -214,6 +214,17 @@ export const readFigmaLinksFromPlanArtifact = (artifactPath: string): string[] |
   }
 };
 
+export const readUiDesignScreenshotsFromPlanArtifact = (artifactPath: string): string[] | undefined => {
+  if (!fs.existsSync(artifactPath)) return undefined;
+  try {
+    const value = JSON.parse(fs.readFileSync(artifactPath, 'utf-8')) as Record<string, unknown>;
+    const v = value.uiDesignScreenshots;
+    return Array.isArray(v) && v.length > 0 ? v.map(String) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const pickMostRecentManifest = (matches: PlanArtifactManifest[]): PlanArtifactManifest | undefined => {
   if (matches.length === 0) return undefined;
   return matches.reduce(

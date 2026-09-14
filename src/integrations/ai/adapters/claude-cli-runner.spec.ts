@@ -291,6 +291,43 @@ describe('claude-cli-runner', () => {
       });
       expect(args).not.toContain('--append-system-prompt');
     });
+
+    it('adds --image flag for each screenshot path', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        screenshots: [
+          { path: '/tmp/a.png', mediaType: 'image/png', base64: 'x' },
+          { path: '/tmp/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
+        ],
+      });
+
+      const imageFlags = args.reduce<string[]>((acc, arg, idx, arr) => {
+        if (arg === '--image') acc.push(arr[idx + 1]);
+        return acc;
+      }, []);
+      expect(imageFlags).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+    });
+
+    it('omits --image when screenshots array is empty', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        screenshots: [],
+      });
+      expect(args).not.toContain('--image');
+    });
+
+    it('omits --image when screenshots is undefined', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+      });
+      expect(args).not.toContain('--image');
+    });
   });
 
   describe('parseNdjsonLine', () => {

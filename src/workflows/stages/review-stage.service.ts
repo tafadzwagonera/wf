@@ -29,6 +29,7 @@ import { StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveSkills } from '../../skills';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 
 const batchSummarisationSystemPrompt
   = "Summarize each file's diff as concise Markdown bullets. "
@@ -63,6 +64,7 @@ interface ReviewDiffOptions {
   onProgress?: StageProgressCallback;
   skillNames?: string[];
   figmaContextSection?: string;
+  screenshots?: UiDesignScreenshot[];
 }
 
 @Injectable()
@@ -215,18 +217,22 @@ export class ReviewStageService {
 
   private async reviewViaAgent(diff: string, guidelines: string[], options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string }> {
-    const { skillNames, forkSession, figmaContextSection } = options;
+    const { skillNames, forkSession, figmaContextSection, screenshots } = options;
     try {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
-        options.resumeProviderSessionId, options.onProgress, { skillNames, forkSession, figmaContextSection }
+        options.resumeProviderSessionId, options.onProgress,
+        { skillNames, forkSession, figmaContextSection, screenshots },
       );
       return { review: result.review, sessionId: result.sessionId };
     } catch (error) {
-      const sessionId = isAiProviderErrorLike(error) ? error.details?.sessionId : undefined;
-      const review = await this.recoverReviewFromValidation(error, diff);
-      return { review, sessionId };
+      return this.recoverFromReviewError(error, diff);
     }
+  }
+
+  private async recoverFromReviewError(error: unknown, diff: string) {
+    const sessionId = isAiProviderErrorLike(error) ? error.details?.sessionId : undefined;
+    return { review: await this.recoverReviewFromValidation(error, diff), sessionId };
   }
 
   private async recoverReviewFromValidation(error: unknown, diff: string): Promise<CodeReview> {

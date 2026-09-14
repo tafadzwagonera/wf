@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       }));
       const ctx: ReuseCandidateContext = { candidates };
       const result = formatReuseCandidatesPromptSection(ctx);
-      const lastChar = result[result.length - 1];
+      const lastChar = result.at(-1);
       if (lastChar !== '`' && lastChar !== '(' && lastChar !== '.') {
         pass('truncation ends at newline boundary (not mid-path)');
       } else {

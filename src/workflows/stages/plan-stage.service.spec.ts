@@ -636,6 +636,59 @@ describe('PlanStageService', () => {
     expect(savedPlan.figmaLinks).toEqual(['https://figma.com/design/abc123/Card']);
   });
 
+  it('writes uiDesignScreenshots into plan JSON when provided in options', async () => {
+    const { service } = await buildService();
+    const tempDir = createManagedTempDir('plan-ui-screenshots');
+    const ticketPath = path.join(tempDir, 'ABC-1.md');
+    fs.writeFileSync(ticketPath, '# ABC-1: Style the header');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'ABC-1', content: '# ABC-1: Style the header', path: ticketPath },
+      { action: 'fix', uiDesignScreenshots: ['/abs/design.png'] }
+    );
+
+    const planFiles = fs.readdirSync(tempDir).filter(f => f.endsWith('-plan.json'));
+    expect(planFiles).toHaveLength(1);
+    const savedPlan = JSON.parse(fs.readFileSync(path.join(tempDir, planFiles[0]), 'utf-8'));
+    expect(savedPlan.uiDesignScreenshots).toEqual(['/abs/design.png']);
+  });
+
+  it('forwards uiDesignScreenshots to aiService.generatePlan during createPlanArtifact', async () => {
+    const { service, aiService } = await buildService();
+    const tempDir = createManagedTempDir('plan-ui-forwarded');
+    const ticketPath = path.join(tempDir, 'ABC-3.md');
+    fs.writeFileSync(ticketPath, '# ABC-3: Style the nav');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'ABC-3', content: '# ABC-3: Style the nav', path: ticketPath },
+      { action: 'fix', uiDesignScreenshots: ['/abs/nav.png'] }
+    );
+
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      expect.any(String), expect.any(String),
+      expect.objectContaining({ uiDesignScreenshots: ['/abs/nav.png'] })
+    );
+  });
+
+  it('positions uiDesignScreenshots after figmaLinks in key order', async () => {
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../../shared/utils/extract-figma-links');
+    (resolvePostParseFigmaLinks as jest.Mock).mockResolvedValueOnce(['https://figma.com/x']);
+    const { service } = await buildService();
+    const tempDir = createManagedTempDir('plan-ui-key-order');
+    const ticketPath = path.join(tempDir, 'ABC-2.md');
+    fs.writeFileSync(ticketPath, '# ABC-2: Style the footer');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'ABC-2', content: '# ABC-2: Style the footer', path: ticketPath },
+      { action: 'fix', uiDesignScreenshots: ['/abs/footer.png'] }
+    );
+
+    const planFiles = fs.readdirSync(tempDir).filter(f => f.endsWith('-plan.json'));
+    const savedPlan = JSON.parse(fs.readFileSync(path.join(tempDir, planFiles[0]), 'utf-8'));
+    const keys = Object.keys(savedPlan);
+    expect(keys.indexOf('figmaLinks')).toBeLessThan(keys.indexOf('uiDesignScreenshots'));
+  });
+
   it('logs warnNoFigmaLinks with reason no-links-found when interactive session returns no links', async () => {
     const logFileWriter = require('../../shared/logger/log-file-writer');
     const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);

@@ -8,6 +8,7 @@ import type { LlmAdapter } from '../llm-adapter.interface';
 import { AiProviderError } from '../../../shared/utils/errors';
 import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
+import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
 import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
@@ -189,6 +190,22 @@ const buildNonApiErrorDetails = (
   maxTokens: params.max_tokens,
 });
 
+const toImageBlock = (s: UiDesignScreenshot): Anthropic.ImageBlockParam => ({
+  type: 'image',
+  source: {
+    type: 'base64',
+    media_type: s.mediaType as Anthropic.Base64ImageSource['media_type'],
+    data: s.base64,
+  },
+});
+
+const buildAnthropicUserContent = (
+  prompt: string, screenshots: UiDesignScreenshot[] | undefined,
+): Anthropic.MessageParam['content'] => {
+  if (!screenshots?.length) return prompt;
+  return [...screenshots.map(toImageBlock), { type: 'text' as const, text: prompt }];
+};
+
 @Injectable()
 export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
   private client?: Anthropic;
@@ -258,8 +275,11 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
     const model = request.model || this.model;
     const maxTokens = request.maxTokens || this.maxTokens;
     const system = this.prependConfig(request.systemPrompt);
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: request.prompt }];
-    return callMessages(client, buildCreateParams(model, maxTokens, system, messages, request.temperature), model, 'Failed to execute AI request');
+    const userContent = buildAnthropicUserContent(
+      request.prompt, request.context?.screenshots as UiDesignScreenshot[] | undefined,
+    );
+    const msgs: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }];
+    return callMessages(client, buildCreateParams(model, maxTokens, system, msgs, request.temperature), model, 'Failed to execute AI request');
   }
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {

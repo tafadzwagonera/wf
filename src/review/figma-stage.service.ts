@@ -53,20 +53,24 @@ export class FigmaStageService {
     return this.resolveFromManifest(options);
   }
 
-  private async resolveFromManifest(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
+  private async readLinksAndBranch(
+    options: FigmaStageOptions,
+  ): Promise<{ figmaLinks?: string[]; sourceBranch?: string }> {
     const { artifactPath, repoDir } = options;
-    let figmaLinks: string[] | undefined;
-    let sourceBranch: string | undefined;
     if (artifactPath) {
-      figmaLinks = readFigmaLinksFromPlanArtifact(artifactPath);
-      sourceBranch = readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))?.sourceBranch;
-    } else {
-      const manifest = this.findManifestByBranchName(
-        repoDir, (await this.gitService.getBranchInfo(repoDir)).current, options,
-      );
-      figmaLinks = manifest?.figmaLinks;
-      sourceBranch = manifest?.sourceBranch;
+      return {
+        figmaLinks: readFigmaLinksFromPlanArtifact(artifactPath),
+        sourceBranch: readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))?.sourceBranch,
+      };
     }
+    const manifest = this.findManifestByBranchName(
+      repoDir, (await this.gitService.getBranchInfo(repoDir)).current, options,
+    );
+    return { figmaLinks: manifest?.figmaLinks, sourceBranch: manifest?.sourceBranch };
+  }
+
+  private async resolveFromManifest(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
+    const { figmaLinks, sourceBranch } = await this.readLinksAndBranch(options);
     if (!figmaLinks?.length) {
       const msg = '--figma enabled but no Figma links were captured during planning — skipping design-conformance check.';
       options.onProgress?.(msg);

@@ -693,4 +693,34 @@ describe('ClaudeCliAdapter', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('passes --image flags when uiDesignScreenshotPaths provided', async () => {
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0 };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: { action: 'fix', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+        action: 'fix', path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      uiDesignScreenshotPaths: ['/tmp/design.png'],
+    });
+
+    expect(mockBuildCliArgs.mock.calls[0][0].screenshots).toBeDefined();
+    expect(mockBuildCliArgs.mock.calls[0][0].screenshots).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: '/tmp/design.png' })])
+    );
+  });
 });

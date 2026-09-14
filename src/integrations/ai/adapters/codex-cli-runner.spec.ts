@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
 import { Readable, Writable } from 'stream';
 import {
-  assertCodexCliAvailable, buildCodexCliArgs, buildInactivityTimeoutMessage, buildTimeoutMessage,
-  extractCodexErrorMessages, getCodexCliVersion, parseCodexCliVersion,
+  assertCodexCliAvailable, buildCodexCliArgs, buildCodexStdinPrompt, buildInactivityTimeoutMessage,
+  buildTimeoutMessage, extractCodexErrorMessages, getCodexCliVersion, parseCodexCliVersion,
   resetCodexCliVersionCache, spawnCodex,
 } from './codex-cli-runner';
 import { execSync, spawn } from 'child_process';
@@ -43,6 +43,32 @@ describe('codex-cli-runner', () => {
     mockExecSync.mockReset();
     resetCodexCliVersionCache();
     delete process.env['WF_SKIP_CLI_VERSION_CHECK'];
+  });
+
+  describe('buildCodexStdinPrompt', () => {
+    it('returns base prompt when no screenshots provided', () => {
+      const result = buildCodexStdinPrompt({ prompt: 'implement this' });
+      expect(result).toBe('implement this');
+    });
+
+    it('returns base prompt when screenshots array is empty', () => {
+      const result = buildCodexStdinPrompt({ prompt: 'implement this', screenshots: [] });
+      expect(result).toBe('implement this');
+    });
+
+    it('appends screenshot paths when screenshots are present', () => {
+      const result = buildCodexStdinPrompt({
+        prompt: 'implement this',
+        screenshots: [
+          { path: '/tmp/a.png', mediaType: 'image/png', base64: 'x' },
+          { path: '/tmp/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
+        ],
+      });
+      expect(result).toContain('Design screenshots (accessible via filesystem):');
+      expect(result).toContain('- /tmp/a.png');
+      expect(result).toContain('- /tmp/b.jpg');
+      expect(result.indexOf('implement this')).toBeLessThan(result.indexOf('Design screenshots'));
+    });
   });
 
   describe('buildCodexCliArgs', () => {

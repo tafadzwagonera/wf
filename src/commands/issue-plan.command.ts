@@ -17,6 +17,7 @@ import { getPlanArtifactExtension,
   writePlanArtifactManifest,
 } from '../shared/utils/plan-artifact';
 import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../shared/utils/extract-figma-links';
+import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
@@ -51,6 +52,7 @@ interface IssuePlanOptions {
   sessionId?: string;
   figmaLinks?: string[];
   figma?: boolean;
+  uiDesignScreenshots?: string[];
 }
 
 interface RepoAwarePlan {
@@ -275,6 +277,14 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--ui-design-screenshots [files...]',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact for re-use at review time. Mutually exclusive with --figma.',
+  })
+  parseUiDesignScreenshots(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '-k, --ticket-key <key>',
     description: 'Ticket key to fetch and plan (e.g. WBP-2971)',
   })
@@ -316,6 +326,13 @@ export class IssuePlanCommand extends CommandRunner {
     }
     if (!options?.ticketKey && !options?.customPlan) {
       throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
+    }
+    if (options?.figma && options?.uiDesignScreenshots !== undefined) {
+      throw new ValidationError(
+        '--figma and --ui-design-screenshots are mutually exclusive.\n'
+        + '  Use --figma to pull design context from Figma links embedded in the ticket, or\n'
+        + '  Use --ui-design-screenshots to supply local design screenshots.'
+      );
     }
     const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
     if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
@@ -359,13 +376,13 @@ export class IssuePlanCommand extends CommandRunner {
   ): Promise<void> {
     const sourceContent = fs.readFileSync(ctx.sourcePath, 'utf-8');
     const autoLinks = this.isFigmaEnabled(options) ? extractFigmaLinks(sourceContent) : [];
-    const { plan, figmaLinks } = await this.generatePlan(
+    const { plan, figmaLinks, uiDesignScreenshots } = await this.generatePlan(
       sourceContent, ctx.baseDir, { ...options, figmaLinks: autoLinks }
     );
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ctx.stem, sourceKind: 'custom', artifactDir: ctx.artifactDir, options,
-      figmaLinks,
+      figmaLinks, uiDesignScreenshots,
     });
   }
 
@@ -422,14 +439,14 @@ export class IssuePlanCommand extends CommandRunner {
     ctx: ReturnType<IssuePlanCommand['resolveTicketPlanContext']>, options: IssuePlanOptions
   ): Promise<void> {
     const autoLinks = this.isFigmaEnabled(options) ? extractFigmaLinks(ticketContent) : [];
-    const { plan, figmaLinks } = await this.generatePlan(
+    const { plan, figmaLinks, uiDesignScreenshots } = await this.generatePlan(
       ticketContent, ctx.baseDir, { ...options, ticketKey, figmaLinks: autoLinks }
     );
     await this.savePlan({
       plan, planPath: ctx.planPath, format: ctx.format, action: options.action,
       hash: ctx.hash, sourceName: ticketKey, sourceKind: 'ticket',
       artifactDir: ctx.trackerDir, options, trackerName: ctx.trackerName,
-      figmaLinks,
+      figmaLinks, uiDesignScreenshots,
     });
   }
 
@@ -469,25 +486,35 @@ export class IssuePlanCommand extends CommandRunner {
 
   private async generatePlan(
     content: string, baseDir: string, options: IssuePlanOptions
-  ): Promise<{ plan: any; figmaLinks: string[] }> {
+  ): Promise<{ plan: any; figmaLinks: string[]; uiDesignScreenshots: string[] }> {
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
     const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
-
+    const identifier = options.ticketKey ?? path.basename(options.customPlan ?? '', '.md');
+    const uiDesignScreenshots = resolveUiDesignScreenshots(options.uiDesignScreenshots ?? [], baseDir, identifier);
     const { plan } = await this.planStageService.generatePlan(content, {
       action: options.action, ticketKey: options.ticketKey,
       affectedRepositories: options?.repos ?? [path.basename(baseDir)],
       repoDir: baseDir, ...discovery, figmaLinks: options.figmaLinks, onProgress,
-      resumeProviderSessionId: options?.sessionId,
+      resumeProviderSessionId: options?.sessionId, uiDesignScreenshots,
     });
+    const figmaLinks = await this.resolveFigmaLinks(content, options, discovery);
+    this.validateAndEnrich(plan, baseDir, options);
+    return { plan, figmaLinks, uiDesignScreenshots };
+  }
 
+  private async resolveFigmaLinks(
+    content: string, options: IssuePlanOptions,
+    discovery: ReturnType<typeof this.gatherPlanDiscoveryContext>,
+  ): Promise<string[]> {
+    if (!this.isFigmaEnabled(options)) return [];
     const figmaResolveOpts = { allowPrompt: !options.silent, conventions: discovery.conventions };
-    const figmaLinks = this.isFigmaEnabled(options)
-      ? await resolvePostParseFigmaLinks(content, options.figmaLinks ?? [], figmaResolveOpts)
-      : [];
+    return resolvePostParseFigmaLinks(content, options.figmaLinks ?? [], figmaResolveOpts);
+  }
+
+  private validateAndEnrich(plan: any, baseDir: string, options: IssuePlanOptions): void {
     const expectedRepos = this.resolveExpectedRepositories(baseDir, options?.repos);
     this.validateGeneratedPlan(plan, baseDir, expectedRepos, detectTestInfra(baseDir));
     this.planStageService.enrichPlanWithDirectoryConfigs(plan, baseDir);
-    return { plan, figmaLinks };
   }
 
   private gatherPlanDiscoveryContext(content: string, baseDir: string, options: IssuePlanOptions) {
@@ -507,18 +534,29 @@ export class IssuePlanCommand extends CommandRunner {
       plan: any; planPath: string; format: string; action: ResolutionAction;
       hash: string; sourceName: string; sourceKind: 'ticket' | 'custom';
       artifactDir: string; options?: IssuePlanOptions; trackerName?: string;
-      figmaLinks?: string[];
+      figmaLinks?: string[]; uiDesignScreenshots?: string[];
     }
   ): Promise<void> {
     const { plan, planPath, format, action, hash, sourceName, sourceKind,
-      artifactDir, options, trackerName, figmaLinks } = opts;
-    await fs.promises.writeFile(planPath, this.serializePlan(plan, format as OutputFormat), 'utf-8');
+      artifactDir, options, trackerName, figmaLinks, uiDesignScreenshots } = opts;
+    await this.writePlanFile(plan, planPath, format, figmaLinks, uiDesignScreenshots);
     writePlanArtifactManifest(buildPlanArtifactManifest({
       artifactPath: planPath, action, format: format as OutputFormat, hash, sourceName, sourceKind,
       createdAt: new Date(), trackerName, figmaLinks: figmaLinks?.length ? figmaLinks : undefined,
     }));
     this.deleteSiblingPlanArtifacts(artifactDir, sourceName, sourceKind, action, planPath);
     this.printPlanSummary(planPath, plan, options?.silent);
+  }
+
+  private async writePlanFile(
+    plan: any, planPath: string, format: string, figmaLinks?: string[], uiDesignScreenshots?: string[]
+  ): Promise<void> {
+    const planToSerialize = {
+      ...plan,
+      ...(figmaLinks?.length ? { figmaLinks } : {}),
+      ...(uiDesignScreenshots?.length ? { uiDesignScreenshots } : {}),
+    };
+    await fs.promises.writeFile(planPath, this.serializePlan(planToSerialize, format as OutputFormat), 'utf-8');
   }
 
   private previewCustomPlanDryRun(

@@ -1189,4 +1189,35 @@ describe('AnthropicAgentAdapter', () => {
       expect(result).not.toContain('Files to implement:');
     });
   });
+
+  describe('UI design compliance in system prompt', () => {
+    it('appends compliance section when uiDesignScreenshotPaths present', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...makeParams(),
+        uiDesignScreenshotPaths: ['/tmp/design.png'],
+      });
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as Record<string, unknown>;
+      const systemPrompt = options.systemPrompt as { append: string };
+      expect(systemPrompt.append).toContain('UI design compliance');
+    });
+
+    it('does not append compliance section when uiDesignScreenshotPaths absent', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify(makeParams());
+
+      const queryArgs = mockQuery.mock.calls[0][0];
+      const options = queryArgs.options as Record<string, unknown>;
+      const systemPrompt = options.systemPrompt as { append: string };
+      expect(systemPrompt.append).not.toContain('UI design compliance');
+    });
+  });
 });
