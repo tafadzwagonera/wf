@@ -1002,14 +1002,13 @@ export class AiService {
 
   async execute(request: AIRequest): Promise<AIResponse> {
     const routed = await this.tryStageBackendExecute(request);
-    let response: AIResponse;
     if (routed) {
-      response = routed;
-    } else {
-      const target = this.resolveAiTarget(request.stage, request.provider, request.model);
-      this.logPreExecutionTarget(request.stage, target.provider, target.model);
-      response = await this.adapter.execute({ ...request, ...target });
+      this.logResolvedAdapterTarget(routed);
+      return routed;
     }
+    const target = this.resolveAiTarget(request.stage, request.provider, request.model);
+    this.logPreExecutionTarget(request.stage, target.provider, target.model);
+    const response = await this.adapter.execute({ ...request, ...target });
     this.logResolvedAdapterTarget(response);
     return response;
   }
