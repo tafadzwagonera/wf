@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     fail('expected service.run to reject, but it resolved');
   }
 
-  if (isAiProviderErrorLike(caughtError) && (caughtError as AiProviderError).category === 'auth') {
+  if (isAiProviderErrorLike(caughtError) && (caughtError).category === 'auth') {
     pass('caught error is an AiProviderError with category auth');
   } else {
     fail('expected an AiProviderError with category auth', String(caughtError));

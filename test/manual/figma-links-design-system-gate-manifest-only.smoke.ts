@@ -80,7 +80,6 @@ async function main(): Promise<void> {
     } else {
       fail('Expected [] in non-TTY session, got links', JSON.stringify(nonTtyLinks));
     }
-
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

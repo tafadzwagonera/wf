@@ -46,7 +46,8 @@ export class FigmaStageService {
 
   async resolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
     const cacheKey = this.makeCacheKey(options);
-    if (this.resolveCache.has(cacheKey)) return this.resolveCache.get(cacheKey)!;
+    const cached = this.resolveCache.get(cacheKey);
+    if (cached) return cached;
     const promise = this.doResolveIfEnabled(options);
     this.resolveCache.set(cacheKey, promise);
     promise.catch(() => this.resolveCache.delete(cacheKey));
@@ -56,7 +57,9 @@ export class FigmaStageService {
   private makeCacheKey(
     { repoDir, configKey, force, artifactPath, artifactDir, ticketKey, trackerName, overrideLinks }: FigmaStageOptions
   ): string {
-    return JSON.stringify({ repoDir, configKey, force: Boolean(force), artifactPath, artifactDir, ticketKey, trackerName, overrideLinks });
+    return JSON.stringify({
+      repoDir, configKey, force: Boolean(force), artifactPath, artifactDir, ticketKey, trackerName, overrideLinks,
+    });
   }
 
   private async doResolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
