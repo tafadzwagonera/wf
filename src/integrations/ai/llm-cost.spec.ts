@@ -62,7 +62,7 @@ describe('estimateLlmCostUsd', () => {
   describe('openai delegation', () => {
     it('returns a number for a known openai model via inlined pricing table', () => {
       const cost = estimateLlmCostUsd('openai', 'gpt-4o', { inputTokens: 0, outputTokens: 0 });
-      expect(cost === null || typeof cost === 'number').toBe(true);
+      expect(cost).toEqual(expect.any(Number));
     });
   });
 });

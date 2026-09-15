@@ -315,6 +315,7 @@ describe('PlanStageService', () => {
     expect(line).toContain('reason=no result');
     expect(line).toContain('category=stall');
     expect(line).toContain('session=sess_stall_plan');
+    expect(line).toContain('billing=api-key');
     expect(line).toContain('workload not decreasing');
     expect(line).not.toContain('\n');
 
@@ -397,6 +398,24 @@ describe('PlanStageService', () => {
       sessionId: 'test-session-123',
     });
     expect(aiService.generatePlan).not.toHaveBeenCalled();
+  });
+
+  it('re-throws rate-limit stalls without falling back to the API-key completion', async () => {
+    const { service, aiService, stageAgentService } = await buildService(true);
+    const rateLimitStall = new AiProviderError(
+      'Claude CLI hit a rate or usage limit and produced no result after 2 pass(es). Diagnostics:\nRate limited (status: rejected)',
+      { passes: 2, diagnostics: ['Rate limited (status: rejected)'] },
+      true,
+      'rate-limit'
+    );
+    (stageAgentService.generatePlan as jest.Mock).mockRejectedValueOnce(rateLimitStall);
+
+    await expect(service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-403' })).rejects.toMatchObject({
+      category: 'rate-limit',
+    });
+
+    expect(aiService.generatePlan).not.toHaveBeenCalled();
+    expect(aiService.validatePlanJson).not.toHaveBeenCalled();
   });
 
   it('re-throws non-parsing AiProviderErrors without falling back', async () => {

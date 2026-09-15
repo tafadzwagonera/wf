@@ -11,6 +11,7 @@ const AI_PROVIDER_CATEGORY_SUGGESTIONS: Partial<Record<AiProviderErrorCategory, 
   parse: 'The AI response could not be parsed. This is usually transient — retry the command.',
   truncation: 'The AI response was cut short. Reduce prompt/context size or increase the token budget where supported.',
   stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',
+  'rate-limit': 'The AI provider hit a rate or usage limit. Wait for the limit to reset (the error message shows the reset time when available) and retry. No API-key fallback was attempted.',
   config: 'The AI SDK rejected the request before sending it. Check the stage\'s model and maxTokens in wf.config.* — retrying will not help until they change.',
 };
 

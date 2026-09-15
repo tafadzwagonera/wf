@@ -678,12 +678,21 @@ const logCliPassOutcome = (state: CliRetryState, passResult: CliPassResult): voi
   appendToLogFile(unusable ? 'WARN' : 'DEBUG', `${label} ${fields}${diagnostics}`, CLI_STAGE_LABEL);
 };
 
+const RATE_LIMIT_DIAGNOSTIC_PATTERN = /rate limited \(status: rejected\)|usage limit reached|hit your .*limit/i;
+
+const hasRateLimitDiagnostic = (diagnostics: string[]): boolean =>
+  diagnostics.some(diagnostic => RATE_LIMIT_DIAGNOSTIC_PATTERN.test(diagnostic));
+
 const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastDiagnostics: string[]): void => {
   if (stalledPasses < CLI_STALL_THRESHOLD) return;
   const detail = lastDiagnostics.length ? ` Diagnostics:\n${lastDiagnostics.join('\n')}` : '';
-  const message = `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`;
-  appendToLogFile('ERROR', `cli.stall ${message.replaceAll('\n', ' | ')}`, CLI_STAGE_LABEL);
-  throw new AiProviderError(message, { passes: passNumber, diagnostics: lastDiagnostics }, true, 'stall');
+  const rateLimited = hasRateLimitDiagnostic(lastDiagnostics);
+  const message = rateLimited
+    ? `Claude CLI hit a rate or usage limit and produced no result after ${passNumber} pass(es).${detail}`
+    : `Claude CLI finished without returning a result after ${passNumber} pass(es) — workload not decreasing.${detail}`;
+  const label = rateLimited ? 'cli.rate_limited' : 'cli.stall';
+  appendToLogFile('ERROR', `${label} ${message.replaceAll('\n', ' | ')}`, CLI_STAGE_LABEL);
+  throw new AiProviderError(message, { passes: passNumber, diagnostics: lastDiagnostics }, true, rateLimited ? 'rate-limit' : 'stall');
 };
 
 type AnthropicChatOpts = {

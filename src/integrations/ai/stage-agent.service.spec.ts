@@ -797,6 +797,32 @@ describe('StageAgentService', () => {
       appendSpy.mockRestore();
     });
 
+    it('classifies a rate-limited stall as rate-limit and logs cli.rate_limited', async () => {
+      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+      async function* pass() {
+        yield { type: 'rate_limit_event', rate_limit_info: { status: 'rejected' }, session_id: 'sess_rl' };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'waiting for limit reset...' }] }, session_id: 'sess_rl' };
+      }
+      spawnCli.mockImplementationOnce(pass).mockImplementationOnce(pass);
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await expect(runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' })).rejects.toMatchObject({
+        category: 'rate-limit',
+        message: expect.stringContaining('hit a rate or usage limit'),
+      });
+
+      const lines = appendSpy.mock.calls.map(call => String(call[1]));
+      expect(lines.find(line => line.startsWith('cli.rate_limited'))).toBeDefined();
+      expect(lines.find(line => line.startsWith('cli.stall'))).toBeUndefined();
+
+      appendSpy.mockRestore();
+    });
+
     it('stall error carries pass count and diagnostics in details', async () => {
       async function* pass() {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'thinking...' }] }, session_id: 'sess_detail' };

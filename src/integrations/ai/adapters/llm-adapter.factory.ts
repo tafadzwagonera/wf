@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { LLM_ADAPTER } from '../llm-adapter.interface';
 import type { LlmAdapter } from '../llm-adapter.interface';
 import { LoggerService } from '../../../shared/logger/logger.service';
+import { appendToLogFile } from '../../../shared/logger/log-file-writer';
 import { AnthropicAdapter } from './anthropic.adapter';
 import { GeminiAdapter } from './gemini.adapter';
 import { DeepSeekAdapter } from './deepseek.adapter';
@@ -39,12 +40,36 @@ const getAdapter = (provider: string | undefined, adapters: AdapterSet): LlmAdap
  * @param adapters - The set of instantiated adapters and config service.
  * @returns A composite `LlmAdapter` that dispatches to the correct backend.
  */
+/**
+ * Records a completed raw-API call to the log file. Every call routed here is
+ * billed to a configured API key (never subscription auth), so the line carries
+ * `billing=api-key` alongside provider, model, and token usage for cost forensics.
+ *
+ * @param stage - The workflow stage that issued the request, if any
+ * @param response - The adapter response carrying provider, model, and usage
+ */
+const logLlmCall = (stage: string | undefined, response: AIResponse): void => {
+  const fields = [
+    `stage=${stage ?? 'none'}`,
+    `provider=${response.provider ?? 'unknown'}`,
+    `model=${response.model ?? 'unknown'}`,
+    `inputTokens=${response.usage?.inputTokens ?? 'unknown'}`,
+    `outputTokens=${response.usage?.outputTokens ?? 'unknown'}`,
+    'billing=api-key',
+  ].join(' ');
+  appendToLogFile('INFO', `llm.call ${fields}`, 'llm-adapter');
+};
+
 const buildRoutingAdapter = (adapters: AdapterSet): LlmAdapter => ({
   async execute(request: AIRequest): Promise<AIResponse> {
-    return getAdapter(request.provider, adapters).execute(request);
+    const response = await getAdapter(request.provider, adapters).execute(request);
+    logLlmCall(request.stage, response);
+    return response;
   },
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
-    return getAdapter(request.provider, adapters).executeWithHistory(request);
+    const response = await getAdapter(request.provider, adapters).executeWithHistory(request);
+    logLlmCall(request.stage, response);
+    return response;
   },
 });
 

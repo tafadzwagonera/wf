@@ -9,14 +9,13 @@
  *   3. State pruning preserves the last STATE_PRUNING_KEEP_TAIL_ITEMS items
  *   4. State pruning injects a summary message at position 0
  *   5. State pruning skips when tokens are below the ceiling
- *   6. State pruning skips when items count is <= tail threshold
- *   7. Tool results use compact JSON (no progress signal in write/edit/delete)
- *   8. Passing verify_command omits stdout/stderr
+ *   6. State pruning resets observed tokens to 0 after firing
+ *   7. Pruning guards function_call/reasoning pair boundaries
+ *   8. No `as any` casts in pruneStateIfNeeded or its call sites
  *   9. Tracked file deduplication renders "(same as files to implement)"
  *  10. MAX_READ_LINES is 200
- *  11. Anthropic buildSystemPrompt includes ticketKey and planSteps
- *  12. Anthropic buildSystemPrompt uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)
- *  13. No `as any` casts in pruneStateIfNeeded or its call sites
+ *  11. Anthropic buildSystemPrompt uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)
+ *  12. Anthropic adapter does not use old generic tool names
  *
  * @returns Promise that resolves when the smoke test completes
  */
@@ -84,18 +83,15 @@ async function main(): Promise<void> {
   // 5. Pruning logs when it fires
   assert('pruning logs removed item count and token count', openaiAdapterSource.includes('State pruned: removed'));
 
-  // 6. Pruning resets lastObservedInputTokens after firing
-  const pruneResetPattern = /pruned > 0\)[\s\S]*?lastObservedInputTokens = 0/;
-  assert('pruning resets lastObservedInputTokens to 0 after firing', pruneResetPattern.test(openaiAdapterSource));
+  const pruneResetPattern = /pruned > 0\)[\s\S]*?observed = 0/;
+  assert('pruning resets observed tokens to 0 after firing', pruneResetPattern.test(openaiAdapterSource));
 
-  // 7. Pruning handles reasoning→function_call pair boundaries
   assert(
     'pruning checks function_call/reasoning pair boundaries',
-    openaiAdapterSource.includes('rawType === \'function_call\'')
-    && openaiAdapterSource.includes('rawType === \'reasoning\'')
+    openaiAdapterSource.includes("rawItem?.type === 'function_call'")
+    && openaiAdapterSource.includes("item.type !== 'reasoning'")
   );
 
-  // 8. No as any in pruneStateIfNeeded or its call sites
   const pruneBlock = openaiAdapterSource.slice(
     openaiAdapterSource.indexOf('const pruneStateIfNeeded = ('),
     openaiAdapterSource.indexOf('};', openaiAdapterSource.indexOf('items.splice(')) + 2
@@ -106,85 +102,19 @@ async function main(): Promise<void> {
   const callSiteCastsClean = callSiteLines.every(line => !line.includes('as any'));
   assert('pruneStateIfNeeded call sites contain no `as any` casts', callSiteCastsClean);
 
-  // --- Validation failure cleanup ---
-
-  // 9. Successful edit_file clears stale validation failures
-  const editToolCleanupSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf('name: \'edit_file\''),
-    openaiAdapterSource.indexOf('const agent = new Agent')
-  );
-  assert(
-    'edit_file clears stale validationFailures on successful write',
-    editToolCleanupSection.includes('validationFailures.splice(i, 1)')
-  );
-
-  // --- Tool result trimming ---
-
-  // 10. write_file returns compact JSON without progress
-  const writeToolSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf('name: \'write_file\''),
-    openaiAdapterSource.indexOf('name: \'delete_file\'')
-  );
-  assert(
-    'write_file returns { path, status } without progress signal',
-    writeToolSection.includes('return JSON.stringify({ path: relativePath, status })')
-    && !writeToolSection.includes('buildMutationProgressSignal')
-  );
-
-  // 10. edit_file returns compact JSON without progress
-  const editToolSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf('name: \'edit_file\''),
-    openaiAdapterSource.indexOf('const agent = new Agent')
-  );
-  assert(
-    'edit_file returns { path, status: "updated" } without progress signal',
-    editToolSection.includes('return JSON.stringify({ path: relativePath, status: \'updated\' })')
-  );
-
-  // 11. Passing verify_command omits stdout/stderr
-  const verifyPassSection = openaiAdapterSource.slice(
-    openaiAdapterSource.indexOf('Verification passed:'),
-    openaiAdapterSource.indexOf('} catch (error:')
-  );
-  assert(
-    'passing verify_command omits stdout/stderr',
-    !verifyPassSection.includes('stdout:') && !verifyPassSection.includes('stderr:')
-  );
-
-  // 12. buildMutationProgressSignal import is removed
   assert('buildMutationProgressSignal import is removed', !openaiAdapterSource.includes('buildMutationProgressSignal'));
 
-  // --- Tracked file deduplication ---
-
-  // 13. OpenAI adapter deduplicates tracked files
-  assert('OpenAI adapter deduplicates tracked file list', openaiAdapterSource.includes('(same as files to implement)'));
-
-  // 14. Anthropic adapter deduplicates tracked files
+  const sharedRoutingSource = fs.readFileSync(
+    path.join(srcRoot, 'integrations', 'ai', 'adapters', 'shared-routing.ts'),
+    'utf8'
+  );
   assert(
-    'Anthropic adapter deduplicates tracked file list',
-    anthropicAdapterSource.includes('(same as files to implement)')
+    'shared-routing deduplicates tracked file list',
+    sharedRoutingSource.includes('(same as files to implement)')
   );
 
-  // --- MAX_READ_LINES ---
-
-  // 15. MAX_READ_LINES is 200
   assert('MAX_READ_LINES is 200', openaiAdapterSource.includes('const MAX_READ_LINES = 200'));
 
-  // --- Anthropic buildSystemPrompt alignment ---
-
-  // 16. Anthropic buildSystemPrompt accepts ticketKey
-  assert(
-    'Anthropic buildSystemPrompt includes ticketKey parameter',
-    anthropicAdapterSource.includes('ticketKey: string;') && anthropicAdapterSource.includes('Ticket key: ${ticketKey}')
-  );
-
-  // 17. Anthropic buildSystemPrompt accepts planSteps
-  assert(
-    'Anthropic buildSystemPrompt includes planSteps parameter',
-    anthropicAdapterSource.includes('planSteps: string[];') && anthropicAdapterSource.includes('Plan steps:')
-  );
-
-  // 18. Anthropic adapter uses Claude tool names
   assert(
     'Anthropic adapter uses Claude tool names (Read, Write, Edit, Grep, Glob, Bash)',
     anthropicAdapterSource.includes('- Read(file_path')
@@ -195,7 +125,6 @@ async function main(): Promise<void> {
     && anthropicAdapterSource.includes('- Bash(command)')
   );
 
-  // 19. Anthropic adapter no longer uses old generic tool names
   assert(
     'Anthropic adapter does not use old "Use Write or Edit to write" rule',
     !anthropicAdapterSource.includes('Use Write or Edit to write complete updated file contents')

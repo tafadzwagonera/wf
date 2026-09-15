@@ -96,6 +96,7 @@ export class PlanStageService {
       `reason=${context.fallbackReason}`,
       `category=${category}`,
       `session=${context.sessionId ?? 'none'}`,
+      'billing=api-key',
     ].join(' ');
     appendToLogFile('WARN', `plan.fallback ${fields} cause=${message.replaceAll('\n', ' | ')}`, 'plan-stage');
   }
@@ -436,13 +437,17 @@ export class PlanStageService {
     }
   }
 
+  private isFallbackEligible(error: AiProviderError): boolean {
+    if (error.category === 'rate-limit') return false;
+    return error.message.includes('Failed to parse resolution plan')
+      || error.message.includes('CLI finished without returning a result');
+  }
+
   private async handleAgentPlanError(
     error: unknown, ctx: PlanGenerationContext, feedback?: string[]
   ): Promise<PlanResult> {
     if (!isAiProviderErrorLike(error)) throw error;
-    const eligible = error.message.includes('Failed to parse resolution plan')
-      || error.message.includes('CLI finished without returning a result');
-    if (!eligible) throw error;
+    if (!this.isFallbackEligible(error)) throw error;
     const agentProse = typeof error.details?.response === 'string' && error.details.response.trim()
       ? error.details.response
       : undefined;
@@ -454,7 +459,7 @@ export class PlanStageService {
 
   private notifyFallback(error: unknown, fallbackReason: string, sessionId?: string): void {
     this.logFallbackDecision(error, { fallbackReason, sessionId });
-    console.log(chalk.yellow(`  ⚠ Agent returned ${fallbackReason} — falling back to structured completion`));
+    console.log(chalk.yellow(`  ⚠ Agent returned ${fallbackReason} — falling back to structured completion billed to the configured API key`));
   }
 
   private isValidPlan(result: unknown): result is ResolutionPlan {
