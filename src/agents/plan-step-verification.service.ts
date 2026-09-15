@@ -10,6 +10,7 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
+import { isAiProviderErrorLike } from '../shared/utils/errors';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
@@ -70,6 +71,7 @@ type RoundResult = {
   sessionId?: string;
   extraPassCount: number;
   assessmentFailed?: boolean;
+  assessmentFailureCause?: string;
 };
 
 export interface PlanStepVerificationRunParams {
@@ -180,13 +182,19 @@ export class PlanStepVerificationService {
     target: { provider: string; model: string },
   ): Promise<PlanStepVerificationOutcome> {
     let sessionId: string | undefined = params.sessionId;
-    let extraPassCount = 0, consecutiveFailures = 0;
+    let extraPassCount = 0, consecutiveFailures = 0, lastFailureCause: string | undefined;
     const pendingHistory: number[] = [], n = params.steps.length;
     for (let round = 1; ; round += 1) {
       const result = await this.runOneRound(params, target, round, sessionId, extraPassCount, n, pendingHistory);
       if (result.outcome) return result.outcome;
-      consecutiveFailures = result.assessmentFailed ? consecutiveFailures + 1 : 0;
-      const stalled = this.checkConsecutiveFailureLimit(consecutiveFailures, params, sessionId, extraPassCount);
+      if (result.assessmentFailed) {
+        consecutiveFailures += 1;
+        lastFailureCause = result.assessmentFailureCause ?? lastFailureCause;
+      } else {
+        consecutiveFailures = 0;
+        lastFailureCause = undefined;
+      }
+      const stalled = this.checkConsecutiveFailureLimit(consecutiveFailures, params, sessionId, extraPassCount, lastFailureCause);
       if (stalled) return stalled;
       ({ sessionId, extraPassCount } = result);
     }
@@ -194,10 +202,11 @@ export class PlanStepVerificationService {
 
   private checkConsecutiveFailureLimit(
     count: number, params: PlanStepVerificationRunParams,
-    sessionId: string | undefined, extraPassCount: number,
+    sessionId: string | undefined, extraPassCount: number, failureCause?: string,
   ): PlanStepVerificationOutcome | null {
     if (!params.refreshSteps || count < params.stallWindow) return null;
-    this.logEventAndAppendToLogFile('WARN', `step-verify.exhausted reason=assessor-returned-invalid-json-${count}-rounds-in-a-row stallWindow=${params.stallWindow}`, params.silent);
+    const causeTag = failureCause ? ` cause=${failureCause}` : '';
+    this.logEventAndAppendToLogFile('WARN', `step-verify.exhausted reason=assessor-failed-${count}-rounds-in-a-row${causeTag} stallWindow=${params.stallWindow}`, params.silent);
     return { sessionId, summary: undefined, extraPassCount };
   }
 
@@ -217,8 +226,8 @@ export class PlanStepVerificationService {
   ): Promise<RoundResult> {
     const roundLabel = params.refreshSteps ? `${round}/?` : `${round}/${params.stallWindow}`;
     this.logEventAndAppendToLogFile('INFO', `step-verify.round.start round=${roundLabel} stallWindow=${params.stallWindow}`, params.silent);
-    const statusMap = await this.assessSteps({ ...params, steps: activeSteps }, target);
-    if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount);
+    const { steps: statusMap, failureCause } = await this.assessSteps({ ...params, steps: activeSteps }, target);
+    if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount, failureCause);
     const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
     const outcome = this.resolveRoundOutcome(nowPending, round, params, sessionId, n, extraPassCount, pendingHistory);
     if (outcome || !sessionId) return this.finalizeRound(outcome, sessionId, extraPassCount);
@@ -238,11 +247,13 @@ export class PlanStepVerificationService {
 
   private handleAssessmentFailure(
     round: number, params: PlanStepVerificationRunParams, sessionId: string | undefined, extraPassCount: number,
+    failureCause?: string,
   ): RoundResult {
     if (params.refreshSteps || round < params.stallWindow) {
-      return { sessionId, extraPassCount, assessmentFailed: true };
+      return { sessionId, extraPassCount, assessmentFailed: true, assessmentFailureCause: failureCause };
     }
-    const reason = `step-verify.exhausted reason=assessor-returned-invalid-json-on-final-round round=${round} stallWindow=${params.stallWindow}`;
+    const causeTag = failureCause ? ` cause=${failureCause}` : '';
+    const reason = `step-verify.exhausted${causeTag} reason=assessment-failed-on-final-round round=${round} stallWindow=${params.stallWindow}`;
     this.logEventAndAppendToLogFile('WARN', reason, params.silent);
     return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
   }
@@ -282,25 +293,30 @@ export class PlanStepVerificationService {
   private async assessSteps(
     params: PlanStepVerificationRunParams,
     target: { provider: string; model: string },
-  ): Promise<Map<number, StepAssessment> | undefined> {
+  ): Promise<{ steps: Map<number, StepAssessment> | undefined; failureCause?: string }> {
+    let failureCause: string | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.attemptAssessment(params, target);
-      if (result) return this.logPendingStatuses(result, params.silent);
+      const result = await this.attemptAssessment(params, target, c => { failureCause = c; });
+      if (result) return { steps: this.logPendingStatuses(result, params.silent) };
     }
     this.logEventAndAppendToLogFile('ERROR', 'step-verify.assess.invalid', params.silent);
-    return undefined;
+    return { steps: undefined, failureCause };
   }
 
   private async attemptAssessment(
     params: PlanStepVerificationRunParams,
     target: { provider: string; model: string },
+    onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
     const result = await this.runSingleAssessmentAttempt(params, target).catch(error => {
+      if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
       const cause = error instanceof Error ? error.message : String(error);
+      onFailureCause?.(cause);
       appendToLogFile('ERROR', `step-verify.assess.attempt-failed cause=${cause}`, 'step-verification');
       return undefined;
     });
     if (typeof result === 'string') {
+      onFailureCause?.(`validation-error: ${result}`);
       this.logEventAndAppendToLogFile('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
       return undefined;
     }
