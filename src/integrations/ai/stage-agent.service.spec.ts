@@ -990,7 +990,7 @@ describe('StageAgentService', () => {
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Running: yarn build');
       expect(onProgress).toHaveBeenCalledWith('  [codex-cli] Command completed: yarn build');
       expect(onProgress).toHaveBeenCalledWith(`  [codex-cli] Agent: ${validTicket}`);
-      expect(onProgress.mock.calls.some(call => String(call[0]).startsWith('  [codex-cli]'))).toBe(true);
+      expect(onProgress).toHaveBeenCalledWith(expect.stringMatching(/^\s+\[codex-cli\]/));
 
       logSpy.mockRestore();
     });
