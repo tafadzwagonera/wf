@@ -3110,6 +3110,81 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('anthropicChatTurn cost plumbing', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('exposes costUsd extracted from the Anthropic SDK result message', async () => {
+      const createAnthropicAgentConfigService = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.review.backend': 'agent',
+              'stages.review.provider': 'anthropic',
+              'stages.review.model': 'claude-sonnet-4-6',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-6',
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const fakeSession = Object.assign(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', is_error: false, result: 'hello world', total_cost_usd: 0.03 };
+        })(),
+        { close: jest.fn() }
+      );
+
+      const result = await (service as any).processAnthropicChatResult(fakeSession);
+      expect(result.costUsd).toBe(0.03);
+    });
+  });
+
+  describe('openAiChatTurn cost plumbing', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('threads costUsd from processOpenAiStageResult through openAiChatTurn', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockAgent = {};
+      const mockRunner = {};
+      (service as any).requireOpenAiApiKey = jest.fn().mockReturnValue('sk-test');
+      (service as any).resolveOpenAiChatAgent = jest.fn().mockResolvedValue({
+        agent: mockAgent, runner: mockRunner, context: {},
+      });
+      (service as any).processOpenAiStageResult = jest.fn().mockResolvedValue({ content: 'ok', costUsd: 0.05 });
+
+      const result = await (service as any).openAiChatTurn({
+        stage: 'review', systemPrompt: 'sys', userMessage: 'msg',
+      });
+      expect(result.costUsd).toBe(0.05);
+    });
+  });
+
+  describe('Codex CLI cost plumbing', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('accumulates costUsd from Codex CLI token usage', async () => {
+      const service = new StageAgentService(createCodexConfigService());
+      spawnCodex.mockImplementationOnce(async function* () {
+        yield { type: 'thread.started', thread_id: 'thread-abc' };
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'step result' } };
+        yield { type: 'turn.completed', usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 } };
+      });
+
+      const result = await (service as any).runCodexRetryLoop({
+        stage: 'implement', model: 'gpt-4o', repoDir: '/tmp/repo', initialPrompt: 'do stuff',
+      });
+      expect(result.costUsd).toBeCloseTo(12.5, 4);
+    });
+  });
+
   describe('cliChatTurn cost plumbing', () => {
     afterEach(() => {
       jest.restoreAllMocks();

@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import chalk from 'chalk';
 import dayjs from 'dayjs';
 import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
-import { formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
+import { estimateOpenAiCostUsd, extractUsageFromEvent, formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
@@ -81,9 +81,12 @@ import {
 } from '../../shared/utils/detect-reuse-candidates';
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
+import { estimateLlmCostUsd } from './llm-cost';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
+const OPENAI_STAGE_MAX_TURNS = 16;
+const OPENAI_CHAT_MAX_TURNS = 8;
 const READ_ONLY_OPENAI_MODEL = 'gpt-5.4-mini';
 const READ_ONLY_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_STAGE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash'] as const;
@@ -264,6 +267,8 @@ type ChatTurnParams = {
   systemPrompt: string;
   userMessage: string;
 };
+
+type AgentChatTurnResult = { content: string; costUsd?: number; session: AgentChatSession };
 
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
   const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
@@ -463,6 +468,8 @@ const finalizeCodexResult = (result: string, sessionId?: string): { content: str
 
 type CodexStageResultState = {
   agentMessageCount: number;
+  inputTokens: number;
+  outputTokens: number;
   result: string;
   sessionId?: string;
   stopReason?: string;
@@ -480,6 +487,18 @@ const updateCodexAgentMessageState = (state: CodexStageResultState, message: Cod
   state.result = message.item.text;
 };
 
+const accumulateCodexTokenUsage = (state: CodexStageResultState, message: CodexCliMessage): void => {
+  if (!message.usage) return;
+  state.inputTokens += message.usage.input_tokens;
+  state.outputTokens += message.usage.output_tokens;
+};
+
+const emitCodexProgressLine = (message: CodexCliMessage, onProgress?: StageProgressCallback): void => {
+  if (!onProgress) return;
+  const line = formatCodexProgressMessage(message);
+  if (line) onProgress(line);
+};
+
 const accumulateCodexStageResult = (
   state: CodexStageResultState,
   message: CodexCliMessage,
@@ -488,10 +507,8 @@ const accumulateCodexStageResult = (
   if (message.type === 'thread.started' && message.thread_id) state.sessionId = message.thread_id;
   const stopReason = extractCodexStopReason(message);
   if (stopReason) state.stopReason = stopReason;
-  if (onProgress) {
-    const line = formatCodexProgressMessage(message);
-    if (line) onProgress(line);
-  }
+  accumulateCodexTokenUsage(state, message);
+  emitCodexProgressLine(message, onProgress);
   updateCodexAgentMessageState(state, message);
 };
 
@@ -521,21 +538,27 @@ const finalizeCodexStageResult = (
 
 interface CodexStageResultOpts {
   sessionId?: string;
+  model?: string;
   onProgress?: StageProgressCallback;
   timeoutMs?: number;
   inactivityTimeoutMs?: number;
 }
 
+const computeCodexCostUsd = (model: string | undefined, state: CodexStageResultState): number | undefined =>
+  estimateLlmCostUsd('openai', model, { inputTokens: state.inputTokens, outputTokens: state.outputTokens }) ?? undefined;
+
 const processCodexStageResult = async (
   args: string[], repoDir: string, fullPrompt: string, stage: AgentStageName,
   opts?: CodexStageResultOpts,
-): Promise<{ content: string; sessionId?: string }> => {
-  const state: CodexStageResultState = { sessionId: opts?.sessionId, result: '', agentMessageCount: 0 };
+): Promise<{ content: string; sessionId?: string; costUsd?: number }> => {
+  const state: CodexStageResultState = {
+    sessionId: opts?.sessionId, result: '', agentMessageCount: 0, inputTokens: 0, outputTokens: 0,
+  };
   const stream = spawnCodex(args, repoDir, fullPrompt, undefined, opts?.timeoutMs, opts?.inactivityTimeoutMs);
   for await (const message of stream) {
     accumulateCodexStageResult(state, message, opts?.onProgress);
   }
-  return finalizeCodexStageResult(state, stage);
+  return { ...finalizeCodexStageResult(state, stage), costUsd: computeCodexCostUsd(opts?.model, state) };
 };
 
 const extractCliResultContent = (
@@ -1240,14 +1263,20 @@ export class StageAgentService {
   private async runOpenAiStagePrompt(params: StagePromptParams): Promise<string> {
     const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
-    if (params.resumeProviderSessionId) {
-      console.log(chalk.yellow('  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'));
-    }
+    if (params.resumeProviderSessionId) this.logOpenAiResumeUnsupported();
     const { agent, runner, context } = await this.buildOpenAiStageAgent({
       stage: params.stage, systemPrompt: params.systemPrompt,
       repoDir: params.repoDir, priorStageSummary: params.priorStageSummary, apiKey,
     });
-    return this.processOpenAiStageResult(agent, runner, context, params.prompt, 16, params.onProgress);
+    const { content } = await this.processOpenAiStageResult(
+      agent, runner, context, params.prompt, OPENAI_STAGE_MAX_TURNS,
+      params.onProgress, this.resolveStageModel(params.stage)
+    );
+    return content;
+  }
+
+  private logOpenAiResumeUnsupported(): void {
+    console.log(chalk.yellow('  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'));
   }
 
   private requireOpenAiApiKey(): string {
@@ -1271,19 +1300,35 @@ export class StageAgentService {
     return { agent, runner, context: { repoDir: opts.repoDir ?? process.cwd() } };
   }
 
+  private accumulateOpenAiStreamEvent(
+    event: unknown,
+    onProgress: StageProgressCallback | undefined,
+    counts: { inputTokens: number; outputTokens: number; cachedInputTokens: number }
+  ): void {
+    if (onProgress) {
+      const formatted = formatOpenAiProgressMessage(event);
+      if (formatted) onProgress(formatted.message);
+    }
+    const usage = extractUsageFromEvent(event);
+    if (!usage) return;
+    counts.inputTokens += usage.inputTokens;
+    counts.outputTokens += usage.outputTokens;
+    counts.cachedInputTokens += usage.cachedInputTokens;
+  }
+
   private async processOpenAiStageResult(
     agent: Agent<OpenAiStageContext>, runner: Runner, context: OpenAiStageContext,
-    input: string, maxTurns: number, onProgress?: StageProgressCallback
-  ): Promise<string> {
+    input: string, maxTurns: number, onProgress?: StageProgressCallback, model?: string
+  ): Promise<{ content: string; costUsd?: number }> {
     const streamedRun = await runner.run(agent, input, { stream: true, context, maxTurns });
-    for await (const event of streamedRun) {
-      if (onProgress) {
-        const formatted = formatOpenAiProgressMessage(event);
-        if (formatted) onProgress(formatted.message);
-      }
-    }
+    const counts = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+    for await (const event of streamedRun) this.accumulateOpenAiStreamEvent(event, onProgress, counts);
     if (streamedRun.error) throw new AiProviderError(`OpenAI agent run failed: ${this.extractStreamError(streamedRun.error)}`);
-    return typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
+    const content = typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
+    const costUsd = model
+      ? estimateOpenAiCostUsd(model, counts.inputTokens, counts.outputTokens, counts.cachedInputTokens) ?? undefined
+      : undefined;
+    return { content, costUsd };
   }
 
   async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
@@ -1294,9 +1339,7 @@ export class StageAgentService {
     return this.validateAndReturnOpenAiChat(params);
   }
 
-  private async validateAndReturnOpenAiChat(
-    params: ChatTurnParams
-  ): Promise<{ content: string; session: AgentChatSession }> {
+  private async validateAndReturnOpenAiChat(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const result = await this.openAiChatTurn(params);
     requireAiResponseContent(
       { content: result.content, provider: 'openai', model: this.resolveStageModel(params.stage) },
@@ -1305,7 +1348,7 @@ export class StageAgentService {
     return result;
   }
 
-  private async anthropicChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+  private async anthropicChatTurn(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const apiKey = this.requireAnthropicApiKey();
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicChatOptions({
@@ -1319,22 +1362,28 @@ export class StageAgentService {
 
   private async processAnthropicChatResult(
     session: AsyncIterable<Record<string, unknown>> & { close: () => void }, existingSessionId?: string
-  ): Promise<{ content: string; session: AgentChatSession }> {
+  ): Promise<AgentChatTurnResult> {
+    let costUsd: number | undefined;
     const result = await drainAnthropicSession(session, msg => {
       const outcome = extractAnthropicResultMessage(msg);
-      return outcome ? { content: outcome.trim() } : undefined;
+      if (!outcome) return undefined;
+      const rawCost = (msg as { total_cost_usd?: unknown }).total_cost_usd;
+      if (typeof rawCost === 'number') costUsd = rawCost;
+      return { content: outcome.trim() };
     }, '');
     const sessionId = result.sessionId ?? existingSessionId;
-    return { content: result.content, session: { provider: 'anthropic' as const, sessionId } };
+    return { content: result.content, costUsd, session: { provider: 'anthropic' as const, sessionId } };
   }
 
-  private async openAiChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+  private async openAiChatTurn(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
     const { agent, runner, context } = await this.resolveOpenAiChatAgent(params, apiKey);
     const runInput = (params.session?.runState ?? params.userMessage) as string;
-    const content = await this.processOpenAiStageResult(agent, runner, context, runInput, 8);
-    return this.buildOpenAiChatResult(content, agent, runner);
+    const { content, costUsd } = await this.processOpenAiStageResult(
+      agent, runner, context, runInput, OPENAI_CHAT_MAX_TURNS, undefined, this.resolveStageModel(params.stage)
+    );
+    return this.buildOpenAiChatResult(content, costUsd, agent, runner);
   }
 
   private async resolveOpenAiChatAgent(
@@ -1352,10 +1401,11 @@ export class StageAgentService {
 
   private buildOpenAiChatResult(
     content: string,
+    costUsd: number | undefined,
     agent: Agent<OpenAiStageContext>,
     runner: Runner
-  ): { content: string; session: AgentChatSession } {
-    return { content, session: { provider: 'openai' as const, agent, runner } };
+  ): AgentChatTurnResult {
+    return { content, costUsd, session: { provider: 'openai' as const, agent, runner } };
   }
 
   private async runCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
@@ -1536,12 +1586,12 @@ export class StageAgentService {
   private async runCodexStagePass(opts: {
     stage: AgentStageName; model: string; repoDir: string; prompt: string;
     sessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
-  }): Promise<{ content: string; sessionId?: string }> {
+  }): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     const args = buildCodexCliArgs({
       prompt: opts.prompt, model: opts.model, cwd: opts.repoDir, sessionId: opts.sessionId,
     });
     return processCodexStageResult(args, opts.repoDir, opts.prompt, opts.stage, {
-      sessionId: opts.sessionId, onProgress: opts.onProgress,
+      sessionId: opts.sessionId, model: opts.model, onProgress: opts.onProgress,
       timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs,
     });
   }
@@ -1549,7 +1599,7 @@ export class StageAgentService {
   private async runCodexRetryLoop(opts: {
     stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
     initialSessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
-  }): Promise<{ content: string; sessionId?: string }> {
+  }): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     const passBase: CodexPassBase = { stage: opts.stage, model: opts.model, repoDir: opts.repoDir,
       onProgress: opts.onProgress, timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs };
     let sessionId = opts.initialSessionId;
@@ -1557,14 +1607,14 @@ export class StageAgentService {
     if (pass1.sessionId) sessionId = pass1.sessionId;
     if (!STAGE_RESPONSE_SCHEMAS[opts.stage]) return pass1;
     const issues1 = resolveStageResponseIssues(opts.stage, pass1.content);
-    if (!issues1) return { content: pass1.content, sessionId };
+    if (!issues1) return { content: pass1.content, sessionId, costUsd: pass1.costUsd };
     if (!sessionId) return throwCodexParseError(opts.stage, pass1.content, issues1, sessionId);
-    return this.runCodexSchemaRetry(passBase, opts.stage, issues1, sessionId, pass1.content);
+    return this.runCodexSchemaRetry(passBase, opts.stage, issues1, sessionId, pass1.content, pass1.costUsd);
   }
 
   private async runCodexRetryPass(
     passBase: CodexPassBase, issues1: string, sessionId: string, invalidContent: string
-  ): Promise<{ content: string; sessionId?: string }> {
+  ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     try {
       return await this.runCodexStagePass({ ...passBase, prompt: buildCodexRetryPrompt(issues1), sessionId });
     } catch (error) {
@@ -1574,13 +1624,17 @@ export class StageAgentService {
   }
 
   private async runCodexSchemaRetry(
-    passBase: CodexPassBase, stage: AgentStageName, issues1: string, sessionId: string, invalidContent: string
-  ): Promise<{ content: string; sessionId?: string }> {
+    passBase: CodexPassBase, stage: AgentStageName, issues1: string, sessionId: string,
+    invalidContent: string, pass1CostUsd?: number
+  ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Pass 1: schema miss — retrying`));
     const pass2 = await this.runCodexRetryPass(passBase, issues1, sessionId, invalidContent);
     const finalSessionId = pass2.sessionId ?? sessionId;
+    const costUsd = pass1CostUsd == null && pass2.costUsd == null
+      ? undefined
+      : (pass1CostUsd ?? 0) + (pass2.costUsd ?? 0);
     const issues2 = resolveStageResponseIssues(stage, pass2.content);
-    if (!issues2) return { content: pass2.content, sessionId: finalSessionId };
+    if (!issues2) return { content: pass2.content, sessionId: finalSessionId, costUsd };
     return throwCodexParseError(stage, pass2.content, issues2, finalSessionId);
   }
 
