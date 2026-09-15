@@ -849,6 +849,7 @@ Runtime backend selection is separate from plan metadata:
 - The OpenAI backend exposes seven tools: `read_file` (with line-range support), `write_file`, `edit_file` (surgical string replacement), `delete_file`, `search_files` (regex grep), `find_files` (glob), and `verify_command` (exact-match whitelist). The turn budget scales with plan step count and target file count (capped at 200).
 - The OpenAI backend classifies errors from the SDK (`MaxTurnsExceededError`, `ToolTimeoutError`, `ToolCallError`, rate limits, auth errors) and fails immediately on rate limits (TPM exhaustion is not recoverable via retry because the context size that caused the limit persists across attempts).
 - On completion the OpenAI agent emits turn count, token usage, and a structured summary with four sections: **What I changed**, **Verification run**, **Files** (updated / new / deleted), and **Assumptions / risk note**. If no file writes occurred, the CLI prints `File summary: no file changes were made.`
+- After each stage turn, wf emits a transparency line `ℹ llm.adapter resolved-provider=<provider> resolved-model=<model> cost=<$X.XXXX|n/a>`. Cost is estimated from token usage reported by the backend (Anthropic Agent SDK, OpenAI Agent SDK, Claude CLI, or Codex CLI); `n/a` appears when the model is unrecognised or the backend reported no usage.
 
 Example:
 
