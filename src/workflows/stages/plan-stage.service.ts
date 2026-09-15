@@ -193,7 +193,7 @@ export class PlanStageService {
     const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
     const { plan, sessionId, figmaLinks } = await this.executePlanGeneration(ticket, options);
-    if (!figmaLinks.length) this.warnNoFigmaLinks(this.isInteractiveSession() ? 'no-links-found' : 'non-interactive-session');
+    if (this.isFigmaEnabled(options) && !figmaLinks.length) this.warnNoFigmaLinks(this.isInteractiveSession() ? 'no-links-found' : 'non-interactive-session');
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(
       plan, options.action, path.dirname(ticket.path),
@@ -203,16 +203,23 @@ export class PlanStageService {
     return { ...result, sessionId };
   }
 
+  private isFigmaEnabled(options: PlannerOptions): boolean {
+    return options.figma === true || this.configService.get<boolean>('stages.plan.figma') === true;
+  }
+
   private async executePlanGeneration(ticket: TicketArtifact, options: PlannerOptions) {
-    const autoLinks = extractFigmaLinks(ticket.content);
+    const figmaEnabled = this.isFigmaEnabled(options);
+    const autoLinks = figmaEnabled ? extractFigmaLinks(ticket.content) : [];
     const { plan, sessionId } = await this.generatePlan(ticket.content, {
       action: options.action, ticketKey: ticket.ticketKey,
       affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
       figmaLinks: autoLinks, uiDesignScreenshots: options.uiDesignScreenshots,
     });
-    const figmaLinks = await resolvePostParseFigmaLinks(
-      ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
-    );
+    const figmaLinks = figmaEnabled
+      ? await resolvePostParseFigmaLinks(
+          ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
+        )
+      : [];
     return { plan, sessionId, figmaLinks };
   }
 

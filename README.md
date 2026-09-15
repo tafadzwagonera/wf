@@ -743,6 +743,9 @@ wf issue -k WBP-2971 --from fetch --action fix --dry-run
 
 # Run with SonarQube scan during the REVIEW stage
 wf issue -k WBP-2971 --from implement --sonar
+
+# Extract Figma links at plan time and run design-conformance checks at implement and review time
+wf issue -k WBP-2971 --from fetch --action fix --figma
 ```
 
 **Options:**
@@ -759,6 +762,7 @@ wf issue -k WBP-2971 --from implement --sonar
 | `-c, --custom-plan <source.md>` | Path to a custom markdown plan source; skips the fetch stage. When `--from fetch` is set, warns and normalizes to `--from plan` | —                  |
 | `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                                         | —                  |
 | `--sonar`                   | Enable the SonarQube CLI scan during the REVIEW stage, overriding `stages.review.sonar` config                                                    | —                  |
+| `--figma`                   | Enable Figma link extraction during PLAN and design-conformance checks during IMPLEMENT and REVIEW, overriding `stages.plan.figma`, `stages.implement.figma`, and `stages.review.figma` config. Requires `figma.token` in `wf.config`. | —                  |
 | `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                             | current repo       |
 | `-k, --ticket-key <key>`    | Ticket key to run the full workflow for (e.g. WBP-2971)                                                                                            | —                  |
 

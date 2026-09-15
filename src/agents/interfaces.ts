@@ -53,6 +53,7 @@ export interface PlannerOptions {
   sourceKind?: 'ticket' | 'custom';
   onProgress?: (line: string) => void;
   uiDesignScreenshots?: string[];
+  figma?: boolean;
 }
 
 export interface ReviewerOptions {

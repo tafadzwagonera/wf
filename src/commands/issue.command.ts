@@ -289,7 +289,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--figma',
-    description: 'Enable Figma design-conformance check during REVIEW, overriding stages.review.figma config',
+    description: 'Enable Figma link extraction during PLAN and design-conformance checks during IMPLEMENT and REVIEW, overriding stages.plan.figma, stages.implement.figma, and stages.review.figma config',
   })
   parseFigma(): boolean {
     return true;
@@ -1255,6 +1255,7 @@ export class IssueCommand extends CommandRunner {
       silent: ctx.options?.silent,
       sourceKind: ctx.customSourcePath ? 'custom' : 'ticket',
       uiDesignScreenshots,
+      figma: ctx.options?.figma,
     });
     if (ctx.options?.silent) console.log(planArtifact.path);
     return planArtifact;

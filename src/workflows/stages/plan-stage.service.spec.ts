@@ -619,7 +619,7 @@ describe('PlanStageService', () => {
 
     await service.createPlanArtifact(
       { ticketKey: 'WBP-500', content: '# WBP-500: Style the card', path: ticketPath },
-      { action: 'fix', affectedRepositories: ['repo-a'] }
+      { action: 'fix', affectedRepositories: ['repo-a'], figma: true }
     );
 
     expect(aiService.generatePlan).toHaveBeenCalledWith(
@@ -680,7 +680,7 @@ describe('PlanStageService', () => {
 
     await service.createPlanArtifact(
       { ticketKey: 'ABC-2', content: '# ABC-2: Style the footer', path: ticketPath },
-      { action: 'fix', uiDesignScreenshots: ['/abs/footer.png'] }
+      { action: 'fix', uiDesignScreenshots: ['/abs/footer.png'], figma: true }
     );
 
     const planFiles = fs.readdirSync(tempDir).filter(f => f.endsWith('-plan.json'));
@@ -702,7 +702,7 @@ describe('PlanStageService', () => {
 
     await service.createPlanArtifact(
       { ticketKey: 'WBP-700', content: '# WBP-700: Style the card', path: ticketPath },
-      { action: 'fix', affectedRepositories: ['repo-a'] }
+      { action: 'fix', affectedRepositories: ['repo-a'], figma: true }
     );
 
     const line = appendSpy.mock.calls.map(call => String(call[1])).find(l => l.includes('No Figma frame links'));
@@ -725,7 +725,7 @@ describe('PlanStageService', () => {
 
     await service.createPlanArtifact(
       { ticketKey: 'WBP-800', content: '# WBP-800: Style the nav', path: ticketPath },
-      { action: 'fix', affectedRepositories: ['repo-a'] }
+      { action: 'fix', affectedRepositories: ['repo-a'], figma: true }
     );
 
     const line = appendSpy.mock.calls.map(call => String(call[1])).find(l => l.includes('No Figma frame links'));
