@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AiService } from './ai.service';
+import { AiService, STAGE_AGENT_SERVICE_TOKEN } from './ai.service';
 import { LlmAdapterFactory } from './adapters/llm-adapter.factory';
 import { AnthropicAdapter } from './adapters/anthropic.adapter';
 import { OpenAIAdapter } from './adapters/openai.adapter';
@@ -19,6 +19,7 @@ import { UiDesignScreenshotsStageService } from '../../review/ui-design-screensh
     LlmAdapterFactory,
     AiService,
     StageAgentService,
+    { provide: STAGE_AGENT_SERVICE_TOKEN, useExisting: StageAgentService },
     ConversationService,
     ChatUIService,
     UiDesignScreenshotsStageService,

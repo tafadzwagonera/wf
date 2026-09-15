@@ -3080,4 +3080,72 @@ describe('StageAgentService', () => {
       expect((capturedParams as { prompt: string }).prompt).toContain('/p/design.png');
     });
   });
+
+  describe('resolveTargetForStage', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns configured provider and model for a stage', () => {
+      const svc = new StageAgentService(
+        { get: (key: string) => {
+          if (key === 'stages.implement.provider') return 'anthropic';
+          if (key === 'stages.implement.model') return 'claude-sonnet-4-6';
+          return undefined;
+        } } as unknown as ConfigService,
+      );
+      expect(svc.resolveTargetForStage('implement')).toEqual({ provider: 'anthropic', model: 'claude-sonnet-4-6' });
+    });
+
+    it('falls back to the provider default model when no stage model is configured', () => {
+      const svc = new StageAgentService(
+        { get: (key: string) => {
+          if (key === 'stages.implement.provider') return 'anthropic';
+          return undefined;
+        } } as unknown as ConfigService,
+      );
+      const target = svc.resolveTargetForStage('implement');
+      expect(target.provider).toBe('anthropic');
+      expect(target.model.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('cliChatTurn cost plumbing', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('exposes costUsd from the CLI retry loop on the chatTurn result', async () => {
+      const svc = new StageAgentService(createClaudeCliReviewConfigService());
+      (svc as unknown as { runCliChatRetryLoop: jest.Mock }).runCliChatRetryLoop = jest
+        .fn()
+        .mockResolvedValue({ content: 'ok', sessionId: 'sess-1', costUsd: 0.0421 });
+
+      const result = await svc.chatTurn({ stage: 'review', systemPrompt: 'sys', userMessage: 'msg' });
+
+      expect(result.costUsd).toBe(0.0421);
+    });
+
+    it('sums costUsd across multiple retry passes', async () => {
+      const svc = new StageAgentService(createClaudeCliReviewConfigService());
+      let call = 0;
+      (svc as unknown as { runCliChatPass: jest.Mock }).runCliChatPass = jest.fn().mockImplementation(() => {
+        call++;
+        if (call === 1) {
+          return Promise.resolve({
+            result: '', source: undefined, hadContent: false, diagnostics: [],
+            sessionId: 'sess-1', stopReason: undefined, costUsd: 0.01,
+          });
+        }
+        return Promise.resolve({
+          result: 'done', source: 'result' as const, hadContent: true, diagnostics: [],
+          sessionId: 'sess-1', stopReason: undefined, costUsd: 0.02,
+        });
+      });
+
+      const result = await svc.chatTurn({ stage: 'review', systemPrompt: 'sys', userMessage: 'msg' });
+
+      expect(result.costUsd).toBeCloseTo(0.03, 5);
+    });
+  });
 });

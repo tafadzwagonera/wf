@@ -1902,4 +1902,119 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(plan.phases).toBeUndefined();
     });
   });
+
+  describe('execute stage-backend routing', () => {
+    let adapter: jest.Mocked<LlmAdapter>;
+    let service: AiService;
+    let mockStageAgent: {
+      isEnabledForStage: jest.Mock;
+      resolveTargetForStage: jest.Mock;
+      chatTurn: jest.Mock;
+    };
+
+    beforeEach(() => {
+      adapter = createAdapter();
+      service = new AiService(mockLogger, adapter, createConfigService());
+      mockStageAgent = {
+        isEnabledForStage: jest.fn().mockReturnValue(true),
+        resolveTargetForStage: jest.fn().mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+        chatTurn: jest.fn().mockResolvedValue({ content: '{"ok":1}', session: {}, costUsd: 0.05 }),
+      };
+      (service as unknown as { stageAgentService: typeof mockStageAgent }).stageAgentService = mockStageAgent;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('routes through chatTurn for a valid agent stage with no overrides', async () => {
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(mockStageAgent.chatTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'implement', userMessage: 'hello' }),
+      );
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('passes empty string when systemPrompt is absent', async () => {
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(mockStageAgent.chatTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ systemPrompt: '' }),
+      );
+    });
+
+    it('falls back to raw adapter when request has an explicit provider override', async () => {
+      await service.execute({ prompt: 'hello', stage: 'implement', provider: 'anthropic', model: 'claude-opus-5' });
+      expect(adapter.execute).toHaveBeenCalled();
+      expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('falls back to raw adapter when request has context', async () => {
+      await service.execute({ prompt: 'hello', stage: 'implement', context: { screenshot: 'data' } });
+      expect(adapter.execute).toHaveBeenCalled();
+      expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('falls back to raw adapter for the commit stage', async () => {
+      await service.execute({ prompt: 'hello', stage: 'commit' });
+      expect(adapter.execute).toHaveBeenCalled();
+      expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('falls back to raw adapter when stageAgentService is absent', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(adapter.execute).toHaveBeenCalled();
+    });
+
+    it('falls back to raw adapter when isEnabledForStage returns false', async () => {
+      mockStageAgent.isEnabledForStage.mockReturnValue(false);
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(adapter.execute).toHaveBeenCalled();
+      expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('emits log line with CLI cost when routed', async () => {
+      const infoSpy = jest.spyOn(mockLogger, 'info');
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('llm.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6 cost=$0.0500'),
+      );
+    });
+
+    it('emits log line with estimated cost for raw-adapter call with known model', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute.mockResolvedValue({
+        content: 'ok',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
+        usage: { inputTokens: 1_000_000, outputTokens: 1_000_000 },
+      });
+      const infoSpy = jest.spyOn(mockLogger, 'info');
+      await service.execute({ prompt: 'hello', stage: 'implement' });
+      expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('cost=$18.0000'));
+    });
+
+    it('emits cost=n/a when provider is unknown', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute.mockResolvedValue({ content: 'ok', provider: 'google', model: 'gemini' });
+      const infoSpy = jest.spyOn(mockLogger, 'info');
+      await service.execute({ prompt: 'hello' });
+      expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('cost=n/a'));
+    });
+  });
+
+  describe('executeWithHistory log line', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('emits llm.adapter line after executeWithHistory', async () => {
+      const adapter = createAdapter();
+      adapter.executeWithHistory.mockResolvedValue({ content: 'ok', provider: 'openai', model: 'gpt-4o' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const infoSpy = jest.spyOn(mockLogger, 'info');
+      await service.executeWithHistory({ messages: [], stage: 'review' } as unknown as Parameters<typeof service.executeWithHistory>[0]);
+      expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('llm.adapter resolved-provider=openai'));
+    });
+  });
 });

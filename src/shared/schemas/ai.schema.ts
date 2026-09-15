@@ -29,6 +29,7 @@ export const aiResponseSchema = z.object({
       outputTokens: z.number(),
     })
     .optional(),
+  costUsd: z.number().optional(),
 });
 
 export const aiConversationRequestSchema = z.object({

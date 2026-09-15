@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
 import {
   PlanStepVerificationService,
   buildStepAssessorPrompt,
@@ -13,6 +12,7 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 
 jest.mock('node:child_process', () => ({
+  exec: jest.fn(),
   execFile: jest.fn(
     (_cmd: string, _args: string[], _opts: unknown, cb: (err: null, result: { stdout: string }) => void) => {
       cb(null, { stdout: '' });
@@ -141,7 +141,6 @@ describe('buildPlanStepVerificationPrompt', () => {
 describe('PlanStepVerificationService', () => {
   let service: PlanStepVerificationService;
   let module: TestingModule;
-  let mockConfigGet: jest.Mock;
   let mockAiExecute: jest.Mock;
   let mockGitGetStatus: jest.Mock;
 
@@ -149,7 +148,6 @@ describe('PlanStepVerificationService', () => {
     Test.createTestingModule({
       providers: [
         PlanStepVerificationService,
-        { provide: ConfigService, useValue: { get: mockConfigGet } },
         { provide: AiService, useValue: { execute: mockAiExecute } },
         { provide: GitService, useValue: { getStatus: mockGitGetStatus } },
         { provide: CliPresenter, useValue: { progress: jest.fn() } },
@@ -167,14 +165,7 @@ describe('PlanStepVerificationService', () => {
     ...overrides,
   });
 
-  const withTarget = (key: string) => {
-    if (key === 'stages.implement.provider') return 'anthropic';
-    if (key === 'stages.implement.model') return 'claude-sonnet-4-6';
-    return undefined;
-  };
-
   beforeEach(async () => {
-    mockConfigGet = jest.fn();
     mockAiExecute = jest.fn();
     mockGitGetStatus = jest.fn().mockResolvedValue({ not_added: [] });
     module = await makeModule();
@@ -184,7 +175,6 @@ describe('PlanStepVerificationService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('returns summary.pending=0 when all steps are done in round 1', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }),
     });
@@ -196,7 +186,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('treats not-applicable as terminal (no fix round)', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-applicable' }] }),
     });
@@ -207,14 +196,18 @@ describe('PlanStepVerificationService', () => {
     expect(mockFixRound).not.toHaveBeenCalled();
   });
 
-  it('skips loop and returns summary:undefined when assessor target is unresolvable', async () => {
-    mockConfigGet.mockReturnValue(undefined);
-    const outcome = await service.run(makeRunParams());
-    expect(outcome.summary).toBeUndefined();
+  it('calls execute with stage implement and no explicit provider or model', async () => {
+    mockAiExecute.mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    await service.run(makeRunParams());
+    expect(mockAiExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'implement' }),
+    );
+    expect(mockAiExecute).not.toHaveBeenCalledWith(
+      expect.objectContaining({ provider: expect.anything() }),
+    );
   });
 
   it('exhausts budget after stallWindow and returns pending count', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
     });
@@ -227,7 +220,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('exits early when fix round returns no sessionId', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
     });
@@ -240,7 +232,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('degrades (summary: undefined) when assessor returns invalid JSON', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({ content: 'not json' });
 
     const outcome = await service.run(makeRunParams());
@@ -249,15 +240,12 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('never throws even when an internal error occurs', async () => {
-    mockConfigGet.mockImplementation(() => {
-      throw new Error('config exploded');
-    });
+    mockGitGetStatus.mockRejectedValue(new Error('git exploded'));
 
     await expect(service.run(makeRunParams())).resolves.toBeDefined();
   });
 
   it('terminates when refreshSteps is set and assessor consistently returns invalid JSON', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({ content: 'not json' });
     const mockRefreshSteps = jest.fn().mockResolvedValue(['Step A enriched']);
 
@@ -272,7 +260,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('accumulates extraPassCount from fix rounds', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }] }) })
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
@@ -284,7 +271,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('terminates as stalled when refreshSteps is set and pending count plateaus over stallWindow rounds', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
     });
@@ -298,7 +284,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('does not stall when pending count strictly decreases each round (completes successfully)', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'not-done', missing: 'z' }] }) })
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'not-done', missing: 'z' }] }) })
@@ -319,7 +304,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('terminates as stalled when pending count increases within stallWindow', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'done' }, { index: 2, status: 'done' }] }) })
       .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'x' }, { index: 1, status: 'not-done', missing: 'y' }, { index: 2, status: 'done' }] }) })
@@ -339,7 +323,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('strips repo name prefix from refreshSteps results before building assessor prompt', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }),
     });
@@ -358,7 +341,6 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('terminates after one round when stallWindow is 1 and steps remain pending', async () => {
-    mockConfigGet.mockImplementation(withTarget);
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
     });

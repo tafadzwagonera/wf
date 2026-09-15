@@ -67,6 +67,12 @@ import {
 } from './prompt-fragments';
 import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
+import type { AgentStageName } from '../../shared/types/agent.types';
+import { agentStageNameSchema } from '../../shared/schemas/agent.schema';
+import { estimateLlmCostUsd } from './llm-cost';
+import type { StageAgentService } from './stage-agent.service';
+
+export const STAGE_AGENT_SERVICE_TOKEN = 'StageAgentService';
 
 export type {
   AIRequest,
@@ -984,6 +990,10 @@ export class AiService {
   @Inject(UiDesignScreenshotsStageService)
   private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService;
 
+  @Optional()
+  @Inject(STAGE_AGENT_SERVICE_TOKEN)
+  private readonly stageAgentService?: StageAgentService;
+
   constructor(
     private readonly logger: LoggerService,
     @Inject(LLM_ADAPTER) private readonly adapter: LlmAdapter,
@@ -991,8 +1001,12 @@ export class AiService {
   ) {}
 
   async execute(request: AIRequest): Promise<AIResponse> {
-    const target = this.resolveAiTarget(request.stage, request.provider, request.model);
-    return this.adapter.execute({ ...request, ...target });
+    const routed = await this.tryStageBackendExecute(request);
+    const response = routed ?? await this.adapter.execute({
+      ...request, ...this.resolveAiTarget(request.stage, request.provider, request.model),
+    });
+    this.logResolvedAdapterTarget(response);
+    return response;
   }
 
   /**
@@ -1004,7 +1018,36 @@ export class AiService {
    */
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     const target = this.resolveAiTarget(request.stage, request.provider, request.model);
-    return this.adapter.executeWithHistory({ ...request, ...target });
+    const response = await this.adapter.executeWithHistory({ ...request, ...target });
+    this.logResolvedAdapterTarget(response);
+    return response;
+  }
+
+  private async tryStageBackendExecute(request: AIRequest): Promise<AIResponse | null> {
+    if (request.provider || request.model) return null;
+    if (request.context) return null;
+    if (!agentStageNameSchema.safeParse(request.stage).success) return null;
+    if (!this.stageAgentService?.isEnabledForStage(request.stage as AgentStageName)) return null;
+    const stage = request.stage as AgentStageName;
+    const { provider, model } = this.stageAgentService.resolveTargetForStage(stage);
+    const result = await this.stageAgentService.chatTurn({
+      stage,
+      systemPrompt: request.systemPrompt ?? '',
+      userMessage: request.prompt,
+    });
+    return { content: result.content, provider, model, costUsd: result.costUsd };
+  }
+
+  private logResolvedAdapterTarget(response: AIResponse): void {
+    try {
+      const provider = response.provider ?? 'unknown';
+      const model = response.model ?? 'unknown';
+      const cost = response.costUsd ?? estimateLlmCostUsd(provider, model, response.usage);
+      const costStr = cost != null ? `$${cost.toFixed(4)}` : 'n/a';
+      this.logger.info(`llm.adapter resolved-provider=${provider} resolved-model=${model} cost=${costStr}`);
+    } catch {
+      return;
+    }
   }
 
   async generatePlan(

@@ -3,7 +3,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
@@ -169,7 +168,6 @@ export const buildPlanStepVerificationPrompt = (
 @Injectable()
 export class PlanStepVerificationService {
   constructor(
-    private readonly configService: ConfigService,
     private readonly aiService: AiService,
     private readonly gitService: GitService,
     private readonly presenter: CliPresenter,
@@ -177,12 +175,7 @@ export class PlanStepVerificationService {
 
   async run(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
     try {
-      const target = this.resolveAssessorTarget();
-      if (!target) {
-        this.logEventAndAppendToLogFile('WARN', 'step-verify.target.unresolved', params.silent);
-        return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
-      }
-      return await this.runVerificationLoop(params, target);
+      return await this.runVerificationLoop(params);
     } catch (error) {
       if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
       const cause = error instanceof Error ? error.message : String(error);
@@ -194,13 +187,12 @@ export class PlanStepVerificationService {
   // eslint-disable-next-line max-lines-per-function
   private async runVerificationLoop(
     params: PlanStepVerificationRunParams,
-    target: { provider: string; model: string },
   ): Promise<PlanStepVerificationOutcome> {
     let sessionId: string | undefined = params.sessionId;
     let extraPassCount = 0, consecutiveFailures = 0, lastFailureCause: string | undefined;
     const pendingHistory: number[] = [], n = params.steps.length;
     for (let round = 1; ; round += 1) {
-      const result = await this.runOneRound(params, target, round, sessionId, extraPassCount, n, pendingHistory);
+      const result = await this.runOneRound(params, round, sessionId, extraPassCount, n, pendingHistory);
       if (result.outcome) return result.outcome;
       if (result.assessmentFailed) {
         consecutiveFailures += 1;
@@ -228,22 +220,21 @@ export class PlanStepVerificationService {
   }
 
   private async runOneRound(
-    params: PlanStepVerificationRunParams, target: { provider: string; model: string },
+    params: PlanStepVerificationRunParams,
     round: number, sessionId: string | undefined, extraPassCount: number, n: number, pendingHistory: number[],
   ): Promise<RoundResult> {
     const activeSteps = params.refreshSteps ? await params.refreshSteps() : params.steps;
-    return this.executeRound(params, target, round, sessionId, extraPassCount, activeSteps, n, pendingHistory);
+    return this.executeRound(params, round, sessionId, extraPassCount, activeSteps, n, pendingHistory);
   }
 
-  // eslint-disable-next-line max-params
   private async executeRound(
-    params: PlanStepVerificationRunParams, target: { provider: string; model: string },
+    params: PlanStepVerificationRunParams,
     round: number, sessionId: string | undefined, extraPassCount: number, activeSteps: string[],
     n: number, pendingHistory: number[],
   ): Promise<RoundResult> {
     const roundLabel = params.refreshSteps ? `${round}/?` : `${round}/${params.stallWindow}`;
     this.logEventAndAppendToLogFile('INFO', `step-verify.round.start round=${roundLabel} stallWindow=${params.stallWindow}`, params.silent);
-    const { steps: statusMap, failureCause } = await this.assessSteps({ ...params, steps: activeSteps }, target);
+    const { steps: statusMap, failureCause } = await this.assessSteps({ ...params, steps: activeSteps });
     if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount, failureCause);
     const nowPending = [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
     const outcome = this.resolveRoundOutcome(nowPending, round, params, sessionId, n, extraPassCount, pendingHistory);
@@ -309,11 +300,10 @@ export class PlanStepVerificationService {
 
   private async assessSteps(
     params: PlanStepVerificationRunParams,
-    target: { provider: string; model: string },
   ): Promise<{ steps: Map<number, StepAssessment> | undefined; failureCause?: string }> {
     let failureCause: string | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.attemptAssessment(params, target, c => {
+      const result = await this.attemptAssessment(params, c => {
         failureCause = c;
       });
       if (result) return { steps: this.logPendingStatuses(result, params.silent) };
@@ -332,10 +322,9 @@ export class PlanStepVerificationService {
 
   private async attemptAssessment(
     params: PlanStepVerificationRunParams,
-    target: { provider: string; model: string },
     onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
-    const result = await this.runSingleAssessmentAttempt(params, target)
+    const result = await this.runSingleAssessmentAttempt(params)
       .catch(error => this.handleAssessmentAttemptError(error, onFailureCause));
     if (typeof result === 'string') {
       onFailureCause?.(`validation-error: ${result}`);
@@ -347,21 +336,20 @@ export class PlanStepVerificationService {
 
   private async runSingleAssessmentAttempt(
     params: PlanStepVerificationRunParams,
-    target: { provider: string; model: string },
   ): Promise<Map<number, StepAssessment> | string> {
     const { diff, untrackedSections, truncated } = await this.captureEvidence(params);
     const steps = stripRepoNamePrefix(params.steps, params.repoDir);
     const prompt = buildStepAssessorPrompt(steps, diff, untrackedSections, truncated);
-    return this.assessWithPrompt(prompt, params.steps.length, target);
+    return this.assessWithPrompt(prompt, params.steps.length);
   }
 
   private async assessWithPrompt(
-    prompt: string, stepCount: number, target: { provider: string; model: string },
+    prompt: string, stepCount: number,
   ): Promise<Map<number, StepAssessment> | string> {
     const response = await this.aiService.execute({
       prompt, systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT,
       temperature: 0, maxTokens: 4096,
-      provider: target.provider, model: target.model,
+      stage: 'implement',
     });
     const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
     const result = validateStepAssessments(validated.statuses, stepCount);
@@ -401,26 +389,6 @@ export class PlanStepVerificationService {
     }
     this.logAssessmentSummary(statusMap, counts, silent);
     return statusMap;
-  }
-
-  private resolveAssessorTarget(): { provider: string; model: string } | undefined {
-    const implProvider = this.configService.get<string>('stages.implement.provider');
-    if (!implProvider) return this.resolveFallbackTarget();
-    const implModel
-      = this.configService.get<string>('stages.implement.model')
-        ?? this.configService.get<string>('stages.implement.models.default')
-        ?? this.configService
-          .get<Array<{ provider: string; model: string }>>('ai.providers')
-          ?.find(p => p.provider === implProvider)?.model;
-    if (!implModel) return undefined;
-    return { provider: implProvider, model: implModel };
-  }
-
-  private resolveFallbackTarget(): { provider: string; model: string } | undefined {
-    const provider = this.configService.get<string>('ai.provider');
-    const model = this.configService.get<string>('ai.model');
-    if (!provider || !model) return undefined;
-    return { provider, model };
   }
 
   private async captureEvidence(

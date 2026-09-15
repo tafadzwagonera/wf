@@ -136,6 +136,7 @@ const cliChatRetryPrompt
   = 'Your previous response did not include a usable result. Please respond with the requested content directly.';
 
 type CliPassResult = {
+  costUsd?: number;
   diagnostics: string[];
   hadContent: boolean;
   result: string;
@@ -549,6 +550,7 @@ const extractCliResultContent = (
 };
 
 type CliPassAccumulator = {
+  costUsd?: number;
   diagnostics: string[];
   lastAssistantText: string;
   result: string;
@@ -569,6 +571,7 @@ const accumulateCliMessage = (
   acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback
 ): void => {
   if (message.session_id) acc.sessionId = message.session_id;
+  acc.costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? acc.costUsd;
   if (onProgress) {
     const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
     if (line) onProgress(line);
@@ -588,6 +591,7 @@ const finalizeCliPass = (acc: CliPassAccumulator): CliPassResult => {
   return {
     result, source, stopReason: acc.stopReason,
     sessionId: acc.sessionId, hadContent, diagnostics: acc.diagnostics,
+    costUsd: acc.costUsd,
   };
 };
 
@@ -607,7 +611,12 @@ const processCliPassMessages = async (
 };
 
 type CliRetryState = {
-  sessionId?: string; stalledPasses: number; passNumber: number; lastDiagnostics: string[]; schemaMisses: number;
+  costUsd?: number;
+  lastDiagnostics: string[];
+  passNumber: number;
+  schemaMisses: number;
+  sessionId?: string;
+  stalledPasses: number;
 };
 
 const makeCliRetryState = (sessionId?: string): CliRetryState => ({
@@ -913,6 +922,10 @@ export class StageAgentService {
   isEnabledForStage(stage: AgentStageName): boolean {
     const backend = this.resolveStageBackend(stage);
     return backend === 'agent' || backend === 'cli';
+  }
+
+  resolveTargetForStage(stage: AgentStageName): { provider: string; model: string } {
+    return { provider: this.resolveStageProvider(stage), model: this.resolveStageModel(stage) };
   }
 
   enrichPlanWithDirectoryConfigs(plan: ResolutionPlan, repoDir: string): void {
@@ -1273,7 +1286,7 @@ export class StageAgentService {
     return typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
   }
 
-  async chatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+  async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
     const backend = this.resolveStageBackend(params.stage);
     if (backend === 'cli') return this.cliChatTurn(params);
     const provider = this.resolveStageProvider(params.stage);
@@ -1362,7 +1375,7 @@ export class StageAgentService {
   private async runGenericCliRetryLoop(
     stage: AgentStageName, initialSessionId: string | undefined, validate: boolean,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
-  ): Promise<{ content: string; sessionId?: string }> {
+  ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     const state = makeCliRetryState(initialSessionId);
     try {
       return await this.executeCliPasses(state, stage, validate, runPass);
@@ -1377,13 +1390,14 @@ export class StageAgentService {
   private async executeCliPasses(
     state: CliRetryState, stage: AgentStageName, validate: boolean,
     runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
-  ): Promise<{ content: string; sessionId?: string }> {
+  ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     while (true) {
       state.passNumber++;
       const passResult = await runPass(state.sessionId, state.passNumber);
       if (passResult.sessionId) state.sessionId = passResult.sessionId;
+      if (passResult.costUsd != null) state.costUsd = (state.costUsd ?? 0) + passResult.costUsd;
       const outcome = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId, validate);
-      if (outcome.kind === 'completed') return { content: outcome.content, sessionId: outcome.sessionId };
+      if (outcome.kind === 'completed') return { content: outcome.content, sessionId: outcome.sessionId, costUsd: state.costUsd };
       if (outcome.kind === 'schema-retry' && applySchemaRetry(state, stage, outcome)) continue;
       advanceCliRetryState(state, passResult);
     }
@@ -1391,7 +1405,7 @@ export class StageAgentService {
 
   private async runCliRetryLoop(
     passOpts: CliStagePassOpts, stage: AgentStageName, initialSessionId?: string
-  ): Promise<{ content: string; sessionId?: string }> {
+  ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
       stage, initialSessionId, Boolean(passOpts.jsonSchema),
       (sessionId, passNumber) => this.runCliStagePass({ ...passOpts, sessionId, passNumber })
@@ -1646,7 +1660,9 @@ export class StageAgentService {
     return this.configService.get<number>('stages.review.epilogueTimeoutMs', CLI_REVIEW_EPILOGUE_TIMEOUT_MS);
   }
 
-  private async cliChatTurn(params: ChatTurnParams): Promise<{ content: string; session: AgentChatSession }> {
+  private async cliChatTurn(
+    params: ChatTurnParams
+  ): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
     assertClaudeCliAvailable();
     const chatPassOpts: CliChatPassOpts = {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
@@ -1654,12 +1670,12 @@ export class StageAgentService {
       initialSessionId: params.session?.sessionId, jsonSchema: params.jsonSchema,
     };
     const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
-    return { content: result.content, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
+    return { content: result.content, costUsd: result.costUsd, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
   }
 
   private async runCliChatRetryLoop(
     passOpts: CliChatPassOpts, stage: AgentStageName, initialSessionId?: string
-  ): Promise<{ content: string; sessionId?: string }> {
+  ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
       stage, initialSessionId, Boolean(passOpts.jsonSchema),
       (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber })
