@@ -160,7 +160,7 @@ describe('FigmaStageService', () => {
       expect(mockLoggerService.warn).not.toHaveBeenCalled();
       expect(onProgress).toHaveBeenCalledTimes(1);
       const warnMsg: string = onProgress.mock.calls[0][0];
-      expect(warnMsg).not.toContain('no Figma links were captured');
+      expect(warnMsg).toContain('all Figma frame fetches failed');
       expect(appendSpy).toHaveBeenCalledWith('WARN', warnMsg, 'figma-stage');
     });
 
@@ -257,6 +257,32 @@ describe('FigmaStageService', () => {
         baseBranch: 'main',
       });
       expect(readFigmaLinksFromPlanArtifact).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns the cached promise on a second call with identical options, without repeating the lookup', async () => {
+      const { service, mockGitService } = await buildService();
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue(undefined);
+
+      const opts = { repoDir: '/repo', force: true };
+      const [r1, r2] = await Promise.all([
+        service.resolveIfEnabled(opts),
+        service.resolveIfEnabled(opts),
+      ]);
+
+      expect(r1).toBeUndefined();
+      expect(r2).toBeUndefined();
+      expect(mockGitService.getBranchInfo).toHaveBeenCalledTimes(1);
+    });
+
+    it('performs independent lookups for calls that differ only by repoDir', async () => {
+      const { service } = await buildService();
+      mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
+      (findPlanArtifactManifestByBranchName as jest.Mock).mockReturnValue(undefined);
+
+      await service.resolveIfEnabled({ repoDir: '/repo-a', force: true });
+      await service.resolveIfEnabled({ repoDir: '/repo-b', force: true });
+
+      expect(findPlanArtifactManifestByBranchName).toHaveBeenCalledTimes(2);
     });
 
     it('reads figmaLinks from the plan artifact and sourceBranch from the sidecar when artifactPath is set', async () => {

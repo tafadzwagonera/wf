@@ -35,6 +35,8 @@ export interface FigmaResolveResult {
 
 @Injectable()
 export class FigmaStageService {
+  private readonly resolveCache = new Map<string, Promise<FigmaResolveResult | undefined>>();
+
   constructor(
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
@@ -43,6 +45,21 @@ export class FigmaStageService {
   ) {}
 
   async resolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
+    const cacheKey = this.makeCacheKey(options);
+    if (this.resolveCache.has(cacheKey)) return this.resolveCache.get(cacheKey)!;
+    const promise = this.doResolveIfEnabled(options);
+    this.resolveCache.set(cacheKey, promise);
+    promise.catch(() => this.resolveCache.delete(cacheKey));
+    return promise;
+  }
+
+  private makeCacheKey(
+    { repoDir, configKey, force, artifactPath, artifactDir, ticketKey, trackerName, overrideLinks }: FigmaStageOptions
+  ): string {
+    return JSON.stringify({ repoDir, configKey, force: Boolean(force), artifactPath, artifactDir, ticketKey, trackerName, overrideLinks });
+  }
+
+  private async doResolveIfEnabled(options: FigmaStageOptions): Promise<FigmaResolveResult | undefined> {
     const key = options.configKey ?? 'stages.review.figma';
     const configEnabled = this.configService.get<boolean>(key) === true;
     const artifactLinks = options.artifactPath
