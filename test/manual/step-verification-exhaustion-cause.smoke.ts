@@ -48,7 +48,9 @@ async function main(): Promise<void> {
   const logOffset = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
 
   const originalExecute = aiService.execute.bind(aiService);
-  (aiService as any).execute = async () => { throw new Error('ECONN timed out'); };
+  (aiService as any).execute = async () => {
+    throw new Error('ECONN timed out');
+  };
 
   let refreshCalls = 0;
   const outcome = await service.run({
@@ -79,10 +81,10 @@ async function main(): Promise<void> {
     fail('expected cause=ECONN timed out in log', log.slice(0, 600));
   }
 
-  if (log.includes('assessor-returned-invalid-json')) {
-    fail('log unexpectedly contains the old assessor-returned-invalid-json label', log.slice(0, 600));
-  } else {
+  if (!log.includes('assessor-returned-invalid-json')) {
     pass('exhaustion log does not contain the old hardcoded invalid-json label');
+  } else {
+    fail('log unexpectedly contains the old assessor-returned-invalid-json label', log.slice(0, 600));
   }
 
   if (outcome.summary === undefined) {

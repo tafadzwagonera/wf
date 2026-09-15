@@ -124,6 +124,20 @@ export const validateStepAssessments = (
   return map;
 };
 
+/**
+ * Plan steps carry repo-prefixed paths (e.g. `shop-v1.1/specs/plan.json`) to disambiguate
+ * files across a multi-repo workspace listing, but `git diff` output is always relative to
+ * the repo's own root (e.g. `specs/plan.json`). Left unstripped, the assessor LLM sees two
+ * differently-spelled paths for the same file and can wrongly conclude the step's file was
+ * never touched. Stripping the `repoDir` basename prefix here aligns both sides.
+ */
+export const stripRepoNamePrefix = (steps: string[], repoDir: string): string[] => {
+  const repoName = path.basename(repoDir);
+  if (!repoName) return steps;
+  const prefix = `${repoName}/`;
+  return steps.map(step => step.split(prefix).join(''));
+};
+
 export const buildStepAssessorPrompt = (
   steps: string[],
   diff: string,
@@ -195,7 +209,9 @@ export class PlanStepVerificationService {
         consecutiveFailures = 0;
         lastFailureCause = undefined;
       }
-      const stalled = this.checkConsecutiveFailureLimit(consecutiveFailures, params, sessionId, extraPassCount, lastFailureCause);
+      const stalled = this.checkConsecutiveFailureLimit(
+        consecutiveFailures, params, sessionId, extraPassCount, lastFailureCause,
+      );
       if (stalled) return stalled;
       ({ sessionId, extraPassCount } = result);
     }
@@ -297,11 +313,21 @@ export class PlanStepVerificationService {
   ): Promise<{ steps: Map<number, StepAssessment> | undefined; failureCause?: string }> {
     let failureCause: string | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.attemptAssessment(params, target, c => { failureCause = c; });
+      const result = await this.attemptAssessment(params, target, c => {
+        failureCause = c;
+      });
       if (result) return { steps: this.logPendingStatuses(result, params.silent) };
     }
     this.logEventAndAppendToLogFile('ERROR', 'step-verify.assess.invalid', params.silent);
     return { steps: undefined, failureCause };
+  }
+
+  private handleAssessmentAttemptError(error: unknown, onFailureCause?: (cause: string) => void): undefined {
+    if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
+    const cause = error instanceof Error ? error.message : String(error);
+    onFailureCause?.(cause);
+    appendToLogFile('ERROR', `step-verify.assess.attempt-failed cause=${cause}`, 'step-verification');
+    return undefined;
   }
 
   private async attemptAssessment(
@@ -309,13 +335,8 @@ export class PlanStepVerificationService {
     target: { provider: string; model: string },
     onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
-    const result = await this.runSingleAssessmentAttempt(params, target).catch(error => {
-      if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
-      const cause = error instanceof Error ? error.message : String(error);
-      onFailureCause?.(cause);
-      appendToLogFile('ERROR', `step-verify.assess.attempt-failed cause=${cause}`, 'step-verification');
-      return undefined;
-    });
+    const result = await this.runSingleAssessmentAttempt(params, target)
+      .catch(error => this.handleAssessmentAttemptError(error, onFailureCause));
     if (typeof result === 'string') {
       onFailureCause?.(`validation-error: ${result}`);
       this.logEventAndAppendToLogFile('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
@@ -329,14 +350,21 @@ export class PlanStepVerificationService {
     target: { provider: string; model: string },
   ): Promise<Map<number, StepAssessment> | string> {
     const { diff, untrackedSections, truncated } = await this.captureEvidence(params);
-    const prompt = buildStepAssessorPrompt(params.steps, diff, untrackedSections, truncated);
+    const steps = stripRepoNamePrefix(params.steps, params.repoDir);
+    const prompt = buildStepAssessorPrompt(steps, diff, untrackedSections, truncated);
+    return this.assessWithPrompt(prompt, params.steps.length, target);
+  }
+
+  private async assessWithPrompt(
+    prompt: string, stepCount: number, target: { provider: string; model: string },
+  ): Promise<Map<number, StepAssessment> | string> {
     const response = await this.aiService.execute({
       prompt, systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT,
       temperature: 0, maxTokens: 4096,
       provider: target.provider, model: target.model,
     });
     const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
-    const result = validateStepAssessments(validated.statuses, params.steps.length);
+    const result = validateStepAssessments(validated.statuses, stepCount);
     return this.logInvalidAssessmentBody(result, response.content);
   }
 

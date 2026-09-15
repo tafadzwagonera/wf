@@ -5,6 +5,7 @@ import {
   buildStepAssessorPrompt,
   buildPlanStepVerificationPrompt,
   validateStepAssessments,
+  stripRepoNamePrefix,
 } from './plan-step-verification.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
@@ -85,6 +86,32 @@ describe('buildStepAssessorPrompt', () => {
   it('omits truncation note when not capped', () => {
     const prompt = buildStepAssessorPrompt(['Step A'], 'diff', [], false);
     expect(prompt).not.toContain('truncated');
+  });
+});
+
+describe('stripRepoNamePrefix', () => {
+  it('strips the repoDir basename prefix from a path mentioned in a step', () => {
+    const steps = ['Regenerate shop-v1.1/specs/amplitude-tracking-plan.json via yarn tracking:plan'];
+    const result = stripRepoNamePrefix(steps, '/Users/tafadzwagonera/Projects/shop-v1.1');
+    expect(result).toEqual(['Regenerate specs/amplitude-tracking-plan.json via yarn tracking:plan']);
+  });
+
+  it('strips every occurrence of the prefix within a single step', () => {
+    const steps = ['Move shop-v1.1/a.ts to shop-v1.1/b.ts'];
+    const result = stripRepoNamePrefix(steps, '/repos/shop-v1.1');
+    expect(result).toEqual(['Move a.ts to b.ts']);
+  });
+
+  it('leaves steps with no repo-prefixed path unchanged', () => {
+    const steps = ['Run yarn test and confirm it passes'];
+    const result = stripRepoNamePrefix(steps, '/repos/shop-v1.1');
+    expect(result).toEqual(['Run yarn test and confirm it passes']);
+  });
+
+  it('returns steps unchanged when repoDir has no basename', () => {
+    const steps = ['Touches shop-v1.1/specs/plan.json'];
+    const result = stripRepoNamePrefix(steps, '/');
+    expect(result).toEqual(['Touches shop-v1.1/specs/plan.json']);
   });
 });
 
@@ -309,6 +336,25 @@ describe('PlanStepVerificationService', () => {
 
     expect(outcome.summary?.pending).toBeGreaterThan(0);
     expect(refreshSteps).toHaveBeenCalledTimes(3);
+  });
+
+  it('strips repo name prefix from refreshSteps results before building assessor prompt', async () => {
+    mockConfigGet.mockImplementation(withTarget);
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }),
+    });
+    const refreshSteps = jest.fn().mockResolvedValue(['Edit shop-v1.1/src/main.ts']);
+
+    await service.run(makeRunParams({
+      repoDir: '/repos/shop-v1.1',
+      stallWindow: 1,
+      refreshSteps,
+      runFixRound: jest.fn().mockResolvedValue({ sessionId: 'fix-sess' }),
+    }));
+
+    const capturedPrompt: string = mockAiExecute.mock.calls[0][0].prompt as string;
+    expect(capturedPrompt).toContain('src/main.ts');
+    expect(capturedPrompt).not.toContain('shop-v1.1/src/main.ts');
   });
 
   it('terminates after one round when stallWindow is 1 and steps remain pending', async () => {
