@@ -1002,9 +1002,14 @@ export class AiService {
 
   async execute(request: AIRequest): Promise<AIResponse> {
     const routed = await this.tryStageBackendExecute(request);
-    const response = routed ?? await this.adapter.execute({
-      ...request, ...this.resolveAiTarget(request.stage, request.provider, request.model),
-    });
+    let response: AIResponse;
+    if (routed) {
+      response = routed;
+    } else {
+      const target = this.resolveAiTarget(request.stage, request.provider, request.model);
+      this.logPreExecutionTarget(request.stage, target.provider, target.model);
+      response = await this.adapter.execute({ ...request, ...target });
+    }
     this.logResolvedAdapterTarget(response);
     return response;
   }
@@ -1018,6 +1023,7 @@ export class AiService {
    */
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {
     const target = this.resolveAiTarget(request.stage, request.provider, request.model);
+    this.logPreExecutionTarget(request.stage, target.provider, target.model);
     const response = await this.adapter.executeWithHistory({ ...request, ...target });
     this.logResolvedAdapterTarget(response);
     return response;
@@ -1036,6 +1042,16 @@ export class AiService {
       userMessage: request.prompt,
     });
     return { content: result.content, provider, model, costUsd: result.costUsd };
+  }
+
+  private logPreExecutionTarget(stage?: string, provider?: string, model?: string): void {
+    try {
+      this.logger.info(
+        `llm.adapter stage=${stage ?? 'unknown'} resolved-provider=${provider ?? 'unknown'} resolved-model=${model ?? 'unknown'}`
+      );
+    } catch {
+      return;
+    }
   }
 
   private logResolvedAdapterTarget(response: AIResponse): void {

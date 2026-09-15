@@ -3249,4 +3249,73 @@ describe('StageAgentService', () => {
       expect(result.costUsd).toBeCloseTo(0.03, 5);
     });
   });
+
+  describe('dispatchToBackend pre-execution log', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('logs stage, provider, and model before CLI dispatch for reviewCode', async () => {
+      const svc = new StageAgentService(createClaudeCliReviewConfigService());
+      const callOrder: string[] = [];
+      jest.spyOn(console, 'log').mockImplementation((msg: string) => {
+        callOrder.push(`log:${String(msg)}`);
+      });
+      (svc as unknown as { runCliStagePrompt: jest.Mock }).runCliStagePrompt = jest.fn().mockImplementation(() => {
+        callOrder.push('runCliStagePrompt');
+        return Promise.resolve({
+          content: JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true }),
+          sessionId: undefined,
+        });
+      });
+      await svc.reviewCode('diff --git a/f b/f', []);
+      const preLogIdx = callOrder.findIndex(e => e.includes('llm.adapter stage=review'));
+      const dispatchIdx = callOrder.indexOf('runCliStagePrompt');
+      expect(preLogIdx).toBeGreaterThanOrEqual(0);
+      expect(preLogIdx).toBeLessThan(dispatchIdx);
+    });
+
+    it('logs stage, provider, and model before agent dispatch for reviewCode', async () => {
+      const svc = new StageAgentService(createConfigService());
+      const callOrder: string[] = [];
+      jest.spyOn(console, 'log').mockImplementation((msg: string) => {
+        callOrder.push(`log:${String(msg)}`);
+      });
+      (svc as unknown as { runOpenAiStagePrompt: jest.Mock }).runOpenAiStagePrompt = jest.fn().mockImplementation(() => {
+        callOrder.push('runOpenAiStagePrompt');
+        return Promise.resolve(JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true }));
+      });
+      await svc.reviewCode('diff --git a/f b/f', []);
+      const preLogIdx = callOrder.findIndex(e => e.includes('llm.adapter stage=review'));
+      const dispatchIdx = callOrder.indexOf('runOpenAiStagePrompt');
+      expect(preLogIdx).toBeGreaterThanOrEqual(0);
+      expect(preLogIdx).toBeLessThan(dispatchIdx);
+    });
+  });
+
+  describe('chatTurn pre-execution log', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('logs stage, provider, and model before CLI chat dispatch', async () => {
+      const svc = new StageAgentService(createClaudeCliReviewConfigService());
+      const callOrder: string[] = [];
+      jest.spyOn(console, 'log').mockImplementation((msg: string) => {
+        callOrder.push(`log:${String(msg)}`);
+      });
+      (svc as unknown as { runCliChatPass: jest.Mock }).runCliChatPass = jest.fn().mockImplementation(() => {
+        callOrder.push('runCliChatPass');
+        return Promise.resolve({
+          result: 'done', source: 'result' as const, hadContent: true,
+          diagnostics: [], sessionId: 'sess', stopReason: undefined, costUsd: 0.01,
+        });
+      });
+      await svc.chatTurn({ stage: 'review', systemPrompt: 'sys', userMessage: 'msg' });
+      const preLogIdx = callOrder.findIndex(e => e.includes('llm.adapter stage=review'));
+      const dispatchIdx = callOrder.indexOf('runCliChatPass');
+      expect(preLogIdx).toBeGreaterThanOrEqual(0);
+      expect(preLogIdx).toBeLessThan(dispatchIdx);
+    });
+  });
 });
