@@ -74,10 +74,10 @@ async function main(): Promise<void> {
     fail(`Expected refreshSteps called 2 times`, `actual: ${refreshCallsA}`);
   }
 
-  if (logA.includes('assessor-returned-invalid-json-2-rounds-in-a-row') && logA.includes('stallWindow=2')) {
+  if (logA.includes('assessor-failed-2-rounds-in-a-row') && logA.includes('stallWindow=2')) {
     pass('Consecutive-failure exhausted log emitted with correct failure count and stallWindow');
   } else {
-    fail('Expected assessor-returned-invalid-json-2-rounds-in-a-row stallWindow=2 in log', logA.slice(0, 600));
+    fail('Expected assessor-failed-2-rounds-in-a-row stallWindow=2 in log', logA.slice(0, 600));
   }
 
   if (outcomeA.summary === undefined) {
@@ -111,10 +111,10 @@ async function main(): Promise<void> {
 
   const logB = fs.readFileSync(logPath, 'utf-8').slice(logSizeB);
 
-  if (logB.includes('assessor-returned-invalid-json-2-rounds-in-a-row') && logB.includes('stallWindow=2')) {
-    pass('Consecutive-failure limit fires when assessor returns invalid JSON across stallWindow rounds');
+  if (logB.includes('assessor-failed-2-rounds-in-a-row') && logB.includes('stallWindow=2')) {
+    pass('Consecutive-failure limit fires when assessor fails across stallWindow rounds');
   } else {
-    fail('Expected assessor-returned-invalid-json-2-rounds-in-a-row stallWindow=2 in log', logB.slice(0, 600));
+    fail('Expected assessor-failed-2-rounds-in-a-row stallWindow=2 in log', logB.slice(0, 600));
   }
 
   (aiService as any).execute = originalExecute;

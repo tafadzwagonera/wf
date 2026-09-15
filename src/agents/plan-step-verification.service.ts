@@ -170,6 +170,7 @@ export class PlanStepVerificationService {
       }
       return await this.runVerificationLoop(params, target);
     } catch (error) {
+      if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
       const cause = error instanceof Error ? error.message : String(error);
       this.logEventAndAppendToLogFile('ERROR', `step-verify.error cause=${cause}`, params.silent);
       return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
