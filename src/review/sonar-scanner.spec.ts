@@ -1,4 +1,5 @@
 import * as childProcess from 'node:child_process';
+import * as fs from 'node:fs';
 import {
   runSonarScan,
   type SonarScanScope,
@@ -9,6 +10,11 @@ import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
 import * as logFileWriter from '../shared/logger/log-file-writer';
 
 type ExecFileCallback = (err: Error | null, stdout: string, stderr: string) => void;
+
+jest.mock('node:fs', () => ({
+  ...jest.requireActual('node:fs'),
+  existsSync: jest.fn(),
+}));
 
 jest.mock('node:child_process', () => ({
   ...jest.requireActual('node:child_process'),
@@ -23,8 +29,11 @@ jest.mock('node:child_process', () => ({
 const mockExecSync = childProcess.execSync as jest.MockedFunction<typeof childProcess.execSync>;
 const mockExecFile = childProcess.execFile as jest.MockedFunction<typeof childProcess.execFile>;
 
+const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockExistsSync.mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -98,6 +107,47 @@ describe('runSonarScan', () => {
       expect(result.steps[0]).toEqual(
         expect.objectContaining({ step: 'secrets', status: 'skipped', exitCode: null })
       );
+    });
+
+    it('excludes secret paths missing on disk from the secrets scan', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExistsSync.mockImplementation(p => p === '/tmp/repo/exists.ts');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        fn(null, '', '');
+        return {} as any;
+      });
+
+      await runSonarScan({ ...defaultOptions, secretPaths: ['exists.ts', 'deleted.svg'] });
+
+      const secretsCall = mockExecFile.mock.calls[0];
+      expect(secretsCall[1]).toEqual(['analyze', 'secrets', 'exists.ts']);
+    });
+
+    it('skips the secrets step and warns when no secret paths exist on disk', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const mockOnProgress = jest.fn();
+      mockExecSync.mockReturnValue('');
+      mockExistsSync.mockReturnValue(false);
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        fn(null, '', '');
+        return {} as any;
+      });
+
+      const result = await runSonarScan({
+        ...defaultOptions,
+        secretPaths: ['deleted.svg'],
+        onProgress: mockOnProgress,
+      });
+
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile.mock.calls[0]?.[1]).not.toContain('secrets');
+      expect(result.steps[0]).toEqual(
+        expect.objectContaining({ step: 'secrets', status: 'skipped', exitCode: null })
+      );
+      expect(mockOnProgress).toHaveBeenCalledWith(expect.stringContaining('deleted.svg'));
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('deleted.svg'), 'sonar-scanner');
     });
 
     it('does not pass repoDir to secrets analyzer', async () => {
@@ -464,6 +514,20 @@ describe('runSonarScan', () => {
       });
 
       await expect(runSonarScan(defaultOptions)).rejects.toThrow(ExecutionError);
+    });
+
+    it('includes the CLI output in the ExecutionError for unexpected exit codes', async () => {
+      mockExecSync.mockReturnValue('');
+      mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+        const fn = callback as ExecFileCallback;
+        const err = Object.assign(new Error(), { code: 2 });
+        fn(err, '', 'Path not found: public/images/postcards/stamp-crest.svg');
+        return {} as any;
+      });
+
+      await expect(runSonarScan(defaultOptions)).rejects.toThrow(
+        'SonarQube analyze exited with code 2: Path not found: public/images/postcards/stamp-crest.svg'
+      );
     });
   });
 

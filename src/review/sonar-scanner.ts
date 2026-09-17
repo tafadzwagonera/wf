@@ -1,4 +1,6 @@
 import { execFile, execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import type { StageProgressCallback } from '../shared/types/agent.types';
@@ -102,7 +104,8 @@ const classifyExitCode = (
     throw new ConfigurationError(`SonarQube ${step} failed: ${output}`);
   }
 
-  throw new ExecutionError(`SonarQube ${step} exited with code ${code}.`);
+  const detail = output ? `: ${output}` : '.';
+  throw new ExecutionError(`SonarQube ${step} exited with code ${code}${detail}`);
 };
 
 const handleSonarStepCallback = (
@@ -170,16 +173,29 @@ const buildFindingsText = (steps: SonarStepOutcome[]): string | undefined => {
   return findings.length > 0 ? findings.join('\n\n') : undefined;
 };
 
+const reportMissingSecretPaths = (
+  missing: string[],
+  onProgress?: StageProgressCallback
+): void => {
+  if (missing.length === 0) return;
+  const message = `SonarQube secrets: skipping ${missing.length} path(s) missing on disk (deleted or renamed): ${missing.join(', ')}`;
+  onProgress?.(message);
+  appendToLogFile('WARN', message, 'sonar-scanner');
+};
+
 const runSecretsStep = async (
   repoDir: string,
   secretPaths: string[] | undefined,
   timeoutMs: number,
   onProgress?: StageProgressCallback
 ): Promise<{ steps: SonarStepOutcome[]; hasFindings: boolean }> => {
-  if (!secretPaths || secretPaths.length === 0) {
+  const paths = secretPaths ?? [];
+  const existing = paths.filter(p => existsSync(join(repoDir, p)));
+  reportMissingSecretPaths(paths.filter(p => !existsSync(join(repoDir, p))), onProgress);
+  if (existing.length === 0) {
     return { steps: [{ step: 'secrets', status: 'skipped', exitCode: null }], hasFindings: false };
   }
-  const result = await runSonarStep('secrets', ['analyze', 'secrets', ...secretPaths], repoDir, timeoutMs, onProgress);
+  const result = await runSonarStep('secrets', ['analyze', 'secrets', ...existing], repoDir, timeoutMs, onProgress);
   return { steps: [result], hasFindings: result.status === 'findings' };
 };
 
@@ -201,6 +217,8 @@ const runAnalyzeStep = async (
 /**
  * Runs SonarQube analysis on the specified change set, optionally including a secrets scan.
  * Secrets are scanned before code analysis to detect hardcoded secrets before transmission.
+ * Secret paths missing on disk (deleted or renamed files) are skipped with a warning, since
+ * the CLI rejects the whole batch with exit code 2 when any path does not exist.
  *
  * @param options Configuration for the scan
  * @returns A result object with overall status and per-step outcomes
