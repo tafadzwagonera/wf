@@ -16,7 +16,7 @@
  *   2. An assistant-text-only stream (no usable result) logs
  *      cli.pass_unusable ... source=assistant_text at WARN
  *
- * Run: nr test:manual -- test-cli-pass-outcome-log-level
+ * Run: nr test:manual -- cli-pass-outcome-log-level.smoke
  */
 
 import { ConfigService } from '@nestjs/config';
@@ -65,41 +65,50 @@ async function main(): Promise<void> {
   };
 
   const logPath = todaysLogPath();
+  const runId = String(Date.now());
+  const successSessionId = `sess_ok_${runId}`;
+  const unusableSessionId = `sess_bad_${runId}`;
+  const validPlanResult = JSON.stringify({
+    action: 'fix',
+    summary: 'Smoke test plan',
+    steps: ['Step 1'],
+    estimatedComplexity: 'low',
+  });
 
   // Scenario 1: a successful stream — valid structured result.
-  let logSizeBefore = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
   await runOnce([
     {
-      type: 'assistant', message: { content: [{ type: 'text', text: 'working...' }] }, session_id: 'sess_ok',
+      type: 'assistant', message: { content: [{ type: 'text', text: 'working...' }] }, session_id: successSessionId,
     },
     {
-      type: 'result', result: JSON.stringify({ ok: true }), session_id: 'sess_ok', num_turns: 1, total_cost_usd: 0.01,
+      type: 'result', result: validPlanResult, session_id: successSessionId, num_turns: 1, total_cost_usd: 0.01,
     },
   ]);
-  let logContent = fs.readFileSync(logPath, 'utf-8').slice(logSizeBefore);
+  let logContent = fs.readFileSync(logPath, 'utf-8');
+  const successLinePattern = new RegExp(`\\[DEBUG\\].*cli\\.pass_outcome.*source=result.*session=${successSessionId}`);
 
-  if (/\[DEBUG\].*cli\.pass_outcome.*source=result/.test(logContent)) {
+  if (successLinePattern.test(logContent)) {
     pass('Successful pass logs cli.pass_outcome at DEBUG with source=result');
   } else {
-    fail('Expected a DEBUG cli.pass_outcome source=result line', logContent.slice(0, 500));
+    fail('Expected a DEBUG cli.pass_outcome source=result line', logContent.slice(-1000));
   }
-  if (logContent.includes('cli.pass_unusable')) {
-    fail('Did not expect cli.pass_unusable for a successful pass', logContent.slice(0, 500));
+  if (new RegExp(`cli\\.pass_unusable.*session=${successSessionId}`).test(logContent)) {
+    fail('Did not expect cli.pass_unusable for a successful pass', logContent.slice(-1000));
   } else {
     pass('Successful pass does NOT log cli.pass_unusable');
   }
 
   // Scenario 2: assistant-text-only stream — genuinely unusable.
-  logSizeBefore = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
   await runOnce([
-    { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: 'sess_bad' },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: unusableSessionId },
   ]);
-  logContent = fs.readFileSync(logPath, 'utf-8').slice(logSizeBefore);
+  logContent = fs.readFileSync(logPath, 'utf-8');
+  const unusableLinePattern = new RegExp(`\\[WARN\\].*cli\\.pass_unusable.*source=assistant_text.*session=${unusableSessionId}`);
 
-  if (/\[WARN\].*cli\.pass_unusable.*source=assistant_text/.test(logContent)) {
+  if (unusableLinePattern.test(logContent)) {
     pass('Assistant-text-only pass logs cli.pass_unusable at WARN with source=assistant_text');
   } else {
-    fail('Expected a WARN cli.pass_unusable source=assistant_text line', logContent.slice(0, 500));
+    fail('Expected a WARN cli.pass_unusable source=assistant_text line', logContent.slice(-1000));
   }
 
   (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = originalAssert;

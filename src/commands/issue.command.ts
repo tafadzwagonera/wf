@@ -227,7 +227,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '--model-routing <mode>',
     description:
-      'Model selection strategy for implement stage: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto.',
+      'Model selection strategy for implement stage: auto (complexity, targeted-write, step-count, and pattern routing), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTING.includes(val as ModelRouting)) {

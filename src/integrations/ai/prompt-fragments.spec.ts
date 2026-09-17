@@ -1,6 +1,7 @@
 import {
   formatUiDesignScreenshotsPlanPromptSection,
   buildUiDesignComplianceSystemPromptSection,
+  planFileListingInstructions,
 } from './prompt-fragments';
 
 describe('formatUiDesignScreenshotsPlanPromptSection', () => {
@@ -46,5 +47,15 @@ describe('buildUiDesignComplianceSystemPromptSection', () => {
   it('returns compliance block when uiDesignScreenshots present', () => {
     const result = buildUiDesignComplianceSystemPromptSection({ uiDesignScreenshots: ['/a/b.png'] });
     expect(result).toContain('UI design compliance');
+  });
+});
+
+describe('planFileListingInstructions', () => {
+  it('defines complexity using targeted writes from affectedFiles and step count', () => {
+    expect(planFileListingInstructions).toContain('targeted writes');
+    expect(planFileListingInstructions).toContain('affectedFiles');
+    expect(planFileListingInstructions).toContain('affectedFilesContext');
+    expect(planFileListingInstructions).toContain('plan step count');
+    expect(planFileListingInstructions).toContain('low complexity');
   });
 });

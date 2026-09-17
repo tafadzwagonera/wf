@@ -239,6 +239,24 @@ describe('PlanStepVerificationService', () => {
     expect(outcome.summary).toBeUndefined();
   });
 
+  it('keeps invalid assessment diagnostics out of terminal progress', async () => {
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const presenter = module.get(CliPresenter);
+    const mockProgress = jest.spyOn(presenter, 'progress');
+    mockAiExecute.mockResolvedValue({ content: 'not json' });
+
+    await service.run(makeRunParams({ silent: false, stallWindow: 1 }));
+
+    expect(mockProgress).not.toHaveBeenCalledWith(
+      expect.stringContaining('step-verify.assess.invalid'),
+    );
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'ERROR',
+      'step-verify.assess.invalid',
+      'step-verification',
+    );
+  });
+
   it('never throws even when an internal error occurs', async () => {
     mockGitGetStatus.mockRejectedValue(new Error('git exploded'));
 

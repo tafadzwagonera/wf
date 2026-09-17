@@ -31,7 +31,10 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
      checkpoints using the \`phases\` array.`;
 
-export const planFileListingInstructions = `3. Estimated complexity (low/medium/high)
+export const planFileListingInstructions = `3. Estimated complexity (low/medium/high). Base this on risk plus size: targeted writes
+   are the concrete files in affectedFiles, not the read-only affectedFilesContext entries. A low complexity
+   plan should have few targeted writes and a small plan step count; use medium or high when targeted writes
+   or plan step count grow enough that post-implementation verification should run.
 4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files or "to-create" for new files.

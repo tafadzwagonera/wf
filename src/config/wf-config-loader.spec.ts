@@ -603,6 +603,33 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.models).toBeUndefined();
     });
 
+    it('preserves modelRoutingThresholds for the implement stage', () => {
+      const config = normalizeWfConfig({
+        ai: [
+          {
+            provider: 'anthropic',
+            apiKey: 'anthropic-key',
+            model: 'claude-sonnet-4-20250514',
+            default: true,
+          },
+        ],
+        stages: {
+          implement: {
+            provider: 'anthropic',
+            modelRoutingThresholds: {
+              maxTargetedWritesForDefault: 8,
+              maxPlanStepsForDefault: 12,
+            },
+          },
+        },
+      });
+
+      expect(config.stages.implement?.modelRoutingThresholds).toEqual({
+        maxTargetedWritesForDefault: 8,
+        maxPlanStepsForDefault: 12,
+      });
+    });
+
     it('strips provider-injected model when user did not explicitly set model or models', () => {
       const config = normalizeWfConfig({
         ai: [

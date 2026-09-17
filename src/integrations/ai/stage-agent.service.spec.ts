@@ -728,7 +728,7 @@ describe('StageAgentService', () => {
       logSpy.mockRestore();
     });
 
-    it('rejects assistant_text and retries', async () => {
+    it('rejects assistant_text and retries without terminal noise', async () => {
       const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* firstPass() {
         yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Let me think about this...' }] }, session_id: 'sess_abc123' };
@@ -746,7 +746,7 @@ describe('StageAgentService', () => {
 
       expect(result).toMatchObject({ content: validResult });
       const demotedLogs = logSpy.mock.calls.filter(call => String(call[0]).includes('assistant_text demoted'));
-      expect(demotedLogs.length).toBeGreaterThanOrEqual(1);
+      expect(demotedLogs).toHaveLength(0);
       expect(spawnCli).toHaveBeenCalledTimes(2);
 
       logSpy.mockRestore();

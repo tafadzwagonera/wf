@@ -48,6 +48,31 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
   });
 });
 
+describe('wfImplementStageConfigSchema modelRoutingThresholds', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('accepts targeted write and plan step thresholds', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({
+        provider: 'anthropic',
+        modelRoutingThresholds: {
+          maxTargetedWritesForDefault: 8,
+          maxPlanStepsForDefault: 12,
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects zero targeted write threshold', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({
+        provider: 'anthropic',
+        modelRoutingThresholds: { maxTargetedWritesForDefault: 0 },
+      }),
+    ).toThrow();
+  });
+});
+
 describe('normalizedImplementStageConfigSchema planStepVerification', () => {
   afterEach(() => jest.restoreAllMocks());
 
@@ -57,6 +82,23 @@ describe('normalizedImplementStageConfigSchema planStepVerification', () => {
         provider: 'anthropic',
         backend: 'agent',
         planStepVerification: { enabled: true, stallWindow: 3 },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('normalizedImplementStageConfigSchema modelRoutingThresholds', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('accepts modelRoutingThresholds', () => {
+    expect(() =>
+      normalizedImplementStageConfigSchema.parse({
+        provider: 'anthropic',
+        backend: 'agent',
+        modelRoutingThresholds: {
+          maxTargetedWritesForDefault: 8,
+          maxPlanStepsForDefault: 12,
+        },
       }),
     ).not.toThrow();
   });

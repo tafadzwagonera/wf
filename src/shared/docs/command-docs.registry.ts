@@ -114,6 +114,10 @@ export const COMMAND_DOCS = {
         comment: 'Implement with Figma REST API design context from the plan manifest',
         command: 'wf issue:implement -k PROJ-123 --figma',
       },
+      {
+        comment: 'Force the cheaper mechanical model for a repetitive change',
+        command: 'wf issue:implement -k PROJ-123 --model-routing mechanical',
+      },
     ],
   },
   'issue:review': {

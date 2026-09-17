@@ -652,8 +652,6 @@ const advanceCliRetryState = (state: CliRetryState, passResult: CliPassResult): 
   logCliPassOutcome(state, passResult);
   checkCliStallCondition(state.stalledPasses, state.passNumber, state.lastDiagnostics);
   state.lastDiagnostics = passResult.diagnostics;
-  const sourceHint = passResult.source === 'assistant_text' ? ' (assistant_text demoted)' : '';
-  console.log(chalk.yellow(`\n  [${CLI_STAGE_LABEL}] Pass ${state.passNumber}: no usable result${sourceHint} — resuming session`));
 };
 
 /**

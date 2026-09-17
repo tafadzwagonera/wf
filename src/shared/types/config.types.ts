@@ -14,6 +14,7 @@ import type {
   wfConfigSchema,
   wfCreateStageConfigSchema,
   wfImplementSkillNameSchema,
+  wfImplementStageModelRoutingThresholdsConfigSchema,
   wfImplementStageConfigSchema,
   wfImplementStageModelsConfigSchema,
   wfPlanSkillNameSchema,
@@ -37,6 +38,9 @@ export type WfConfig = z.infer<typeof wfConfigSchema>;
 export type WfCreateStageConfig = z.infer<typeof wfCreateStageConfigSchema>;
 export type WfImplementSkillName = z.infer<typeof wfImplementSkillNameSchema>;
 export type WfImplementStageConfig = z.infer<typeof wfImplementStageConfigSchema>;
+export type WfImplementStageModelRoutingThresholdsConfig = z.infer<
+  typeof wfImplementStageModelRoutingThresholdsConfigSchema
+>;
 export type WfImplementStageModelsConfig = z.infer<typeof wfImplementStageModelsConfigSchema>;
 export type WfPlanSkillName = z.infer<typeof wfPlanSkillNameSchema>;
 export type WfPlanStageConfig = z.infer<typeof wfPlanStageConfigSchema>;

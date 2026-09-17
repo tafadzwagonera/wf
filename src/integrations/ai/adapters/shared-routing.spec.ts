@@ -1,4 +1,4 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -301,6 +301,88 @@ describe('resolveModelRouting', () => {
 
     expect(result.model).toBe('claude-opus-4-6');
     expect(result.logMessage).toContain('default — user override');
+  });
+
+  it('auto-routes medium complexity plans to mechanical when targeted writes exceed the threshold', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': undefined,
+      'stages.implement.models': undefined,
+      'stages.implement.modelRoutingThresholds': { maxTargetedWritesForDefault: 3, maxPlanStepsForDefault: 10 },
+    });
+    const plan = {
+      ...createMockPlan('medium'),
+      affectedFiles: Array.from({ length: 4 }, (_, i) => ({ filePath: `src/f${i}.ts`, status: 'found' as const })),
+    };
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan,
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe(defaultMechanicalModel);
+    expect(result.logMessage).toContain('targeted writes threshold exceeded');
+  });
+
+  it('auto-routes high complexity plans to mechanical when plan steps exceed the threshold', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': undefined,
+      'stages.implement.models': undefined,
+      'stages.implement.modelRoutingThresholds': { maxTargetedWritesForDefault: 10, maxPlanStepsForDefault: 2 },
+    });
+    const plan = {
+      ...createMockPlan('high'),
+      steps: ['Step 1', 'Step 2', 'Step 3'],
+    };
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan,
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe(defaultMechanicalModel);
+    expect(result.logMessage).toContain('plan steps threshold exceeded');
+  });
+
+  it('keeps high complexity plans on the default model below thresholds', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': undefined,
+      'stages.implement.models': undefined,
+      'stages.implement.modelRoutingThresholds': { maxTargetedWritesForDefault: 10, maxPlanStepsForDefault: 10 },
+    });
+
+    const result = resolveModelRouting({
+      routing: 'auto',
+      fallbackDefaultModel,
+      defaultMechanicalModel,
+      configService: mockConfigService,
+      plan: createMockPlan('high'),
+      adapterLabel: 'test-adapter',
+    });
+
+    expect(result.model).toBe(fallbackDefaultModel);
+    expect(result.logMessage).toContain('high complexity task');
+  });
+
+  it('detectMechanicalTask counts targeted writes from affectedFiles only', () => {
+    const result = detectMechanicalTask({
+      ...createMockPlan('medium'),
+      affectedFiles: [
+        { filePath: 'src/a.ts', status: 'found' },
+        { filePath: 'src/b.ts', status: 'to-create' },
+      ],
+      affectedFilesContext: Array.from({ length: 20 }, (_, i) => ({ filePath: `src/context-${i}.ts`, status: 'found' as const })),
+    }, { maxTargetedWritesForDefault: 1, maxPlanStepsForDefault: 10 });
+
+    expect(result.isMechanical).toBe(true);
+    expect(result.reason).toContain('2 targeted writes');
   });
 });
 

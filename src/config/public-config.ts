@@ -9,6 +9,7 @@ export type {
   WfConfig,
   WfImplementSkillName,
   WfImplementStageConfig,
+  WfImplementStageModelRoutingThresholdsConfig,
   WfImplementStageModelsConfig,
   WfPlanSkillName,
   WfPlanStageConfig,

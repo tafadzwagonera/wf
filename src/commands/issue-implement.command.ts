@@ -68,6 +68,7 @@ interface IssueImplementOptions {
   description:
     'Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact. '
     + 'Delegates the generate-and-verify loop to the configured backend (Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode) based on stages.implement.provider and stages.implement.backend. '
+    + 'In auto model-routing mode, optional stages.implement.modelRoutingThresholds can send medium/high-complexity plans to the mechanical model when targeted writes or plan steps exceed configured limits; targeted writes are concrete affectedFiles entries, not affectedFilesContext entries. Use --model-routing default or --model-routing mechanical to override automatic selection. '
     + 'Progress events are streamed to the terminal so you can follow task and tool activity while edits are being generated. All backends emit stable task and tool progress lines plus explicit file mutation logs and verification logs so terminal output stays human-readable while the agent works. '
     + 'Verification commands are expected to be repo-root-relative; stale plan artifacts that still embed redundant repo-selection `cd` prefixes are normalized, while cross-repo directory jumps are treated as setup errors. '
     + 'Set stages.implement.provider and stages.implement.backend in wf.config to select the backend. Use backend: agent with provider anthropic or openai for the Agent SDK path, or backend: cli with provider anthropic or openai for the CLI headless mode (Claude CLI or Codex CLI respectively). Set stages.implement.timeoutMs to override the wall-clock subprocess timeout (default: 15 minutes) and stages.implement.inactivityTimeoutMs to override the per-message inactivity timeout (default: 2 minutes). The Anthropic backend explicitly loads ~/.claude/CLAUDE.md and the repository-root CLAUDE.md, warning when either file is missing. The OpenAI backend loads ~/.openai/AGENTS.md and the repository-root AGENTS.md with the same warning behavior and only exposes an exact-match verify_command tool for whitelisted verification commands. When running from source, use `yarn start issue:implement ...` for the implementation stage and `yarn start issue:commit -c` to stage the final conventional commit once the work is accepted. '
@@ -127,7 +128,7 @@ export class IssueImplementCommand extends CommandRunner {
   @Option({
     flags: '--model-routing <mode>',
     description:
-      'Model selection strategy: auto (detect mechanical vs creative), default (force default model), mechanical (force cheaper model). Defaults to auto.',
+      'Model selection strategy: auto (complexity, targeted-write, step-count, and pattern routing), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
     if (!VALID_MODEL_ROUTING.includes(val as ModelRouting)) {

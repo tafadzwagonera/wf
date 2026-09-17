@@ -38,6 +38,7 @@ function main(): void {
   const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
   const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
   const cliSource = fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8');
+  const codexCliSource = fs.readFileSync(path.join(adaptersDir, 'codex-cli.adapter.ts'), 'utf8');
 
   assert(
     'OpenAI adapter does not define local MECHANICAL_STEP_PATTERNS',
@@ -49,6 +50,8 @@ function main(): void {
   );
   assert('OpenAI adapter imports from shared-routing', openaiSource.includes('from \'./shared-routing\''));
   assert('Anthropic adapter imports from shared-routing', anthropicSource.includes('from \'./shared-routing\''));
+  assert('Codex CLI adapter imports from shared-routing', codexCliSource.includes('from \'./shared-routing\''));
+  assert('Codex CLI adapter resolves model routing through shared-routing', codexCliSource.includes('resolveModelRouting'));
 
   assert(
     'OpenAI adapter builds continuation prompts via buildIterationPrompt',

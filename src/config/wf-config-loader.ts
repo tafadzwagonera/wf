@@ -198,6 +198,13 @@ const implementStageSchema = z
         mechanical: z.string().min(1).optional(),
       })
       .optional(),
+    modelRoutingThresholds: z
+      .object({
+        maxTargetedWritesForDefault: z.number().int().min(1).optional(),
+        maxPlanStepsForDefault: z.number().int().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     backend: z.enum(backendModes).optional(),
     maxTokens: z.number().int().min(1).optional(),
     timeoutMs: z.number().int().min(0).optional(),
@@ -821,17 +828,25 @@ const omitModel = (
   return rest as Omit<NormalizedAiStageTargetConfig, 'model'>;
 };
 
+const resolveImplementStageTargetConfig = (
+  implementStageConfig: WfImplementStageConfig,
+  implementTarget: NormalizedAiStageTargetConfig
+): NormalizedAiStageTargetConfig | Omit<NormalizedAiStageTargetConfig, 'model'> =>
+  implementStageConfig.model !== undefined && implementStageConfig.models === undefined
+    ? implementTarget
+    : omitModel(implementTarget);
+
 const normalizeImplementStageConfig = (
   { implementStageConfig, implementTarget }: ImplementStageInput,
 ): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
-  const targetWithoutModel = omitModel(implementTarget);
   const psv = implementStageConfig.planStepVerification;
   return {
-    ...(implementStageConfig.model !== undefined && implementStageConfig.models === undefined
-      ? implementTarget
-      : targetWithoutModel),
+    ...resolveImplementStageTargetConfig(implementStageConfig, implementTarget),
     ...(implementStageConfig.models && { models: implementStageConfig.models }),
+    ...(implementStageConfig.modelRoutingThresholds && {
+      modelRoutingThresholds: implementStageConfig.modelRoutingThresholds,
+    }),
     verificationConditions: normalizeVerificationConditionsConfig(implementStageConfig.verificationConditions),
     ...(psv && { planStepVerification: psv }),
   };

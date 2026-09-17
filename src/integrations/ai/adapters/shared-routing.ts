@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import type { ResolutionPlan } from '../ai.service';
 import type { planPhaseSchema } from '../../../shared/schemas/ai.schema';
 import type { z } from 'zod';
+import type { WfImplementStageModelRoutingThresholdsConfig } from '../../../shared/types/config.types';
 
 export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
@@ -69,20 +70,49 @@ const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
   return null;
 };
 
-export const detectMechanicalTask = (plan: ResolutionPlan): { isMechanical: boolean; reason: string } => {
-  const filesCount = plan.affectedFiles?.length ?? 0;
+const countTargetedWrites = (plan: ResolutionPlan): number => plan.affectedFiles?.length ?? 0;
+
+const detectThresholdRouting = (
+  plan: ResolutionPlan,
+  thresholds: WfImplementStageModelRoutingThresholdsConfig | undefined,
+  filesCount: number,
+  stepsCount: number
+): string | undefined => {
+  if (plan.estimatedComplexity !== 'medium' && plan.estimatedComplexity !== 'high') return undefined;
+  if (thresholds?.maxTargetedWritesForDefault !== undefined && filesCount > thresholds.maxTargetedWritesForDefault) {
+    return `targeted writes threshold exceeded: ${filesCount} targeted writes > ${thresholds.maxTargetedWritesForDefault}`;
+  }
+  if (thresholds?.maxPlanStepsForDefault !== undefined && stepsCount > thresholds.maxPlanStepsForDefault) {
+    return `plan steps threshold exceeded: ${stepsCount} steps > ${thresholds.maxPlanStepsForDefault}`;
+  }
+  return undefined;
+};
+
+const detectPatternRouting = (steps: string[]): { isMechanical: boolean; reason: string } | undefined => {
+  const matched = matchMechanicalKeyword(steps);
+  const firstStep = matched ? (steps.find(step => matched.test(step)) ?? '') : '';
+  if (matched) return { isMechanical: true, reason: `pattern: "${matched.source}" in step "${firstStep.slice(0, 60)}"` };
+  const signals = countSemanticSignals(steps);
+  const dominantMechanical = signals.mechanical > 0 && signals.mechanical > signals.creative;
+  if (dominantMechanical) {
+    return { isMechanical: true, reason: `semantic signals: ${signals.mechanical} mechanical vs ${signals.creative} creative` };
+  }
+  return undefined;
+};
+
+export const detectMechanicalTask = (
+  plan: ResolutionPlan,
+  thresholds?: WfImplementStageModelRoutingThresholdsConfig
+): { isMechanical: boolean; reason: string } => {
+  const filesCount = countTargetedWrites(plan);
   const stepsCount = plan.steps.length;
   if (plan.estimatedComplexity === 'low') return { isMechanical: true, reason: `low complexity task (${filesCount} files)` };
+  const thresholdReason = detectThresholdRouting(plan, thresholds, filesCount, stepsCount);
+  if (thresholdReason) return { isMechanical: true, reason: thresholdReason };
   if (plan.estimatedComplexity === 'high') return { isMechanical: false, reason: 'high complexity task' };
   const highRatio = stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3;
   if (highRatio) return { isMechanical: true, reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps` };
-  const matched = matchMechanicalKeyword(plan.steps);
-  const firstStep = matched ? (plan.steps.find(step => matched.test(step)) ?? '') : '';
-  if (matched) return { isMechanical: true, reason: `pattern: "${matched.source}" in step "${firstStep.slice(0, 60)}"` };
-  const signals = countSemanticSignals(plan.steps);
-  const dominantMechanical = signals.mechanical > 0 && signals.mechanical > signals.creative;
-  if (dominantMechanical) return { isMechanical: true, reason: `semantic signals: ${signals.mechanical} mechanical vs ${signals.creative} creative` };
-  return { isMechanical: false, reason: 'creative task' };
+  return detectPatternRouting(plan.steps) ?? { isMechanical: false, reason: 'creative task' };
 };
 
 export type ModelRoutingResult = {
@@ -137,7 +167,9 @@ export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingRes
     = resolveModelConfig(configService, fallbackDefaultModel, defaultMechanicalModel);
   if (routing === 'default') return buildRoutingResult(defaultModel, defaultModel, adapterLabel, 'default — user override');
   if (routing === 'mechanical') return buildRoutingResult(mechanicalModel, defaultModel, adapterLabel, 'mechanical — user override');
-  const detection = detectMechanicalTask(plan);
+  const thresholds
+    = configService.get<WfImplementStageModelRoutingThresholdsConfig>('stages.implement.modelRoutingThresholds');
+  const detection = detectMechanicalTask(plan, thresholds);
   const autoModel = detection.isMechanical ? mechanicalModel : defaultModel;
   const autoLabel = detection.isMechanical ? `auto — mechanical: ${detection.reason}` : `auto — creative: ${detection.reason}`;
   return buildRoutingResult(autoModel, defaultModel, adapterLabel, autoLabel);

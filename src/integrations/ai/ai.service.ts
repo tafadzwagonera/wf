@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/errors';
 import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import { LoggerService } from '../../shared/logger/logger.service';
+import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
@@ -1047,7 +1048,7 @@ export class AiService {
       const model = response.model ?? 'unknown';
       const cost = response.costUsd ?? estimateLlmCostUsd(provider, model, response.usage);
       const costStr = cost != null ? `$${cost.toFixed(4)}` : 'n/a';
-      this.logger.info(`llm.adapter resolved-provider=${provider} resolved-model=${model} cost=${costStr}`);
+      appendToLogFile('INFO', `llm.adapter resolved-provider=${provider} resolved-model=${model} cost=${costStr}`, 'llm-adapter');
     } catch {
       return;
     }

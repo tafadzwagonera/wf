@@ -308,7 +308,7 @@ export class PlanStepVerificationService {
       });
       if (result) return { steps: this.logPendingStatuses(result, params.silent) };
     }
-    this.logEventAndAppendToLogFile('ERROR', 'step-verify.assess.invalid', params.silent);
+    appendToLogFile('ERROR', 'step-verify.assess.invalid', 'step-verification');
     return { steps: undefined, failureCause };
   }
 

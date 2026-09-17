@@ -71,6 +71,11 @@ export const wfImplementStageModelsConfigSchema = z.object({
   mechanical: z.string().optional(),
 });
 
+export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
+  maxTargetedWritesForDefault: z.number().int().min(1).optional(),
+  maxPlanStepsForDefault: z.number().int().min(1).optional(),
+});
+
 export const wfPlanStepVerificationConfigSchema = z.object({
   enabled: z.boolean().optional(),
   stallWindow: z.number().int().min(1).optional(),
@@ -80,6 +85,7 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   figma: z.boolean().optional(),
   maxStalledPasses: z.number().int().min(1).optional(),
   models: wfImplementStageModelsConfigSchema.optional(),
+  modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
   skills: z.array(wfImplementSkillNameSchema).optional(),
   verificationConditions: wfVerificationConditionsConfigSchema.optional(),
   planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
@@ -218,6 +224,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   model: z.string().optional(),
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
+  modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
   backend: wfBackendModeSchema,
   maxTokens: z.number().int().min(1).optional(),
   timeoutMs: z.number().int().min(0).optional(),
