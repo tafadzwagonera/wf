@@ -64,6 +64,13 @@ export class GitError extends AppError {
   }
 }
 
+export class InvalidBranchNameError extends GitError {
+  constructor(message: string, details?: any) {
+    super(message, details, true);
+    this.name = 'InvalidBranchNameError';
+  }
+}
+
 export type AiProviderErrorCategory = 'auth' | 'api' | 'parse' | 'timeout' | 'truncation' | 'stall' | 'config' | 'rate-limit';
 
 export class AiProviderError extends AppError {

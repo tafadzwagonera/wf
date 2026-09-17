@@ -12,6 +12,7 @@ import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError, AmbiguousPlanArtifactError } from '../shared/utils/errors';
+import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import {
   buildSyntheticTicketArtifact,
@@ -80,7 +81,8 @@ interface IssueImplementOptions {
     + 'When staying on the current branch, the user is asked whether to pull; stashing is only triggered if a pull is accepted. When creating a new branch, uncommitted changes are stashed before pulling the source branch (dev or main). '
     + 'After each pull, runs a dependency install via the detected package manager (bun, pnpm, yarn, or npm); use --skip-install to suppress. Failures are surfaced as warnings and never abort the command. '
     + 'Generated branch names exceeding 100 characters are automatically truncated at the nearest word boundary. '
-    + 'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the branch name validation regex from git.branchNamePattern config. '
+    + 'Use --silent to auto-stash without prompting; branch selection and naming still prompt when a TTY is available. Use --no-branch to skip branch creation and work directly on the current branch. Use --branch-name-pattern to override the enforced branch name validation regex from git.branchNamePattern config. '
+    + 'Branch names are validated when the branch is created, against git ref conventions and the resolved naming pattern (--branch-name-pattern, else git.branchNamePattern, else built-in patterns). Names entered at the branch prompt are trimmed, a pasted `git checkout -b`/`git switch -c` prefix is stripped, and input is validated inline with the specific rejection reason. When branch creation still rejects a name, interactive runs log the reason to the agent log and reopen the branch-name prompt instead of aborting; non-interactive runs fail fast. An invalid --branch-name-pattern regex is rejected before any work starts, and an invalid git.branchNamePattern regex fails config validation at startup. '
     + 'When running against multiple repos, repos absent from the plan\'s affectedRepositories and newRepositories are skipped with a log message. When a plan declares newRepositories, those repos are scaffolded as sibling directories and prepended to the execution order so they run before existing repos. '
     + 'When stages.implement.planStepVerification.enabled is true, a post-implementation AI auditor re-reads the diff and scores each plan step as done, partially-done, not-done, or not-applicable; steps still incomplete trigger an additional fix round in the same session; the loop runs until convergence or stall. stages.implement.planStepVerification.stallWindow (default: 3) sets the sliding-window size for stall detection — the loop exits as stalled when the enriched step content seen in the current round matches any entry in the previous stallWindow rounds. A round whose assessment response is malformed or otherwise fails does not abort the loop — it is retried on the next round, with the actual failure cause recorded in the `step-verify.exhausted` log entry when the stall window is reached; authentication errors (HTTP 401) are the exception and surface immediately as a hard failure. The auditor diffs against the commit HEAD was at before this stage ran (not a possibly-moving HEAD), so committed-but-not-yet-reset work is still visible to the audit even when the commit-policy rewind below is skipped. Verification only runs when the commit policy blocks self-commits (medium/high complexity); low-complexity, stage-and-commit-per-change plans skip it entirely, since their smaller changesets carry less downside risk. When verification is skipped for any reason — config disabled, no working-tree changes, all multi-repo steps are generic (no repo-prefixed path), new-repo run, or commit policy allows direct commit — a `step-verify.skipped reason=<reason>` entry is written to the on-disk agent log so skips are diagnosable rather than silent. In multi-repo mode, generic steps that carry no repo-prefixed file path are excluded from the audit so the assessor only scores actionable steps for the current repo. Steps still pending when rounds are exhausted are listed individually (index, status, and what\'s missing) in the terminal output and the log, not just as a bare count. Non-auth errors in the verification loop do not abort the wf issue:implement workflow; if no assessor target can be resolved or an unexpected error occurs the loop is skipped and the original result is returned unchanged. '
     + 'Before each verification round, a spec-fidelity pre-pass runs one AI call per assessed step to detect literal claim deviations — regex patterns, required parameters, exact threshold values, and string literals — against the diff. Steps with confirmed concrete mismatches receive a [SPEC FIDELITY ERRORS] annotation that causes the step assessor to score them partially-done and enter a fix round even when the code looks superficially complete. Warning-severity findings (diff is silent on a claim) are surfaced but do not trigger a fix round. The pre-pass is skipped when the diff is empty and never throws; any internal error is silently swallowed so the verification loop is unaffected. '
@@ -100,7 +102,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   @Option({
     flags: '--branch-name-pattern <pattern>',
-    description: 'Override branch name validation pattern from git.branchNamePattern config',
+    description: 'Override the enforced branch name validation regex from git.branchNamePattern config; must compile as a valid regex',
   })
   parseBranchNamePattern(val: string): string {
     return val;
@@ -602,6 +604,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   private validateImplementInputs(identifier: string, options?: IssueImplementOptions): void {
     this.assertNoBranchConflict(options);
+    this.assertBranchNamePatternFlag(options?.branchNamePattern);
     const trackerName = options?.tracker || getLoadedWfConfig().tracker;
     if (options?.ticketKey && trackerName === 'bitbucket' && !options?.repos?.length) {
       throw new ValidationError('--repos is required for Bitbucket ticket fetching');
@@ -623,6 +626,10 @@ export class IssueImplementCommand extends CommandRunner {
       + '  Use --no-branch to stay on the current branch, or\n'
       + '  Use --branch-name-pattern <pattern> to validate a generated branch name.'
     );
+  }
+
+  private assertBranchNamePatternFlag(pattern?: string): void {
+    assertUsableBranchNamePattern(pattern, '--branch-name-pattern');
   }
 
   /**

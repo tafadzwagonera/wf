@@ -24,7 +24,7 @@ import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
-import { GitService } from '../../src/integrations/git/git.service';
+import { GitService, type CreateBranchOptions } from '../../src/integrations/git/git.service';
 import { CliPresenter } from '../../src/shared/presentation/cli-presenter.service';
 import type { PlanArtifact, TicketArtifact } from '../../src/agents/interfaces';
 import {
@@ -87,9 +87,9 @@ async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 1: first run creates the branch for real and records its source'));
   const createBranchCalls: string[] = [];
   const originalCreateBranch = gitService.createBranch.bind(gitService);
-  (gitService as any).createBranch = async (branchName: string, baseBranch?: string, cwd?: string) => {
+  (gitService as any).createBranch = async (branchName: string, options?: CreateBranchOptions) => {
     createBranchCalls.push(branchName);
-    return originalCreateBranch(branchName, baseBranch, cwd);
+    return originalCreateBranch(branchName, options);
   };
 
   // handleBranchWorkflow covers exactly the branch creation/reuse + manifest-recording logic

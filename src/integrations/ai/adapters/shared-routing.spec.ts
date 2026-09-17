@@ -209,6 +209,24 @@ describe('resolveModelRouting', () => {
     jest.restoreAllMocks();
   });
 
+  it('throws when stages.implement.model and stages.implement.models are both set', () => {
+    const mockConfigService = createMockConfigService({
+      'stages.implement.model': 'claude-sonnet-4-6',
+      'stages.implement.models': { mechanical: 'claude-haiku-4-5' },
+    });
+
+    expect(() =>
+      resolveModelRouting({
+        routing: 'auto',
+        fallbackDefaultModel,
+        defaultMechanicalModel,
+        configService: mockConfigService,
+        plan: createMockPlan('low'),
+        adapterLabel: 'test-adapter',
+      })
+    ).toThrow('mutually exclusive');
+  });
+
   it('singleModel overrides mechanical fallback on auto-routing', () => {
     const mockConfigService = createMockConfigService({
       'stages.implement.model': 'claude-opus-4-6',

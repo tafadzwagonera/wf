@@ -15,6 +15,12 @@ export const commitOptionsSchema = z.object({
   cwd: z.string().optional(),
 });
 
+export const createBranchOptionsSchema = z.object({
+  baseBranch: z.string().optional(),
+  cwd: z.string().optional(),
+  patternOverride: z.string().optional(),
+});
+
 export const commitInfoSchema = z.object({
   hash: z.string(),
   message: z.string(),

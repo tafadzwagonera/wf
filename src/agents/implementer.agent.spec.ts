@@ -4,7 +4,8 @@ import inquirer from 'inquirer';
 import { ImplementerAgent } from './implementer.agent';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
-import { GitError } from '../shared/errors/app.error';
+import { GitError, InvalidBranchNameError } from '../shared/errors/app.error';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { PlanStepVerificationService } from './plan-step-verification.service';
@@ -20,6 +21,8 @@ import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conven
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 
 jest.mock('inquirer');
+
+jest.mock('../shared/logger/log-file-writer');
 
 jest.mock('../shared/utils/plan-artifact', () => {
   const actual = jest.requireActual('../shared/utils/plan-artifact');
@@ -405,7 +408,10 @@ describe('ImplementerAgent', () => {
         customBranchSlug: 'dark-building-creek',
       });
 
-      expect(gitService.createBranch).toHaveBeenCalledWith('feature/dark-building-creek', 'develop', '/tmp/repo-a');
+      expect(gitService.createBranch).toHaveBeenCalledWith(
+        'feature/dark-building-creek',
+        expect.objectContaining({ baseBranch: 'develop', cwd: '/tmp/repo-a' })
+      );
     });
 
     it('records the resolved source branch onto the plan manifest', async () => {
@@ -1259,7 +1265,10 @@ describe('ImplementerAgent', () => {
 
       expect(gitService.pull).not.toHaveBeenCalled();
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
-      expect(gitService.createBranch).toHaveBeenCalledWith(expect.any(String), 'remotes/origin/develop', '/tmp/repo-a');
+      expect(gitService.createBranch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ baseBranch: 'remotes/origin/develop', cwd: '/tmp/repo-a' })
+      );
     });
 
     it('does not create branch when --no-branch is set', async () => {
@@ -1401,6 +1410,126 @@ describe('ImplementerAgent', () => {
         gitService.pull.mock.invocationCallOrder[0]
       );
       expect(gitService.pull.mock.invocationCallOrder[0]).toBeLessThan(gitService.stashPop.mock.invocationCallOrder[0]);
+    });
+
+    describe('custom branch name entry', () => {
+      const pastedCommand = 'git checkout -b fix/WBP-4015__reviews-feed-tour-name-tag-missing-on-some-review-cards';
+
+      it('sanitizes a pasted git checkout command into the bare branch name', async () => {
+        const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+        mockPrompt
+          .mockResolvedValueOnce({ choice: 'edit' } as any)
+          .mockResolvedValueOnce({ customName: `  ${pastedCommand} ` } as any);
+
+        const branchName = await (agent as any).promptBranchName({
+          generatedName: 'fix/WBP-4015__generated',
+          interactive: true,
+        });
+
+        expect(branchName).toBe('fix/WBP-4015__reviews-feed-tour-name-tag-missing-on-some-review-cards');
+      });
+
+      it('re-prompts after an invalid branch name error, logging the failure', async () => {
+        jest.spyOn(agent as any, 'isInteractiveSession').mockReturnValue(true);
+        const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+        mockPrompt
+          .mockResolvedValueOnce({ branchAction: 'create' } as any)
+          .mockResolvedValueOnce({ choice: 'accept' } as any)
+          .mockResolvedValueOnce({ customName: 'fix/WBP-4015__corrected' } as any);
+        gitService.createBranch
+          .mockRejectedValueOnce(new InvalidBranchNameError('Invalid branch name: bad. Branch names cannot contain spaces'))
+          .mockResolvedValueOnce(undefined);
+
+        await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: false,
+        });
+
+        expect(gitService.createBranch).toHaveBeenCalledTimes(2);
+        expect(gitService.createBranch).toHaveBeenLastCalledWith(
+          'fix/WBP-4015__corrected',
+          expect.objectContaining({ baseBranch: 'develop', cwd: '/tmp/repo-a' })
+        );
+        expect(appendToLogFile).toHaveBeenCalledWith(
+          'ERROR',
+          expect.stringContaining('Invalid branch name: bad'),
+          'implement'
+        );
+      });
+
+      it('propagates an invalid branch name error without prompting in non-interactive mode', async () => {
+        gitService.createBranch.mockRejectedValueOnce(
+          new InvalidBranchNameError('Invalid branch name: bad. Branch names cannot contain spaces')
+        );
+
+        await expect(
+          agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+            trackerName: 'jira',
+            repoDir: '/tmp/repo-a',
+            silent: true,
+          })
+        ).rejects.toThrow('Invalid branch name: bad');
+
+        expect(gitService.createBranch).toHaveBeenCalledTimes(1);
+        expect(inquirer.prompt).not.toHaveBeenCalled();
+      });
+
+      it('validates edited branch names against the resolved branch name pattern', async () => {
+        const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+        mockPrompt
+          .mockResolvedValueOnce({ choice: 'edit' } as any)
+          .mockResolvedValueOnce({ customName: 'team/checkout-totals' } as any);
+
+        await (agent as any).promptBranchName({
+          generatedName: 'team/checkout-totals',
+          interactive: true,
+          pattern: '^team\\/[a-z-]+$',
+        });
+
+        const [inputQuestion] = mockPrompt.mock.calls[1][0] as any[];
+        expect(inputQuestion.validate('team/checkout-totals')).toBe(true);
+        expect(inputQuestion.validate('fix/checkout-totals')).toBe(
+          'Branch names should follow pattern: ^team\\/[a-z-]+$'
+        );
+      });
+
+      it('resolves the prompt pattern from config when no flag override is given', async () => {
+        (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) =>
+          key === 'git.branchNamePattern' ? '^team\\/[a-z-]+$' : fallback
+        );
+
+        expect((agent as any).resolveBranchNamePattern(undefined)).toBe('^team\\/[a-z-]+$');
+        expect((agent as any).resolveBranchNamePattern('^[a-z]+\\/[\\w-]+$')).toBe('^[a-z]+\\/[\\w-]+$');
+      });
+
+      it('threads the --branch-name-pattern override through to branch creation', async () => {
+        await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
+          trackerName: 'jira',
+          repoDir: '/tmp/repo-a',
+          silent: true,
+          branchNamePattern: '^[a-z]+\\/[\\w-]+$',
+        });
+
+        expect(gitService.createBranch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({ patternOverride: '^[a-z]+\\/[\\w-]+$' })
+        );
+      });
+
+      it('validates edited branch names at the prompt instead of failing after submission', async () => {
+        const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
+        mockPrompt
+          .mockResolvedValueOnce({ choice: 'edit' } as any)
+          .mockResolvedValueOnce({ customName: 'fix/WBP-4015__generated' } as any);
+
+        await (agent as any).promptBranchName({ generatedName: 'fix/WBP-4015__generated', interactive: true });
+
+        const [inputQuestion] = mockPrompt.mock.calls[1][0] as any[];
+        expect(inputQuestion.validate(pastedCommand)).toBe(true);
+        expect(inputQuestion.validate('fix/name with spaces')).toBe('Branch names cannot contain spaces');
+        expect(inputQuestion.validate('   ')).toBe('Branch name cannot be empty');
+      });
     });
 
     it('truncates branch name at word boundary when exceeding max length', async () => {

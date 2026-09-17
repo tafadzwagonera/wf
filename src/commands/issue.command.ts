@@ -5,6 +5,7 @@ import { ConversationContext, WorkflowStage as ConvWorkflowStage } from '../inte
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ValidationError } from '../shared/utils/errors';
+import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import {
@@ -184,7 +185,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--branch-name-pattern <pattern>',
-    description: 'Override branch name validation pattern from git.branchNamePattern config',
+    description: 'Override the enforced branch name validation regex from git.branchNamePattern config; must compile as a valid regex',
   })
   parseBranchNamePattern(val: string): string {
     return val;
@@ -446,7 +447,12 @@ export class IssueCommand extends CommandRunner {
 
   private validateInputExclusions(planToken: string | undefined, options?: IssueOptions): IssueOptions {
     this.assertMutualExclusions(planToken, options);
+    this.assertBranchNamePatternFlag(options?.branchNamePattern);
     return this.resolveFromStage(planToken, options);
+  }
+
+  private assertBranchNamePatternFlag(pattern?: string): void {
+    assertUsableBranchNamePattern(pattern, '--branch-name-pattern');
   }
 
   // eslint-disable-next-line max-lines-per-function

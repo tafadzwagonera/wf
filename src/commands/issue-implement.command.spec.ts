@@ -170,6 +170,21 @@ describe('IssueImplementCommand', () => {
     });
   });
 
+  describe('assertBranchNamePatternFlag', () => {
+    it('throws a clear error when --branch-name-pattern is an invalid regex', async () => {
+      const command = await buildCommand();
+      expect(() => (command as any).assertBranchNamePatternFlag('[')).toThrow(
+        '--branch-name-pattern is not a valid regular expression: ['
+      );
+    });
+
+    it('accepts a valid pattern and an absent flag', async () => {
+      const command = await buildCommand();
+      expect(() => (command as any).assertBranchNamePatternFlag('^team\\/[a-z-]+$')).not.toThrow();
+      expect(() => (command as any).assertBranchNamePatternFlag(undefined)).not.toThrow();
+    });
+  });
+
   describe('custom plan identifier validation', () => {
     it('rejects unsupported file extensions for non-ticket identifiers', async () => {
       const command = await buildCommand();

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
+import { isValidRegexPattern } from '../shared/schemas/config.schema';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
 import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import type {
@@ -248,7 +249,10 @@ const configSchema = z
     git: z
       .object({
         commitFormat: z.enum(['conventional', 'freeform', 'auto']).optional(),
-        branchNamePattern: z.string().optional(),
+        branchNamePattern: z
+          .string()
+          .refine(isValidRegexPattern, { message: 'must be a valid regular expression' })
+          .optional(),
         branchPrefixMapping: z
           .object({
             feature: z.string().optional(),

@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import simpleGit, { BranchSummary, SimpleGit, StatusResult } from 'simple-git';
-import { GitError } from '../../shared/utils/errors';
+import { GitError, InvalidBranchNameError } from '../../shared/utils/errors';
+import { findBranchNameViolation, safeBranchNamePattern } from './branch-name';
 import { LoggerService } from '../../shared/logger/logger.service';
-import type { BranchInfo, CommitInfo, CommitOptions } from '../../shared/types/git.types';
+import type { BranchInfo, CommitInfo, CommitOptions, CreateBranchOptions } from '../../shared/types/git.types';
 
-export type { BranchInfo, CommitOptions, CommitInfo } from '../../shared/types/git.types';
+export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from '../../shared/types/git.types';
 
 /**
  * Create a SimpleGit instance pointed at the given directory.
@@ -264,28 +265,47 @@ export class GitService {
     this.logger.success(`Created and checked out branch: ${branchName} from ${base}`);
   }
 
-  async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<void> {
-    const git = cwd ? createGit(cwd) : this.git;
+  async createBranch(branchName: string, options: CreateBranchOptions = {}): Promise<void> {
+    const name = branchName.trim();
+    const git = options.cwd ? createGit(options.cwd) : this.git;
     try {
-      this.assertValidBranchName(branchName);
-      await this.checkoutOrCreateBranch(git, branchName, baseBranch);
+      this.assertValidBranchName(name, options.patternOverride);
+      await this.checkoutOrCreateBranch(git, name, options.baseBranch);
     } catch (error) {
-      wrapGitError(error, `Failed to create branch: ${branchName}`);
+      wrapGitError(error, `Failed to create branch: ${name}`);
     }
   }
 
   /**
-   * Throw a {@link GitError} if `name` does not match any recognised branch
-   * name pattern (feature/name, WBP-1234__feature-name, or simple-name).
+   * Throw an {@link InvalidBranchNameError} if `name` violates git ref-name
+   * conventions or the resolved naming pattern — the `--branch-name-pattern`
+   * override when given, else the project's `git.branchNamePattern`, else the
+   * built-in patterns. An invalid regex at either level is warned about and
+   * skipped.
    *
    * @param name - Branch name to validate
+   * @param patternOverride - Per-run pattern from the `--branch-name-pattern` flag
    */
-  private assertValidBranchName(name: string): void {
-    if (!this.isValidBranchName(name)) {
-      throw new GitError(
-        `Invalid branch name: ${name}. Branch names should follow pattern: feature/name or WBP-1234__feature-name`
-      );
+  private assertValidBranchName(name: string, patternOverride?: string): void {
+    const violation = findBranchNameViolation(name, this.resolveBranchNamePattern(patternOverride));
+    if (violation) {
+      throw new InvalidBranchNameError(`Invalid branch name: ${name}. ${violation}`);
     }
+  }
+
+  private resolveBranchNamePattern(patternOverride?: string): string | undefined {
+    return (
+      this.usableBranchNamePattern(patternOverride, '--branch-name-pattern')
+      ?? this.usableBranchNamePattern(this.configService.get<string>('git.branchNamePattern'), 'git.branchNamePattern')
+    );
+  }
+
+  private usableBranchNamePattern(pattern: string | undefined, source: string): string | undefined {
+    const safePattern = safeBranchNamePattern(pattern);
+    if (pattern && !safePattern) {
+      this.logger.warn(`Ignoring invalid regex in ${source}: ${pattern}`);
+    }
+    return safePattern;
   }
 
   /**
@@ -297,17 +317,6 @@ export class GitService {
   private async checkoutExistingBranch(git: SimpleGit, branchName: string): Promise<void> {
     this.logger.warn(`Branch ${branchName} already exists, checking out...`);
     await git.checkout(branchName);
-  }
-
-  private isValidBranchName(name: string): boolean {
-    // Allow patterns like: feature/name, WBP-1234__feature-name, fix/bug-name
-    const validPatterns = [
-      /^[a-z]+\/[\w-]+$/, // feature/name
-      /^[A-Z]+-\d+__[\w-]+$/, // WBP-1234__feature-name
-      /^[\w-]+$/, // simple-name
-    ];
-
-    return validPatterns.some(pattern => pattern.test(name));
   }
 
   async commit(options: CommitOptions): Promise<string> {

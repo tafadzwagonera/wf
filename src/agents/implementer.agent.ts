@@ -2,6 +2,7 @@ import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { GitService } from '../integrations/git/git.service';
+import { safeBranchNamePattern, sanitizeBranchNameInput, validateBranchNameInput } from '../integrations/git/branch-name';
 import type { BranchInfo } from '../shared/types/git.types';
 import { AiService, buildFindingsPrompt, findingsSystemPrompt, normalizeFileEntries, parseJsonResponse } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
@@ -20,7 +21,7 @@ import {
 } from './interfaces';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
-import { ConfigurationError, ExecutionError, GitError, ValidationError } from '../shared/utils/errors';
+import { ConfigurationError, ExecutionError, GitError, InvalidBranchNameError, ValidationError } from '../shared/utils/errors';
 import { resolveSkills } from '../skills';
 import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
@@ -54,6 +55,14 @@ interface FileResolution {
 }
 
 type NormalizedEntry = ReturnType<typeof normalizeFileEntries>[number];
+
+type CheckoutFeatureBranchParams = {
+  branchName: string;
+  sourceBranch: string;
+  interactive: boolean;
+  cwd: string | undefined;
+  patternOverride?: string;
+};
 
 const DEFAULT_STALL_WINDOW = 3;
 
@@ -1143,17 +1152,57 @@ export class ImplementerAgent {
     cwd: string | undefined
   ): Promise<string> {
     const generatedName = this.generateBranchNameForTicket(ticket, planArtifact, options);
-    const branchName = await this.promptBranchName({ generatedName, interactive });
+    const pattern = this.resolveBranchNamePattern(options.branchNamePattern);
+    const branchName = await this.promptBranchName({ generatedName, interactive, pattern });
 
-    const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
-    if (currentBranch === branchName) {
-      console.log(chalk.green(`  Already on branch: ${branchName}`));
-    } else {
-      await this.gitService.createBranch(branchName, sourceBranch, cwd);
-      console.log(chalk.green(`  Created branch: ${branchName} from ${sourceBranch}`));
+    const finalName = await this.checkoutFeatureBranch({
+      branchName, sourceBranch, interactive, cwd, patternOverride: options.branchNamePattern,
+    });
+    this.recordFeatureBranchSource(planArtifact, sourceBranch, finalName);
+    return finalName;
+  }
+
+  private async checkoutFeatureBranch(params: CheckoutFeatureBranchParams): Promise<string> {
+    let branchName = params.branchName;
+    for (;;) {
+      if (await this.isAlreadyOnBranch(branchName, params.cwd)) return branchName;
+      if (await this.tryCreateFeatureBranch(branchName, params)) return branchName;
+      branchName = await this.promptCustomBranchName(
+        branchName,
+        this.resolveBranchNamePattern(params.patternOverride)
+      );
     }
-    this.recordFeatureBranchSource(planArtifact, sourceBranch, branchName);
-    return branchName;
+  }
+
+  private async isAlreadyOnBranch(branchName: string, cwd: string | undefined): Promise<boolean> {
+    const currentBranch = await this.gitService.getCurrentBranch(cwd).catch(() => '');
+    if (currentBranch !== branchName) return false;
+    console.log(chalk.green(`  Already on branch: ${branchName}`));
+    return true;
+  }
+
+  private async tryCreateFeatureBranch(branchName: string, params: CheckoutFeatureBranchParams): Promise<boolean> {
+    try {
+      await this.gitService.createBranch(branchName, {
+        baseBranch: params.sourceBranch,
+        cwd: params.cwd,
+        patternOverride: params.patternOverride,
+      });
+      console.log(chalk.green(`  Created branch: ${branchName} from ${params.sourceBranch}`));
+      return true;
+    } catch (error) {
+      if (!(error instanceof InvalidBranchNameError) || !params.interactive) throw error;
+      console.log(chalk.red(`  ${error.message}`));
+      appendToLogFile('ERROR', error.message, 'implement');
+      return false;
+    }
+  }
+
+  private resolveBranchNamePattern(patternOverride?: string): string | undefined {
+    return (
+      safeBranchNamePattern(patternOverride)
+      ?? safeBranchNamePattern(this.configService.get<string>('git.branchNamePattern'))
+    );
   }
 
   /**
@@ -1384,7 +1433,11 @@ export class ImplementerAgent {
     );
   }
 
-  private async promptBranchName(params: { generatedName: string; interactive: boolean }): Promise<string> {
+  private async promptBranchName(params: {
+    generatedName: string;
+    interactive: boolean;
+    pattern?: string;
+  }): Promise<string> {
     if (!params.interactive) return params.generatedName;
 
     const { choice } = await inquirer.prompt<{ choice: string }>([{
@@ -1400,18 +1453,19 @@ export class ImplementerAgent {
     }]);
 
     if (choice !== 'edit') return params.generatedName;
-    return this.promptCustomBranchName(params.generatedName);
+    return this.promptCustomBranchName(params.generatedName, params.pattern);
   }
 
-  private async promptCustomBranchName(defaultName: string): Promise<string> {
+  private async promptCustomBranchName(defaultName: string, pattern?: string): Promise<string> {
     const { customName } = await inquirer.prompt<{ customName: string }>([{
       type: 'input',
       name: 'customName',
       message: 'Enter branch name:',
       prefix: ' ',
       default: defaultName,
+      validate: (input: string) => validateBranchNameInput(input, pattern),
     }]);
-    return customName;
+    return sanitizeBranchNameInput(customName);
   }
 
   private isInteractiveSession(): boolean {

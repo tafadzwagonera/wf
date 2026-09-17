@@ -132,6 +132,16 @@ describe('wf-config-loader', () => {
   describe('normalizeWfConfig', () => {
     afterEach(() => jest.restoreAllMocks());
 
+    it('rejects an invalid git.branchNamePattern regex at config load', () => {
+      expect(() => normalizeWfConfig({ git: { branchNamePattern: '[' } })).toThrow(/git\.branchNamePattern/);
+    });
+
+    it('accepts a valid git.branchNamePattern regex', () => {
+      const config = normalizeWfConfig({ git: { branchNamePattern: '^team\\/[a-z-]+$' } });
+
+      expect(config.git.branchNamePattern).toBe('^team\\/[a-z-]+$');
+    });
+
     it('accepts a single AI provider when none is explicitly marked as default', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
@@ -1159,6 +1169,18 @@ describe('wf-config-loader', () => {
       });
 
       expect(config.git.branchNamePattern).toBe('^custom/.+$');
+    });
+
+    it('defaults git.branchNamePattern to the Atlassian regex', () => {
+      const config = normalizeWfConfig({});
+
+      expect(config.git.branchNamePattern.startsWith('^(bugfix|build|chore|')).toBe(true);
+    });
+
+    it('defaults git.commitFormat to auto when omitted', () => {
+      const config = normalizeWfConfig({});
+
+      expect(config.git.commitFormat).toBe('auto');
     });
 
     it('accepts custom git.branchPrefixMapping', () => {

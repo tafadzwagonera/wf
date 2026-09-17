@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { StatusResult } from 'simple-git';
 import { GitService } from './git.service';
 import { LoggerService } from '../../shared/logger/logger.service';
-import { GitError } from '../../shared/errors/app.error';
+import { GitError, InvalidBranchNameError } from '../../shared/errors/app.error';
 
 const mockCwdGitInstance = {
   reset: jest.fn(),
@@ -57,6 +57,131 @@ describe('GitService', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('development and main branch detection', () => {
+    it('detectDevelopmentBranches returns every branch containing "dev"', () => {
+      const devBranches = service.detectDevelopmentBranches(['main', 'develop', 'dev', 'feature/something']);
+
+      expect(devBranches).toEqual(['develop', 'dev']);
+    });
+
+    it('detectMainBranch prefers "main"', () => {
+      expect(service.detectMainBranch(['develop', 'main', 'feature/x'])).toBe('main');
+    });
+
+    it('detectMainBranch falls back to "master" when no "main" exists', () => {
+      expect(service.detectMainBranch(['develop', 'master', 'feature/x'])).toBe('master');
+    });
+  });
+
+  describe('createBranch() name validation', () => {
+    const allowExistingBranchCheckout = (branchName: string) => {
+      mockGit.status = jest.fn().mockResolvedValue({ current: 'develop' });
+      mockGit.branch = jest.fn().mockResolvedValue({ all: [branchName] });
+      mockGit.checkout = jest.fn().mockResolvedValue(undefined);
+    };
+
+    it('rejects a name containing spaces with a specific reason', async () => {
+      await expect(service.createBranch('git checkout -b fix/WBP-4015__reviews-feed')).rejects.toThrow(
+        InvalidBranchNameError
+      );
+      await expect(service.createBranch('git checkout -b fix/WBP-4015__reviews-feed')).rejects.toThrow(
+        'Branch names cannot contain spaces'
+      );
+    });
+
+    it('rejects a shape-invalid name naming every accepted pattern', async () => {
+      await expect(service.createBranch('fix/nested/name')).rejects.toThrow(
+        'Branch names should follow pattern: feature/name, WBP-1234__feature-name, or simple-name'
+      );
+    });
+
+    it('accepts a type/KEY__description branch name', async () => {
+      allowExistingBranchCheckout('fix/WBP-4015__reviews-feed');
+
+      await service.createBranch('fix/WBP-4015__reviews-feed');
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('fix/WBP-4015__reviews-feed');
+    });
+
+    it('trims surrounding whitespace before validating and creating', async () => {
+      allowExistingBranchCheckout('fix/WBP-4015__reviews-feed');
+
+      await service.createBranch('  fix/WBP-4015__reviews-feed  ');
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('fix/WBP-4015__reviews-feed');
+    });
+
+    it('honors a configured git.branchNamePattern over the built-in patterns', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '^[A-Za-z]+\\/[\\w-]+$' : undefined
+      );
+      allowExistingBranchCheckout('Feat/checkout-totals');
+
+      await service.createBranch('Feat/checkout-totals');
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('Feat/checkout-totals');
+    });
+
+    it('rejects a name that misses the configured pattern and names that pattern', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '^team\\/[a-z-]+$' : undefined
+      );
+
+      await expect(service.createBranch('fix/checkout-totals')).rejects.toThrow(
+        'Branch names should follow pattern: ^team\\/[a-z-]+$'
+      );
+    });
+
+    it('still enforces git ref conventions when the configured pattern is permissive', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '.+' : undefined
+      );
+
+      await expect(service.createBranch('fix/a..b')).rejects.toThrow('Branch names cannot contain ".."');
+    });
+
+    it('honors a --branch-name-pattern override over the configured pattern', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '^team\\/[a-z-]+$' : undefined
+      );
+      allowExistingBranchCheckout('fix/checkout-totals');
+
+      await service.createBranch('fix/checkout-totals', { patternOverride: '^[a-z]+\\/[\\w-]+$' });
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('fix/checkout-totals');
+    });
+
+    it('rejects a name that misses the override pattern and names that pattern', async () => {
+      await expect(
+        service.createBranch('fix/checkout-totals', { patternOverride: '^team\\/[a-z-]+$' })
+      ).rejects.toThrow('Branch names should follow pattern: ^team\\/[a-z-]+$');
+    });
+
+    it('warns and falls back to the configured pattern when the override regex is invalid', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '^team\\/[a-z-]+$' : undefined
+      );
+      allowExistingBranchCheckout('team/checkout-totals');
+
+      await service.createBranch('team/checkout-totals', { patternOverride: '[' });
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('team/checkout-totals');
+      expect(loggerService.warn).toHaveBeenCalledWith(expect.stringContaining('--branch-name-pattern'));
+    });
+
+    it('warns and falls back to built-in patterns when the configured pattern is invalid regex', async () => {
+      (configService.get as jest.Mock).mockImplementation((key: string) =>
+        key === 'git.branchNamePattern' ? '[' : undefined
+      );
+      allowExistingBranchCheckout('fix/WBP-4015__reviews-feed');
+
+      await service.createBranch('fix/WBP-4015__reviews-feed');
+
+      expect(mockGit.checkout).toHaveBeenCalledWith('fix/WBP-4015__reviews-feed');
+      expect(loggerService.warn).toHaveBeenCalledWith(expect.stringContaining('git.branchNamePattern'));
+    });
   });
 
   describe('push() protected branch guard', () => {

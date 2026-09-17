@@ -1,5 +1,21 @@
 import { z } from 'zod';
 
+/**
+ * Predicate for Zod refines on regex-valued config fields: true when `pattern`
+ * compiles as a regular expression.
+ *
+ * @param pattern - Candidate regex source
+ * @returns True when the pattern compiles
+ */
+export const isValidRegexPattern = (pattern: string): boolean => {
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const wfAiProviderNameSchema = z.enum(['anthropic', 'openai', 'google', 'deepseek']);
 
 export const wfBackendModeSchema = z.enum(['agent', 'cli', 'standard']);
@@ -117,7 +133,10 @@ export const wfConfigSchema = z.object({
   git: z
     .object({
       commitFormat: z.enum(['conventional', 'freeform', 'auto']).optional(),
-      branchNamePattern: z.string().optional(),
+      branchNamePattern: z
+        .string()
+        .refine(isValidRegexPattern, { message: 'must be a valid regular expression' })
+        .optional(),
       branchPrefixMapping: z
         .object({
           feature: z.string().optional(),

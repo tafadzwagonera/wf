@@ -27,6 +27,7 @@ export {
   ExecutionError,
   JiraApiError,
   GitError,
+  InvalidBranchNameError,
   AiProviderError,
   isAiProviderErrorLike,
   StateError,

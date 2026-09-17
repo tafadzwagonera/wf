@@ -1,9 +1,26 @@
 import {
   normalizedImplementStageConfigSchema,
+  wfConfigSchema,
   wfImplementStageConfigSchema,
   wfReviewStageConfigSchema,
   normalizedReviewStageConfigSchema,
 } from './config.schema';
+
+describe('wfConfigSchema git.branchNamePattern', () => {
+  it('accepts a valid regex pattern', () => {
+    expect(() => wfConfigSchema.parse({ git: { branchNamePattern: '^team\\/[a-z-]+$' } })).not.toThrow();
+  });
+
+  it('accepts an absent pattern', () => {
+    expect(() => wfConfigSchema.parse({ git: {} })).not.toThrow();
+  });
+
+  it('rejects an invalid regex pattern with a clear message', () => {
+    expect(() => wfConfigSchema.parse({ git: { branchNamePattern: '[' } })).toThrow(
+      'must be a valid regular expression'
+    );
+  });
+});
 
 describe('wfImplementStageConfigSchema planStepVerification', () => {
   afterEach(() => jest.restoreAllMocks());
