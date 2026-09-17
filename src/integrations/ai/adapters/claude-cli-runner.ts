@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
+import { registerSigintHandler } from '../../../shared/utils/sigint-registry';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import {
   buildRunId,
@@ -501,18 +502,15 @@ const assertCliProducedOutput = (session: CliSession): void => {
 const installSigintHandler = (
   killChild: (reason: CliKillReason) => void,
   rl: ReturnType<typeof createInterface>
-): () => void => {
-  const onSigint = () => {
+): () => void =>
+  registerSigintHandler(() => {
     killChild('sigint');
     rl.close();
-  };
-  process.on('SIGINT', onSigint);
-  return onSigint;
-};
+  });
 
 async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessage, CliSession, undefined> {
   const { rl, killChild, tm } = session;
-  const onSigint = installSigintHandler(killChild, rl);
+  const disposeSigint = installSigintHandler(killChild, rl);
   try {
     for await (const message of parseLineMessages(rl)) {
       session.messageCount += 1;
@@ -520,7 +518,7 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
       if (!isSystemChatter(message)) tm.resetInactivity();
     }
   } finally {
-    teardownCliStream(session, onSigint);
+    teardownCliStream(session, disposeSigint);
   }
   return session;
 }
@@ -531,10 +529,10 @@ async function* runCliStream(session: CliSession): AsyncGenerator<ClaudeCliMessa
  * timeout kill, a consumer `break`, and a downstream throw unwinding the generator.
  *
  * @param session - The completed CLI session
- * @param onSigint - The SIGINT handler to detach
+ * @param disposeSigint - Disposer that unregisters the run's SIGINT handler
  */
-const teardownCliStream = (session: CliSession, onSigint: () => void): void => {
-  process.off('SIGINT', onSigint);
+const teardownCliStream = (session: CliSession, disposeSigint: () => void): void => {
+  disposeSigint();
   cleanupCliStream(session.tm, session.rl, session.killChild);
   finalizeCliRun(session);
 };

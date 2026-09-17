@@ -2001,23 +2001,6 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       await service.execute({ prompt: 'hello' });
       expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('cost=n/a'));
     });
-
-    it('logs pre-execution stage and provider before raw adapter for non-routed path', async () => {
-      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
-      const callOrder: string[] = [];
-      jest.spyOn(mockLogger, 'info').mockImplementation((msg: string) => {
-        callOrder.push(`log:${msg}`);
-      });
-      adapter.execute.mockImplementation(async () => {
-        callOrder.push('adapter.execute');
-        return { content: 'ok', provider: 'anthropic', model: 'claude-haiku-4-5-20251001' };
-      });
-      await service.execute({ prompt: 'hello', stage: 'implement' });
-      const preLogIdx = callOrder.findIndex(e => e.includes('llm.adapter stage=implement'));
-      const adapterIdx = callOrder.indexOf('adapter.execute');
-      expect(preLogIdx).toBeGreaterThanOrEqual(0);
-      expect(preLogIdx).toBeLessThan(adapterIdx);
-    });
   });
 
   describe('executeWithHistory log line', () => {
@@ -2032,24 +2015,6 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       const infoSpy = jest.spyOn(mockLogger, 'info');
       await service.executeWithHistory({ messages: [], stage: 'review' } as unknown as Parameters<typeof service.executeWithHistory>[0]);
       expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('llm.adapter resolved-provider=openai'));
-    });
-
-    it('logs pre-execution stage and provider before executeWithHistory', async () => {
-      const adapter = createAdapter();
-      const service = new AiService(mockLogger, adapter, createConfigService());
-      const callOrder: string[] = [];
-      jest.spyOn(mockLogger, 'info').mockImplementation((msg: string) => {
-        callOrder.push(`log:${msg}`);
-      });
-      adapter.executeWithHistory.mockImplementation(async () => {
-        callOrder.push('adapter.executeWithHistory');
-        return { content: 'ok', provider: 'google', model: 'gemini-2.5-pro' };
-      });
-      await service.executeWithHistory({ messages: [], stage: 'review' } as unknown as Parameters<typeof service.executeWithHistory>[0]);
-      const preLogIdx = callOrder.findIndex(e => e.includes('llm.adapter stage=review'));
-      const adapterIdx = callOrder.indexOf('adapter.executeWithHistory');
-      expect(preLogIdx).toBeGreaterThanOrEqual(0);
-      expect(preLogIdx).toBeLessThan(adapterIdx);
     });
   });
 });

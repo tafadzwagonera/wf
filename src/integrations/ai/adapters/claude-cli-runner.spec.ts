@@ -659,6 +659,33 @@ describe('claude-cli-runner', () => {
       expect(listenersAfter).toBe(listenersBefore);
     });
 
+    it('shares a single process SIGINT listener across concurrent streams', async () => {
+      const children: ReturnType<typeof createMockChildProcess>[] = [];
+      mockSpawn.mockImplementation(() => {
+        const child = createMockChildProcess();
+        children.push(child);
+        return child as any;
+      });
+
+      const listenersBefore = process.listenerCount('SIGINT');
+
+      const consumers = Array.from({ length: 12 }, () => spawnCli(['-p'], '/repo', 'hello')).map(gen =>
+        (async () => {
+          const messages: unknown[] = [];
+          for await (const msg of gen) messages.push(msg);
+          return messages;
+        })()
+      );
+
+      await new Promise(resolve => setImmediate(resolve));
+      expect(process.listenerCount('SIGINT')).toBe(listenersBefore + 1);
+
+      for (const child of children) child.stdout.push(null);
+      await Promise.all(consumers);
+
+      expect(process.listenerCount('SIGINT')).toBe(listenersBefore);
+    });
+
     it('kills child process when SIGINT fires during stream', async () => {
       const child = createMockChildProcess();
       mockSpawn.mockReturnValue(child as any);

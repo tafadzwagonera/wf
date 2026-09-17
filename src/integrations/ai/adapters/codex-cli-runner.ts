@@ -2,6 +2,7 @@ import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
+import { registerSigintHandler } from '../../../shared/utils/sigint-registry';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import { parseNdjsonLine } from './claude-cli-runner';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
@@ -340,31 +341,28 @@ async function* readCodexLines(
   }
 }
 
-const installCodexSigintHandler = (child: ChildProcess, rl: ReturnType<typeof createInterface>): () => void => {
-  const onSigint = () => {
+const installCodexSigintHandler = (child: ChildProcess, rl: ReturnType<typeof createInterface>): () => void =>
+  registerSigintHandler(() => {
     signalProcessTree(child, 'SIGINT');
     rl.close();
-  };
-  process.on('SIGINT', onSigint);
-  return onSigint;
-};
+  });
 
 const cleanupCodexSession = (
-  onSigint: () => void, ctrl: KillController, rl: ReturnType<typeof createInterface>,
+  disposeSigint: () => void, ctrl: KillController, rl: ReturnType<typeof createInterface>,
 ): void => {
-  process.off('SIGINT', onSigint);
+  disposeSigint();
   if (ctrl.timeoutHandle) clearTimeout(ctrl.timeoutHandle);
   rl.close();
   ctrl.kill();
 };
 
 async function* runCodexStream(
-  session: CodexSession, onSigint: () => void,
+  session: CodexSession, disposeSigint: () => void,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   try {
     yield* readCodexLines(session.rl, session.yieldedRef, session.ctrl.resetInactivity);
   } finally {
-    cleanupCodexSession(onSigint, session.ctrl, session.rl);
+    cleanupCodexSession(disposeSigint, session.ctrl, session.rl);
   }
 }
 

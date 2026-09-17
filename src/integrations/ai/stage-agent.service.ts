@@ -1226,15 +1226,8 @@ export class StageAgentService {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private logStageTarget(stage: AgentStageName): void {
-    const provider = this.resolveStageProvider(stage);
-    const model = this.resolveStageModel(stage);
-    console.log(chalk.blue(`ℹ llm.adapter stage=${stage} resolved-provider=${provider} resolved-model=${model}`));
-  }
-
   private async dispatchToBackend(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const backend = this.resolveStageBackend(params.stage);
-    this.logStageTarget(params.stage);
     if (backend === 'cli') return this.dispatchCliStagePrompt(params);
     const enriched = { ...params, prompt: appendAgentSdkScreenshotPaths(params.prompt, params.screenshots) };
     const provider = this.resolveStageProvider(params.stage);
@@ -1349,7 +1342,6 @@ export class StageAgentService {
 
   async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
     const backend = this.resolveStageBackend(params.stage);
-    this.logStageTarget(params.stage);
     if (backend === 'cli') return this.cliChatTurn(params);
     const provider = this.resolveStageProvider(params.stage);
     if (provider === 'anthropic') return this.anthropicChatTurn(params);
