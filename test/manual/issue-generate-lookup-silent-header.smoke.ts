@@ -54,10 +54,10 @@ async function main(): Promise<void> {
 
     const silent = runCli(['issue:generate:lookup', '1a2b3c4d', '--silent'], scratchDir);
 
-    if (!silent.includes('Lookup the original source list') && !silent.includes('Examples:')) {
-      pass('--silent suppresses the summary and Examples: section');
-    } else {
+    if (silent.includes('Lookup the original source list') || silent.includes('Examples:')) {
       fail('--silent did not suppress the header', silent.slice(0, 300));
+    } else {
+      pass('--silent suppresses the summary and Examples: section');
     }
 
     if (silent.includes('No generated artifacts found under')) {

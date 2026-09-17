@@ -169,8 +169,7 @@ describe('buildVerificationFixPrompt', () => {
       ['src/foo.ts', 'src/bar.ts'],
     );
     expect(result).toContain('Only modify files within this task');
-    expect(result).toContain('src/foo.ts');
-    expect(result).toContain('src/bar.ts');
+    expect(result).toContain("\n\nOnly modify files within this task's scope:\nsrc/foo.ts\nsrc/bar.ts");
     expect(result).toContain('pre-existing issue unrelated to this task');
   });
 
@@ -179,6 +178,7 @@ describe('buildVerificationFixPrompt', () => {
       [createMockOutcome({ status: 'failed' })],
       [],
     );
+    expect(result).toBe(buildVerificationFixPrompt([createMockOutcome({ status: 'failed' })]));
     expect(result).not.toContain('Only modify files within this task');
   });
 });

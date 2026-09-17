@@ -97,6 +97,8 @@ async function main(): Promise<void> {
     fs.mkdirSync(distDir, { recursive: true });
     fs.writeFileSync(path.join(distDir, 'index.js'), '"use strict";\n');
 
+    fs.writeFileSync(path.join(dir1, '.gitignore'), 'node_modules/\n');
+
     await gitService.commit({
       message: 'test: auto-stage scenario',
       cwd: dir1,
@@ -129,6 +131,12 @@ async function main(): Promise<void> {
       fail('dist/ build output leaked into commit', files1);
     } else {
       pass('dist/ build output was NOT committed');
+    }
+
+    if (files1.includes('.gitignore')) {
+      fail('.gitignore leaked into auto-staged commit', files1);
+    } else {
+      pass('.gitignore was NOT auto-staged or committed');
     }
 
     // ── Scenario 2: pre-staged files are used as-is ────────────────────────

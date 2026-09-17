@@ -81,10 +81,10 @@ async function main(): Promise<void> {
     fail('expected cause=ECONN timed out in log', log.slice(0, 600));
   }
 
-  if (!log.includes('assessor-returned-invalid-json')) {
-    pass('exhaustion log does not contain the old hardcoded invalid-json label');
-  } else {
+  if (log.includes('assessor-returned-invalid-json')) {
     fail('log unexpectedly contains the old assessor-returned-invalid-json label', log.slice(0, 600));
+  } else {
+    pass('exhaustion log does not contain the old hardcoded invalid-json label');
   }
 
   if (outcome.summary === undefined) {

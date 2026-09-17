@@ -72,6 +72,12 @@ async function main(): Promise<void> {
     fail('issue:commit --help does NOT show -k, --ticket-key', help.slice(0, 300));
   }
 
+  if (help.includes('-c, --conventional')) {
+    pass('issue:commit --help shows -c, --conventional');
+  } else {
+    fail('issue:commit --help does NOT show -c, --conventional', help.slice(0, 300));
+  }
+
   // Test 2: --help no longer shows [ticket-key] positional
   console.log(' Test 2: --help no longer shows [ticket-key] positional');
   if (help.includes('[ticket-key]')) {
@@ -91,10 +97,10 @@ async function main(): Promise<void> {
     const err = errCap.restore();
     logCap.restore();
 
-    if (!err.includes('Error') && !err.includes('error')) {
-      pass('Dry-run with --ticket-key accepted without errors');
-    } else {
+    if (err.includes('Error') || err.includes('error')) {
       fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
+    } else {
+      pass('Dry-run with --ticket-key accepted without errors');
     }
 
     await app.close();

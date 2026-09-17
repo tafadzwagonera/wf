@@ -299,6 +299,12 @@ describe('AnthropicAgentAdapter', () => {
       expect(formatProgressMessage(message)).toBe('  [claude-agent-sdk] Tool progress: Write (2.4s) · task: task-1');
     });
 
+    it('renders a custom label instead of the default claude-agent-sdk label', () => {
+      const message = { type: 'rate_limit_event' } as SDKMessage;
+
+      expect(formatProgressMessage(message, 'claude-cli')).toBe('  [claude-cli] Rate limit: updated');
+    });
+
     it('formats api_retry with HTTP status and backoff delay', () => {
       expect(formatProgressMessage(makeApiRetryMessage())).toBe(
         '  [claude-agent-sdk] API retry: attempt 1/3 after HTTP 529 (2000ms backoff)'

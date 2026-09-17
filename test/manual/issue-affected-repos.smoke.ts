@@ -177,10 +177,10 @@ async function main(): Promise<void> {
         })
       );
       const commanderRequiredError = output.includes('required option') && output.includes('--repos');
-      if (!commanderRequiredError && output.includes('STAGE 3: Implementation Guide')) {
-        pass('Empty --repos still runs IMPLEMENT without a required-option error');
-      } else {
+      if (commanderRequiredError || !output.includes('STAGE 3: Implementation Guide')) {
         fail(`Test 2: expected IMPLEMENT output without a required-option error. Output:\n${output}`);
+      } else {
+        pass('Empty --repos still runs IMPLEMENT without a required-option error');
       }
     } finally {
       process.chdir(originalCwd);
@@ -215,10 +215,10 @@ async function main(): Promise<void> {
         })
       );
       const hasMultiRepoError = output.includes('issue:implement only verifies a single repository');
-      if (!hasMultiRepoError && output.includes('STAGE 3: Implementation Guide')) {
-        pass('Multi-repo issue orchestration proceeds without the single-repo boundary error');
-      } else {
+      if (hasMultiRepoError || !output.includes('STAGE 3: Implementation Guide')) {
         fail(`Test 3: expected IMPLEMENT to run for each repo without a single-repo error. Output:\n${output}`);
+      } else {
+        pass('Multi-repo issue orchestration proceeds without the single-repo boundary error');
       }
     } finally {
       process.chdir(originalCwd);

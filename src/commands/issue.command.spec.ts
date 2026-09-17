@@ -358,6 +358,20 @@ describe('IssueCommand', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('requires --from when only a ticket key is provided', async () => {
+    const command = await buildCommand();
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await command.run([], { ticketKey: 'WBP-1000', action: 'fix' } as any);
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(consoleErrorSpy.mock.calls.map(call => call.join(' ')).join('\n')).toContain('--from option is required');
+
+    exitSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('defaults --from to implement when a plan token is provided', async () => {
     const command = await buildCommand();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);

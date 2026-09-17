@@ -86,10 +86,10 @@ async function main(): Promise<void> {
     const lowerOutput = output.toLowerCase();
 
     // 1. No empty-diff error
-    if (!lowerOutput.includes('git diff is empty') && !lowerOutput.includes('no changes to analyze')) {
-      pass('Commit message does not contain empty-diff error text');
-    } else {
+    if (lowerOutput.includes('git diff is empty') || lowerOutput.includes('no changes to analyze')) {
       fail('Commit message contains empty-diff error text', output.slice(0, 200));
+    } else {
+      pass('Commit message does not contain empty-diff error text');
     }
 
     // 2. Ticket key prefix

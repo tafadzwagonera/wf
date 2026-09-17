@@ -181,10 +181,10 @@ async function main(): Promise<void> {
       pass('command exits non-zero');
     }
 
-    if (!output.includes('Codex CLI failed: thread not found') && !/at Object|at Module|node:internal/.test(output)) {
-      pass('output is a clean diagnostic, not a raw stack trace');
-    } else {
+    if (output.includes('Codex CLI failed: thread not found') || /at Object|at Module|node:internal/.test(output)) {
       fail('output should not surface a raw resume-failure stack trace', output);
+    } else {
+      pass('output is a clean diagnostic, not a raw stack trace');
     }
 
     if (invocations.length === 2) {

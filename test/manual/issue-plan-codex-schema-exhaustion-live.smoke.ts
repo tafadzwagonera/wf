@@ -222,10 +222,10 @@ async function main(): Promise<void> {
       pass('no plan artifact was written');
     }
 
-    if (!/\b429\b/.test(output) && !output.includes('workload not decreasing')) {
-      pass('final output is not a 429 or a stall/"workload not decreasing" message');
-    } else {
+    if (/\b429\b/.test(output) || output.includes('workload not decreasing')) {
       fail('final output unexpectedly looks like a 429 or stall failure', output);
+    } else {
+      pass('final output is not a 429 or a stall/"workload not decreasing" message');
     }
 
     if (output.includes('ConfigurationError') || output.includes('not initialized')) {

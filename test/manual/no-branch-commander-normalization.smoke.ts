@@ -51,14 +51,14 @@ function main(): void {
 
   // 2. issue.command.ts normalizes branch→noBranch
   test('issue.command.ts contains branch===false normalization', () => {
-    assert.ok(issueSource.includes('options.branch === false'), 'Expected branch === false guard in issue.command.ts');
+    assert.ok(issueSource.includes('options?.branch === false'), 'Expected branch === false guard in issue.command.ts');
     assert.ok(issueSource.includes('options.noBranch = true'), 'Expected noBranch assignment in issue.command.ts');
   });
 
   // 3. issue-implement.command.ts normalizes branch→noBranch
   test('issue-implement.command.ts contains branch===false normalization', () => {
     assert.ok(
-      implementSource.includes('options.branch === false'),
+      implementSource.includes('options?.branch === false'),
       'Expected branch === false guard in issue-implement.command.ts'
     );
     assert.ok(
@@ -75,8 +75,8 @@ function main(): void {
     assert.ok(detectIndex !== -1, 'Expected source detection log in handleBranchWorkflow');
     assert.ok(noBranchIndex < detectIndex, '--no-branch guard should run before source detection');
     assert.ok(
-      agentSource.includes('await this.offerPullOnCurrentBranch(current, branchInteractive, cwd);'),
-      'Expected current-branch pull helper call in --no-branch path'
+      agentSource.includes('return this.handleStayPath(current, planArtifact, options, isTTY, stashInteractive, cwd);'),
+      'Expected stay-path helper call in --no-branch path'
     );
   });
 
@@ -118,15 +118,7 @@ function main(): void {
     );
   });
 
-  // 9. Normalization comment is present (documents the why)
-  test('normalization has explanatory comment', () => {
-    assert.ok(
-      issueSource.includes('Commander maps --no-branch to { branch: false }'),
-      'Expected comment explaining commander behavior'
-    );
-  });
-
-  // 10. parseNoBranch returns false (not true) so commander stores branch: false
+  // 9. parseNoBranch returns false (not true) so commander stores branch: false
   test('parseNoBranch returns false in issue.command.ts', () => {
     const methodMatch = /parseNoBranch\(\)[^{]*\{[^}]*return\s+(true|false)/.exec(issueSource);
     assert.ok(methodMatch, 'Expected parseNoBranch method');

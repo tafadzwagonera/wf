@@ -326,6 +326,29 @@ describe('IssueGenerateCommand', () => {
       );
     });
 
+    it('instructs the model to render every required ticket template section', async () => {
+      const { command } = await buildCommand();
+
+      const prompt = (command as any).buildSynthesisPrompt([
+        {
+          type: 'file',
+          source: './notes.md',
+          content: 'Short notes that require synthesis',
+        },
+      ]);
+
+      const requiredSections = [
+        '### Summary',
+        '#### Technical Details',
+        '### Acceptance Criteria',
+        '### Risks & Assumptions',
+        '#### Out of Scope',
+      ];
+      for (const section of requiredSections) {
+        expect(prompt).toContain(section);
+      }
+    });
+
     it('instructs the model to use fenced code blocks and hyphen bullets only', async () => {
       const { command } = await buildCommand();
 
@@ -1383,6 +1406,7 @@ describe('IssueGenerateCommand', () => {
       // Synthesis call should include user clarifications in its prompt
       const synthesisCall = mockAiService.execute.mock.calls[1];
       expect(synthesisCall[0].prompt).toContain('user-clarifications');
+      expect(synthesisCall[0].prompt).toContain('Web only');
     });
 
     it('skips clarification when AI identifies no ambiguities', async () => {

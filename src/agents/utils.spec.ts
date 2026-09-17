@@ -108,6 +108,10 @@ describe('slugify', () => {
 });
 
 describe('truncateSlug', () => {
+  it('caps branch names at 100 characters', () => {
+    expect(MAX_BRANCH_NAME_LENGTH).toBe(100);
+  });
+
   it('returns slug unchanged when within limit', () => {
     const slug = 'short-slug';
     expect(truncateSlug(slug, 10)).toBe('short-slug');

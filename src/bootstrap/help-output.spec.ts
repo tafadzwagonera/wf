@@ -86,6 +86,7 @@ describe('getHelpText', () => {
     expect(helpText).toContain('<bold-cyan>Usage:</bold-cyan> <cyan>wf</cyan> issue:commit [options]');
     expect(helpText).not.toContain('--no-ai');
     expect(helpText).toContain('--ticket-key <key>');
+    expect(helpText).toContain('-c, --conventional');
     expect(helpText).not.toContain('[ticket-key]');
   });
 

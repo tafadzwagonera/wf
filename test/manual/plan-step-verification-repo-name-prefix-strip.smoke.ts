@@ -66,10 +66,10 @@ async function main(): Promise<void> {
     fail('expected assessor prompt to contain src/index.ts', capturedPrompt.slice(0, 300));
   }
 
-  if (!capturedPrompt.includes('shop-v1.1/src/index.ts')) {
-    pass('assessor prompt does not contain the workspace-prefixed spelling (shop-v1.1/src/index.ts)');
-  } else {
+  if (capturedPrompt.includes('shop-v1.1/src/index.ts')) {
     fail('expected assessor prompt not to contain shop-v1.1/src/index.ts', capturedPrompt.slice(0, 300));
+  } else {
+    pass('assessor prompt does not contain the workspace-prefixed spelling (shop-v1.1/src/index.ts)');
   }
 
   if (outcome.summary?.pending === 0) {
