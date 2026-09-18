@@ -57,6 +57,7 @@ interface IssueReviewOptions {
   silent?: boolean;
   sessionId?: string;
   sonar?: boolean;
+  sonarOnly?: boolean;
   figma?: string[];
   skipVerification?: boolean;
   estimatedComplexity?: string;
@@ -136,6 +137,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
+    + 'Use `--sonar-only` to run only the SonarQube scan for local repositories; it skips AI review, verification, Figma, comments, and chat, prints findings directly, exits 0 for clean or finding-bearing scans, and propagates scan/setup failures through the normal error handler. '
     + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact. '
     + 'Runs a Figma design-conformance check when `stages.review.figma` is `true` or `--figma` is passed; Figma frame links captured from the ticket description during `issue:plan` are stored in the plan manifest and re-read at review time to fetch design context via the Figma REST API, injecting frame name, dimensions, and screenshot URL into the review prompt so the reviewer model can evaluate visual conformance against the original frames. If all frame fetches fail despite valid links being present, a WARN is written to the on-disk agent log to distinguish network or token failures from the links-absent case. '
     + 'When `--ui-design-screenshots` was passed to `issue:plan` or `issue`, the resolved screenshot paths are stored in the plan artifact; at review time those paths are re-read, the images are base64-encoded, and the encoded screenshots are injected into the review prompt as multimodal content so the reviewer can check UI conformance against the original design files. '
@@ -185,10 +187,34 @@ export class IssueReviewCommand extends CommandRunner {
     const extraCriteria: string[] | null = criteriaPath ? loadCriteriaFromFile(criteriaPath) : null;
 
     if (runtimeOptions?.dryRun) {
+      if (runtimeOptions.sonarOnly) {
+        return this.previewSonarOnlyDryRun(repoInputs, runtimeOptions);
+      }
       return this.previewReviewDryRun(source, repoInputs, runtimeOptions);
     }
 
+    if (runtimeOptions?.sonarOnly) {
+      return this.runSonarOnly(repoInputs, runtimeOptions);
+    }
+
     await this.runLiveReview(source, repoInputs, extraCriteria, runtimeOptions);
+  }
+
+  private previewSonarOnlyDryRun(repoInputs: string[], options: IssueReviewOptions): void {
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    this.dryRunPreview.showHeader('issue:review', 'sonar-only (' + this.formatRepoScope(repoDirs) + ')');
+    for (const repoDir of repoDirs) {
+      console.log(chalk.gray('   Would run SonarQube CLI scan in: ' + repoDir));
+    }
+    if (options.output) {
+      const baseDir = this.resolveOutputBaseDir(!!options.ticketKey, repoInputs);
+      const outputPath = this.resolveOutputPath(options.output, baseDir);
+      this.dryRunPreview.previewFileWrite({
+        filePath: outputPath, operation: 'create', sizeEstimate: '2–5 KB', format: 'text',
+        contentPreview: 'SonarQube findings text',
+      });
+    }
+    this.dryRunPreview.showValidationResult();
   }
 
   private previewReviewDryRun(
@@ -695,6 +721,69 @@ export class IssueReviewCommand extends CommandRunner {
     }
   }
 
+  private async runSonarOnly(repoInputs: string[], options: IssueReviewOptions): Promise<void> {
+    const repoDirs = this.resolveLocalReviewRepoDirs(repoInputs);
+    const sections: string[] = [];
+    for (const repoDir of repoDirs) {
+      const result = await this.scanSonarOnlyRepo(repoDir, options);
+      sections.push(this.buildSonarOnlySection(repoDir, result, repoDirs.length > 1));
+      this.printSonarOnlyResult(repoDir, result, repoDirs.length > 1, options.silent);
+    }
+    this.saveSonarOnlyOutput(sections, repoInputs, options);
+  }
+
+  private async scanSonarOnlyRepo(repoDir: string, options: IssueReviewOptions): Promise<SonarScanResult> {
+    await initializeWfConfig(repoDir);
+    const result = await this.sonarStageService.scanIfEnabled({
+      repoDir,
+      force: true,
+      ticketKey: options.ticketKey,
+      providerSessionId: options.sessionId,
+      trackerName: this.resolveTrackerNameSafely(options.tracker),
+      allowPrompt: true,
+      onProgress: options.silent ? undefined : line => console.log(chalk.gray(line)),
+    });
+    if (!result) {
+      throw new ExecutionError('SonarQube scan did not run even though --sonar-only forces the scan.');
+    }
+    return result;
+  }
+
+  private buildSonarOnlySection(repoDir: string, result: SonarScanResult, multipleRepos: boolean): string {
+    const repoName = path.basename(repoDir);
+    const heading = multipleRepos ? '## Repository: ' + repoName + '\n\n' : '';
+    return result.status === 'findings'
+      ? heading + (result.findingsText ?? '')
+      : heading + 'SonarQube scan completed cleanly for ' + repoName + '.';
+  }
+
+  private printSonarOnlyResult(
+    repoDir: string, result: SonarScanResult, multipleRepos: boolean, silent?: boolean
+  ): void {
+    if (silent && result.status === 'findings') {
+      console.log(result.findingsText ?? '');
+      return;
+    }
+    if (silent) return;
+    console.log(result.status === 'findings'
+      ? chalk.yellow(this.buildSonarOnlySection(repoDir, result, multipleRepos))
+      : this.buildSonarOnlySection(repoDir, result, multipleRepos));
+  }
+
+  private saveSonarOnlyOutput(
+    sections: string[], repoInputs: string[], options: IssueReviewOptions
+  ): void {
+    if (!options.output) return;
+    const baseDir = this.resolveOutputBaseDir(!!options.ticketKey, repoInputs);
+    const outputPath = this.resolveOutputPath(options.output, baseDir);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, sections.join('\n\n'));
+    const msg = options.silent
+      ? outputPath
+      : chalk.green('\n✔ SonarQube findings saved to: ' + outputPath + '\n');
+    console.log(msg);
+  }
+
   private async resolveFigmaResultForTarget(
     target: ReviewTarget, options?: IssueReviewOptions, onProgress?: (line: string) => void
   ): Promise<FigmaResolveResult | undefined> {
@@ -880,6 +969,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--sonar-only',
+    description: 'Run only the SonarQube CLI scan (implies --sonar) and exit; skips AI review, verification, Figma, comments, and chat. Findings print and exit 0; scan or setup failures exit 1.',
+  })
+  parseSonarOnly(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--figma [urls...]',
     description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`.',
   })
@@ -913,8 +1010,23 @@ export class IssueReviewCommand extends CommandRunner {
         `Directory paths are not accepted as review sources. Use a PR URL or --ticket-key instead.`
       );
     }
+    if (options?.sonarOnly) this.validateSonarOnlyInputs(source, options);
     if (options?.criteria && options?.replaceCriteria) {
       throw new ValidationError('Cannot use --criteria and --replace-criteria together. Use one or the other.');
+    }
+  }
+
+  private validateSonarOnlyInputs(source: string | undefined, options: IssueReviewOptions): void {
+    if (source) {
+      throw new ValidationError('--sonar-only scans local repositories only; PR URLs are not supported');
+    }
+    const conflicts: string[] = [];
+    if (options.comment) conflicts.push('--comment');
+    if (options.figma !== undefined) conflicts.push('--figma');
+    if (options.criteria) conflicts.push('--criteria');
+    if (options.replaceCriteria) conflicts.push('--replace-criteria');
+    if (conflicts.length > 0) {
+      throw new ValidationError('--sonar-only cannot be combined with ' + conflicts.join(', '));
     }
   }
 

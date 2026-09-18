@@ -491,6 +491,97 @@ describe('IssueReviewCommand', () => {
     });
   });
 
+  describe('--sonar-only', () => {
+    it('parses the flag as true', async () => {
+      const { command } = await buildCommand();
+      expect(command.parseSonarOnly()).toBe(true);
+    });
+
+    it('rejects PR sources and review-only options', async () => {
+      const { command } = await buildCommand();
+      const validate = (source: string | undefined, options: any): void =>
+        (command as any).validateReviewInputs(source, { sonarOnly: true, ...options });
+
+      expect(() => validate('https://example.com/pull/1', {})).toThrow('local repositories only');
+      expect(() => validate(undefined, { comment: true })).toThrow('--comment');
+      expect(() => validate(undefined, { figma: [] })).toThrow('--figma');
+      expect(() => validate(undefined, { criteria: 'criteria.md' })).toThrow('--criteria');
+      expect(() => validate(undefined, { replaceCriteria: 'criteria.md' })).toThrow('--replace-criteria');
+      expect(() => validate(undefined, {
+        comment: true, figma: [], criteria: 'a.md', replaceCriteria: 'b.md',
+      })).toThrow('--comment, --figma, --criteria, --replace-criteria');
+    });
+
+    it('forces Sonar and skips the review pipeline', async () => {
+      const { command, reviewStageService, sonarStageService } = await buildCommand();
+      sonarStageService.scanIfEnabled.mockResolvedValue({
+        status: 'findings', findingsText: 'Rule hit', steps: [],
+      });
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      await command.run([], {
+        sonarOnly: true, ticketKey: 'TAD-575', sessionId: 'sess-123', silent: true,
+      });
+
+      expect(sonarStageService.scanIfEnabled).toHaveBeenCalledWith(expect.objectContaining({
+        force: true, ticketKey: 'TAD-575', providerSessionId: 'sess-123', allowPrompt: true,
+      }));
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledTimes(0);
+      expect(consoleLogSpy).toHaveBeenCalledWith('Rule hit');
+    });
+
+    it('creates the repo-scoped artifact directory before writing sonar-only filename output', async () => {
+      const { command, sonarStageService } = await buildCommand();
+      sonarStageService.scanIfEnabled.mockResolvedValue({
+        status: 'findings', findingsText: 'Rule hit', steps: [],
+      });
+      const mkdirSyncSpy = jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      const writeFileSyncSpy = jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+      jest.spyOn(console, 'log').mockImplementation();
+
+      await command.run([], { sonarOnly: true, output: 'sonar-findings.txt', silent: true });
+
+      const outputPath = path.join(wfHome, cwdBase, 'sonar-findings.txt');
+      expect(mkdirSyncSpy).toHaveBeenCalledWith(path.dirname(outputPath), { recursive: true });
+      expect(writeFileSyncSpy).toHaveBeenCalledWith(outputPath, expect.stringContaining('Rule hit'));
+    });
+
+    it('scans every local repository sequentially', async () => {
+      const { command, sonarStageService } = await buildCommand();
+      sonarStageService.scanIfEnabled.mockResolvedValue({ status: 'clean', steps: [] });
+
+      await command.run([], { sonarOnly: true, repos: ['a', 'b'] });
+
+      expect(sonarStageService.scanIfEnabled).toHaveBeenCalledTimes(2);
+      expect(sonarStageService.scanIfEnabled).toHaveBeenNthCalledWith(1, expect.objectContaining({ repoDir: '/mock/a' }));
+      expect(sonarStageService.scanIfEnabled).toHaveBeenNthCalledWith(2, expect.objectContaining({ repoDir: '/mock/b' }));
+    });
+
+    it('propagates scan failures to ErrorHandler without containment warning', async () => {
+      const { command, sonarStageService } = await buildCommand();
+      const sonarError = new ConfigurationError('SonarQube CLI not found.');
+      sonarStageService.scanIfEnabled.mockRejectedValue(sonarError);
+      const handleSpy = jest.spyOn(ErrorHandler, 'handle').mockImplementation(() => undefined as never);
+      const loggerWarnSpy = jest.spyOn((command as any).logger, 'warn');
+
+      await command.run([], { sonarOnly: true });
+
+      expect(handleSpy).toHaveBeenCalledWith(sonarError);
+      expect(loggerWarnSpy).toHaveBeenCalledTimes(0);
+    });
+
+    it('uses the sonar-only dry-run preview without scanning', async () => {
+      const { command, sonarStageService, dryRunPreview } = await buildCommand();
+
+      await command.run([], { sonarOnly: true, dryRun: true, output: 'sonar.txt' });
+
+      expect(dryRunPreview.showHeader).toHaveBeenCalledWith('issue:review', expect.stringContaining('sonar-only'));
+      expect(dryRunPreview.previewFileWrite).toHaveBeenCalled();
+      expect(dryRunPreview.showValidationResult).toHaveBeenCalled();
+      expect(sonarStageService.scanIfEnabled).toHaveBeenCalledTimes(0);
+    });
+  });
+
   describe('resolveFigmaResultForTarget', () => {
     it('passes overrideLinks when options.figma has URLs', async () => {
       const { command } = await buildCommand();

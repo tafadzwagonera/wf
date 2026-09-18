@@ -152,6 +152,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review --ticket-key WBP-2971 --sonar',
       },
       {
+        comment: 'Run only the SonarQube scan and save findings without invoking AI review',
+        command: 'wf issue:review --sonar-only -k WBP-2971 -o sonar-findings.txt',
+      },
+      {
         comment: 'Sonar-review a chained implement→review run, recovering the source branch from that session',
         command: 'wf issue:review --ticket-key WBP-2971 --session-id {providerSessionId} --sonar',
       },
