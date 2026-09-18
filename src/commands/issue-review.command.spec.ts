@@ -1171,7 +1171,7 @@ describe('IssueReviewCommand', () => {
       expect(dryRunPreview.previewApiCall).toHaveBeenCalledWith(
         expect.objectContaining({
           method: 'CLI',
-          endpoint: 'codex exec/resume --json --fork-session',
+          endpoint: 'codex exec/resume --json',
           platform: 'Codex CLI',
         })
       );

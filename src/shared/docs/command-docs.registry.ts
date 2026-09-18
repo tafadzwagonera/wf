@@ -61,7 +61,7 @@ export const COMMAND_DOCS = {
         command: 'wf issue:plan -k WBP-2971 --action fix --figma',
       },
       {
-        comment: 'Inject local design screenshots during planning (no-arg: scans <artifactDir>/<ticketKey>/)',
+        comment: 'Inject local design screenshots during planning (no-arg: scans ~/.wf/<repo>/<ticketKey>/)',
         command: 'wf issue:plan -k WBP-2971 --action fix --ui-design-screenshots',
       },
       {
@@ -165,7 +165,7 @@ export const COMMAND_DOCS = {
       },
       {
         comment:
-          'Resume a provider-backed review session; CLI review sessions fork the epilogue session so manual resume stays readable',
+          'Resume a provider-backed review session; CLI review sends a human-readable epilogue after parsing the JSON review',
         command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',
       },
       {

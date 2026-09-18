@@ -3,6 +3,11 @@ import { resolveUiDesignScreenshots } from './resolve-ui-design-screenshots';
 import { FileSystemError } from '../errors/app.error';
 import { appendToLogFile } from '../logger/log-file-writer';
 
+jest.mock('../../agents/utils', () => ({
+  ...jest.requireActual('../../agents/utils'),
+  resolveCustomArtifactDir: jest.fn(() => '/home/user/.wf/myrepo'),
+}));
+
 jest.mock('node:fs', () => ({
   ...jest.requireActual('node:fs'),
   readdirSync: jest.fn(),
@@ -19,6 +24,7 @@ const mockStatSync = fs.statSync as jest.MockedFunction<typeof fs.statSync>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockAppendToLogFile = appendToLogFile as jest.MockedFunction<typeof appendToLogFile>;
 
+const REPO_BASE_DIR = '/workspace/myrepo';
 const ARTIFACT_DIR = '/home/user/.wf/myrepo';
 const IDENTIFIER = 'ABC-123';
 
@@ -27,10 +33,10 @@ afterEach(() => {
 });
 
 describe('resolveUiDesignScreenshots no-arg mode', () => {
-  it('scans artifactDir/identifier and returns valid-extension absolute paths', () => {
+  it('scans the repo custom artifact directory and returns valid-extension absolute paths', () => {
     mockReaddirSync.mockReturnValue(['a.png', 'b.jpg', 'skip.txt'] as any);
 
-    const result = resolveUiDesignScreenshots([], ARTIFACT_DIR, IDENTIFIER);
+    const result = resolveUiDesignScreenshots([], REPO_BASE_DIR, IDENTIFIER);
 
     expect(result).toEqual([
       path.join(ARTIFACT_DIR, IDENTIFIER, 'a.png'),
@@ -43,7 +49,7 @@ describe('resolveUiDesignScreenshots no-arg mode', () => {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
 
-    const result = resolveUiDesignScreenshots([], ARTIFACT_DIR, IDENTIFIER);
+    const result = resolveUiDesignScreenshots([], REPO_BASE_DIR, IDENTIFIER);
 
     expect(result).toEqual([]);
     expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining(IDENTIFIER), expect.any(String));
@@ -55,9 +61,9 @@ describe('resolveUiDesignScreenshots single-directory mode', () => {
     mockStatSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
     mockReaddirSync.mockReturnValue(['c.webp', 'd.svg'] as any);
 
-    const result = resolveUiDesignScreenshots(['designs/'], ARTIFACT_DIR, IDENTIFIER);
+    const result = resolveUiDesignScreenshots(['designs/'], REPO_BASE_DIR, IDENTIFIER);
 
-    const resolvedDir = path.resolve(ARTIFACT_DIR, 'designs/');
+    const resolvedDir = path.resolve(REPO_BASE_DIR, 'designs/');
     expect(result).toEqual([
       path.join(resolvedDir, 'c.webp'),
       path.join(resolvedDir, 'd.svg'),
@@ -66,15 +72,15 @@ describe('resolveUiDesignScreenshots single-directory mode', () => {
 });
 
 describe('resolveUiDesignScreenshots file-list mode', () => {
-  it('resolves each file path against artifactDir and returns the valid ones', () => {
+  it('resolves each file path against repoBaseDir and returns the valid ones', () => {
     mockStatSync.mockReturnValue({ isDirectory: () => false } as fs.Stats);
     mockExistsSync.mockReturnValue(true);
 
-    const result = resolveUiDesignScreenshots(['screen1.png', 'screen2.jpg'], ARTIFACT_DIR, IDENTIFIER);
+    const result = resolveUiDesignScreenshots(['screen1.png', 'screen2.jpg'], REPO_BASE_DIR, IDENTIFIER);
 
     expect(result).toEqual([
-      path.resolve(ARTIFACT_DIR, 'screen1.png'),
-      path.resolve(ARTIFACT_DIR, 'screen2.jpg'),
+      path.resolve(REPO_BASE_DIR, 'screen1.png'),
+      path.resolve(REPO_BASE_DIR, 'screen2.jpg'),
     ]);
   });
 
@@ -82,14 +88,14 @@ describe('resolveUiDesignScreenshots file-list mode', () => {
     mockStatSync.mockReturnValue({ isDirectory: () => false } as fs.Stats);
     mockExistsSync.mockReturnValue(false);
 
-    expect(() => resolveUiDesignScreenshots(['missing.png'], ARTIFACT_DIR, IDENTIFIER)).toThrow(FileSystemError);
+    expect(() => resolveUiDesignScreenshots(['missing.png'], REPO_BASE_DIR, IDENTIFIER)).toThrow(FileSystemError);
   });
 
   it('WARNs and excludes files with invalid extension', () => {
     mockStatSync.mockReturnValue({ isDirectory: () => false } as fs.Stats);
     mockExistsSync.mockReturnValue(true);
 
-    const result = resolveUiDesignScreenshots(['design.pdf'], ARTIFACT_DIR, IDENTIFIER);
+    const result = resolveUiDesignScreenshots(['design.pdf'], REPO_BASE_DIR, IDENTIFIER);
 
     expect(result).toEqual([]);
     expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('.pdf'), expect.any(String));

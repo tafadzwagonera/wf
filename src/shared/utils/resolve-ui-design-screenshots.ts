@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appendToLogFile } from '../logger/log-file-writer';
 import { FileSystemError } from '../errors/app.error';
+import { resolveCustomArtifactDir } from '../../agents/utils';
 
 const VALID_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.svg']);
 
@@ -13,8 +14,8 @@ function filterAndMapImages(dir: string, entries: string[]): string[] {
     .map(e => path.join(dir, e));
 }
 
-function resolveNoArgMode(artifactDir: string, identifier: string): string[] {
-  const scanDir = path.join(artifactDir, identifier);
+function resolveNoArgMode(repoBaseDir: string, identifier: string): string[] {
+  const scanDir = path.join(resolveCustomArtifactDir(repoBaseDir), identifier);
   try {
     return filterAndMapImages(scanDir, fs.readdirSync(scanDir));
   } catch {
@@ -37,24 +38,24 @@ function validateAndCollect(p: string, result: string[]): void {
   result.push(p);
 }
 
-function resolveFileListMode(rawFiles: string[], artifactDir: string): string[] {
+function resolveFileListMode(rawFiles: string[], repoBaseDir: string): string[] {
   const result: string[] = [];
-  for (const raw of rawFiles) validateAndCollect(path.resolve(artifactDir, raw), result);
+  for (const raw of rawFiles) validateAndCollect(path.resolve(repoBaseDir, raw), result);
   return result;
 }
 
-function resolveSingleFile(rawFiles: string[], artifactDir: string): string[] {
-  const resolved = path.resolve(artifactDir, rawFiles[0]);
+function resolveSingleFile(rawFiles: string[], repoBaseDir: string): string[] {
+  const resolved = path.resolve(repoBaseDir, rawFiles[0]);
   try {
     if (fs.statSync(resolved).isDirectory()) return resolveSingleDirMode(resolved);
   } catch { /* fall through */ }
-  return resolveFileListMode(rawFiles, artifactDir);
+  return resolveFileListMode(rawFiles, repoBaseDir);
 }
 
 export function resolveUiDesignScreenshots(
-  rawFiles: string[], artifactDir: string, identifier: string,
+  rawFiles: string[], repoBaseDir: string, identifier: string,
 ): string[] {
-  if (rawFiles.length === 0) return resolveNoArgMode(artifactDir, identifier);
-  if (rawFiles.length === 1) return resolveSingleFile(rawFiles, artifactDir);
-  return resolveFileListMode(rawFiles, artifactDir);
+  if (rawFiles.length === 0) return resolveNoArgMode(repoBaseDir, identifier);
+  if (rawFiles.length === 1) return resolveSingleFile(rawFiles, repoBaseDir);
+  return resolveFileListMode(rawFiles, repoBaseDir);
 }

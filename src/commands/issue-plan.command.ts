@@ -52,7 +52,7 @@ interface IssuePlanOptions {
   sessionId?: string;
   figmaLinks?: string[];
   figma?: boolean;
-  uiDesignScreenshots?: string[];
+  uiDesignScreenshots?: boolean | string[];
 }
 
 interface RepoAwarePlan {
@@ -280,8 +280,8 @@ export class IssuePlanCommand extends CommandRunner {
     flags: '--ui-design-screenshots [files...]',
     description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact for re-use at review time. Mutually exclusive with --figma.',
   })
-  parseUiDesignScreenshots(val: string): string {
-    return val;
+  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
+    return [...previous, val];
   }
 
   @Option({
@@ -490,7 +490,10 @@ export class IssuePlanCommand extends CommandRunner {
     const discovery = this.gatherPlanDiscoveryContext(content, baseDir, options);
     const onProgress = options?.silent ? undefined : (line: string) => this.presenter.progress(line);
     const identifier = options.ticketKey ?? path.basename(options.customPlan ?? '', '.md');
-    const uiDesignScreenshots = resolveUiDesignScreenshots(options.uiDesignScreenshots ?? [], baseDir, identifier);
+    const rawScreenshots = options.uiDesignScreenshots;
+    const uiDesignScreenshots = Array.isArray(rawScreenshots) || rawScreenshots
+      ? resolveUiDesignScreenshots(Array.isArray(rawScreenshots) ? rawScreenshots : [], baseDir, identifier)
+      : [];
     const { plan } = await this.planStageService.generatePlan(content, {
       action: options.action, ticketKey: options.ticketKey,
       affectedRepositories: options?.repos ?? [path.basename(baseDir)],

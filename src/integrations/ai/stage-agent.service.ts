@@ -1665,7 +1665,7 @@ export class StageAgentService {
     sessionId: string, repoDir: string, model: string
   ): Promise<{ sent: true } | { sent: false; reason: string }> {
     const args = buildCodexCliArgs({
-      prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir, forkSession: true,
+      prompt: cliEpiloguePrompt, sessionId, model, cwd: repoDir,
     });
     const stream = spawnCodex(args, repoDir, cliEpiloguePrompt, undefined, this.resolveReviewEpilogueTimeoutMs());
     for await (const message of stream) {

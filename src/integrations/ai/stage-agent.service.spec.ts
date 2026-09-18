@@ -1831,7 +1831,7 @@ describe('StageAgentService', () => {
       );
     });
 
-    it('forks the resumed Codex session for the review epilogue', async () => {
+    it('resumes the Codex session for the review epilogue without unsupported fork flag', async () => {
       spawnCodex
         .mockImplementationOnce(
           makeCodexStream(
@@ -1850,12 +1850,9 @@ describe('StageAgentService', () => {
 
       await service.reviewCode('diff --git a/f b/f', []);
 
-      expect(buildCodexCliArgs).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          sessionId: 'review-session-42',
-          forkSession: true,
-        })
-      );
+      const epilogueArgs = buildCodexCliArgs.mock.calls.at(-1)?.[0];
+      expect(epilogueArgs).toEqual(expect.objectContaining({ sessionId: 'review-session-42' }));
+      expect(epilogueArgs).not.toHaveProperty('forkSession');
     });
 
     it('reports epilogue failure instead of false success when the CLI yields an error message', async () => {

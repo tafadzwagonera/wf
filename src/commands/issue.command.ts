@@ -105,7 +105,7 @@ interface IssueOptions {
   silent?: boolean;
   sonar?: boolean;
   figma?: boolean;
-  uiDesignScreenshots?: string[];
+  uiDesignScreenshots?: boolean | string[];
   skipInstall?: boolean;
   ticketKey?: string;
   to?: string;
@@ -300,8 +300,8 @@ export class IssueCommand extends CommandRunner {
     flags: '--ui-design-screenshots [files...]',
     description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at review time. Mutually exclusive with --figma.',
   })
-  parseUiDesignScreenshots(val: string): string {
-    return val;
+  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
+    return [...previous, val];
   }
 
   @Option({
@@ -1251,9 +1251,7 @@ export class IssueCommand extends CommandRunner {
   private async generatePlanArtifact(
     ticketArtifact: TicketArtifact, action: ResolutionAction, ctx: ResolvedWorkflowContext
   ): Promise<PlanArtifact> {
-    const uiDesignScreenshots = ctx.options?.uiDesignScreenshots?.length
-      ? resolveUiDesignScreenshots(ctx.options.uiDesignScreenshots, ctx.repoBaseDir, ticketArtifact.ticketKey)
-      : undefined;
+    const uiDesignScreenshots = this.resolvePlanScreenshots(ctx, ticketArtifact.ticketKey);
     const planArtifact = await this.agents.planner.execute(ticketArtifact, {
       action, skipExisting: ctx.skipExisting,
       affectedRepositories: ctx.options?.repos ?? [path.basename(ctx.repoBaseDir)],
@@ -1265,6 +1263,16 @@ export class IssueCommand extends CommandRunner {
     });
     if (ctx.options?.silent) console.log(planArtifact.path);
     return planArtifact;
+  }
+
+  private resolvePlanScreenshots(
+    ctx: ResolvedWorkflowContext, identifier: string
+  ): string[] | undefined {
+    const rawScreenshots = ctx.options?.uiDesignScreenshots;
+    if (!Array.isArray(rawScreenshots) && !rawScreenshots) return undefined;
+    return resolveUiDesignScreenshots(
+      Array.isArray(rawScreenshots) ? rawScreenshots : [], ctx.repoBaseDir, identifier
+    );
   }
 
   private async promptCachedPlanSession(planArtifact: PlanArtifact): Promise<void> {

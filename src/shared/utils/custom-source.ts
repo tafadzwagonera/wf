@@ -14,7 +14,7 @@ const findInRepos = (source: string, repos: string[]): string | null => {
 };
 
 /**
- * Resolve a custom markdown source from the artifact repository (`~/.wf/<app>/`).
+ * Resolve a custom markdown source from the artifact repository (`~/.wf/<repo>/`).
  *
  * Filename-only sources prefer the targeted repo's `~/.wf/<repo>/` custom
  * artifact namespace when `--repos` is supplied.

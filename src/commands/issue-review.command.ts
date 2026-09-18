@@ -23,6 +23,7 @@ import {
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { resolveCustomSourcePath } from '../shared/utils/custom-source';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
@@ -99,8 +100,8 @@ interface PullRequestDiscoveryResult {
  * @param filePath Absolute or relative path to the criteria markdown file
  * @returns Array of non-empty guideline strings
  */
-const loadCriteriaFromFile = (filePath: string): string[] => {
-  const resolved = path.resolve(filePath);
+const loadCriteriaFromFile = (filePath: string, baseDir: string, repos?: string[]): string[] => {
+  const resolved = resolveCustomSourcePath(filePath, baseDir, repos);
 
   if (path.extname(resolved).toLowerCase() !== '.md') {
     throw new ValidationError(`Criteria file must be a Markdown (.md) file: ${filePath}`);
@@ -138,7 +139,7 @@ const loadCriteriaFromFile = (filePath: string): string[] => {
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
     + 'Use `--sonar-only` to run only the SonarQube scan for local repositories; it skips AI review, verification, Figma, comments, and chat, prints findings directly, exits 0 for clean or finding-bearing scans, and propagates scan/setup failures through the normal error handler. '
-    + 'CLI-backed review sessions fork a final human-readable epilogue session so manual provider resume replays readable text instead of raw JSON while the original review session stays intact. '
+    + 'CLI-backed review sessions send a final human-readable epilogue after parsing the JSON review; Claude CLI forks that epilogue session, while Codex CLI resumes the same session because its JSON exec path has no fork flag. '
     + 'Runs a Figma design-conformance check when `stages.review.figma` is `true` or `--figma` is passed; Figma frame links captured from the ticket description during `issue:plan` are stored in the plan manifest and re-read at review time to fetch design context via the Figma REST API, injecting frame name, dimensions, and screenshot URL into the review prompt so the reviewer model can evaluate visual conformance against the original frames. If all frame fetches fail despite valid links being present, a WARN is written to the on-disk agent log to distinguish network or token failures from the links-absent case. '
     + 'When `--ui-design-screenshots` was passed to `issue:plan` or `issue`, the resolved screenshot paths are stored in the plan artifact; at review time those paths are re-read, the images are base64-encoded, and the encoded screenshots are injected into the review prompt as multimodal content so the reviewer can check UI conformance against the original design files. '
     + 'When the review diff exceeds the summarisation threshold (default 80 000 chars), oversized per-file patches are batched into as few CLI calls as possible — grouping files within a 60 000-character chunk budget — rather than one call per file; each batch call returns `=== FILE: <path> ===`-delimited summaries and paths are normalised on both sides to avoid OS separator mismatches. Configure `stages.review.maxDiffLength` (integer ≥ 1) to override the 80 000-character threshold and `stages.review.epilogueTimeoutMs` (integer ≥ 0, default 30 000 ms) to adjust the CLI epilogue spawn timeout. Epilogue failures from `is_error` responses or spawn errors are surfaced in the console log with the first line of the extracted diagnostic so the root cause is visible without opening a log file.',
@@ -184,7 +185,10 @@ export class IssueReviewCommand extends CommandRunner {
   ): Promise<void> {
     const runtimeOptions = await this.enrichReviewOptions(options);
     const criteriaPath = runtimeOptions?.replaceCriteria ?? runtimeOptions?.criteria;
-    const extraCriteria: string[] | null = criteriaPath ? loadCriteriaFromFile(criteriaPath) : null;
+    const baseDir = criteriaPath ? resolveRepoBasePath(runtimeOptions?.repos?.[0]) : undefined;
+    const extraCriteria: string[] | null = criteriaPath
+      ? loadCriteriaFromFile(criteriaPath, baseDir as string, runtimeOptions?.repos)
+      : null;
 
     if (runtimeOptions?.dryRun) {
       if (runtimeOptions.sonarOnly) {
@@ -318,14 +322,14 @@ export class IssueReviewCommand extends CommandRunner {
       platform: isOpenAi ? 'Codex CLI' : 'Claude CLI',
       description: 'Perform CLI-backed code review',
       estimatedResponse: '{\n  "summary": "<review summary>",\n  "approved": true,\n  "issues": [],\n  "suggestions": ["..."]\n}',
-      payloadPreviewLines: this.buildCliReviewPayloadPreview(sessionId),
+      payloadPreviewLines: this.buildCliReviewPayloadPreview(sessionId, isOpenAi),
     });
   }
 
   private buildCliReviewEndpoint(isOpenAi: boolean, sessionId: string | undefined): string {
     if (sessionId) {
       return isOpenAi
-        ? 'codex exec/resume --json --fork-session'
+        ? 'codex exec/resume --json'
         : 'claude -p --resume <session> --fork-session';
     }
     return isOpenAi ? 'codex exec --json' : 'claude -p';
@@ -341,10 +345,11 @@ export class IssueReviewCommand extends CommandRunner {
     });
   }
 
-  private buildCliReviewPayloadPreview(sessionId: string | undefined): string[] {
-    return sessionId
-      ? [`Resume session: ${sessionId}`, 'Fork session before review turn']
-      : ['Start a fresh CLI review session'];
+  private buildCliReviewPayloadPreview(sessionId: string | undefined, isOpenAi: boolean): string[] {
+    if (!sessionId) return ['Start a fresh CLI review session'];
+    return isOpenAi
+      ? [`Resume session: ${sessionId}`]
+      : [`Resume session: ${sessionId}`, 'Fork session before review turn'];
   }
 
   private previewCommentPost(): void {
@@ -859,6 +864,7 @@ export class IssueReviewCommand extends CommandRunner {
       ?? 'md';
     const baseDir = this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs);
     const outputPath = this.resolveOutputPath(options.output, baseDir);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, this.formatReviewOutput(reviewed, format));
     const msg = options?.silent ? outputPath : chalk.green('\n✔ Review saved to: ' + outputPath + '\n');
     console.log(msg);
@@ -1738,9 +1744,8 @@ export class IssueReviewCommand extends CommandRunner {
   /**
    * Resolve the review output path.
    *
-   * Filename-only outputs are treated as repo-scoped custom artifacts under
-   * `~/.wf/<repo>/`, while absolute paths and explicit relative paths keep
-   * their filesystem semantics.
+   * Relative outputs are treated as repo-scoped custom artifacts under
+   * `~/.wf/<repo>/`, while absolute paths are returned verbatim.
    *
    * @param output - Raw `--output` CLI value
    * @param baseDir - Repo-aware base directory
@@ -1751,10 +1756,6 @@ export class IssueReviewCommand extends CommandRunner {
       return output;
     }
 
-    if (path.dirname(output) === '.') {
-      return path.join(resolveCustomArtifactDir(baseDir), output);
-    }
-
-    return path.resolve(output);
+    return path.join(resolveCustomArtifactDir(baseDir), output);
   }
 }
