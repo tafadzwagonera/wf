@@ -23,6 +23,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
   - [Workflow Commands](#workflow-commands)
 - [Workflows](#workflows)
 - [Key Design Decisions](#key-design-decisions)
+  - [Artifact Resolution Rules](#artifact-resolution-rules)
 - [Development](#development)
 - [Testing](#testing)
 - [Known Issues](#known-issues)
@@ -427,7 +428,7 @@ Before a plan artifact is written, `issue:plan` runs a semantic quality gate ove
 
 When the selected backend returns structured JSON for planning, wf now explicitly asks for minified single-line JSON in both the primary prompt and any CLI retry turn. This reduces token overhead and avoids downstream parsing drift caused by prettified responses.
 
-Custom sources (both filename-only and subdirectory-prefixed) are always resolved from the artifact repository (`~/.wf/<app>/`). When `--repos` is present, filename-only sources prefer the repo-scoped `~/.wf/<repo>/` namespace. The command never falls back to the caller's working directory — if the artifact is absent, it fails with a clear error.
+Custom plan sources follow the artifact repository rules, including absolute-path bypasses, multi-repo filename collision errors, and no cwd fallback. See [Artifact Resolution Rules](#artifact-resolution-rules).
 
 When `--repos` points at a local checkout, `issue:plan` inspects `~/.wf/<repo>/**/*` for prior plan artifacts and correlates them by Jaccard keyword similarity. Matched plans — along with their affected files and source snippets — are forwarded to the planning prompt so it can build on earlier implementation context.
 
@@ -632,7 +633,7 @@ Generated artifacts are saved with a sidecar manifest file named `YYYY-MM-DD-<ha
 
 Tracker browse URLs (e.g. `https://<org>.atlassian.net/browse/<KEY>`) are automatically detected and fetched via the tracker REST API instead of scraping the HTML page. Self-hosted instances are supported when `atlassian.baseUrl` is configured; without it, only `*.atlassian.net` domains are recognised. Non-browse URLs on the same domain (Confluence, board, sprint) fall through to the generic URL handler.
 
-When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, bare filenames are resolved against `~/.wf/<cwd-basename>/` (the artifact directory inferred from the current working directory). If the file is not found there, the command tells you to retry with `--repos <repo>`. When the first `--repos` entry resolves to a local checkout, `issue:generate` also bootstraps AI provider and stage config from that repository before command execution.
+When `--repos` is provided, filename-only local sources are resolved against the repo-scoped artifact directory first, then the live checkout path. Without `--repos`, bare filenames are resolved against `~/.wf/<cwd-basename>/` (the artifact directory inferred from the current working directory). If the file is not found there, the command tells you to retry with `--repos <repo>`. This deliberate local-source variant is described in [Artifact Resolution Rules](#artifact-resolution-rules). When the first `--repos` entry resolves to a local checkout, `issue:generate` also bootstraps AI provider and stage config from that repository before command execution.
 Repo-scoped generation also inspects `~/.wf/<repo>/**/*` for prior plan artifacts and correlates them by Jaccard keyword similarity. Matched plans — along with their affected files and source snippets — are injected into the synthesis prompt so generated tickets can reflect earlier implementation steps and risks.
 Slack permalinks that include query parameters should be quoted when invoked from shells such as `zsh` or `bash`.
 
@@ -780,7 +781,7 @@ wf issue -k WBP-2971 --from fetch --action fix --figma
 | `review`    | `./<tracker>/<ticket-key>-review.md`                                                       |
 | `commit`    | _(display only — commit commands printed for confirmation)_                                 |
 
-**Plan token resolution:** When a `[plan-token]` positional argument is passed (and neither `--ticket-key` nor `--custom-plan` is set), the command searches for a matching plan artifact in two directories: `~/.wf/<app>/<tracker>/` (ticket-backed plans) then `~/.wf/<app>/` (custom plans created with `issue:plan --custom-plan`). It tries manifest-based resolution first, then falls back to a direct file-path lookup with sidecar manifest reading.
+**Plan token resolution:** When a `[plan-token]` positional argument is passed (and neither `--ticket-key` nor `--custom-plan` is set), the command searches for a matching plan artifact in two directories: `~/.wf/<repo>/<tracker>/` (ticket-backed plans) then `~/.wf/<repo>/` (custom plans created with `issue:plan --custom-plan`). It tries manifest-based resolution first, then falls back to a direct file-path lookup with sidecar manifest reading. Ambiguity in either searched directory aborts resolution instead of falling through. See [Artifact Resolution Rules](#artifact-resolution-rules).
 
 **Branch naming:** `issue` generates a branch name in the format `<prefix>/<TICKET-KEY>__<slug>`, where prefix is controlled by `BRANCH_PREFIX_*` env vars (`feature`, `bugfix`, `chore`).
 
@@ -1052,6 +1053,32 @@ Each `issue:*` command follows a consistent pattern:
 4. **Artifacts** are written to the file system under `./<tracker>/` or `~/.wf/<repo>/`
 
 The orchestrator command (`wf issue`) chains stages together, passing artifacts forward: `fetch` output feeds `plan`, `plan` output feeds `implement`, and so on.
+
+### Artifact Resolution Rules
+
+wf home is `$WF_HOME` when that variable is set to an absolute path; otherwise it is `~/.wf`. A relative `$WF_HOME` is silently ignored.
+
+Custom artifacts use the `~/.wf/<repo>/` namespace. Ticket-backed artifacts use `~/.wf/<repo>/<tracker>/`. `<repo>` is `path.basename(path.resolve(baseDir))`, where `baseDir` is the current working directory or the `--repos` value resolved as an absolute path, cwd-relative path, sibling directory, or `workspace/repo` segment. If no repository can be resolved, wf falls back to cwd and emits a warning.
+
+Custom sources resolve in this order:
+
+1. An absolute path is returned verbatim, without an existence check.
+2. When `--repos` is given and the source is filename-only, wf probes `~/.wf/<repo>/<source>` for each repository. More than one match is fatal.
+3. Otherwise, wf resolves `~/.wf/<basename(baseDir)>/<source>`. This is also the only branch for subdirectory-prefixed sources such as `jira/x.md`.
+4. wf never falls back to cwd. A missing source fails with `FILE_SYSTEM_ERROR`.
+
+Plan tokens use the `YYYY-MM-DD-<hash>-<action>-plan` stem. Resolution searches `~/.wf/<repo>/<tracker>/` first, then `~/.wf/<repo>/`. Within each directory, wf first matches manifest sidecars against `{hash, ticketKey, customArtifactName, sourceName, artifactStem}` case-insensitively or by canonical-stem hash, then falls back to a direct file-path lookup. Ambiguity in a directory aborts the whole search rather than falling through to the next directory. Plan-token resolution is enabled only for `--from implement` or later.
+
+The following surfaces currently follow these rules or intentionally document their differences:
+
+| Surface | Follows the rules? | Evidence |
+| --- | --- | --- |
+| `--custom-plan` (`issue`, `issue:plan`) | Yes — the reference implementation | `custom-source.ts:27-36` |
+| `[plan-token]` (`issue`, `issue:implement`) | Yes | `plan-artifact.ts:625-637` |
+| `issue:review --output` | Partial — bare filenames land in `~/.wf/<repo>/`; subdir-prefixed values resolve against cwd | `issue-review.command.ts:1749-1759` |
+| `issue:generate` local sources | Variant — artifact directory first, then live checkout | `issue-generate.command.ts:871,977` |
+| `--criteria` / `--replace-criteria` | No — cwd-only `path.resolve` | `issue-review.command.ts:102-112,185-187` |
+| `--ui-design-screenshots` | No — repo-root-relative; it never checks `~/.wf` | `resolve-ui-design-screenshots.ts:42-47`; call sites `issue.command.ts:1254`, `issue-plan.command.ts:493` |
 
 ### Project Structure
 

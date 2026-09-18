@@ -15,7 +15,7 @@ pre-commit:
           - name: docs-drift
             run: yarn generated-docs:sync
           - name: build
-            run: yarn build
+            run: yarn build && chmod +x dist/main.js
 
 pre-push:
   commands:
