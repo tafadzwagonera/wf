@@ -7,7 +7,7 @@ import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
+import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
 
@@ -16,6 +16,11 @@ const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
 
 const STEP_ASSESSOR_SYSTEM_PROMPT
   = 'You are a meticulous implementation auditor. Judge only from the evidence provided. Output ONLY valid JSON.';
+
+const STEP_ASSESSOR_SYSTEM_PROMPT_WITH_SCHEMA
+  = STEP_ASSESSOR_SYSTEM_PROMPT
+    + '\n\nRespond with a JSON object matching this schema exactly:\n'
+    + JSON.stringify(stepAssessmentResponseJsonSchema, null, 2);
 
 const STEP_ASSESSOR_PREAMBLE = [
   STEP_ASSESSOR_SYSTEM_PROMPT,
@@ -347,9 +352,12 @@ export class PlanStepVerificationService {
     prompt: string, stepCount: number,
   ): Promise<Map<number, StepAssessment> | string> {
     const response = await this.aiService.execute({
-      prompt, systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT,
-      temperature: 0, maxTokens: 4096,
+      prompt,
+      systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT_WITH_SCHEMA,
+      temperature: 0,
+      maxTokens: 4096,
       stage: 'implement',
+      structuredOutput: { name: 'stepAssessmentResponse', schema: stepAssessmentResponseJsonSchema },
     });
     const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
     const result = validateStepAssessments(validated.statuses, stepCount);

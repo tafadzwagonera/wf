@@ -1038,6 +1038,7 @@ export class AiService {
       stage,
       systemPrompt: request.systemPrompt ?? '',
       userMessage: request.prompt,
+      jsonSchema: request.structuredOutput ? JSON.stringify(request.structuredOutput.schema) : undefined,
     });
     return { content: result.content, provider, model, costUsd: result.costUsd };
   }

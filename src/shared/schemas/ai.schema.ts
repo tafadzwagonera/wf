@@ -13,6 +13,7 @@ export const aiRequestSchema = z.object({
   model: z.string().optional(),
   provider: z.string().optional(),
   stage: aiStageName.optional(),
+  structuredOutput: z.object({ name: z.string(), schema: z.record(z.string(), z.unknown()) }).optional(),
 });
 
 export const aiResponseSchema = z.object({

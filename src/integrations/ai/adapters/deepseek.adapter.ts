@@ -52,6 +52,10 @@ const mapDeepSeekResponse = (response: OpenAI.Chat.ChatCompletion, model: string
   };
 };
 
+const buildDeepSeekResponseFormat = (s: { name: string; schema: Record<string, unknown> }) => ({
+  response_format: { type: 'json_schema' as const, json_schema: { name: s.name, strict: true, schema: s.schema } },
+});
+
 /**
  * @param request - AI request with prompt, model, and token settings
  * @param messages - Pre-built message list (system + user messages)
@@ -63,13 +67,17 @@ const buildCompletionParams = (
   request: AIRequest | AIConversationRequest,
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
   defaultModel: string,
-  defaultMaxTokens: number
-): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming => ({
-  model: request.model || defaultModel,
-  max_tokens: request.maxTokens || defaultMaxTokens,
-  temperature: request.temperature ?? 0.7,
-  messages,
-});
+  defaultMaxTokens: number,
+): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming => {
+  const s = 'structuredOutput' in request ? request.structuredOutput : undefined;
+  return {
+    model: request.model || defaultModel,
+    max_tokens: request.maxTokens || defaultMaxTokens,
+    temperature: s ? 0 : (request.temperature ?? 0.7),
+    messages,
+    ...(s ? buildDeepSeekResponseFormat(s) : {}),
+  };
+};
 
 /**
  * @param request - Conversation request containing message history

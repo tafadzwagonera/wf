@@ -44,23 +44,40 @@ const resolveApiKey = (
  */
 const buildOpenAiClientConfig = (apiKey: string): { apiKey: string } => ({ apiKey });
 
+type StructuredOutput = { name: string; schema: Record<string, unknown> };
+
+const buildResponseFormat = (
+  structuredOutput: StructuredOutput | undefined,
+): Pick<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, 'response_format'> => {
+  if (!structuredOutput) return {};
+  return {
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: structuredOutput.name, strict: true, schema: structuredOutput.schema },
+    },
+  };
+};
+
 /**
  * Builds the chat completion request parameters for the OpenAI API.
  * @param model - The model identifier to use.
  * @param maxTokens - The maximum number of completion tokens.
  * @param temperature - The sampling temperature (omitted for restricted models).
  * @param messages - The formatted chat messages.
+ * @param structuredOutput - Optional structured output constraint; forces temperature to 0 when set.
  * @returns A params object for `client.chat.completions.create`.
  */
 const buildCompletionParams = (
   model: string,
   maxTokens: number,
   temperature: number,
-  messages: OpenAI.Chat.ChatCompletionMessageParam[]
+  messages: OpenAI.Chat.ChatCompletionMessageParam[],
+  structuredOutput?: StructuredOutput,
 ): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming => {
   const isRestricted = /^(o\d|gpt-5)/.test(model);
-  const tempParam = isRestricted ? {} : { temperature };
-  return { model, max_completion_tokens: maxTokens, ...tempParam, messages };
+  const resolvedTemp = structuredOutput ? 0 : temperature;
+  const tempParam = isRestricted ? {} : { temperature: resolvedTemp };
+  return { model, max_completion_tokens: maxTokens, ...tempParam, messages, ...buildResponseFormat(structuredOutput) };
 };
 
 /**
@@ -211,7 +228,7 @@ export class OpenAIAdapter implements LlmAdapter, OnModuleInit {
     const messages = buildMessageHistory(systemPrompt, [{ role: 'user', content: userContent }]);
     const model = request.model || this.model;
     const params = buildCompletionParams(
-      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages,
+      model, request.maxTokens || this.maxTokens, request.temperature ?? 0.7, messages, request.structuredOutput,
     );
     return this.invokeCompletion(params, model, 'Failed to execute AI request');
   }
