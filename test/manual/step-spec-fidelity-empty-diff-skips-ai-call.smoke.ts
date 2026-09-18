@@ -76,10 +76,10 @@ async function main(): Promise<void> {
   }
   (aiService as any).execute = originalExecute;
 
-  if (threw) {
-    fail('verifyAll threw unexpectedly for a clean tree');
-  } else {
+  if (!threw) {
     pass('verifyAll does not throw when working tree is clean');
+  } else {
+    fail('verifyAll threw unexpectedly for a clean tree');
   }
 
   if (JSON.stringify(result) === JSON.stringify([[], []])) {

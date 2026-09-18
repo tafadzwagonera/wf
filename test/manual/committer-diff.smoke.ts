@@ -251,10 +251,10 @@ async function main(): Promise<void> {
     }
 
     const leakedConfig = wfConfigFiles.find(f => committedFiles3.includes(f));
-    if (leakedConfig) {
-      fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles3);
-    } else {
+    if (!leakedConfig) {
       pass('wf.config.* files were NOT committed');
+    } else {
+      fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles3);
     }
 
     if (committedFiles3.includes('passenger.service.ts')) {

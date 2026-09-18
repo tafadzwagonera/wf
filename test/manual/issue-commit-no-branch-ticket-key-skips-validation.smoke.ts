@@ -83,10 +83,10 @@ function main(): void {
     git('add .');
 
     const withKeyBranchResult = runCli('issue:commit -k WBP-9', tmpDir);
-    if (withKeyBranchResult.exitCode === 0) {
-      fail('expected the mismatch path to fire on feature/WBP-1__add-thing', `exit code ${withKeyBranchResult.exitCode}`);
-    } else {
+    if (withKeyBranchResult.exitCode !== 0) {
       pass('the same -k value DOES trigger the mismatch path once the branch embeds a different ticket key');
+    } else {
+      fail('expected the mismatch path to fire on feature/WBP-1__add-thing', `exit code ${withKeyBranchResult.exitCode}`);
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

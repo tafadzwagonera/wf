@@ -186,10 +186,10 @@ async function main(): Promise<void> {
       ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
       : [];
 
-    if (result.status === 0) {
-      fail('command should exit non-zero when both passes are schema-invalid', output);
-    } else {
+    if (result.status !== 0) {
       pass('command exits non-zero');
+    } else {
+      fail('command should exit non-zero when both passes are schema-invalid', output);
     }
 
     if (invocations.length === 2) {

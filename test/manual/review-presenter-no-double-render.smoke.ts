@@ -53,10 +53,10 @@ async function main(): Promise<void> {
     return val instanceof ReviewPresenter;
   });
 
-  if (presenterKey) {
-    fail(`ReviewerAgent has ReviewPresenter instance on key "${presenterKey}"`);
-  } else {
+  if (!presenterKey) {
     pass('ReviewerAgent holds no ReviewPresenter instance');
+  } else {
+    fail(`ReviewerAgent has ReviewPresenter instance on key "${presenterKey}"`);
   }
 
   originalLog(chalk.bold.cyan('\nTest 2: printReviewStatus renders exactly once (non-silent)'));

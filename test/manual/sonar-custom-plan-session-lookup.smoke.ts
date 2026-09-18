@@ -70,10 +70,10 @@ async function main(): Promise<void> {
 
   const expectedDevelopMergeBase = git(repoDir, ['merge-base', 'develop', 'fix/my-custom-plan']);
   const expectedReleaseMergeBase = git(repoDir, ['merge-base', 'release/2026', 'fix/my-custom-plan']);
-  if (expectedReleaseMergeBase === expectedDevelopMergeBase) {
-    fail('Test setup invalid: develop and release/2026 share a merge-base with fix/my-custom-plan — cannot distinguish');
-  } else {
+  if (expectedReleaseMergeBase !== expectedDevelopMergeBase) {
     pass('Test setup valid: develop and release/2026 have different merge-bases with fix/my-custom-plan');
+  } else {
+    fail('Test setup invalid: develop and release/2026 share a merge-base with fix/my-custom-plan — cannot distinguish');
   }
 
   const customDir = resolveCustomArtifactDir(repoDir);

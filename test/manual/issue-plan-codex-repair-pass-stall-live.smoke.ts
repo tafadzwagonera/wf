@@ -174,10 +174,10 @@ async function main(): Promise<void> {
       ? fs.readFileSync(invocationLogPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
       : [];
 
-    if (result.status === 0) {
-      fail('command should exit non-zero on a repair-pass stall', output);
-    } else {
+    if (result.status !== 0) {
       pass('command exits non-zero');
+    } else {
+      fail('command should exit non-zero on a repair-pass stall', output);
     }
 
     if (output.includes('No result message received from Codex CLI')) {

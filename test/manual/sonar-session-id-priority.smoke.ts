@@ -65,10 +65,10 @@ async function main(): Promise<void> {
 
   const expectedDevelopMergeBase = git(repoDir, ['merge-base', 'develop', 'feature/WBP-1-thing']);
   const expectedReleaseMergeBase = git(repoDir, ['merge-base', 'release/2026', 'feature/WBP-1-thing']);
-  if (expectedReleaseMergeBase === expectedDevelopMergeBase) {
-    fail('Test setup invalid: develop and release/2026 share a merge-base with the feature branch — cannot distinguish');
-  } else {
+  if (expectedReleaseMergeBase !== expectedDevelopMergeBase) {
     pass('Test setup valid: develop and release/2026 have different merge-bases with the feature branch');
+  } else {
+    fail('Test setup invalid: develop and release/2026 share a merge-base with the feature branch — cannot distinguish');
   }
 
   console.log(chalk.bold.cyan('\nTest 1: findByProviderSessionId picks the most recent match'));

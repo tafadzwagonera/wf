@@ -81,10 +81,10 @@ function main(): void {
     git('add .');
 
     const mismatchResult = runCli('issue:commit -k wbp-2', tmpDir);
-    if (mismatchResult.exitCode === 0) {
-      fail('wbp-2 should have mismatched against branch key WBP-1', `exit code ${mismatchResult.exitCode}`);
-    } else {
+    if (mismatchResult.exitCode !== 0) {
       pass('a genuinely different key (wbp-2) still triggers the mismatch path (case-insensitivity is not a blanket bypass)');
+    } else {
+      fail('wbp-2 should have mismatched against branch key WBP-1', `exit code ${mismatchResult.exitCode}`);
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

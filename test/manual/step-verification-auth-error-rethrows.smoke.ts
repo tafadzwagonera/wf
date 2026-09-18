@@ -83,10 +83,10 @@ async function main(): Promise<void> {
     fail('expected an AiProviderError with category auth', String(caughtError));
   }
 
-  if (log.includes('step-verify.exhausted')) {
-    fail('step-verify.exhausted should not appear when auth error is rethrown', log.slice(0, 600));
-  } else {
+  if (!log.includes('step-verify.exhausted')) {
     pass('step-verify.exhausted was NOT emitted — loop exited via rethrow, not exhaustion');
+  } else {
+    fail('step-verify.exhausted should not appear when auth error is rethrown', log.slice(0, 600));
   }
 
   (aiService as any).execute = originalExecute;

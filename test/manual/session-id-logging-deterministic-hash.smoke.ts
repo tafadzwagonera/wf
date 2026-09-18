@@ -108,10 +108,10 @@ async function main(): Promise<void> {
   console.log('\nTest 3: Dead code removal');
 
   const hasOldMethod = typeof (command as any).generateUniqueCustomPlanStem === 'function';
-  if (hasOldMethod) {
-    fail('generateUniqueCustomPlanStem still exists on IssuePlanCommand');
-  } else {
+  if (!hasOldMethod) {
     pass('generateUniqueCustomPlanStem removed from IssuePlanCommand');
+  } else {
+    fail('generateUniqueCustomPlanStem still exists on IssuePlanCommand');
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

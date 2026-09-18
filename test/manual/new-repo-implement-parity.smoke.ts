@@ -210,10 +210,10 @@ async function main(): Promise<void> {
         fail('error missing newRepositories suggestion');
       }
 
-      if (implementerCalled) {
-        fail('implementer should not have been called');
-      } else {
+      if (!implementerCalled) {
         pass('implementer was NOT called');
+      } else {
+        fail('implementer should not have been called');
       }
     } finally {
       implementer.execute = origExecute;

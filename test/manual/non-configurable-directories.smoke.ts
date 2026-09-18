@@ -32,10 +32,10 @@ async function main(): Promise<void> {
     const { normalizeWfConfig } = require('../../src/config/wf-config-loader');
     const config = normalizeWfConfig({});
 
-    if ('state' in config) {
-      fail('normalizeWfConfig still includes `state` property');
-    } else {
+    if (!('state' in config)) {
       pass('normalizeWfConfig omits `state`');
+    } else {
+      fail('normalizeWfConfig still includes `state` property');
     }
   } catch (err: any) {
     fail(`Error: ${err.message}`);
@@ -47,10 +47,10 @@ async function main(): Promise<void> {
     const { normalizeWfConfig } = require('../../src/config/wf-config-loader');
     const config = normalizeWfConfig({});
 
-    if ('directory' in config.logging || 'directory' in config.log) {
-      fail('logging or log still has `directory` field');
-    } else {
+    if (!('directory' in config.logging || 'directory' in config.log)) {
       pass('logging and log omit `directory`');
+    } else {
+      fail('logging or log still has `directory` field');
     }
   } catch (err: any) {
     fail(`Error: ${err.message}`);
@@ -61,10 +61,10 @@ async function main(): Promise<void> {
   try {
     const wfPaths = require('../../src/shared/utils/wf-paths');
 
-    if ('resolveWfPath' in wfPaths) {
-      fail('resolveWfPath is still exported from wf-paths');
-    } else {
+    if (!('resolveWfPath' in wfPaths)) {
       pass('resolveWfPath is no longer exported');
+    } else {
+      fail('resolveWfPath is still exported from wf-paths');
     }
   } catch (err: any) {
     fail(`Error: ${err.message}`);

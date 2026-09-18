@@ -59,10 +59,10 @@ function main(): void {
     {
       const result = runCli('issue:plan FAKE-123 -r nonexistent-repo', tempRoot);
 
-      if (result.exitCode === 0) {
-        fail('Case A: expected non-zero exit code', `got ${result.exitCode}`);
-      } else {
+      if (result.exitCode !== 0) {
         pass('Case A: exits with non-zero code');
+      } else {
+        fail('Case A: expected non-zero exit code', `got ${result.exitCode}`);
       }
 
       if (result.stderr.includes("Repository 'nonexistent-repo' not found")) {
@@ -96,10 +96,10 @@ function main(): void {
     {
       const result = runCli('issue:plan FAKE-123 --repos=nonexistent-repo', tempRoot);
 
-      if (result.exitCode === 0) {
-        fail('Case B: expected non-zero exit code for --repos= form', `got ${result.exitCode}`);
-      } else {
+      if (result.exitCode !== 0) {
         pass('Case B: --repos= inline form exits with non-zero code');
+      } else {
+        fail('Case B: expected non-zero exit code for --repos= form', `got ${result.exitCode}`);
       }
 
       if (result.stderr.includes("Repository 'nonexistent-repo' not found")) {

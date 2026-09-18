@@ -84,10 +84,10 @@ async function main(): Promise<void> {
         fail('baseBranch wrong or missing', String(result?.baseBranch));
       }
 
-      if (gitCalled) {
-        fail('getBranchInfo was called despite artifactPath being set');
-      } else {
+      if (!gitCalled) {
         pass('getBranchInfo was not called — branch-name lookup skipped');
+      } else {
+        fail('getBranchInfo was called despite artifactPath being set');
       }
     }
 

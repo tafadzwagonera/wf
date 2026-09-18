@@ -75,10 +75,10 @@ async function main(): Promise<void> {
         fail('expected [] but got frames', JSON.stringify(result));
       }
 
-      if (fetchCalled) {
-        fail('fetch was called unexpectedly — env var fallback may have been reintroduced');
-      } else {
+      if (!fetchCalled) {
         pass('fetch was not called — env var did not enable frame fetching');
+      } else {
+        fail('fetch was called unexpectedly — env var fallback may have been reintroduced');
       }
 
       if (/figma\.token not configured/i.test(output)) {

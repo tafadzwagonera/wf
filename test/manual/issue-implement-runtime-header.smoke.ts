@@ -53,10 +53,10 @@ async function main(): Promise<void> {
 
     const silent = runCli(['issue:implement', '--dry-run', '-k', 'WBP-1', '--silent'], scratchDir);
 
-    if (silent.includes('Carry out an implementation plan') || silent.includes('Examples:')) {
-      fail('--silent did not suppress the header', silent.slice(0, 300));
-    } else {
+    if (!silent.includes('Carry out an implementation plan') && !silent.includes('Examples:')) {
       pass('--silent suppresses the summary and Examples: section');
+    } else {
+      fail('--silent did not suppress the header', silent.slice(0, 300));
     }
   } finally {
     fs.rmSync(scratchDir, { recursive: true, force: true });

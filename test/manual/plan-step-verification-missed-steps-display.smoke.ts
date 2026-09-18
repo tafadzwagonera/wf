@@ -91,10 +91,10 @@ async function main(): Promise<void> {
 
   const logContent = fs.readFileSync(logPath, 'utf-8').slice(logSizeBefore);
 
-  if (logContent.includes('step-verify.exhausted pending=1')) {
-    pass('step-verify.exhausted pending=1 logged at WARN');
+  if (logContent.includes('step-verify.stalled pending=1')) {
+    pass('step-verify.stalled pending=1 logged at WARN');
   } else {
-    fail('Expected step-verify.exhausted pending=1 in the log', logContent.slice(0, 500));
+    fail('Expected step-verify.stalled pending=1 in the log', logContent.slice(0, 500));
   }
 
   const missedLine = 'step-verify.missed index=1 status=not-done missing=edge case for empty input';

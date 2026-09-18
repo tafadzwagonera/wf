@@ -145,16 +145,16 @@ async function main(): Promise<void> {
       fail('Anthropic warning missing', output || '(no warnings captured)');
     }
 
-    if (output.includes('No deepseek context file found')) {
-      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
-    } else {
+    if (!output.includes('No deepseek context file found')) {
       pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
+    } else {
+      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
     }
 
-    if (output.includes('No openai context file found')) {
-      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
-    } else {
+    if (!output.includes('No openai context file found')) {
       pass('OpenAI does not warn when provider intent is incomplete');
+    } else {
+      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
     }
   } finally {
     warnSpy.restore();

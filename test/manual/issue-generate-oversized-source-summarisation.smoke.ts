@@ -105,10 +105,10 @@ async function main(): Promise<void> {
       console.log = origLog;
     }
 
-    if (summarisationCalled) {
-      fail('Small source incorrectly triggered AI summarisation');
-    } else {
+    if (!summarisationCalled) {
       pass('Small source does not trigger AI summarisation');
+    } else {
+      fail('Small source incorrectly triggered AI summarisation');
     }
 
     if (capturedOutput.includes('Summarising')) {

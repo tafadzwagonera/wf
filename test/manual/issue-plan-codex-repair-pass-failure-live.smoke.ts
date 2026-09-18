@@ -175,10 +175,10 @@ async function main(): Promise<void> {
       : [];
     const threadStartedCount = (output.match(/thread\.started/g) ?? []).length;
 
-    if (result.status === 0) {
-      fail('command should exit non-zero when the repair pass fails', output);
-    } else {
+    if (result.status !== 0) {
       pass('command exits non-zero');
+    } else {
+      fail('command should exit non-zero when the repair pass fails', output);
     }
 
     if (output.includes('Codex CLI failed: thread not found') || /at Object|at Module|node:internal/.test(output)) {

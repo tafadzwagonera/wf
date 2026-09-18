@@ -57,10 +57,10 @@ function main(): void {
     const mismatchResult = runCli('issue:commit -k WBP-2', tmpDir);
     const mismatchOutput = mismatchResult.stdout + mismatchResult.stderr;
 
-    if (mismatchResult.exitCode === 0) {
-      fail('mismatched -k should have exited non-zero', `exit code ${mismatchResult.exitCode}`);
-    } else {
+    if (mismatchResult.exitCode !== 0) {
       pass('mismatched -k exits with a non-zero code instead of silently committing');
+    } else {
+      fail('mismatched -k should have exited non-zero', `exit code ${mismatchResult.exitCode}`);
     }
 
     if (mismatchOutput.includes('WBP-2') && mismatchOutput.includes('WBP-1')) {
