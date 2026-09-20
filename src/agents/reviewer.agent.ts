@@ -51,8 +51,8 @@ export class ReviewerAgent {
   async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
     const cached = this.tryLoadCachedReview(ticket.path, options);
     if (cached) return cached;
-    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
     this.presentReviewHeader(options);
+    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
     if (await this.hasNoChanges(options)) return null;
     if (!options.silent) this.presenter.progress('Analyzing changes...');
     const onProgress = options.onProgress

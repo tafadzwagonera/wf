@@ -782,7 +782,11 @@ describe('ReviewerAgent', () => {
         ],
       }).compile();
 
-      return { agent: module.get(ReviewerAgent), reviewStageService: module.get(ReviewStageService) };
+      return {
+        agent: module.get(ReviewerAgent),
+        reviewStageService: module.get(ReviewStageService),
+        presenter: module.get(CliPresenter),
+      };
     };
 
     beforeEach(() => {
@@ -807,6 +811,21 @@ describe('ReviewerAgent', () => {
 
       expect(mockRunPostPullDependencyInstall).toHaveBeenCalledWith('/repo');
       expect(callOrder).toEqual(['post-pull', 'review']);
+    });
+
+    it('presents the review header before running post-pull dependency install', async () => {
+      const callOrder: string[] = [];
+      const { agent, presenter } = await buildModule();
+      (presenter.stageHeader as jest.Mock).mockImplementation(() => {
+        callOrder.push('header');
+      });
+      mockRunPostPullDependencyInstall.mockImplementation(async () => {
+        callOrder.push('post-pull');
+      });
+
+      await agent.execute(ticket, { repoDir: '/repo' });
+
+      expect(callOrder).toEqual(['header', 'post-pull']);
     });
 
     it('includes a non-empty verification summary in the reviewDiff context', async () => {
