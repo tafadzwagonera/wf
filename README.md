@@ -450,6 +450,9 @@ wf issue:review
 # Replace the default review guidelines while keeping ticket context and Sonar findings
 wf issue:review --ticket-key WBP-2971 --replace-criteria review-guidelines.md --sonar
 
+# Append team-specific guidelines onto the default review rubric instead of replacing it
+wf issue:review --ticket-key WBP-2971 --criteria review-guidelines.md
+
 # Review a ticket and associated pull requests from credentialed adapters using a remote repo hint
 wf issue:review --ticket-key WBP-3057 -r service-bookingv3
 
@@ -527,7 +530,7 @@ If no `--repos` value is supplied and adapters cannot determine a remote reposit
 
 If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
-When `--replace-criteria` is supplied, wf replaces only the default review guidelines. Ticket context and any Sonar findings are still threaded into the review prompt so the replacement path does not discard the review signal that was gathered earlier in the run.
+`--criteria <path>` appends a markdown file's guidelines onto the default review rubric; `--replace-criteria <path>` uses only the file's guidelines instead (the two flags are mutually exclusive). Either way, ticket context and any Sonar findings are still threaded into the review prompt so switching criteria never discards the review signal gathered earlier in the run. The criteria file is parsed by heading: each `#`/`##` line sets the section context for the bullets that follow, each `-`/`*`/`1.` bullet becomes one guideline prefixed with its nearest heading, and a bullet's wrapped continuation lines (indented, no leading marker) are rejoined into that same guideline rather than becoming separate entries — so a file with `## Section` headers and hand-wrapped prose bullets parses the same as one written with single-line bullets and no headings.
 
 The SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) runs when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. The scan scopes to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order; a bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings — when a ticket has multiple associated pull requests, the remaining targets are still reviewed. Use `--sonar-only` to run just the SonarQube scan for local repositories, print or save the findings, and skip AI review, verification, Figma, PR comments, and follow-up chat.
 
@@ -1079,7 +1082,7 @@ The following surfaces currently follow these rules or intentionally document th
 | `[plan-token]` (`issue`, `issue:implement`) | Yes | `plan-artifact.ts:625-637` |
 | `issue:review --output` | Yes — relative values land in `~/.wf/<repo>/`, including subdirectory-prefixed values | `issue-review.command.ts:1749-1756` |
 | `issue:generate` local sources | Variant — artifact directory first, then live checkout | `issue-generate.command.ts:871,977` |
-| `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:102-112,185-187`; `custom-source.ts:27-36` |
+| `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:146-158,221-225`; `custom-source.ts:27-36` |
 | `--ui-design-screenshots` | Yes in no-arg mode — scans `~/.wf/<repo>/<ticketKey>/`; explicit paths remain repo-relative by design | `resolve-ui-design-screenshots.ts:7-18,42-47`; call sites `issue.command.ts:1254`, `issue-plan.command.ts:493` |
 
 ### Project Structure

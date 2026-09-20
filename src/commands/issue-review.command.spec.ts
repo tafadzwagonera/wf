@@ -628,6 +628,59 @@ describe('IssueReviewCommand', () => {
     });
   });
 
+  describe('--replace-criteria file parsing', () => {
+    const criteriaPath = '/abs/fe-review-criteria.md';
+    const criteriaContent = [
+      '# Front-end review criteria',
+      '',
+      '## Design fidelity',
+      '',
+      '- Compare the implementation against the Figma frame visually, not token-by-token: correct',
+      '  colour tokens can still land in the wrong order, direction, or angle. Check colours,',
+      '  gradients/stripe direction, spacing, and typography scale against the frame.',
+      '- Check the mobile frames separately.',
+      '',
+      '## Accessibility',
+      '',
+      '- Chase browser console accessibility warnings to resolution.',
+      '',
+    ].join('\n');
+
+    const mockCriteriaFile = () => {
+      const realExistsSync = jest.requireActual<typeof import('fs')>('fs').existsSync;
+      const realReadFileSync = jest.requireActual<typeof import('fs')>('fs').readFileSync;
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: any) => {
+        return String(p) === criteriaPath ? true : realExistsSync(p);
+      });
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((p: any, ...args: any[]) => {
+        return String(p) === criteriaPath ? criteriaContent : realReadFileSync(p, ...args);
+      });
+    };
+
+    it('reconstructs wrapped bullets under their section instead of fragmenting them', async () => {
+      const { command, reviewStageService } = await buildCommand();
+      jest.spyOn(command as any, 'reviewRepoSet').mockResolvedValue('diff content');
+      mockCriteriaFile();
+
+      await command.run([], { replaceCriteria: criteriaPath });
+
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+        'diff content',
+        expect.objectContaining({
+          replaceCriteria: true,
+          extraCriteria: expect.arrayContaining([
+            'Design fidelity: Compare the implementation against the Figma frame visually, not token-by-token: correct colour tokens can still land in the wrong order, direction, or angle. Check colours, gradients/stripe direction, spacing, and typography scale against the frame.',
+            'Design fidelity: Check the mobile frames separately.',
+            'Accessibility: Chase browser console accessibility warnings to resolution.',
+          ]),
+        })
+      );
+      const { extraCriteria } = reviewStageService.reviewDiff.mock.calls[0][1];
+      expect(extraCriteria).not.toContain('colour tokens can still land in the wrong order, direction, or angle. Check colours,');
+      expect(extraCriteria).not.toContain('# Front-end review criteria');
+    });
+  });
+
   describe('ticket-driven review', () => {
     beforeEach(() => {
       jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);

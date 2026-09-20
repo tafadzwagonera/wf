@@ -94,10 +94,53 @@ interface PullRequestDiscoveryResult {
   attemptedLookupCount: number;
   missingRepoScopeErrors: string[];
 }
+const CRITERIA_HEADING_PATTERN = /^#+\s+(.*)$/;
+const CRITERIA_BULLET_PATTERN = /^(?:[-*]|\d+\.)\s+(.*)$/;
+
+interface CriteriaParseState {
+  guidelines: string[];
+  currentSection: string;
+}
+
+const applyCriteriaLine = (state: CriteriaParseState, rawLine: string): void => {
+  const line = rawLine.trim();
+  if (line.length === 0) return;
+
+  const headingMatch = CRITERIA_HEADING_PATTERN.exec(line);
+  if (headingMatch) {
+    state.currentSection = headingMatch[1].trim();
+    return;
+  }
+
+  const bulletMatch = CRITERIA_BULLET_PATTERN.exec(line);
+  if (bulletMatch) {
+    state.guidelines.push(state.currentSection ? `${state.currentSection}: ${bulletMatch[1]}` : bulletMatch[1]);
+    return;
+  }
+
+  if (state.guidelines.length === 0) return;
+  state.guidelines[state.guidelines.length - 1] += ` ${line}`;
+};
+
 /**
- * Parse a markdown criteria file into an array of guideline strings.
- * Strips leading bullet/number markers and blank lines.
+ * Parse markdown criteria into an array of guideline strings. Each top-level
+ * bullet becomes one guideline, prefixed with its nearest heading for
+ * context; a bullet's wrapped continuation lines are rejoined into that same
+ * guideline rather than becoming separate entries.
+ * @param content Raw markdown content of the criteria file
+ * @returns Array of non-empty guideline strings
+ */
+const parseCriteriaMarkdown = (content: string): string[] => {
+  const state: CriteriaParseState = { guidelines: [], currentSection: '' };
+  for (const rawLine of content.split('\n')) applyCriteriaLine(state, rawLine);
+  return state.guidelines;
+};
+
+/**
+ * Load and parse a markdown criteria file into an array of guideline strings.
  * @param filePath Absolute or relative path to the criteria markdown file
+ * @param baseDir
+ * @param repos
  * @returns Array of non-empty guideline strings
  */
 const loadCriteriaFromFile = (filePath: string, baseDir: string, repos?: string[]): string[] => {
@@ -111,16 +154,7 @@ const loadCriteriaFromFile = (filePath: string, baseDir: string, repos?: string[
     throw new FileSystemError(`Criteria file not found: ${resolved}`);
   }
 
-  return fs
-    .readFileSync(resolved, 'utf-8')
-    .split('\n')
-    .map(line =>
-      line
-        .replace(/^[-*]\s+/, '')
-        .replace(/^\d+\.\s+/, '')
-        .trim()
-    )
-    .filter(line => line.length > 0 && !line.startsWith('#'));
+  return parseCriteriaMarkdown(fs.readFileSync(resolved, 'utf-8'));
 };
 
 /**

@@ -132,6 +132,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review --ticket-key WBP-2971 --replace-criteria review-guidelines.md --sonar',
       },
       {
+        comment: 'Append team-specific guidelines onto the default review rubric instead of replacing it',
+        command: 'wf issue:review --ticket-key WBP-2971 --criteria review-guidelines.md',
+      },
+      {
         comment: 'Review a ticket and associated pull requests from credentialed adapters using a remote repo hint',
         command: 'wf issue:review --ticket-key WBP-3057 -r service-bookingv3',
       },
