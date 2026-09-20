@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
-import { StageAgentService, buildSanitisedJsonSchema } from './stage-agent.service';
+import { existsSync } from 'node:fs';
+import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 
@@ -32,6 +33,36 @@ jest.mock('./adapters/discover-dir-agent-configs', () => ({
 }));
 
 describe('StageAgentService', () => {
+  it('normalizes Claude structured output before shared response parsing', () => {
+    expect(extractCliResultContent({ type: 'result', structured_output: { value: 'ok' } })).toEqual({
+      result: '{"value":"ok"}', source: 'structured_output',
+    });
+  });
+
+  it('propagates structured output to Anthropic Agent SDK options', () => {
+    const options = buildAnthropicBaseOptions({
+      apiKey: 'key', model: 'claude-sonnet-4-6', prompt: 'prompt', systemPrompt: 'sys',
+      anthropicContext: '', structuredOutput: { name: 'example', schema: { type: 'object' } },
+    }, 'sys');
+    expect(options.outputFormat).toEqual({
+      type: 'json_schema', name: 'example', schema: { type: 'object' }, strict: true,
+    });
+  });
+
+  it('configures deterministic OpenAI Agent SDK structured output', async () => {
+    const service = new StageAgentService(createConfigService());
+    const build = (service as unknown as {
+      buildOpenAiStageAgent: (options: Record<string, unknown>) => Promise<{
+        agent: { outputType: unknown; modelSettings: { temperature?: number } };
+      }>;
+    }).buildOpenAiStageAgent;
+    const result = await build.call(service, {
+      stage: 'plan', systemPrompt: 'sys', apiKey: 'key',
+      structuredOutput: { name: 'example', schema: { type: 'object' } },
+    });
+    expect(result.agent.outputType).toEqual({ type: 'json_schema', name: 'example', schema: { type: 'object' }, strict: true });
+    expect(result.agent.modelSettings.temperature).toBe(0);
+  });
   const createConfigService = (): ConfigService =>
     ({
       get: jest.fn((key: string, defaultValue?: unknown) => {
@@ -77,6 +108,21 @@ describe('StageAgentService', () => {
           'stages.review.model': 'gpt-5.4-mini',
           'ai.provider': 'openai',
           'ai.model': 'gpt-5.4-mini',
+        };
+
+        return key in values ? values[key] : defaultValue;
+      }),
+    }) as unknown as ConfigService;
+
+  const createCodexImplementConfigService = (): ConfigService =>
+    ({
+      get: jest.fn((key: string, defaultValue?: unknown) => {
+        const values: Record<string, unknown> = {
+          'stages.implement.backend': 'cli',
+          'stages.implement.provider': 'openai',
+          'stages.implement.model': 'gpt-5.6-luna',
+          'ai.provider': 'openai',
+          'ai.model': 'gpt-5.6-luna',
         };
 
         return key in values ? values[key] : defaultValue;
@@ -1473,8 +1519,10 @@ describe('StageAgentService', () => {
 
       expect(buildCodexCliArgs).toHaveBeenNthCalledWith(
         1,
-        expect.not.objectContaining({ sessionId: expect.anything() })
+        expect.objectContaining({ outputSchemaPath: expect.any(String) }),
       );
+      const schemaPath = (buildCodexCliArgs.mock.calls[0][0] as { outputSchemaPath: string }).outputSchemaPath;
+      expect(existsSync(schemaPath)).toBe(false);
     });
 
     it('injects JSON Schema into the codex generate prompt and returns schema-valid ticket JSON on a single pass', async () => {
@@ -2109,9 +2157,30 @@ describe('StageAgentService', () => {
 
     beforeEach(() => {
       spawnCli.mockReset();
+      spawnCodex.mockReset();
       buildCliArgs.mockClear();
+      buildCodexCliArgs.mockReset();
       buildCliArgs.mockReturnValue([]);
+      buildCodexCliArgs.mockReturnValue([]);
       jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('routes OpenAI CLI chat turns through Codex with the configured implement model', async () => {
+      spawnCodex.mockReturnValueOnce(makeStream(
+        { type: 'thread.started', thread_id: 'codex-chat-1' },
+        { type: 'item.completed', item: { type: 'agent_message', text: 'assessed' } }
+      ));
+      const service = new StageAgentService(createCodexImplementConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'implement', userMessage: 'Assess steps', systemPrompt: 'sys', repoDir: '/tmp/repo',
+      });
+
+      expect(result.content).toBe('assessed');
+      expect(result.session).toMatchObject({ provider: 'openai', backend: 'cli', sessionId: 'codex-chat-1' });
+      expect(buildCodexCliArgs).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-luna' }));
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
+      expect(spawnCli).toHaveBeenCalledTimes(0);
     });
 
     it('completes a plain chat turn without forwarding a json schema', async () => {
@@ -2144,6 +2213,18 @@ describe('StageAgentService', () => {
 
       expect(buildCliArgs).toHaveBeenCalledWith(expect.objectContaining({ jsonSchema: '{"type":"object"}' }));
       expect(JSON.parse(result.content)).toEqual({ summaries: [{ file: 'a.ts', summary: '- x' }] });
+    });
+
+    it('converts structuredOutput metadata to the Claude CLI schema flag', async () => {
+      spawnCli.mockReturnValueOnce(makeStream({
+        type: 'result', subtype: 'success', structured_output: { value: 'ok' }, session_id: 'chat-structured',
+      }));
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+      await service.chatTurn({
+        stage: 'review', userMessage: 'hello', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        structuredOutput: { name: 'example', schema: { type: 'object' } },
+      });
+      expect(buildCliArgs).toHaveBeenCalledWith(expect.objectContaining({ jsonSchema: '{"type":"object"}' }));
     });
 
     it('retries with the schema retry prompt when a schema is set but structured output is missing', async () => {

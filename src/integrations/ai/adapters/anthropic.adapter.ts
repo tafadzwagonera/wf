@@ -53,6 +53,13 @@ const isTemperatureRestricted = (model: string): boolean =>
  */
 const NON_STREAMING_MAX_TOKENS = 21333;
 
+const buildStructuredOutputConfig = (structuredOutput: AIRequest['structuredOutput']) => {
+  if (!structuredOutput) return {};
+  return { output_config: {
+    format: { type: 'json_schema', name: structuredOutput.name, schema: structuredOutput.schema, strict: true },
+  } as unknown as Anthropic.MessageCreateParamsNonStreaming['output_config'] };
+};
+
 /**
  * Builds the messages.create parameter object for a single-turn request.
  * @param model - Resolved model identifier
@@ -67,12 +74,14 @@ const buildCreateParams = (
   system: string | undefined,
   messages: Anthropic.MessageParam[],
   temperature?: number,
+  structuredOutput?: AIRequest['structuredOutput'],
 ): Anthropic.MessageCreateParamsNonStreaming => ({
   model,
   max_tokens: maxTokens,
   ...(isTemperatureRestricted(model) ? {} : { temperature: temperature ?? 0.7 }),
   system,
   messages,
+  ...buildStructuredOutputConfig(structuredOutput),
 });
 
 /**
@@ -279,7 +288,7 @@ export class AnthropicAdapter implements LlmAdapter, OnModuleInit {
       request.prompt, request.context?.screenshots as UiDesignScreenshot[] | undefined,
     );
     const msgs: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }];
-    return callMessages(client, buildCreateParams(model, maxTokens, system, msgs, request.temperature), model, 'Failed to execute AI request');
+    return callMessages(client, buildCreateParams(model, maxTokens, system, msgs, request.temperature, request.structuredOutput), model, 'Failed to execute AI request');
   }
 
   async executeWithHistory(request: AIConversationRequest): Promise<AIResponse> {

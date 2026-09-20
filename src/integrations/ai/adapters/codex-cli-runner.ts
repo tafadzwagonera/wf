@@ -45,6 +45,7 @@ export interface CodexCliRunnerParams {
   env?: Record<string, string>;
   codexVersion?: { major: number; minor: number; patch: number };
   screenshots?: UiDesignScreenshot[];
+  outputSchemaPath?: string;
 }
 
 export const buildCodexStdinPrompt = (params: Pick<CodexCliRunnerParams, 'prompt' | 'screenshots'>): string => {
@@ -171,11 +172,13 @@ export const buildCodexCliArgs = (params: CodexCliRunnerParams): string[] => {
   if (params.sessionId) {
     const args = ['exec', '--json', 'resume', params.sessionId];
     if (params.model) args.push('--model', params.model);
+    if (params.outputSchemaPath) args.push('--output-schema', params.outputSchemaPath);
     return args;
   }
 
   const args: string[] = ['exec', '--json'];
   if (params.model) args.push('--model', params.model);
+  if (params.outputSchemaPath) args.push('--output-schema', params.outputSchemaPath);
   if (params.permissionMode === 'full-auto') args.push(...resolveAutoApprovalArgs(params.codexVersion));
   return args;
 };

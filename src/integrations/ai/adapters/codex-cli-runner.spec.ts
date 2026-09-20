@@ -105,6 +105,22 @@ describe('codex-cli-runner', () => {
       expect(args).toContain('gpt-5.4-mini');
     });
 
+    it('includes the output schema path for structured responses', () => {
+      const args = buildCodexCliArgs({
+        prompt: 'test', model: 'gpt-5.4-mini', cwd: '/repo', outputSchemaPath: '/tmp/schema.json',
+      });
+      expect(args).toContain('--output-schema');
+      expect(args).toContain('/tmp/schema.json');
+    });
+
+    it('includes the output schema path when resuming', () => {
+      const args = buildCodexCliArgs({
+        prompt: 'test', model: 'gpt-5.4-mini', cwd: '/repo', sessionId: 'session-1',
+        outputSchemaPath: '/tmp/schema.json',
+      });
+      expect(args).toEqual(expect.arrayContaining(['resume', 'session-1', '--output-schema', '/tmp/schema.json']));
+    });
+
     it('includes --full-auto when permissionMode is full-auto', () => {
       const args = buildCodexCliArgs({
         prompt: 'test',

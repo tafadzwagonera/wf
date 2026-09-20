@@ -24,21 +24,21 @@ export const stepAssessmentResponseSchema = z.object({
 
 export const stepAssessmentResponseJsonSchema = {
   type: 'object',
+  additionalProperties: false,
+  required: ['statuses'],
   properties: {
     statuses: {
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
+        required: ['index', 'status'],
         properties: {
           index: { type: 'integer', minimum: 0 },
           status: { type: 'string', enum: ['done', 'partially-done', 'not-done', 'not-applicable'] },
           missing: { type: 'string' },
         },
-        required: ['index', 'status'],
-        additionalProperties: false,
       },
     },
   },
-  required: ['statuses'],
-  additionalProperties: false,
 } as const;

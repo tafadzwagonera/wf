@@ -4,6 +4,11 @@ import { codeIssueSchema, codeReviewSchema, nullableOptional } from './review.sc
 
 export const aiStageName = z.enum(['plan', 'implement', 'review', 'generate', 'commit', 'create']);
 
+export const structuredOutputSchema = z.object({
+  name: z.string().min(1),
+  schema: z.record(z.string(), z.any()),
+});
+
 export const aiRequestSchema = z.object({
   prompt: z.string(),
   systemPrompt: z.string().optional(),
@@ -13,7 +18,7 @@ export const aiRequestSchema = z.object({
   model: z.string().optional(),
   provider: z.string().optional(),
   stage: aiStageName.optional(),
-  structuredOutput: z.object({ name: z.string(), schema: z.record(z.string(), z.unknown()) }).optional(),
+  structuredOutput: structuredOutputSchema.optional(),
 });
 
 export const aiResponseSchema = z.object({

@@ -367,6 +367,36 @@ describe('AnthropicAdapter', () => {
     });
   });
 
+  it('uses named strict JSON schema output configuration', async () => {
+    const adapter = createAdapter();
+    const mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: '{"value":"ok"}' }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+
+    (adapter as unknown as { client: Anthropic }).client = {
+      messages: { create: mockCreate },
+    } as unknown as Anthropic;
+    await adapter.execute({
+      prompt: 'hello', structuredOutput: { name: 'example', schema: { type: 'object' } },
+    });
+    expect(mockCreate.mock.calls[0][0].output_config).toEqual({
+      format: { type: 'json_schema', name: 'example', schema: { type: 'object' }, strict: true },
+    });
+  });
+
+  it('omits output_config when structured output is absent', async () => {
+    const adapter = createAdapter();
+    const mockCreate = jest.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    (adapter as unknown as { client: Anthropic }).client = {
+      messages: { create: mockCreate },
+    } as unknown as Anthropic;
+    await adapter.execute({ prompt: 'hello' });
+    expect(mockCreate.mock.calls[0][0].output_config).toBeUndefined();
+  });
+
   describe('onModuleInit', () => {
     it('loads context config and enables warning when provider intent exists', async () => {
       const adapter = createAdapter();

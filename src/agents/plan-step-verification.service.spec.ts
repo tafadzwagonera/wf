@@ -10,6 +10,7 @@ import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { StepAssessment } from '../shared/types/step-verification.types';
+import { stepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
 
 jest.mock('node:child_process', () => ({
   exec: jest.fn(),
@@ -205,6 +206,53 @@ describe('PlanStepVerificationService', () => {
     expect(mockAiExecute).not.toHaveBeenCalledWith(
       expect.objectContaining({ provider: expect.anything() }),
     );
+  });
+
+  it('requests the named plan-step assessment schema', async () => {
+    mockAiExecute.mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    await service.run(makeRunParams());
+    const request = mockAiExecute.mock.calls[0][0];
+    expect(request).toEqual(expect.objectContaining({ stage: 'implement', temperature: 0 }));
+    expect(request.structuredOutput).toEqual({ name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema });
+    expect(request.prompt).toContain('{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}');
+    expect(request.prompt).toContain('Produce exactly one entry per [Plan step N] tag above');
+  });
+
+  it('reports pending count when provider session is unavailable', async () => {
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'implementation' }] }),
+    });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+    await service.run(makeRunParams({ sessionId: undefined }));
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', 'step-verify.skipped reason=provider-session-unavailable pending=1', 'step-verification',
+    );
+    expect(mockAppendToLogFile).not.toHaveBeenCalledWith('INFO', expect.stringContaining('step-verify.complete'), expect.anything());
+  });
+
+  it('reports every status category in assessed and complete events', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [
+      { index: 0, status: 'done' },
+      { index: 1, status: 'not-applicable' },
+      { index: 2, status: 'partially-done', missing: 'edge case' },
+      { index: 3, status: 'not-done', missing: 'implementation' },
+    ] }) });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const outcome = await service.run(makeRunParams({ steps: ['A', 'B', 'C', 'D'], stallWindow: 1 }));
+    expect(outcome.summary?.pending).toBe(2);
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'INFO', 'step-verify.assessed steps=4 done=1 not-applicable=1 partially-done=1 not-done=1', 'step-verification',
+    );
+  });
+
+  it('performs one bounded structured assessment retry after invalid JSON', async () => {
+    mockAiExecute
+      .mockResolvedValueOnce({ content: 'not-json' })
+      .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    await service.run(makeRunParams());
+    expect(mockAiExecute).toHaveBeenCalledTimes(2);
+    expect(mockAiExecute.mock.calls[0][0].structuredOutput).toEqual(mockAiExecute.mock.calls[1][0].structuredOutput);
   });
 
   it('exhausts budget after stallWindow and returns pending count', async () => {

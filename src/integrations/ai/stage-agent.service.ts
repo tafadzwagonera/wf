@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
+import type { JsonSchemaDefinition } from '@openai/agents';
 import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -51,6 +52,7 @@ import {
   ResolutionPlan,
   sanitizeCodeReviewTrace,
 } from './ai.service';
+import type { AIRequest } from '../../shared/types/ai.types';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { generateTicketSchema } from '../../shared/schemas/generate-ticket.schema';
@@ -248,6 +250,8 @@ type ReviewCodeOpts = {
 };
 
 type StagePromptParams = {
+  structuredOutput?: AIRequest['structuredOutput'];
+  jsonSchema?: string;
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
   priorStageSummary?: string;
@@ -260,12 +264,23 @@ type StagePromptParams = {
 };
 
 type ChatTurnParams = {
+  structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
   repoDir?: string;
   session?: AgentChatSession;
   stage: AgentStageName;
   systemPrompt: string;
   userMessage: string;
+};
+
+type OpenAiStageAgentOptions = {
+  stage: AgentStageName;
+  systemPrompt: string;
+  repoDir?: string;
+  priorStageSummary?: string;
+  apiKey: string;
+  jsonSchema?: string;
+  structuredOutput?: AIRequest['structuredOutput'];
 };
 
 type AgentChatTurnResult = { content: string; costUsd?: number; session: AgentChatSession };
@@ -430,9 +445,11 @@ type AnthropicStageOpts = {
   repoDir?: string;
   resumeProviderSessionId?: string;
   systemPrompt: string;
+  jsonSchema?: string;
+  structuredOutput?: AIRequest['structuredOutput'];
 };
 
-const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
+export const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
   const tools = opts.repoDir ? [...ANTHROPIC_STAGE_TOOLS] : [];
   return {
     canUseTool: anthropicReadOnlyToolGuard,
@@ -441,7 +458,32 @@ const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: strin
     permissionMode: 'acceptEdits' as const,
     sandbox: buildAnthropicSandboxConfig(opts.repoDir),
     systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
+    ...buildAgentOutputFormat(opts),
   };
+};
+
+const buildAgentOutputFormat = (opts: Pick<AnthropicStageOpts, 'structuredOutput' | 'jsonSchema'>) => {
+  if (opts.structuredOutput) return {
+    outputFormat: {
+      type: 'json_schema' as const, name: opts.structuredOutput.name,
+      schema: opts.structuredOutput.schema, strict: true,
+    },
+  };
+  return opts.jsonSchema ? { outputFormat: { type: 'json_schema' as const, schema: JSON.parse(opts.jsonSchema) } } : {};
+};
+
+const buildOpenAiStructuredSettings = (structuredOutput: AIRequest['structuredOutput']) => {
+  if (!structuredOutput) return {};
+  const outputType = {
+    type: 'json_schema' as const, name: structuredOutput.name, strict: true as const,
+    schema: structuredOutput.schema as JsonSchemaDefinition['schema'],
+  } satisfies JsonSchemaDefinition;
+  return { outputType: outputType as unknown as 'text', modelSettings: { temperature: 0 } };
+};
+
+const loadOpenAiInstructions = async (opts: OpenAiStageAgentOptions): Promise<string> => {
+  const context = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true);
+  return [context, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, opts.repoDir)].filter(Boolean).join('\n\n');
 };
 
 const buildAnthropicStageQueryOptions = (opts: AnthropicStageOpts) => {
@@ -455,6 +497,12 @@ const buildAnthropicStageOptions = (opts: AnthropicStageOpts) => ({
   prompt: opts.prompt,
   options: buildAnthropicStageQueryOptions(opts),
 });
+
+const serializeOpenAiFinalOutput = (output: unknown): string => {
+  if (typeof output === 'string') return output.trim();
+  if (output == null) return '';
+  return JSON.stringify(output);
+};
 
 const finalizeCodexResult = (result: string, sessionId?: string): { content: string; sessionId?: string } => {
   if (!result) {
@@ -561,7 +609,7 @@ const processCodexStageResult = async (
   return { ...finalizeCodexStageResult(state, stage), costUsd: computeCodexCostUsd(opts?.model, state) };
 };
 
-const extractCliResultContent = (
+export const extractCliResultContent = (
   message: ClaudeCliMessage
 ): { result: string; source: 'structured_output' | 'result' } | undefined => {
   if (message.type !== 'result' || message.is_error) return undefined;
@@ -701,6 +749,7 @@ type AnthropicChatOpts = {
   repoDir?: string;
   resumeSessionId?: string;
   systemPrompt: string;
+  structuredOutput?: AIRequest['structuredOutput'];
 };
 
 const buildAnthropicChatQueryOptions = (opts: AnthropicChatOpts) => {
@@ -908,6 +957,7 @@ const buildCodexRetryPrompt = (issues: string): string =>
 type CodexPassBase = {
   stage: AgentStageName; model: string; repoDir: string;
   onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+  jsonSchema?: string;
 };
 
 const NON_RETRYABLE_CODEX_ERROR_CATEGORIES = new Set(['stall', 'truncation']);
@@ -1247,6 +1297,8 @@ export class StageAgentService {
       repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, priorStageSummary: params.priorStageSummary,
       anthropicContext, resumeProviderSessionId: params.resumeProviderSessionId,
+      jsonSchema: params.jsonSchema,
+      structuredOutput: params.structuredOutput,
     });
     const { query } = await loadAnthropicAgentSdk();
     return this.processAnthropicStageResult(query(options), params.onProgress);
@@ -1274,6 +1326,7 @@ export class StageAgentService {
     const { agent, runner, context } = await this.buildOpenAiStageAgent({
       stage: params.stage, systemPrompt: params.systemPrompt,
       repoDir: params.repoDir, priorStageSummary: params.priorStageSummary, apiKey,
+      jsonSchema: params.jsonSchema, structuredOutput: params.structuredOutput,
     });
     const { content } = await this.processOpenAiStageResult(
       agent, runner, context, params.prompt, OPENAI_STAGE_MAX_TURNS,
@@ -1292,19 +1345,27 @@ export class StageAgentService {
     return apiKey;
   }
 
-  private async buildOpenAiStageAgent(opts: {
-    stage: AgentStageName; systemPrompt: string; repoDir?: string; priorStageSummary?: string; apiKey: string;
-  }): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
-    const openAiContext = await loadAiContextConfig(path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true);
-    const instructions = [openAiContext, buildOpenAiSystemPrompt(opts.systemPrompt, opts.priorStageSummary, opts.repoDir)].filter(Boolean).join('\n\n');
+  private async buildOpenAiStageAgent(
+    opts: OpenAiStageAgentOptions,
+  ): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
+    const instructions = await loadOpenAiInstructions(opts);
+    return this.buildOpenAiAgentResult(opts, instructions);
+  }
+
+  private buildOpenAiAgentResult(
+    opts: OpenAiStageAgentOptions, instructions: string,
+  ): { agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext } {
     const agent = new Agent<OpenAiStageContext>({
       name: `wf ${opts.stage} openai agent backend`,
       handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
       instructions, model: this.resolveStageModel(opts.stage),
       tools: opts.repoDir ? buildOpenAiStageTools() : [], toolUseBehavior: 'run_llm_again', resetToolChoice: true,
+      ...buildOpenAiStructuredSettings(opts.structuredOutput),
     });
-    const runner = new Runner({ modelProvider: new OpenAIProvider({ apiKey: opts.apiKey }) });
-    return { agent, runner, context: { repoDir: opts.repoDir ?? process.cwd() } };
+    return {
+      agent, runner: new Runner({ modelProvider: new OpenAIProvider({ apiKey: opts.apiKey }) }),
+      context: { repoDir: opts.repoDir ?? process.cwd() },
+    };
   }
 
   private accumulateOpenAiStreamEvent(
@@ -1331,7 +1392,7 @@ export class StageAgentService {
     const counts = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
     for await (const event of streamedRun) this.accumulateOpenAiStreamEvent(event, onProgress, counts);
     if (streamedRun.error) throw new AiProviderError(`OpenAI agent run failed: ${this.extractStreamError(streamedRun.error)}`);
-    const content = typeof streamedRun.finalOutput === 'string' ? streamedRun.finalOutput.trim() : '';
+    const content = serializeOpenAiFinalOutput(streamedRun.finalOutput);
     const costUsd = model
       ? estimateOpenAiCostUsd(model, counts.inputTokens, counts.outputTokens, counts.cachedInputTokens) ?? undefined
       : undefined;
@@ -1340,8 +1401,8 @@ export class StageAgentService {
 
   async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
     const backend = this.resolveStageBackend(params.stage);
-    if (backend === 'cli') return this.cliChatTurn(params);
     const provider = this.resolveStageProvider(params.stage);
+    if (backend === 'cli') return provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params);
     if (provider === 'anthropic') return this.anthropicChatTurn(params);
     return this.validateAndReturnOpenAiChat(params);
   }
@@ -1362,6 +1423,7 @@ export class StageAgentService {
       prompt: params.userMessage, model: this.resolveStageModel(params.stage), apiKey,
       repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, anthropicContext, resumeSessionId: params.session?.sessionId,
+      structuredOutput: params.structuredOutput,
     });
     const { query } = await loadAnthropicAgentSdk();
     return this.processAnthropicChatResult(query(options), params.session?.sessionId);
@@ -1394,7 +1456,7 @@ export class StageAgentService {
   }
 
   private async resolveOpenAiChatAgent(
-    params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session'>, apiKey: string
+    params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session' | 'structuredOutput'>, apiKey: string
   ): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
     const reusableAgent = params.session?.agent as Agent<OpenAiStageContext> | undefined;
     const reusableRunner = params.session?.runner as Runner | undefined;
@@ -1403,6 +1465,7 @@ export class StageAgentService {
     }
     return this.buildOpenAiStageAgent({
       stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir, apiKey,
+      structuredOutput: params.structuredOutput,
     });
   }
 
@@ -1422,7 +1485,9 @@ export class StageAgentService {
     const passOpts: CliStagePassOpts = {
       stage: params.stage, prompt: params.prompt, systemPrompt,
       model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
-      jsonSchema: this.resolveStageJsonSchema(params.stage),
+      jsonSchema: params.structuredOutput
+        ? JSON.stringify(params.structuredOutput.schema)
+        : params.jsonSchema ?? this.resolveStageJsonSchema(params.stage),
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       forkSession: params.forkSession, screenshots: params.screenshots,
     };
@@ -1587,31 +1652,79 @@ export class StageAgentService {
       initialSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
+      jsonSchema: params.jsonSchema ?? this.resolveStageJsonSchema(params.stage),
     });
   }
 
   private async runCodexStagePass(opts: {
     stage: AgentStageName; model: string; repoDir: string; prompt: string;
-    sessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+    sessionId?: string;
+    onProgress?: StageProgressCallback;
+    timeoutMs?: number;
+    inactivityTimeoutMs?: number;
+    jsonSchema?: string;
   }): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
-    const args = buildCodexCliArgs({
-      prompt: opts.prompt, model: opts.model, cwd: opts.repoDir, sessionId: opts.sessionId,
-    });
+    const schemaPath = await this.createCodexSchemaFile(opts.jsonSchema);
+    return this.executeCodexStagePassWithCleanup(opts, schemaPath);
+  }
+
+  private async executeCodexStagePassWithCleanup(
+    opts: { stage: AgentStageName; model: string; repoDir: string; prompt: string; sessionId?: string;
+      onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number; },
+    schemaPath?: string,
+  ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
+    try {
+      const args = this.buildCodexStageArgs(opts, schemaPath);
+      return await this.executeCodexStagePass(opts, args);
+    } finally {
+      if (schemaPath) await fs.rm(schemaPath, { force: true });
+    }
+  }
+
+  private executeCodexStagePass(
+    opts: { stage: AgentStageName; model: string; repoDir: string; prompt: string; sessionId?: string;
+      onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number; },
+    args: string[],
+  ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     return processCodexStageResult(args, opts.repoDir, opts.prompt, opts.stage, {
       sessionId: opts.sessionId, model: opts.model, onProgress: opts.onProgress,
       timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs,
     });
   }
 
+  private async createCodexSchemaFile(schema?: string): Promise<string | undefined> {
+    if (!schema) return undefined;
+    const schemaPath = path.join(os.tmpdir(), `wf-codex-schema-${process.pid}-${Date.now()}.json`);
+    await fs.writeFile(schemaPath, schema, 'utf8');
+    return schemaPath;
+  }
+
+  private buildCodexStageArgs(
+    opts: { prompt: string; model: string; repoDir: string; sessionId?: string }, outputSchemaPath?: string,
+  ): string[] {
+    return buildCodexCliArgs({ ...opts, cwd: opts.repoDir, outputSchemaPath });
+  }
+
   private async runCodexRetryLoop(opts: {
     stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
-    initialSessionId?: string; onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+    initialSessionId?: string;
+    onProgress?: StageProgressCallback;
+    timeoutMs?: number;
+    inactivityTimeoutMs?: number;
+    jsonSchema?: string;
   }): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
-    const passBase: CodexPassBase = { stage: opts.stage, model: opts.model, repoDir: opts.repoDir,
-      onProgress: opts.onProgress, timeoutMs: opts.timeoutMs, inactivityTimeoutMs: opts.inactivityTimeoutMs };
+    const { stage, model, repoDir, onProgress, timeoutMs, inactivityTimeoutMs, jsonSchema } = opts;
+    const passBase: CodexPassBase = { stage, model, repoDir, onProgress, timeoutMs, inactivityTimeoutMs, jsonSchema };
     let sessionId = opts.initialSessionId;
     const pass1 = await this.runCodexStagePass({ ...passBase, prompt: opts.initialPrompt, sessionId });
     if (pass1.sessionId) sessionId = pass1.sessionId;
+    return this.finishCodexRetryLoop(opts, passBase, sessionId, pass1);
+  }
+
+  private async finishCodexRetryLoop(
+    opts: { stage: AgentStageName }, passBase: CodexPassBase, sessionId: string | undefined,
+    pass1: { content: string; sessionId?: string; costUsd?: number },
+  ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     if (!STAGE_RESPONSE_SCHEMAS[opts.stage]) return pass1;
     const issues1 = resolveStageResponseIssues(opts.stage, pass1.content);
     if (!issues1) return { content: pass1.content, sessionId, costUsd: pass1.costUsd };
@@ -1728,10 +1841,49 @@ export class StageAgentService {
     const chatPassOpts: CliChatPassOpts = {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
       model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
-      initialSessionId: params.session?.sessionId, jsonSchema: params.jsonSchema,
+      initialSessionId: params.session?.sessionId,
+      jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
     };
     const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
     return { content: result.content, costUsd: result.costUsd, session: { provider: 'anthropic' as const, backend: 'cli', sessionId: result.sessionId } };
+  }
+
+  private buildCodexChatPrompt(params: ChatTurnParams): string {
+    return params.systemPrompt + '\n\n' + params.userMessage;
+  }
+
+  private buildCodexCliChatResult(result: {
+    content: string; costUsd?: number; sessionId?: string;
+  }): AgentChatTurnResult {
+    return {
+      content: result.content,
+      costUsd: result.costUsd,
+      session: { provider: 'openai' as const, backend: 'cli', sessionId: result.sessionId },
+    };
+  }
+
+  private buildCodexCliChatRunOptions(params: ChatTurnParams): {
+    stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
+    initialSessionId?: string; timeoutMs: number; inactivityTimeoutMs: number; jsonSchema?: string;
+  } {
+    return {
+      stage: params.stage,
+      model: this.resolveStageModel(params.stage),
+      repoDir: params.repoDir ?? process.cwd(),
+      initialPrompt: this.buildCodexChatPrompt(params),
+      initialSessionId: params.session?.sessionId,
+      timeoutMs: this.resolveStageTimeoutMs(params.stage),
+      inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
+      jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
+    };
+  }
+
+  private async codexCliChatTurn(
+    params: ChatTurnParams
+  ): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
+    assertCodexCliAvailable();
+    const result = await this.runCodexRetryLoop(this.buildCodexCliChatRunOptions(params));
+    return this.buildCodexCliChatResult(result);
   }
 
   private async runCliChatRetryLoop(

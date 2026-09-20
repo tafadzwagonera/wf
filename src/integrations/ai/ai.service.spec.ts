@@ -3,6 +3,7 @@ import { AiService, parseJsonResponse } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
+import { AiProviderError } from '../../shared/utils/errors';
 
 jest.mock('../../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
@@ -1944,6 +1945,46 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(mockStageAgent.chatTurn).toHaveBeenCalledWith(
         expect.objectContaining({ systemPrompt: '' }),
       );
+    });
+
+    it('passes structuredOutput through stage-agent routing unchanged', async () => {
+      const structuredOutput = { name: 'example', schema: { type: 'object' } };
+      await service.execute({ prompt: 'hello', stage: 'implement', structuredOutput });
+      expect(mockStageAgent.chatTurn).toHaveBeenCalledWith(expect.objectContaining({ structuredOutput }));
+    });
+
+    it('retries an unavailable model once with the configured provider default', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({ content: 'ok', provider: 'openai', model: 'gpt-5.4' });
+      await service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' });
+      expect(adapter.execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ provider: 'openai', model: 'gpt-5.4' }));
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('ai.model.fallback stage=unknown provider=openai backend=adapter original-model=invalid-model fallback-model=gpt-5.4'), 'llm-adapter',
+      );
+    });
+
+    it('does not retry auth failures', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute.mockRejectedValue(new AiProviderError('unauthorized', undefined, false, 'auth'));
+      await expect(service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' })).rejects.toThrow('unauthorized');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry when the configured default is the same model', async () => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute.mockRejectedValue(new AiProviderError('model gpt-5.4 not found', { status: 404 }, true, 'api'));
+      await expect(service.execute({ prompt: 'hello', provider: 'openai', model: 'gpt-5.4' })).rejects.toThrow('not found');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['timeout', 'parse', 'rate-limit'] as const)('does not retry %s failures', async category => {
+      (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
+      adapter.execute.mockRejectedValue(new AiProviderError('model unavailable', undefined, true, category));
+      await expect(service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' })).rejects.toThrow('unavailable');
+      expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
 
     it('falls back to raw adapter when request has an explicit provider override', async () => {

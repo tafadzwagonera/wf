@@ -145,6 +145,9 @@ describe('getHelpText', () => {
       'Tracker (jira|github|bitbucket) used to resolve a ticket source; defaults to the configured primary tracker'
     );
     expect(plainImplementHelpText).toContain('Anthropic Agent SDK, OpenAI Agents SDK, or Claude CLI headless mode');
+    expect(plainImplementHelpText).toContain('Codex CLI uses codex exec --output-schema with a temporary schema file');
+    expect(plainImplementHelpText).toContain('Assessed and complete events include done, not-applicable, partially-done, and not-done counts');
+    expect(plainImplementHelpText).toContain('The fallback is logged once as `ai.model.fallback`');
     expect(plainImplementHelpText).toContain('~/.claude/CLAUDE.md and the repository-root CLAUDE.md');
     expect(plainImplementHelpText).toContain('~/.openai/AGENTS.md and the repository-root AGENTS.md');
     expect(plainImplementHelpText).toContain('targeted-write, step-count, and pattern routing');

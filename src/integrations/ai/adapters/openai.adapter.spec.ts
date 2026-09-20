@@ -362,6 +362,36 @@ describe('OpenAIAdapter', () => {
     });
   });
 
+  it('uses strict named JSON schema response format', async () => {
+    const adapter = createAdapter();
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: '{"value":"ok"}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+
+    (adapter as unknown as { client: OpenAI }).client = {
+      chat: { completions: { create: mockCreate } },
+    } as unknown as OpenAI;
+    await adapter.execute({
+      prompt: 'hello', structuredOutput: { name: 'example', schema: { type: 'object' } },
+    });
+    expect(mockCreate.mock.calls[0][0].response_format).toEqual({
+      type: 'json_schema', json_schema: { name: 'example', schema: { type: 'object' }, strict: true },
+    });
+  });
+
+  it('omits response_format when structured output is absent', async () => {
+    const adapter = createAdapter();
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    (adapter as unknown as { client: OpenAI }).client = {
+      chat: { completions: { create: mockCreate } },
+    } as unknown as OpenAI;
+    await adapter.execute({ prompt: 'hello' });
+    expect(mockCreate.mock.calls[0][0].response_format).toBeUndefined();
+  });
+
   describe('onModuleInit', () => {
     it('loads global and project config from AGENTS.md paths', async () => {
       const adapter = createAdapter();
