@@ -13,11 +13,23 @@ import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import type { UiDesignScreenshotsResult } from '../shared/types/ui-design-screenshot';
+import {
+  CommentPolicyStageService,
+  mergeCommentPolicyIssues,
+} from '../review/comment-policy-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
+
+interface DiffReviewInputs {
+  onProgress?: (line: string) => void;
+  sonarResult?: SonarScanResult;
+  figmaResult?: FigmaResolveResult;
+  uiResult?: UiDesignScreenshotsResult;
+  commentPolicyEnabled: boolean;
+}
 
 @Injectable()
 export class ReviewerAgent {
@@ -26,9 +38,17 @@ export class ReviewerAgent {
     private readonly reviewStageService: ReviewStageService,
     private readonly sonarStageService: SonarStageService,
     private readonly figmaStageService: FigmaStageService,
+    @Optional() private readonly commentPolicyStageService: CommentPolicyStageService,
     private readonly presenter: CliPresenter,
     @Optional() private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService
   ) {}
+
+  private presentReviewHeader(options: ReviewerOptions): void {
+    if (!options.suppressHeader && !options.silent) {
+      this.presenter.stageHeader(4, 'Code Review');
+      this.presenter.separator();
+    }
+  }
 
   /**
    * Run the REVIEW stage for the given ticket.
@@ -37,17 +57,10 @@ export class ReviewerAgent {
    * - `options.skipExisting` is true and a review artifact already exists on disk
    * - The working tree has no uncommitted changes to review
    *
-   * @param ticket - Ticket artifact produced by FetcherAgent (used for key and artifact path)
+   * @param ticket
    * @param options - Optional reviewer configuration
    * @returns ReviewArtifact with review data, disk path, and approval status; or null when skipped
    */
-  private presentReviewHeader(options: ReviewerOptions): void {
-    if (!options.suppressHeader && !options.silent) {
-      this.presenter.stageHeader(4, 'Code Review');
-      this.presenter.separator();
-    }
-  }
-
   async execute(ticket: TicketArtifact, options: ReviewerOptions = {}): Promise<ReviewArtifact | null> {
     const cached = this.tryLoadCachedReview(ticket.path, options);
     if (cached) return cached;
@@ -117,17 +130,31 @@ export class ReviewerAgent {
     uiResult?: UiDesignScreenshotsResult
   ): Promise<{ review: CodeReview; sessionId?: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
-    return this.reviewStageService.reviewDiff(diff, {
+    const commentPolicyResult = await this.commentPolicyStageService?.scanIfEnabled(
+      { diff, force: options.commentPolicy });
+
+    const commentPolicyEnabled = commentPolicyResult !== undefined;
+    const reviewOptions = this.buildDiffReviewOptions(ticket, repoDir, options,
+      { onProgress, sonarResult, figmaResult, uiResult, commentPolicyEnabled });
+    const { review, sessionId } = await this.reviewStageService.reviewDiff(diff, reviewOptions);
+    return { review: mergeCommentPolicyIssues(review, commentPolicyResult), sessionId };
+  }
+
+  private buildDiffReviewOptions(
+    ticket: TicketArtifact, repoDir: string, options: ReviewerOptions, inputs: DiffReviewInputs
+  ): Parameters<ReviewStageService['reviewDiff']>[1] {
+    return {
       context: this.buildReviewContext(ticket.ticketKey, repoDir),
-      additionalContextSections: this.buildAdditionalContextSections(sonarResult),
+      additionalContextSections: this.buildAdditionalContextSections(inputs.sonarResult),
       repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
-      onProgress,
-      figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []),
-      ...(uiResult ? { screenshots: uiResult.screenshots } : {}),
-    });
+      onProgress: inputs.onProgress,
+      figmaContextSection: buildFigmaContextSection(inputs.figmaResult?.frames ?? []),
+      ...(inputs.uiResult ? { screenshots: inputs.uiResult.screenshots } : {}),
+      commentPolicyEnabled: inputs.commentPolicyEnabled,
+    };
   }
 
   private async runUiDesignScreenshotsStage(

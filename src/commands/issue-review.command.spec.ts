@@ -85,6 +85,7 @@ import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
+import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 
@@ -287,6 +288,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
   conversationService: typeof mockConversationService;
   sessionService: { findByTicketKey: jest.Mock; findByProviderSessionId: jest.Mock };
   sonarStageService: { scanIfEnabled: jest.Mock };
+  commentPolicyStageService: { scanIfEnabled: jest.Mock };
   dryRunPreview: {
     showHeader: jest.Mock;
     showSkipped: jest.Mock;
@@ -433,6 +435,12 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
           resolveIfEnabled: jest.fn().mockResolvedValue(undefined),
         },
       },
+      {
+        provide: CommentPolicyStageService,
+        useValue: {
+          scanIfEnabled: jest.fn().mockResolvedValue(undefined),
+        },
+      },
     ],
   }).compile();
 
@@ -459,6 +467,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
     dryRunPreview,
     sessionService: module.get(SessionService),
     sonarStageService: module.get(SonarStageService),
+    commentPolicyStageService: module.get(CommentPolicyStageService),
   };
 }
 
@@ -1732,6 +1741,92 @@ describe('IssueReviewCommand', () => {
       );
 
       expect(initializeWfConfig).toHaveBeenCalledWith(process.cwd());
+    });
+  });
+
+  describe('comment policy', () => {
+    it('parseCommentPolicy returns true', async () => {
+      const { command } = await buildCommand();
+
+      expect((command as any).parseCommentPolicy()).toBe(true);
+    });
+
+    it('--comment-policy conflicts with --sonar-only', async () => {
+      const { command } = await buildCommand();
+
+      expect(() =>
+        (command as any).validateReviewInputs(undefined, { sonarOnly: true, commentPolicy: true })
+      ).toThrow('--comment-policy');
+    });
+
+    it('passes commentPolicyEnabled: true to reviewDiff when scanIfEnabled resolves with a result', async () => {
+      const { command, reviewStageService, commentPolicyStageService } = await buildCommand();
+      commentPolicyStageService.scanIfEnabled.mockResolvedValue({ findings: [] });
+      const target = { title: 'T', diff: 'diff', context: 'ctx', repoDir: '/tmp/repo' };
+
+      await (command as any).reviewSingleTarget(target, null, { silent: true });
+
+      const opts = (reviewStageService.reviewDiff as jest.Mock).mock.calls[0][1];
+      expect(opts.commentPolicyEnabled).toBe(true);
+    });
+
+    it('passes commentPolicyEnabled: false to reviewDiff when scanIfEnabled resolves undefined', async () => {
+      const { command, reviewStageService, commentPolicyStageService } = await buildCommand();
+      commentPolicyStageService.scanIfEnabled.mockResolvedValue(undefined);
+      const target = { title: 'T', diff: 'diff', context: 'ctx', repoDir: '/tmp/repo' };
+
+      await (command as any).reviewSingleTarget(target, null, { silent: true });
+
+      const opts = (reviewStageService.reviewDiff as jest.Mock).mock.calls[0][1];
+      expect(opts.commentPolicyEnabled).toBe(false);
+    });
+
+    it('merges comment-policy findings into review.issues', async () => {
+      const { command, reviewStageService, commentPolicyStageService } = await buildCommand();
+      commentPolicyStageService.scanIfEnabled.mockResolvedValue({ findings: [{ file: 'src/foo.ts', line: 5 }] });
+      (reviewStageService.reviewDiff as jest.Mock).mockResolvedValue({
+        review: { issues: [], summary: '', suggestions: [], approved: true },
+      });
+      const target = { title: 'T', diff: 'diff', context: 'ctx', repoDir: '/tmp/repo' };
+
+      const review = await (command as any).reviewSingleTarget(target, null, { silent: true });
+
+      expect(review.issues).toHaveLength(1);
+      expect(review.issues[0].origin).toBe('comment-policy');
+    });
+
+    it('postInlineComments excludes origin === "comment-policy" issues even when severity/file/line qualify', async () => {
+      const { command } = await buildCommand();
+      const mockAdapter = {
+        createInlineComment: jest.fn().mockResolvedValue(undefined),
+      };
+      const review = {
+        issues: [
+          { severity: 'warning', message: 'cp issue', file: 'src/a.ts', line: 1, origin: 'comment-policy' },
+          { severity: 'warning', message: 'real issue', file: 'src/b.ts', line: 2 },
+        ],
+        summary: '',
+        suggestions: [],
+        approved: true,
+      };
+
+      await (command as any).postInlineComments(mockAdapter, 'PR-1', 'Title', review);
+
+      expect(mockAdapter.createInlineComment).toHaveBeenCalledTimes(1);
+      expect(mockAdapter.createInlineComment).toHaveBeenCalledWith('PR-1', 'src/b.ts', 2, 'real issue');
+    });
+
+    it('formatChatIssueLines excludes origin === "comment-policy" issues', async () => {
+      const { command } = await buildCommand();
+      const issues = [
+        { severity: 'warning', message: 'cp', file: 'src/a.ts', line: 1, origin: 'comment-policy' },
+        { severity: 'error', message: 'real', file: 'src/b.ts', line: 2 },
+      ];
+
+      const result = (command as any).formatChatIssueLines(issues);
+
+      expect(result).not.toContain('cp');
+      expect(result).toContain('real');
     });
   });
 });

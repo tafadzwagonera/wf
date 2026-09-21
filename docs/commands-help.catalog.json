@@ -488,6 +488,10 @@
         "description": "Post review as a comment on supported pull requests"
       },
       {
+        "flags": "--comment-policy",
+        "description": "Enable deterministic new-comment detection, overriding stages.review.commentPolicy config."
+      },
+      {
         "flags": "--criteria <path>",
         "description": "Path to a markdown file with additional review criteria to append to the defaults"
       },

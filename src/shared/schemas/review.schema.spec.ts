@@ -89,6 +89,30 @@ describe('codeIssueSchema', () => {
     });
   });
 
+  describe('origin field', () => {
+    it('accepts "comment-policy"', () => {
+      const result = codeIssueSchema.parse({ severity: 'warning', message: 'msg', origin: 'comment-policy' });
+
+      expect(result.origin).toBe('comment-policy');
+    });
+
+    it('treats missing origin as undefined', () => {
+      const result = codeIssueSchema.parse({ severity: 'info', message: 'msg' });
+
+      expect(result.origin).toBeUndefined();
+    });
+
+    it('treats null origin as undefined via nullableOptional', () => {
+      const result = codeIssueSchema.parse({ severity: 'info', message: 'msg', origin: null });
+
+      expect(result.origin).toBeUndefined();
+    });
+
+    it('rejects unknown origin values', () => {
+      expect(() => codeIssueSchema.parse({ severity: 'info', message: 'msg', origin: 'other' })).toThrow();
+    });
+  });
+
   describe('review repair metadata', () => {
     it('accepts repairStrategy "validation" on a review payload', () => {
       const result = codeReviewSchema.safeParse({

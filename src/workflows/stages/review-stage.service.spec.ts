@@ -897,6 +897,43 @@ describe('ReviewStageService', () => {
     });
   });
 
+  describe('Comments guideline and commentPolicyEnabled suppression', () => {
+    it('includes the Comments guideline when commentPolicyEnabled is not set', async () => {
+      const { service, aiService } = await buildService();
+
+      await service.reviewDiff('diff --git a/file b/file', { context: 'ctx' });
+
+      expect(aiService.reviewCode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining([expect.stringContaining('Comments:')]),
+        undefined
+      );
+    });
+
+    it('includes the Comments guideline when commentPolicyEnabled is false', async () => {
+      const { service, aiService } = await buildService();
+
+      await service.reviewDiff('diff --git a/file b/file', { context: 'ctx', commentPolicyEnabled: false });
+
+      expect(aiService.reviewCode).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining([expect.stringContaining('Comments:')]),
+        undefined
+      );
+    });
+
+    it('excludes only the Comments guideline when commentPolicyEnabled is true', async () => {
+      const { service, aiService } = await buildService();
+
+      await service.reviewDiff('diff --git a/file b/file', { context: 'ctx', commentPolicyEnabled: true });
+
+      const guidelines: string[] = (aiService.reviewCode as jest.Mock).mock.calls[0][1];
+      expect(guidelines.some(g => g.startsWith('Comments:'))).toBe(false);
+      expect(guidelines.some(g => g.startsWith('Clarity:'))).toBe(true);
+      expect(guidelines.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('buildReviewArtifact', () => {
     afterEach(() => jest.restoreAllMocks());
 

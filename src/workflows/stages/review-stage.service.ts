@@ -49,6 +49,7 @@ const defaultReviewGuidelines = [
   "Accessibility: Verify interactive elements have correct roles, labels, and focus states; check that keyboard and screen-reader operability isn't regressed (e.g. aria-hidden on a focusable element, missing alt text, a removed native affordance); flag contrast or motion-reduction regressions in visual changes.",
   'Boundaries: Verify logic is placed in the correct module, layer, or service and cross-module dependencies are justified.',
   'Clarity: Verify every changed line is immediately understandable without author context.',
+  "Comments: Flag any newly added comment in the diff as a [warning]. New comments need human approval except JSDoc where a symbol's complexity genuinely warrants it. Preexisting comments may stay.",
   'Contracts: Flag changes to function signatures, return types, event payloads, or public APIs that break existing callers or tests.',
   'Conventions: Confirm naming, formatting, import order, and file placement match established codebase patterns.',
   'Documentation: Ensure changed public APIs, config options, and behaviour have matching doc, JSDoc, or comment updates.',
@@ -74,6 +75,7 @@ interface ReviewDiffOptions {
   skillNames?: string[];
   figmaContextSection?: string;
   screenshots?: UiDesignScreenshot[];
+  commentPolicyEnabled?: boolean;
 }
 
 @Injectable()
@@ -158,13 +160,17 @@ export class ReviewStageService {
 
   private buildReviewGuidelines(options: ReviewDiffOptions): string[] {
     const contextSections = [options.context, ...(options.additionalContextSections ?? [])].filter(Boolean);
-    return options.replaceCriteria
-      ? [...contextSections, ...(options.extraCriteria ?? [])]
-      : [
-          ...defaultReviewGuidelines,
-          `Relevancy: Does the feature or fix work? (This is very important — context: ${contextSections.join('\n\n')})`,
-          ...(options.extraCriteria ?? []),
-        ];
+    if (options.replaceCriteria) {
+      return [...contextSections, ...(options.extraCriteria ?? [])];
+    }
+    const guidelines = options.commentPolicyEnabled
+      ? defaultReviewGuidelines.filter(g => !g.startsWith('Comments:'))
+      : defaultReviewGuidelines;
+    return [
+      ...guidelines,
+      `Relevancy: Does the feature or fix work? (This is very important — context: ${contextSections.join('\n\n')})`,
+      ...(options.extraCriteria ?? []),
+    ];
   }
 
   private createSummariseCallback(

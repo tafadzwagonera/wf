@@ -40,6 +40,10 @@ import * as YAML from 'yaml';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
+import {
+  CommentPolicyStageService,
+  mergeCommentPolicyIssues,
+} from '../review/comment-policy-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
@@ -66,6 +70,7 @@ interface IssueReviewOptions {
   resumeSessionId?: string;
   priorStageSummary?: string;
   forkSession?: boolean;
+  commentPolicy?: boolean;
 }
 
 interface ReviewTarget {
@@ -194,7 +199,8 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly reviewPresenter: ReviewPresenter,
     private readonly sessionService: SessionService,
     private readonly sonarStageService: SonarStageService,
-    private readonly figmaStageService: FigmaStageService
+    private readonly figmaStageService: FigmaStageService,
+    private readonly commentPolicyStageService: CommentPolicyStageService
   ) {
     super();
   }
@@ -704,34 +710,38 @@ export class IssueReviewCommand extends CommandRunner {
     const onProgress = options?.silent ? undefined : (line: string) => console.log(chalk.gray(line));
     const sonarResult = await this.resolveSonarResultForTarget(target, options, onProgress);
     const figmaResult = await this.resolveFigmaResultForTarget(target, options, onProgress);
+    const commentPolicyResult = await this.commentPolicyStageService.scanIfEnabled(
+      { diff: target.diff, force: options?.commentPolicy });
+
     const context = await buildPreReviewContext(target, {
       ticketKey: options?.ticketKey,
       silent: options?.silent,
       skipVerification: options?.skipVerification,
     });
-    const { review } = await this.reviewStageService.reviewDiff(
-      target.diff,
-      this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, sonarResult, figmaResult)
-    );
-    return review;
+    const diffOptions = this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, {
+      sonarResult, figmaResult, commentPolicyEnabled: commentPolicyResult !== undefined,
+    });
+    const { review } = await this.reviewStageService.reviewDiff(target.diff, diffOptions);
+    return mergeCommentPolicyIssues(review, commentPolicyResult);
   }
 
   private buildReviewDiffOptions(
     target: ReviewTarget, context: string, extraCriteria: string[] | null,
     options: IssueReviewOptions | undefined, onProgress: ((line: string) => void) | undefined,
-    sonarResult: SonarScanResult | undefined, figmaResult: FigmaResolveResult | undefined
+    stageResults: { sonarResult?: SonarScanResult; figmaResult?: FigmaResolveResult; commentPolicyEnabled: boolean }
   ): Parameters<ReviewStageService['reviewDiff']>[1] {
     return {
       context,
       extraCriteria: extraCriteria ?? undefined,
       replaceCriteria: Boolean(options?.replaceCriteria),
-      additionalContextSections: this.buildAdditionalContextSections(sonarResult),
+      additionalContextSections: this.buildAdditionalContextSections(stageResults.sonarResult),
       repoDir: target.repoDir,
       resumeProviderSessionId: options?.sessionId,
       priorStageSummary: options?.priorStageSummary,
       forkSession: options?.forkSession,
       onProgress,
-      figmaContextSection: buildFigmaContextSection(figmaResult?.frames ?? []),
+      figmaContextSection: buildFigmaContextSection(stageResults.figmaResult?.frames ?? []),
+      commentPolicyEnabled: stageResults.commentPolicyEnabled,
     };
   }
 
@@ -1025,6 +1035,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--comment-policy',
+    description: 'Enable deterministic new-comment detection, overriding stages.review.commentPolicy config.',
+  })
+  parseCommentPolicy(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-k, --ticket-key <key>',
     description: 'Ticket key to review (e.g. WBP-2971)',
   })
@@ -1065,6 +1083,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (options.figma !== undefined) conflicts.push('--figma');
     if (options.criteria) conflicts.push('--criteria');
     if (options.replaceCriteria) conflicts.push('--replace-criteria');
+    if (options.commentPolicy) conflicts.push('--comment-policy');
     if (conflicts.length > 0) {
       throw new ValidationError('--sonar-only cannot be combined with ' + conflicts.join(', '));
     }
@@ -1141,7 +1160,9 @@ export class IssueReviewCommand extends CommandRunner {
   private async postInlineComments(adapter: any, ref: string, title: string, review: CodeReview): Promise<void> {
     if (!adapter.createInlineComment) return;
     const issues = (review.issues ?? []).filter(
-      (i: CodeIssue) => (i.severity === 'error' || i.severity === 'warning') && i.file != null && i.line != null && i.line > 0
+      (i: CodeIssue) => i.origin !== 'comment-policy'
+        && (i.severity === 'error' || i.severity === 'warning')
+        && i.file != null && i.line != null && i.line > 0
     );
     if (issues.length === 0) return;
     console.log(chalk.cyan('💬 Posting ' + issues.length + ' inline comment(s) to ' + title + '...\n'));
@@ -1486,8 +1507,9 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   private formatChatIssueLines(issues: CodeIssue[]): string {
-    if (issues.length === 0) return '  No issues found';
-    return issues.map(i => {
+    const filtered = issues.filter(i => i.origin !== 'comment-policy');
+    if (filtered.length === 0) return '  No issues found';
+    return filtered.map(i => {
       const lineRef = i.line ? ':' + i.line : '';
       const loc = i.file ? ' (' + i.file + lineRef + ')' : '';
       return '  [' + i.severity + '] ' + i.message + loc;

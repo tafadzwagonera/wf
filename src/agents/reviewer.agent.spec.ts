@@ -6,6 +6,7 @@ import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
+import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
 import * as fs from 'fs';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
@@ -27,6 +28,10 @@ const createMockSonarStageService = () => ({
 
 const createMockFigmaStageService = () => ({
   resolveIfEnabled: jest.fn().mockResolvedValue(undefined),
+});
+
+const createMockCommentPolicyStageService = () => ({
+  scanIfEnabled: jest.fn().mockResolvedValue(undefined),
 });
 
 describe('ReviewerAgent', () => {
@@ -1078,6 +1083,102 @@ describe('ReviewerAgent', () => {
         expect.any(String),
         expect.not.objectContaining({ screenshots: expect.anything() })
       );
+    });
+  });
+
+  describe('comment policy wiring', () => {
+    const buildModule = async (commentPolicyService: ReturnType<typeof createMockCommentPolicyStageService>) => {
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          {
+            provide: CliPresenter,
+            useValue: {
+              stageHeader: jest.fn(),
+              separator: jest.fn(),
+              progress: jest.fn(),
+              outcome: jest.fn(),
+              detail: jest.fn(),
+              summaryBlock: jest.fn(),
+            },
+          },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: jest.fn().mockResolvedValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              }),
+              buildReviewArtifact: jest.fn().mockImplementation((_ticket: unknown, review: unknown) => ({
+                review,
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              })),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+          { provide: CommentPolicyStageService, useValue: commentPolicyService },
+        ],
+      }).compile();
+
+      return {
+        agent: module.get(ReviewerAgent),
+        reviewStageService: module.get(ReviewStageService),
+        commentPolicyService,
+      };
+    };
+
+    it('passes commentPolicyEnabled: true to reviewDiff when scan returns a result', async () => {
+      const commentPolicyService = createMockCommentPolicyStageService();
+      commentPolicyService.scanIfEnabled.mockResolvedValue({ findings: [] });
+      const { agent, reviewStageService } = await buildModule(commentPolicyService);
+
+      await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo' }
+      );
+
+      const opts = (reviewStageService.reviewDiff as jest.Mock).mock.calls[0][1];
+      expect(opts.commentPolicyEnabled).toBe(true);
+    });
+
+    it('passes commentPolicyEnabled: false to reviewDiff when scan returns undefined', async () => {
+      const commentPolicyService = createMockCommentPolicyStageService();
+      commentPolicyService.scanIfEnabled.mockResolvedValue(undefined);
+      const { agent, reviewStageService } = await buildModule(commentPolicyService);
+
+      await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo' }
+      );
+
+      const opts = (reviewStageService.reviewDiff as jest.Mock).mock.calls[0][1];
+      expect(opts.commentPolicyEnabled).toBe(false);
+    });
+
+    it('merges comment-policy findings into review.issues', async () => {
+      const commentPolicyService = createMockCommentPolicyStageService();
+      commentPolicyService.scanIfEnabled.mockResolvedValue({ findings: [{ file: 'src/foo.ts', line: 3 }] });
+      const { agent, reviewStageService } = await buildModule(commentPolicyService);
+      (reviewStageService.reviewDiff as jest.Mock).mockResolvedValue({
+        review: { issues: [], summary: 'ok', suggestions: [], approved: true },
+      });
+
+      const result = await agent.execute(
+        { ticketKey: 'WBP-123', content: '# WBP-123', path: '/tmp/.wf/repo/jira/WBP-123.md' },
+        { repoDir: '/tmp/repo' }
+      );
+
+      expect(result?.review.issues).toHaveLength(1);
+      expect(result?.review.issues[0].origin).toBe('comment-policy');
     });
   });
 });

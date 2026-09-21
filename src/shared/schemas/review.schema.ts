@@ -59,6 +59,7 @@ export const codeIssueSchema = z.object({
   file: nullableOptional(z.string()),
   line: nullableOptional(z.number()),
   endLine: nullableOptional(z.number()),
+  origin: nullableOptional(z.literal('comment-policy')),
   suggestion: nullableOptional(z.string()),
 });
 

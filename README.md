@@ -492,6 +492,7 @@ wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?
 | Flag | Description |
 | ---- | ----------- |
 | `--comment` | Post review as a comment on supported pull requests |
+| `--comment-policy` | Enable deterministic new-comment detection, overriding stages.review.commentPolicy config. |
 | `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
 | `--dry-run` | Preview the review operation without making changes |
 | `--figma [urls...]` | Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`. |
