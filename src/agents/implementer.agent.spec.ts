@@ -160,6 +160,7 @@ describe('ImplementerAgent', () => {
           useValue: {
             isEnabledForStage: jest.fn().mockReturnValue(false),
             chatTurn: jest.fn(),
+            logResolvedStageTarget: jest.fn(),
           },
         },
         {
@@ -571,7 +572,11 @@ describe('ImplementerAgent', () => {
           },
           {
             provide: StageAgentService,
-            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+            useValue: {
+              isEnabledForStage: jest.fn().mockReturnValue(false),
+              chatTurn: jest.fn(),
+              logResolvedStageTarget: jest.fn(),
+            },
           },
           {
             provide: PlanStepVerificationService,
@@ -667,7 +672,11 @@ describe('ImplementerAgent', () => {
           },
           {
             provide: StageAgentService,
-            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+            useValue: {
+              isEnabledForStage: jest.fn().mockReturnValue(false),
+              chatTurn: jest.fn(),
+              logResolvedStageTarget: jest.fn(),
+            },
           },
           {
             provide: PlanStepVerificationService,
@@ -2376,6 +2385,7 @@ describe('ImplementerAgent', () => {
           }),
           session: {},
         }),
+        logResolvedStageTarget: jest.fn(),
       };
 
       const module = await Test.createTestingModule({
@@ -3013,7 +3023,11 @@ describe('ImplementerAgent', () => {
           { provide: AiService, useValue: { generateFindings: jest.fn() } },
           {
             provide: StageAgentService,
-            useValue: { isEnabledForStage: jest.fn().mockReturnValue(false), chatTurn: jest.fn() },
+            useValue: {
+              isEnabledForStage: jest.fn().mockReturnValue(false),
+              chatTurn: jest.fn(),
+              logResolvedStageTarget: jest.fn(),
+            },
           },
           {
             provide: PlanStepVerificationService,

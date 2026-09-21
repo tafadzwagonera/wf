@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
 import type { JsonSchemaDefinition } from '@openai/agents';
@@ -33,6 +33,7 @@ import {
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import { LoggerService } from '../../shared/logger/logger.service';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -997,7 +998,10 @@ const appendAgentSdkScreenshotPaths = (prompt: string, screenshots: UiDesignScre
 
 @Injectable()
 export class StageAgentService {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly logger?: LoggerService,
+  ) {}
 
   isEnabledForStage(stage: AgentStageName): boolean {
     const backend = this.resolveStageBackend(stage);
@@ -1238,15 +1242,24 @@ export class StageAgentService {
     return STAGE_RESPONSE_SCHEMAS[stage];
   }
 
+  logResolvedStageTarget(stage: AgentStageName): void {
+    const { provider, model } = this.resolveTargetForStage(stage);
+    this.logger?.info(`llm.adapter resolved-provider=${provider} resolved-model=${model}`, 'llm-adapter');
+  }
+
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     try {
-      return await this.dispatchToBackend(params);
+      const result = await this.dispatchToBackend(params);
+      this.logResolvedStageTarget(params.stage);
+      return result;
     } catch (error) {
       if (!params.resumeProviderSessionId || !isStaleResumeError(error)) throw error;
       console.log(chalk.yellow(
         `  [stage-agent] Resume session ${params.resumeProviderSessionId} appears stale — retrying fresh.`
       ));
-      return this.retryStagePromptFresh(params, error);
+      const retried = await this.retryStagePromptFresh(params, error);
+      this.logResolvedStageTarget(params.stage);
+      return retried;
     }
   }
 
@@ -1402,9 +1415,16 @@ export class StageAgentService {
   async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
     const backend = this.resolveStageBackend(params.stage);
     const provider = this.resolveStageProvider(params.stage);
-    if (backend === 'cli') return provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params);
-    if (provider === 'anthropic') return this.anthropicChatTurn(params);
-    return this.validateAndReturnOpenAiChat(params);
+    let result: AgentChatTurnResult;
+    if (backend === 'cli') {
+      result = await (provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params));
+    } else if (provider === 'anthropic') {
+      result = await this.anthropicChatTurn(params);
+    } else {
+      result = await this.validateAndReturnOpenAiChat(params);
+    }
+    this.logResolvedStageTarget(params.stage);
+    return result;
   }
 
   private async validateAndReturnOpenAiChat(params: ChatTurnParams): Promise<AgentChatTurnResult> {
@@ -1766,12 +1786,13 @@ export class StageAgentService {
   }): Promise<{ sent: true } | { sent: false; reason: string }> {
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
-    if (provider === 'openai') {
-      return this.sendCodexEpilogue(params.sessionId, params.repoDir, model);
-    }
-    return this.sendClaudeEpilogue(
-      params.sessionId, params.repoDir, model, params.systemPrompt, params.priorStageSummary
-    );
+    const result = provider === 'openai'
+      ? await this.sendCodexEpilogue(params.sessionId, params.repoDir, model)
+      : await this.sendClaudeEpilogue(
+          params.sessionId, params.repoDir, model, params.systemPrompt, params.priorStageSummary
+        );
+    this.logResolvedStageTarget('review');
+    return result;
   }
 
   private async sendCodexEpilogue(
