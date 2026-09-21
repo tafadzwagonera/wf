@@ -1074,6 +1074,7 @@ export class AiService {
       const model = response.model ?? 'unknown';
       const cost = response.costUsd ?? estimateLlmCostUsd(provider, model, response.usage);
       const costStr = cost != null ? `$${cost.toFixed(4)}` : 'n/a';
+      this.logger.info(`llm.adapter resolved-provider=${provider} resolved-model=${model}`, 'llm-adapter');
       appendToLogFile('INFO', `llm.adapter resolved-provider=${provider} resolved-model=${model} cost=${costStr}`, 'llm-adapter');
     } catch {
       return;

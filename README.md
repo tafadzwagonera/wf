@@ -8,6 +8,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 - 🌳 **Git Automation** - Branch management, conventional commits, and more
 - 🤖 **AI-Powered** - Claude integration for intelligent planning and code generation
 - 🩺 **Provider-Aware Diagnostics** - Blank or blocked AI stage responses fail fast with provider/model context instead of generic parse errors
+- 🔍 **Resolved Provider Transparency** - Every AI call prints `ℹ llm.adapter resolved-provider=<provider> resolved-model=<model>` to the terminal so the active provider and model are visible for each stage
 - 🧭 **Unified CLI Presentation** - Stage headers, progress updates, and workflow outcomes now use a consistent terminal presenter
 - 🪵 **Persisted Fatal Errors** - Fatal errors are written to the daily `~/.wf/logs/agent-YYYY-MM-DD.log` file for post-mortem review
 - 💾 **State Management** - Pause and resume workflows at any point

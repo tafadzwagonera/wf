@@ -2018,7 +2018,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
     });
 
-    it('writes routed adapter target to the log file without terminal output', async () => {
+    it('writes routed adapter target to the terminal and log file', async () => {
       const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
       const infoSpy = jest.spyOn(mockLogger, 'info');
       infoSpy.mockClear();
@@ -2026,7 +2026,10 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       await service.execute({ prompt: 'hello', stage: 'implement' });
 
-      expect(infoSpy).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('llm.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6'),
+        'llm-adapter',
+      );
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'INFO',
         expect.stringContaining('llm.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6 cost=$0.0500'),
@@ -2073,7 +2076,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       jest.restoreAllMocks();
     });
 
-    it('writes llm.adapter line after executeWithHistory without terminal output', async () => {
+    it('writes llm.adapter line after executeWithHistory to the terminal and log file', async () => {
       const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
       const adapter = createAdapter();
       adapter.executeWithHistory.mockResolvedValue({ content: 'ok', provider: 'openai', model: 'gpt-4o' });
@@ -2084,7 +2087,10 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       await service.executeWithHistory({ messages: [], stage: 'review' } as unknown as Parameters<typeof service.executeWithHistory>[0]);
 
-      expect(infoSpy).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('llm.adapter resolved-provider=openai'),
+        'llm-adapter',
+      );
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'INFO',
         expect.stringContaining('llm.adapter resolved-provider=openai'),
