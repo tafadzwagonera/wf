@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
-import { ExecutionError } from '../../shared/utils/errors';
+import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
@@ -31,6 +31,11 @@ jest.mock('./adapters/discover-dir-agent-configs', () => ({
     deepseek: 'DEEPSEEK.md',
   },
 }));
+
+jest.mock('./adapters/load-anthropic-agent-sdk', () => ({
+  loadAnthropicAgentSdk: jest.fn(),
+}));
+const { loadAnthropicAgentSdk: mockLoadAnthropicAgentSdk }: { loadAnthropicAgentSdk: jest.Mock } = jest.requireMock('./adapters/load-anthropic-agent-sdk');
 
 describe('StageAgentService', () => {
   it('normalizes Claude structured output before shared response parsing', () => {
@@ -3325,6 +3330,353 @@ describe('StageAgentService', () => {
       const result = await svc.chatTurn({ stage: 'review', systemPrompt: 'sys', userMessage: 'msg' });
 
       expect(result.costUsd).toBeCloseTo(0.03, 5);
+    });
+  });
+
+  describe('same-backend model fallback', () => {
+    const mockModelUnavailableError = new AiProviderError('model gpt-4-turbo not found', undefined, true, 'api');
+
+    const createFallbackConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.generate.backend': 'cli',
+            'stages.generate.provider': 'openai',
+            'stages.generate.model': 'gpt-4-turbo',
+            'ai.provider': 'openai',
+            'ai.model': 'gpt-5.4-mini',
+            'ai.providers': [{ provider: 'openai', model: 'gpt-5.4-mini' }],
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    const createNoAlternativeConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.generate.backend': 'cli',
+            'stages.generate.provider': 'openai',
+            'stages.generate.model': 'gpt-4-mini',
+            'ai.provider': 'openai',
+            'ai.model': 'gpt-4-mini',
+            'ai.providers': [{ provider: 'openai', model: 'gpt-4-mini' }],
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('retries generateFromPrompt with the fallback model when the configured model is unavailable', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      const runOnceSpy = jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'generated content' });
+
+      const result = await svc.generateFromPrompt('Summarise this');
+
+      expect(runOnceSpy).toHaveBeenCalledTimes(2);
+      expect(runOnceSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelOverride: 'gpt-5.4-mini' }));
+      expect(result.content).toBe('generated content');
+    });
+
+    it('re-throws when no same-backend alternative model is available', async () => {
+      const svc = new StageAgentService(createNoAlternativeConfigService());
+      const runOnceSpy = jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValue(new AiProviderError('model gpt-4-mini not found', undefined, true, 'api'));
+
+      await expect(svc.generateFromPrompt('Summarise this')).rejects.toThrow('not found');
+      expect(runOnceSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces the second-attempt error when the fallback model also fails', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      const fallbackError = new Error('fallback model also unavailable');
+      jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockRejectedValueOnce(fallbackError);
+
+      await expect(svc.generateFromPrompt('Summarise this')).rejects.toThrow('fallback model also unavailable');
+    });
+
+    it('does not retry for an auth-category error', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      const runOnceSpy = jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValue(new AiProviderError('unauthorized', undefined, false, 'auth'));
+
+      await expect(svc.generateFromPrompt('Summarise this')).rejects.toThrow('unauthorized');
+      expect(runOnceSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes a WARN log entry with stage-agent.model.fallback and fallback-model on retry', async () => {
+      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'ok' });
+
+      await svc.generateFromPrompt('Summarise this');
+
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('stage-agent.model.fallback'),
+        'stage-agent',
+      );
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('fallback-model=gpt-5.4-mini'),
+        'stage-agent',
+      );
+    });
+
+    it('retries chatTurn with the fallback model when chatTurnOnce gets a model-unavailable error', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      const chatOnceSpy = jest.spyOn(svc as any, 'chatTurnOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'chat response', session: {}, costUsd: 0.01 });
+
+      const result = await svc.chatTurn({ stage: 'generate', systemPrompt: 'sys', userMessage: 'hi' });
+
+      expect(chatOnceSpy).toHaveBeenCalledTimes(2);
+      expect(chatOnceSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelOverride: 'gpt-5.4-mini', session: undefined }));
+      expect(result.content).toBe('chat response');
+    });
+
+    it('chatTurn does not retry an auth-category error', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'chatTurnOnce')
+        .mockRejectedValue(new AiProviderError('unauthorized', undefined, false, 'auth'));
+
+      await expect(svc.chatTurn({ stage: 'generate', systemPrompt: 'sys', userMessage: 'hi' })).rejects.toThrow('unauthorized');
+    });
+
+    describe('backend-runner-level fallback', () => {
+      const VALID_GENERATE_JSON = '{"title":"t","type":"task","priority":"medium","description":"d"}';
+
+      const createCodexCliGenerateFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'cli',
+              'stages.generate.provider': 'openai',
+              'stages.generate.model': 'codex-v1',
+              'ai.provider': 'openai',
+              'ai.model': 'gpt-4o',
+              'ai.providers': [{ provider: 'openai', model: 'gpt-4o' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const createCodexCliImplementFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.implement.backend': 'cli',
+              'stages.implement.provider': 'openai',
+              'stages.implement.model': 'codex-v1',
+              'ai.provider': 'openai',
+              'ai.model': 'gpt-4o',
+              'ai.providers': [{ provider: 'openai', model: 'gpt-4o' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const createClaudeCliGenerateFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'cli',
+              'stages.generate.provider': 'anthropic',
+              'stages.generate.model': 'claude-haiku-4-5',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-6',
+              'ai.providers': [{ provider: 'anthropic', model: 'claude-sonnet-4-6' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const createClaudeCliReviewFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.review.backend': 'cli',
+              'stages.review.provider': 'anthropic',
+              'stages.review.model': 'claude-haiku-4-5',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-6',
+              'ai.providers': [{ provider: 'anthropic', model: 'claude-sonnet-4-6' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      beforeEach(() => {
+        spawnCodex.mockReset();
+        spawnCli.mockReset();
+        buildCodexCliArgs.mockReset();
+        buildCodexCliArgs.mockReturnValue([]);
+        buildCliArgs.mockReset();
+        buildCliArgs.mockReturnValue([]);
+        mockLoadAnthropicAgentSdk.mockReset();
+        const logFileWriter = require('../../shared/logger/log-file-writer');
+        jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      });
+
+      const makeThrowingIterable = (error: Error) => ({
+        [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(error) }),
+      });
+
+      it('retries Codex CLI generateFromPrompt with fallback model when spawnCodex throws model-unavailable', async () => {
+        const svc = new StageAgentService(createCodexCliGenerateFallbackConfig());
+        spawnCodex.mockReturnValueOnce(makeThrowingIterable(new AiProviderError('model codex-v1 not found', undefined, true, 'api')));
+        spawnCodex.mockReturnValueOnce((async function* () {
+          yield { type: 'item.completed', item: { type: 'agent_message', text: VALID_GENERATE_JSON } };
+        })());
+
+        const result = await svc.generateFromPrompt('generate a ticket');
+
+        expect(spawnCodex).toHaveBeenCalledTimes(2);
+        expect(buildCodexCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'gpt-4o' }));
+        expect(result.content).toBe(VALID_GENERATE_JSON);
+      });
+
+      it('retries Claude CLI generateFromPrompt with fallback model when spawnCli throws model-unavailable', async () => {
+        const svc = new StageAgentService(createClaudeCliGenerateFallbackConfig());
+        spawnCli.mockReturnValueOnce(makeThrowingIterable(new AiProviderError('model claude-haiku-4-5 not found', undefined, true, 'api')));
+        spawnCli.mockReturnValueOnce((async function* () {
+          yield { type: 'result', structured_output: { title: 't', type: 'task', priority: 'medium', description: 'd' }, is_error: false };
+        })());
+
+        const result = await svc.generateFromPrompt('generate a ticket');
+
+        expect(spawnCli).toHaveBeenCalledTimes(2);
+        expect(buildCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'claude-sonnet-4-6' }));
+        expect(result.content).toBe(VALID_GENERATE_JSON);
+      });
+
+      it('retries Codex CLI chatTurn with fallback model when spawnCodex throws model-unavailable', async () => {
+        const svc = new StageAgentService(createCodexCliImplementFallbackConfig());
+        spawnCodex.mockReturnValueOnce(makeThrowingIterable(new AiProviderError('model codex-v1 not found', undefined, true, 'api')));
+        spawnCodex.mockReturnValueOnce((async function* () {
+          yield { type: 'item.completed', item: { type: 'agent_message', text: 'chat response' } };
+        })());
+
+        const result = await svc.chatTurn({ stage: 'implement', systemPrompt: 'sys', userMessage: 'hi' });
+
+        expect(spawnCodex).toHaveBeenCalledTimes(2);
+        expect(buildCodexCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'gpt-4o' }));
+        expect(result.content).toBe('chat response');
+      });
+
+      it('retries Anthropic CLI chatTurn with fallback model when spawnCli throws model-unavailable', async () => {
+        const svc = new StageAgentService(createClaudeCliReviewFallbackConfig());
+        spawnCli.mockReturnValueOnce(makeThrowingIterable(new AiProviderError('model claude-haiku-4-5 not found', undefined, true, 'api')));
+        spawnCli.mockReturnValueOnce((async function* () {
+          yield { type: 'result', result: 'chat response', is_error: false };
+        })());
+
+        const result = await svc.chatTurn({ stage: 'review', systemPrompt: 'sys', userMessage: 'hi' });
+
+        expect(spawnCli).toHaveBeenCalledTimes(2);
+        expect(buildCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'claude-sonnet-4-6' }));
+        expect(result.content).toBe('chat response');
+      });
+
+      const createAnthropicAgentSdkGenerateFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'agent',
+              'stages.generate.provider': 'anthropic',
+              'stages.generate.model': 'claude-haiku-4-5',
+              'ai.provider': 'anthropic',
+              'ai.model': 'claude-sonnet-4-6',
+              'ai.anthropicApiKey': 'test-key',
+              'ai.providers': [{ provider: 'anthropic', model: 'claude-sonnet-4-6' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      const createOpenAiAgentSdkGenerateFallbackConfig = (): ConfigService =>
+        ({
+          get: jest.fn((key: string, defaultValue?: unknown) => {
+            const values: Record<string, unknown> = {
+              'stages.generate.backend': 'agent',
+              'stages.generate.provider': 'openai',
+              'stages.generate.model': 'gpt-invalid',
+              'ai.provider': 'openai',
+              'ai.model': 'gpt-4o',
+              'ai.openaiApiKey': 'test-key',
+              'ai.providers': [{ provider: 'openai', model: 'gpt-4o' }],
+            };
+            return key in values ? values[key] : defaultValue;
+          }),
+        }) as unknown as ConfigService;
+
+      it('retries Anthropic Agent SDK generateFromPrompt with fallback model when query throws model-unavailable', async () => {
+        const svc = new StageAgentService(createAnthropicAgentSdkGenerateFallbackConfig());
+        const mockQuery = jest.fn();
+        mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery });
+
+        const throwingSession = {
+          [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new AiProviderError('model claude-haiku-4-5 not found', undefined, true, 'api')) }),
+          close: jest.fn(),
+        };
+        const successSession = Object.assign(
+          (async function* () { yield { type: 'result', subtype: 'success', result: VALID_GENERATE_JSON }; })(),
+          { close: jest.fn() }
+        );
+
+        mockQuery.mockReturnValueOnce(throwingSession).mockReturnValueOnce(successSession);
+
+        const result = await svc.generateFromPrompt('generate a ticket');
+
+        expect(mockQuery).toHaveBeenCalledTimes(2);
+        expect(mockQuery).toHaveBeenNthCalledWith(2, expect.objectContaining({
+          options: expect.objectContaining({ model: 'claude-sonnet-4-6' }),
+        }));
+        expect(result.content).toBe(VALID_GENERATE_JSON);
+      });
+
+      it('retries OpenAI Agent SDK generateFromPrompt with fallback model when runner.run throws model-unavailable', async () => {
+        const svc = new StageAgentService(createOpenAiAgentSdkGenerateFallbackConfig());
+        const mockRunner = { run: jest.fn() };
+        const buildOpenAiSpy = jest.spyOn(svc as any, 'buildOpenAiStageAgent').mockResolvedValue({
+          agent: {}, runner: mockRunner, context: { repoDir: process.cwd() },
+        });
+
+        const mockStreamedRun = {
+          [Symbol.asyncIterator]: () => ({ next: async () => ({ value: undefined, done: true as const }) }),
+          error: undefined,
+          finalOutput: VALID_GENERATE_JSON,
+        };
+
+        mockRunner.run
+          .mockRejectedValueOnce(new AiProviderError('model gpt-invalid not found', undefined, true, 'api'))
+          .mockResolvedValueOnce(mockStreamedRun);
+
+        const result = await svc.generateFromPrompt('generate a ticket');
+
+        expect(buildOpenAiSpy).toHaveBeenCalledTimes(2);
+        expect(buildOpenAiSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'gpt-4o' }));
+        expect(result.content).toBe(VALID_GENERATE_JSON);
+      });
+
+      it('does not trigger model-unavailable fallback when spawnCodex throws a stale-session error', async () => {
+        const svc = new StageAgentService(createCodexCliGenerateFallbackConfig());
+        spawnCodex.mockReturnValueOnce(makeThrowingIterable(new Error('session_id not found')));
+
+        await expect(svc.generateFromPrompt('generate a ticket')).rejects.toThrow('session_id not found');
+        expect(spawnCodex).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

@@ -90,11 +90,11 @@ async function main(): Promise<void> {
       fail('terminal did not show stage-specific provider/model', terminalLines.join(' | ') || '(none)');
     }
 
-    const globalProviderLeaked = terminalLines.some(l => /resolved-provider=anthropic/.test(l));
-    if (globalProviderLeaked) {
-      fail('global provider leaked into terminal line', terminalLines.filter(l => /resolved-provider/.test(l)).join(' | '));
-    } else {
+    const globalProviderAbsent = !terminalLines.some(l => /resolved-provider=anthropic/.test(l));
+    if (globalProviderAbsent) {
       pass('global default provider=anthropic does not leak into terminal line');
+    } else {
+      fail('global provider leaked into terminal line', terminalLines.filter(l => /resolved-provider/.test(l)).join(' | '));
     }
 
     const fileCostLine = fileLines.some(l =>
@@ -106,11 +106,11 @@ async function main(): Promise<void> {
       fail('log file entry missing expected stage provider/model or cost', fileLines.join(' | ') || '(none)');
     }
 
-    const fileGlobalProviderLeaked = fileLines.some(l => /resolved-provider=anthropic/.test(l));
-    if (fileGlobalProviderLeaked) {
-      fail('global provider leaked into log file entry', fileLines.join(' | '));
-    } else {
+    const fileGlobalProviderAbsent = !fileLines.some(l => /resolved-provider=anthropic/.test(l));
+    if (fileGlobalProviderAbsent) {
       pass('log file entry does not contain global provider=anthropic');
+    } else {
+      fail('global provider leaked into log file entry', fileLines.join(' | '));
     }
   } finally {
     (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;

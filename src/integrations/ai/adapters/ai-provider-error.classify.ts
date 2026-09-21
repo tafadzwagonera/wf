@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import type { AiProviderErrorCategory } from '../../../shared/errors/app.error';
+import { isAiProviderErrorLike } from '../../../shared/utils/errors';
 
 /**
  * Classifies a caught SDK error into an AiProviderErrorCategory.
@@ -46,4 +47,20 @@ export const classifyAiSdkError = (error: unknown): AiProviderErrorCategory | un
 const isClientSideSdkError = (error: unknown): boolean => {
   if (error instanceof Anthropic.APIError || error instanceof OpenAI.APIError) return false;
   return error instanceof Anthropic.AnthropicError || error instanceof OpenAI.OpenAIError;
+};
+
+const MODEL_UNAVAILABLE_PATTERN = /(?:model|deployment)[^.]*(?:not found|does not exist|may not exist|invalid|unavailable|404)|(?:invalid|unknown|unsupported)\s+model|(?:model|deployment)[^.]*\b404\b/i;
+
+export const isUnavailableModelError = (error: unknown): boolean => {
+  if (isAiProviderErrorLike(error)) {
+    if (error.category !== undefined && error.category !== 'api') return false;
+    const details = typeof error.details === 'object' && error.details !== null ? JSON.stringify(error.details) : '';
+    return MODEL_UNAVAILABLE_PATTERN.test(`${error.message} ${details}`);
+  }
+  if (error instanceof Error) {
+    const category = classifyAiSdkError(error);
+    if (category !== undefined && category !== 'api') return false;
+    return MODEL_UNAVAILABLE_PATTERN.test(error.message);
+  }
+  return false;
 };

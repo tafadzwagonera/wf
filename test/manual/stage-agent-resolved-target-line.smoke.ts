@@ -99,11 +99,11 @@ async function main(): Promise<void> {
       fail('per-stage override: terminal missing stage provider line', overrideLines.join(' | ') || '(none)');
     }
 
-    const overrideGlobalLeaked = overrideLines.some(l => /resolved-provider=anthropic/.test(l));
-    if (overrideGlobalLeaked) {
-      fail('per-stage override: global provider leaked into terminal', overrideLines.join(' | '));
-    } else {
+    const overrideGlobalAbsent = !overrideLines.some(l => /resolved-provider=anthropic/.test(l));
+    if (overrideGlobalAbsent) {
       pass('per-stage override: global provider=anthropic does not appear in terminal output');
+    } else {
+      fail('per-stage override: global provider leaked into terminal', overrideLines.join(' | '));
     }
   } finally {
     (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;

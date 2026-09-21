@@ -2071,6 +2071,70 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
   });
 
+  describe('execute model-unavailable fallback isolation', () => {
+    let adapter: jest.Mocked<LlmAdapter>;
+    let service: AiService;
+    let mockStageAgent: {
+      isEnabledForStage: jest.Mock;
+      resolveTargetForStage: jest.Mock;
+      chatTurn: jest.Mock;
+    };
+
+    beforeEach(() => {
+      adapter = createAdapter();
+      service = new AiService(mockLogger, adapter, createConfigService());
+      mockStageAgent = {
+        isEnabledForStage: jest.fn().mockReturnValue(true),
+        resolveTargetForStage: jest.fn().mockReturnValue({ provider: 'anthropic', model: 'claude-sonnet-4-6' }),
+        chatTurn: jest.fn().mockResolvedValue({ content: '{"ok":1}', session: {}, costUsd: 0.05 }),
+      };
+      (service as unknown as { stageAgentService: typeof mockStageAgent }).stageAgentService = mockStageAgent;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('does not route a stage-agent model-unavailable error through the raw adapter', async () => {
+      mockStageAgent.chatTurn.mockRejectedValue(new AiProviderError('model claude-haiku not found', undefined, true, 'api'));
+
+      await expect(service.execute({ prompt: 'hello', stage: 'implement' })).rejects.toThrow('not found');
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('retries through adapter for explicit provider override even with stage-agent present', async () => {
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({ content: 'ok', provider: 'openai', model: 'gpt-5.4' });
+
+      await service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' });
+
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+      expect(mockStageAgent.chatTurn).not.toHaveBeenCalled();
+    });
+
+    it('adapter fallback WARN log contains both original-model and fallback-model', async () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({ content: 'ok', provider: 'openai', model: 'gpt-5.4' });
+
+      await service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' });
+
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('original-model=invalid-model'),
+        'llm-adapter',
+      );
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('fallback-model=gpt-5.4'),
+        'llm-adapter',
+      );
+    });
+  });
+
   describe('executeWithHistory log line', () => {
     afterEach(() => {
       jest.restoreAllMocks();

@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { classifyAiSdkError } from './ai-provider-error.classify';
+import { classifyAiSdkError, isUnavailableModelError } from './ai-provider-error.classify';
+import { AiProviderError } from '../../../shared/utils/errors';
 
 describe('classifyAiSdkError', () => {
   it('returns timeout for Anthropic APIConnectionTimeoutError', () => {
@@ -61,5 +62,79 @@ describe('classifyAiSdkError', () => {
 
   it('returns undefined for null', () => {
     expect(classifyAiSdkError(null)).toBeUndefined();
+  });
+});
+
+describe('isUnavailableModelError', () => {
+  it('returns true for AiProviderError with model not found message', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with does not exist message', () => {
+    expect(isUnavailableModelError(new AiProviderError('The model does not exist'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with may not exist message', () => {
+    expect(isUnavailableModelError(new AiProviderError("The model 'gpt-x' may not exist or you do not have access"))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with invalid model message', () => {
+    expect(isUnavailableModelError(new AiProviderError('invalid model: gpt-x-unknown'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with model unavailable message', () => {
+    expect(isUnavailableModelError(new AiProviderError('model unavailable at this time'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with deployment not found message', () => {
+    expect(isUnavailableModelError(new AiProviderError('deployment not found for this region'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with model-associated 404 in details', () => {
+    expect(isUnavailableModelError(new AiProviderError('Request failed', { error: 'deployment not found', statusCode: 404 }))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with api category and model not found message', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'api'))).toBe(true);
+  });
+
+  it('returns true for AiProviderError with model name containing hyphens (e.g. gpt-4-turbo)', () => {
+    expect(isUnavailableModelError(new AiProviderError('model gpt-4-turbo not found', undefined, true, 'api'))).toBe(true);
+  });
+
+  it('returns true for raw Error with Codex may not exist wording', () => {
+    expect(isUnavailableModelError(new Error("The model 'codex-ultra' may not exist or you may not have access to it"))).toBe(true);
+  });
+
+  it('returns false for AiProviderError with auth category', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'auth'))).toBe(false);
+  });
+
+  it('returns false for AiProviderError with timeout category', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'timeout'))).toBe(false);
+  });
+
+  it('returns false for AiProviderError with parse category', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'parse'))).toBe(false);
+  });
+
+  it('returns false for AiProviderError with config category', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'config'))).toBe(false);
+  });
+
+  it('returns false for AiProviderError with rate-limit category', () => {
+    expect(isUnavailableModelError(new AiProviderError('model not found', undefined, true, 'rate-limit'))).toBe(false);
+  });
+
+  it('returns false for a generic unrelated Error', () => {
+    expect(isUnavailableModelError(new Error('Something went wrong unexpectedly'))).toBe(false);
+  });
+
+  it('returns false for a string', () => {
+    expect(isUnavailableModelError('model not found')).toBe(false);
+  });
+
+  it('returns false for null', () => {
+    expect(isUnavailableModelError(null)).toBe(false);
   });
 });

@@ -87,11 +87,11 @@ async function main(): Promise<void> {
       fail('execute() did not emit resolved-provider/resolved-model on terminal', executeLines.join(' | ') || '(none)');
     }
 
-    const hasPlaceholders = executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
-    if (hasPlaceholders) {
-      fail('execute() terminal output contains literal placeholder strings', executeLines.join(' | '));
-    } else {
+    const lacksPlaceholders = !executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
+    if (lacksPlaceholders) {
       pass('execute() terminal output contains no literal placeholder strings');
+    } else {
+      fail('execute() terminal output contains literal placeholder strings', executeLines.join(' | '));
     }
 
     fileLines.length = 0;

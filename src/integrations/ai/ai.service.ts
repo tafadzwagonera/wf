@@ -6,6 +6,7 @@ import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.uti
 import { LoggerService } from '../../shared/logger/logger.service';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { resolveProviderModel } from './adapters/shared-routing';
+import { isUnavailableModelError } from './adapters/ai-provider-error.classify';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
@@ -1006,7 +1007,8 @@ export class AiService {
     try {
       return await this.executeOnce(request);
     } catch (error) {
-      if (!this.isUnavailableModelError(error)) throw error;
+      if (!isUnavailableModelError(error)) throw error;
+      if (this.isStageAgentRequest(request)) throw error;
       const target = this.resolveAiTarget(request.stage, request.provider, request.model);
       const fallbackModel = resolveProviderModel(this.configService, target.provider ?? 'anthropic', target.model ?? '');
       if (!target.model || fallbackModel === target.model) throw error;
@@ -1027,11 +1029,11 @@ export class AiService {
     return response;
   }
 
-  private isUnavailableModelError(error: unknown): boolean {
-    if (!isAiProviderErrorLike(error)) return false;
-    if (error.category !== undefined && error.category !== 'api') return false;
-    const details = typeof error.details === 'object' && error.details !== null ? JSON.stringify(error.details) : '';
-    return /(?:model|deployment)[^.]*(?:not found|does not exist|invalid|unavailable|404)/i.test(`${error.message} ${details}`);
+  private isStageAgentRequest(request: AIRequest): boolean {
+    if (request.provider || request.model) return false;
+    if (request.context) return false;
+    if (!agentStageNameSchema.safeParse(request.stage).success) return false;
+    return this.stageAgentService?.isEnabledForStage(request.stage as AgentStageName) ?? false;
   }
 
   private errorMessage(error: unknown): string {

@@ -105,11 +105,11 @@ async function main(): Promise<void> {
       fail('openai agent branch: terminal missing resolved-provider line', openaiLines.join(' | ') || '(none)');
     }
 
-    const anthropicLeaked = openaiLines.some(l => /resolved-provider=anthropic/.test(l));
-    if (anthropicLeaked) {
-      fail('openai agent branch: anthropic provider leaked into terminal', openaiLines.join(' | '));
-    } else {
+    const anthropicAbsent = !openaiLines.some(l => /resolved-provider=anthropic/.test(l));
+    if (anthropicAbsent) {
       pass('openai agent branch: anthropic provider does not appear in terminal output');
+    } else {
+      fail('openai agent branch: anthropic provider leaked into terminal', openaiLines.join(' | '));
     }
   } finally {
     openaiInstance['validateAndReturnOpenAiChat'] = originalValidateAndReturn;

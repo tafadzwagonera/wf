@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import chalk from 'chalk';
 import dayjs from 'dayjs';
 import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
+import { isUnavailableModelError } from './adapters/ai-provider-error.classify';
 import { estimateOpenAiCostUsd, extractUsageFromEvent, formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
 import { loadAiContextConfig } from './adapters/load-ai-context-config';
@@ -253,6 +254,7 @@ type StagePromptParams = {
   structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
   forkSession?: boolean;
+  modelOverride?: string;
   onProgress?: StageProgressCallback;
   priorStageSummary?: string;
   prompt: string;
@@ -266,6 +268,7 @@ type StagePromptParams = {
 type ChatTurnParams = {
   structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
+  modelOverride?: string;
   repoDir?: string;
   session?: AgentChatSession;
   stage: AgentStageName;
@@ -280,10 +283,12 @@ type OpenAiStageAgentOptions = {
   priorStageSummary?: string;
   apiKey: string;
   jsonSchema?: string;
+  model?: string;
   structuredOutput?: AIRequest['structuredOutput'];
 };
 
 type AgentChatTurnResult = { content: string; costUsd?: number; session: AgentChatSession };
+type StagePromptResult = { content: string; sessionId?: string; modelUsed?: string };
 
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
   const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
@@ -1034,25 +1039,27 @@ export class StageAgentService {
     priorStageSummary?: string;
     resumeProviderSessionId?: string;
   }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
-    const { content: response, sessionId } = await this.runStagePrompt({
+    const { content: response, sessionId, modelUsed } = await this.runStagePrompt({
       stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: planSystemPrompt,
       repoDir: process.cwd(), onProgress: params.onProgress,
       priorStageSummary: params.priorStageSummary, resumeProviderSessionId: params.resumeProviderSessionId,
     });
-    return this.parseStagePlanResponse(response, sessionId);
+    return this.parseStagePlanResponse(response, sessionId, modelUsed);
   }
 
-  private parseStagePlanResponse(response: string, sessionId?: string): { plan: ResolutionPlan; sessionId?: string } {
+  private parseStagePlanResponse(
+    response: string, sessionId?: string, modelUsed?: string
+  ): { plan: ResolutionPlan; sessionId?: string } {
     try {
-      return { plan: this.parseAndValidatePlan(response), sessionId };
+      return { plan: this.parseAndValidatePlan(response, modelUsed), sessionId };
     } catch (error) {
       if (isAiProviderErrorLike(error)) throw error;
       return throwStageParseFailure('plan', response, sessionId, error);
     }
   }
 
-  private parseAndValidatePlan(response: string): ResolutionPlan {
-    return this.applyPlanMetadata(this.parsePlanContent(response));
+  private parseAndValidatePlan(response: string, modelUsed?: string): ResolutionPlan {
+    return this.applyPlanMetadata(this.parsePlanContent(response), modelUsed);
   }
 
   private parsePlanContent(response: string): ResolutionPlan {
@@ -1069,10 +1076,10 @@ export class StageAgentService {
     return this.applyRepositoriesAffected(resolutionPlanSchema.parse(parsedPlan), parsedPlan.repositoriesAffected);
   }
 
-  private applyPlanMetadata(plan: ResolutionPlan): ResolutionPlan {
+  private applyPlanMetadata(plan: ResolutionPlan, modelUsed?: string): ResolutionPlan {
     const provider = this.resolveStageProvider('plan');
     plan.provider = provider;
-    plan.source = deriveModelSource(provider, this.resolveStageModel('plan'));
+    plan.source = deriveModelSource(provider, modelUsed ?? this.resolveStageModel('plan'));
     plan.timestamp = dayjs().toISOString();
     return plan;
   }
@@ -1182,11 +1189,11 @@ export class StageAgentService {
   async generateFromPrompt(
     prompt: string, onProgress?: StageProgressCallback, resumeProviderSessionId?: string
   ): Promise<{ content: string; sessionId?: string }> {
-    const { content: response, sessionId } = await this.runStagePrompt(
+    const { content: response, sessionId, modelUsed } = await this.runStagePrompt(
       { stage: 'generate', prompt, systemPrompt: generateSystemPrompt, onProgress, resumeProviderSessionId }
     );
     const content = requireAiResponseContent(
-      { content: response, provider: this.resolveStageProvider('generate'), model: this.resolveStageModel('generate') },
+      { content: response, provider: this.resolveStageProvider('generate'), model: modelUsed ?? this.resolveStageModel('generate') },
       'AI provider returned an empty generated content response'
     );
     return { content, sessionId };
@@ -1214,6 +1221,22 @@ export class StageAgentService {
     const provider = this.resolveStageProvider(stage);
     const fallback = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
     return resolveProviderModel(this.configService, provider, fallback);
+  }
+
+  private resolveModelForStage(stage: AgentStageName, override?: string): string {
+    return override ?? this.resolveStageModel(stage);
+  }
+
+  private resolveFallbackModel(stage: AgentStageName): string | undefined {
+    const provider = this.resolveStageProvider(stage);
+    const currentModel = this.resolveStageModel(stage);
+    const builtInDefault = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
+    const candidate = resolveProviderModel(this.configService, provider, builtInDefault);
+    if (candidate === currentModel) {
+      appendToLogFile('DEBUG', `stage-agent.model.fallback.none stage=${stage} provider=${provider} model=${currentModel} reason=no-alternative-in-ai-providers`, 'stage-agent');
+      return undefined;
+    }
+    return candidate;
   }
 
   private extractStreamError(error: unknown): string {
@@ -1245,20 +1268,45 @@ export class StageAgentService {
     appendToLogFile('INFO', message, 'llm-adapter');
   }
 
-  private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+  private async runStagePromptOnce(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
+    if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
     try {
-      const result = await this.dispatchToBackend(params);
-      this.logResolvedStageTarget(params.stage);
-      return result;
+      return await this.dispatchToBackend(params);
     } catch (error) {
       if (!params.resumeProviderSessionId || !isStaleResumeError(error)) throw error;
       console.log(chalk.yellow(
         `  [stage-agent] Resume session ${params.resumeProviderSessionId} appears stale — retrying fresh.`
       ));
-      const retried = await this.retryStagePromptFresh(params, error);
-      this.logResolvedStageTarget(params.stage);
-      return retried;
+      return this.retryStagePromptFresh(params, error);
     }
+  }
+
+  private async runStagePrompt(params: StagePromptParams): Promise<StagePromptResult> {
+    try {
+      return await this.runStagePromptOnce(params);
+    } catch (error) {
+      if (!isUnavailableModelError(error)) throw error;
+      const fallbackModel = this.resolveFallbackModel(params.stage);
+      if (!fallbackModel) throw error;
+      return this.runStagePromptWithFallback(params, error, fallbackModel);
+    }
+  }
+
+  private async runStagePromptWithFallback(
+    params: StagePromptParams, error: unknown, fallbackModel: string
+  ): Promise<StagePromptResult> {
+    const cause = (error instanceof Error ? error.message.replaceAll(/\s+/g, ' ') : String(error)).slice(0, 300);
+    this.logModelFallback(params.stage, fallbackModel, cause);
+    const result = await this.runStagePromptOnce({
+      ...params, modelOverride: fallbackModel, resumeProviderSessionId: undefined,
+    });
+    return { ...result, modelUsed: fallbackModel };
+  }
+
+  private logModelFallback(stage: AgentStageName, fallbackModel: string, cause: string): void {
+    const msg = `stage-agent.model.fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} original-model=${this.resolveStageModel(stage)} fallback-model=${fallbackModel} cause=${cause}`;
+    console.log(chalk.yellow(`  [stage-agent] Model unavailable — retrying with fallback-model=${fallbackModel}`));
+    appendToLogFile('WARN', msg, 'stage-agent');
   }
 
   private async retryStagePromptFresh(
@@ -1304,7 +1352,7 @@ export class StageAgentService {
     const apiKey = this.requireAnthropicApiKey();
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicStageOptions({
-      prompt: params.prompt, model: this.resolveStageModel(params.stage), apiKey,
+      prompt: params.prompt, model: this.resolveModelForStage(params.stage, params.modelOverride), apiKey,
       repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, priorStageSummary: params.priorStageSummary,
       anthropicContext, resumeProviderSessionId: params.resumeProviderSessionId,
@@ -1334,14 +1382,14 @@ export class StageAgentService {
     const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
     if (params.resumeProviderSessionId) this.logOpenAiResumeUnsupported();
+    const resolvedModel = this.resolveModelForStage(params.stage, params.modelOverride);
     const { agent, runner, context } = await this.buildOpenAiStageAgent({
-      stage: params.stage, systemPrompt: params.systemPrompt,
-      repoDir: params.repoDir, priorStageSummary: params.priorStageSummary, apiKey,
-      jsonSchema: params.jsonSchema, structuredOutput: params.structuredOutput,
+      stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir,
+      priorStageSummary: params.priorStageSummary, apiKey, jsonSchema: params.jsonSchema,
+      structuredOutput: params.structuredOutput, model: resolvedModel,
     });
     const { content } = await this.processOpenAiStageResult(
-      agent, runner, context, params.prompt, OPENAI_STAGE_MAX_TURNS,
-      params.onProgress, this.resolveStageModel(params.stage)
+      agent, runner, context, params.prompt, OPENAI_STAGE_MAX_TURNS, params.onProgress, resolvedModel
     );
     return content;
   }
@@ -1369,7 +1417,7 @@ export class StageAgentService {
     const agent = new Agent<OpenAiStageContext>({
       name: `wf ${opts.stage} openai agent backend`,
       handoffDescription: 'Uses read-only tools to inspect the repository and answer the current stage prompt.',
-      instructions, model: this.resolveStageModel(opts.stage),
+      instructions, model: opts.model ?? this.resolveStageModel(opts.stage),
       tools: opts.repoDir ? buildOpenAiStageTools() : [], toolUseBehavior: 'run_llm_again', resetToolChoice: true,
       ...buildOpenAiStructuredSettings(opts.structuredOutput),
     });
@@ -1410,25 +1458,42 @@ export class StageAgentService {
     return { content, costUsd };
   }
 
-  async chatTurn(params: ChatTurnParams): Promise<{ content: string; costUsd?: number; session: AgentChatSession }> {
+  private async chatTurnOnce(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const backend = this.resolveStageBackend(params.stage);
     const provider = this.resolveStageProvider(params.stage);
-    let result: AgentChatTurnResult;
+    if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
     if (backend === 'cli') {
-      result = await (provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params));
-    } else if (provider === 'anthropic') {
-      result = await this.anthropicChatTurn(params);
-    } else {
-      result = await this.validateAndReturnOpenAiChat(params);
+      return provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params);
     }
-    this.logResolvedStageTarget(params.stage);
-    return result;
+    if (provider === 'anthropic') {
+      return this.anthropicChatTurn(params);
+    }
+    return this.validateAndReturnOpenAiChat(params);
+  }
+
+  async chatTurn(params: ChatTurnParams): Promise<AgentChatTurnResult> {
+    try {
+      return await this.chatTurnOnce(params);
+    } catch (error) {
+      if (!isUnavailableModelError(error)) throw error;
+      const fallbackModel = this.resolveFallbackModel(params.stage);
+      if (!fallbackModel) throw error;
+      return this.chatTurnWithFallback(params, error, fallbackModel);
+    }
+  }
+
+  private async chatTurnWithFallback(
+    params: ChatTurnParams, error: unknown, fallbackModel: string
+  ): Promise<AgentChatTurnResult> {
+    const cause = (error instanceof Error ? error.message.replaceAll(/\s+/g, ' ') : String(error)).slice(0, 300);
+    this.logModelFallback(params.stage, fallbackModel, cause);
+    return this.chatTurnOnce({ ...params, modelOverride: fallbackModel, session: undefined });
   }
 
   private async validateAndReturnOpenAiChat(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const result = await this.openAiChatTurn(params);
     requireAiResponseContent(
-      { content: result.content, provider: 'openai', model: this.resolveStageModel(params.stage) },
+      { content: result.content, provider: 'openai', model: this.resolveModelForStage(params.stage, params.modelOverride) },
       'AI provider returned an empty chat response'
     );
     return result;
@@ -1438,7 +1503,7 @@ export class StageAgentService {
     const apiKey = this.requireAnthropicApiKey();
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicChatOptions({
-      prompt: params.userMessage, model: this.resolveStageModel(params.stage), apiKey,
+      prompt: params.userMessage, model: this.resolveModelForStage(params.stage, params.modelOverride), apiKey,
       repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, anthropicContext, resumeSessionId: params.session?.sessionId,
       structuredOutput: params.structuredOutput,
@@ -1465,16 +1530,19 @@ export class StageAgentService {
   private async openAiChatTurn(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
-    const { agent, runner, context } = await this.resolveOpenAiChatAgent(params, apiKey);
+    const resolvedModel = this.resolveModelForStage(params.stage, params.modelOverride);
+    const { agent, runner, context } = await this.resolveOpenAiChatAgent(params, apiKey, resolvedModel);
     const runInput = (params.session?.runState ?? params.userMessage) as string;
     const { content, costUsd } = await this.processOpenAiStageResult(
-      agent, runner, context, runInput, OPENAI_CHAT_MAX_TURNS, undefined, this.resolveStageModel(params.stage)
+      agent, runner, context, runInput, OPENAI_CHAT_MAX_TURNS, undefined, resolvedModel
     );
     return this.buildOpenAiChatResult(content, costUsd, agent, runner);
   }
 
   private async resolveOpenAiChatAgent(
-    params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session' | 'structuredOutput'>, apiKey: string
+    params: Pick<ChatTurnParams, 'stage' | 'systemPrompt' | 'repoDir' | 'session' | 'structuredOutput'>,
+    apiKey: string,
+    model: string
   ): Promise<{ agent: Agent<OpenAiStageContext>; runner: Runner; context: OpenAiStageContext }> {
     const reusableAgent = params.session?.agent as Agent<OpenAiStageContext> | undefined;
     const reusableRunner = params.session?.runner as Runner | undefined;
@@ -1482,8 +1550,8 @@ export class StageAgentService {
       return { agent: reusableAgent, runner: reusableRunner, context: { repoDir: params.repoDir ?? process.cwd() } };
     }
     return this.buildOpenAiStageAgent({
-      stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir, apiKey,
-      structuredOutput: params.structuredOutput,
+      stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir,
+      apiKey, structuredOutput: params.structuredOutput, model,
     });
   }
 
@@ -1502,7 +1570,7 @@ export class StageAgentService {
     const systemPrompt = preamble ? `${preamble}\n\n${params.systemPrompt}` : params.systemPrompt;
     const passOpts: CliStagePassOpts = {
       stage: params.stage, prompt: params.prompt, systemPrompt,
-      model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
+      model: this.resolveModelForStage(params.stage, params.modelOverride), repoDir: params.repoDir,
       jsonSchema: params.structuredOutput
         ? JSON.stringify(params.structuredOutput.schema)
         : params.jsonSchema ?? this.resolveStageJsonSchema(params.stage),
@@ -1663,7 +1731,7 @@ export class StageAgentService {
 
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertCodexCliAvailable();
-    const model = this.resolveStageModel(params.stage);
+    const model = this.resolveModelForStage(params.stage, params.modelOverride);
     const repoDir = params.repoDir ?? process.cwd();
     return this.runCodexRetryLoop({
       stage: params.stage, model, repoDir, initialPrompt: this.buildCodexPrompt(params),
@@ -1784,13 +1852,12 @@ export class StageAgentService {
   }): Promise<{ sent: true } | { sent: false; reason: string }> {
     const model = this.resolveStageModel('review');
     const provider = this.resolveStageProvider('review');
-    const result = provider === 'openai'
-      ? await this.sendCodexEpilogue(params.sessionId, params.repoDir, model)
-      : await this.sendClaudeEpilogue(
+    this.logResolvedStageTarget('review');
+    return provider === 'openai'
+      ? this.sendCodexEpilogue(params.sessionId, params.repoDir, model)
+      : this.sendClaudeEpilogue(
           params.sessionId, params.repoDir, model, params.systemPrompt, params.priorStageSummary
         );
-    this.logResolvedStageTarget('review');
-    return result;
   }
 
   private async sendCodexEpilogue(
@@ -1859,7 +1926,7 @@ export class StageAgentService {
     assertClaudeCliAvailable();
     const chatPassOpts: CliChatPassOpts = {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
-      model: this.resolveStageModel(params.stage), repoDir: params.repoDir,
+      model: this.resolveModelForStage(params.stage, params.modelOverride), repoDir: params.repoDir,
       initialSessionId: params.session?.sessionId,
       jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
     };
@@ -1887,7 +1954,7 @@ export class StageAgentService {
   } {
     return {
       stage: params.stage,
-      model: this.resolveStageModel(params.stage),
+      model: this.resolveModelForStage(params.stage, params.modelOverride),
       repoDir: params.repoDir ?? process.cwd(),
       initialPrompt: this.buildCodexChatPrompt(params),
       initialSessionId: params.session?.sessionId,

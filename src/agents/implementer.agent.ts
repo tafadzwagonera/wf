@@ -494,13 +494,12 @@ export class ImplementerAgent {
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
     const skillParams = await this.resolveSkillParams(ticket, options, planArtifact.path);
-    const result = await this.createAdapter(backendSelection).generateAndVerify({
+    this.stageAgentService.logResolvedStageTarget('implement');
+    return this.createAdapter(backendSelection).generateAndVerify({
       ticket, planArtifact, options, verificationScripts,
       contextFiles, repoName, ...tracked,
       conventionsSection, ...skillParams,
     });
-    this.stageAgentService.logResolvedStageTarget('implement');
-    return result;
   }
 
   private buildConventionsSection(
