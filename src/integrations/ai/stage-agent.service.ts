@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Agent, OpenAIProvider, Runner, setTracingExportApiKey, tool } from '@openai/agents';
 import type { JsonSchemaDefinition } from '@openai/agents';
@@ -33,7 +33,6 @@ import {
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
-import { LoggerService } from '../../shared/logger/logger.service';
 import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -998,10 +997,7 @@ const appendAgentSdkScreenshotPaths = (prompt: string, screenshots: UiDesignScre
 
 @Injectable()
 export class StageAgentService {
-  constructor(
-    private readonly configService: ConfigService,
-    @Optional() private readonly logger?: LoggerService,
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
   isEnabledForStage(stage: AgentStageName): boolean {
     const backend = this.resolveStageBackend(stage);
@@ -1244,7 +1240,9 @@ export class StageAgentService {
 
   logResolvedStageTarget(stage: AgentStageName): void {
     const { provider, model } = this.resolveTargetForStage(stage);
-    this.logger?.info(`llm.adapter resolved-provider=${provider} resolved-model=${model}`, 'llm-adapter');
+    const message = `llm.adapter resolved-provider=${provider} resolved-model=${model}`;
+    console.log(chalk.blue(`ℹ ${message}`));
+    appendToLogFile('INFO', message, 'llm-adapter');
   }
 
   private async runStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
