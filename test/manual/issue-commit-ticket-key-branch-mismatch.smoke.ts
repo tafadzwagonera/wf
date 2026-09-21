@@ -73,10 +73,10 @@ function main(): void {
     try {
       logAfterMismatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
     } catch { /* no commits yet, expected */ }
-    if (logAfterMismatch.includes('WBP-2')) {
-      fail('a commit was created despite the mismatch', logAfterMismatch);
-    } else {
+    if (!logAfterMismatch.includes('WBP-2')) {
       pass('no commit was created under the mismatched ticket key');
+    } else {
+      fail('a commit was created despite the mismatch', logAfterMismatch);
     }
 
     // Case B: matching -k — must succeed and commit normally

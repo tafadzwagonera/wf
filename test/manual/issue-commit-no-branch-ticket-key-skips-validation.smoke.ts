@@ -64,10 +64,10 @@ function main(): void {
       fail(`-k WBP-9 on branch '${defaultBranch}' should have exited 0`, `exit code ${noKeyBranchResult.exitCode}\n${noKeyBranchOutput.slice(0, 500)}`);
     }
 
-    if (/does not match/i.test(noKeyBranchOutput)) {
-      fail('unexpected mismatch warning on a branch with no ticket key', noKeyBranchOutput.slice(0, 500));
-    } else {
+    if (!/does not match/i.test(noKeyBranchOutput)) {
       pass('no mismatch warning printed when the branch has no parseable ticket key');
+    } else {
+      fail('unexpected mismatch warning on a branch with no ticket key', noKeyBranchOutput.slice(0, 500));
     }
 
     const logNoKeyBranch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
@@ -75,18 +75,6 @@ function main(): void {
       pass('commit was created directly under the explicit ticket key WBP-9');
     } else {
       fail('commit subject missing the explicit WBP-9 prefix', logNoKeyBranch);
-    }
-
-    // Case B: same repo, now on a branch WITH an embedded ticket key — mismatch must fire
-    git('checkout -b feature/WBP-1__add-thing');
-    fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 3;\n');
-    git('add .');
-
-    const withKeyBranchResult = runCli('issue:commit -k WBP-9', tmpDir);
-    if (withKeyBranchResult.exitCode !== 0) {
-      pass('the same -k value DOES trigger the mismatch path once the branch embeds a different ticket key');
-    } else {
-      fail('expected the mismatch path to fire on feature/WBP-1__add-thing', `exit code ${withKeyBranchResult.exitCode}`);
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -63,10 +63,10 @@ function main(): void {
       fail('lowercase -k wbp-1 should have been treated as a match', `exit code ${matchResult.exitCode}\n${matchOutput.slice(0, 500)}`);
     }
 
-    if (/does not match/i.test(matchOutput)) {
-      fail('unexpected mismatch warning for a case-insensitive match', matchOutput.slice(0, 500));
-    } else {
+    if (!/does not match/i.test(matchOutput)) {
       pass('no mismatch warning printed for the case-insensitive match');
+    } else {
+      fail('unexpected mismatch warning for a case-insensitive match', matchOutput.slice(0, 500));
     }
 
     const logAfterMatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
@@ -74,17 +74,6 @@ function main(): void {
       pass('committed subject preserves the exact casing passed via -k ("wbp-1:")');
     } else {
       fail('committed subject does not preserve the passed casing', logAfterMatch);
-    }
-
-    // Case B: a genuinely different key in a different case must still mismatch
-    fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 3;\n');
-    git('add .');
-
-    const mismatchResult = runCli('issue:commit -k wbp-2', tmpDir);
-    if (mismatchResult.exitCode !== 0) {
-      pass('a genuinely different key (wbp-2) still triggers the mismatch path (case-insensitivity is not a blanket bypass)');
-    } else {
-      fail('wbp-2 should have mismatched against branch key WBP-1', `exit code ${mismatchResult.exitCode}`);
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

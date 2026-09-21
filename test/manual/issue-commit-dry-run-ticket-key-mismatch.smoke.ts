@@ -75,7 +75,7 @@ function main(): void {
     }
 
     const logAfterDryRun = execSync('git log --oneline', { cwd: tmpDir, encoding: 'utf-8' });
-    if ((logAfterDryRun.match(/\n/g) ?? []).length === 0 || !logAfterDryRun.includes('WBP-2')) {
+    if (!logAfterDryRun.includes('WBP-2')) {
       pass('no commit was created by the --dry-run invocation');
     } else {
       fail('a commit was unexpectedly created during --dry-run', logAfterDryRun);

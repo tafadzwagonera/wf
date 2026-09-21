@@ -227,6 +227,22 @@ describe('IssueCommitCommand', () => {
       consoleSpy.mockRestore();
     });
 
+    it('does not treat a lowercase-prefixed branch as a mismatch when the embedded key matches -k', async () => {
+      mockGitService.getBranchInfo.mockResolvedValueOnce({ current: 'fixWBP-4061-show-review-title' });
+      setInteractiveSession(false);
+      const { command } = await buildCommand();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await command.run([], { ticketKey: 'WBP-4061', message: 'ship it' });
+
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+      const allOutput = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+      expect(allOutput).not.toContain('does not match');
+      expect(mockGitService.commit).toHaveBeenCalledWith({ message: 'WBP-4061: ship it', cwd: '/tmp/current-app' });
+
+      consoleSpy.mockRestore();
+    });
+
     it('warns without prompting or throwing during --dry-run on mismatch', async () => {
       setInteractiveSession(false);
       const { command } = await buildCommand();

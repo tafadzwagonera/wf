@@ -678,7 +678,7 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
 
-**Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+` (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`).
+**Branch detection:** ticket keys are extracted from the branch name using the pattern `[A-Z]+-\d+`, which anchors at the first uppercase letter — so lowercase prefixes are skipped rather than absorbed (e.g., `feature/WBP-2971__add-oauth` → `WBP-2971`, `fixWBP-4061-show-review-title` → `WBP-4061`).
 
 **Staged file exclusions:** when no files are pre-staged, `issue:commit` stages all local changes while automatically excluding wf tooling artifacts: `.wf/**` runtime directories, `wf.config.{js,mjs,ts,mts,yaml,yml}` files, and `dist/` build output. If `.gitignore` is already staged or explicitly included, `issue:commit` fails hard instead of creating a commit. These are tooling inputs created by wf inside target repos and should never appear in ticket commits.
 

@@ -321,7 +321,7 @@ export class IssueCommitCommand extends CommandRunner {
     const branchInfo = await this.gitService.getBranchInfo(repoBaseDir).catch(() => null);
     if (!branchInfo) return null;
 
-    const match = new RegExp(/([A-Z]+-\d+)/i).exec(branchInfo.current);
+    const match = /([A-Z]+-\d+)/.exec(branchInfo.current);
     return match ? match[1].toUpperCase() : null;
   }
 

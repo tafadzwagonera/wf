@@ -80,10 +80,10 @@ async function main(): Promise<void> {
 
   // Test 2: --help no longer shows [ticket-key] positional
   console.log(' Test 2: --help no longer shows [ticket-key] positional');
-  if (help.includes('[ticket-key]')) {
-    fail('issue:commit --help still shows [ticket-key] positional');
-  } else {
+  if (!help.includes('[ticket-key]')) {
     pass('issue:commit --help does not show [ticket-key] positional');
+  } else {
+    fail('issue:commit --help still shows [ticket-key] positional');
   }
 
   // Test 3: issue:commit accepts --ticket-key via NestJS options
@@ -97,10 +97,10 @@ async function main(): Promise<void> {
     const err = errCap.restore();
     logCap.restore();
 
-    if (err.includes('Error') || err.includes('error')) {
-      fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
-    } else {
+    if (!err.includes('Error') && !err.includes('error')) {
       pass('Dry-run with --ticket-key accepted without errors');
+    } else {
+      fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
     }
 
     await app.close();
