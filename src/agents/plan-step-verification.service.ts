@@ -422,7 +422,7 @@ export class PlanStepVerificationService {
     const counts = countStatuses(statusMap.values());
     for (const [, s] of statusMap) {
       if (s.status !== 'done' && s.status !== 'not-applicable') {
-        this.logEventAndAppendToLogFile('INFO', `step-verify.status index=${s.index} status=${s.status}`, silent);
+        this.logEventAndAppendToLogFile('INFO', `step-verify.status index=${s.index} status=${s.status} missing=${s.missing ?? 'n/a'}`, silent);
       }
     }
     this.logAssessmentSummary(statusMap, counts, silent);
