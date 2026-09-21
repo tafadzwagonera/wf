@@ -286,7 +286,7 @@ const logWriteEditEvent = (
   if (!filePath) return false;
   const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
   const action = toolName === 'Write' ? 'created' : 'updated';
-  console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] File ${action}: ${relativePath}`));
+  console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] File ${action}: ${relativePath}`));
   touchedFiles?.add(relativePath);
   return true;
 };
@@ -308,7 +308,7 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
   const target = resolveReadTarget(input);
   if (!target) return;
   const short = target.length > 60 ? `${target.slice(0, 57)}...` : target;
-  console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
+  console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
 };
 
 const detectVerificationStatus = (content: string, isError: boolean | undefined): 'failed' | 'passed' | undefined => {
