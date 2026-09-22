@@ -2,14 +2,14 @@
  * Manual smoke test: wf issue:commit -k <key> validates against the
  * branch-embedded ticket key
  *
- * Run: nr test:manual -- test-issue-commit-ticket-key-branch-mismatch
+ * Run: nr test:manual issue-commit-ticket-key-branch-mismatch.smoke.ts
  */
 
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -32,79 +32,94 @@ const runCli = (args: string, cwd: string): CliResult => {
   }
 };
 
-function main(): void {
-  console.log('\nManual smoke test: issue:commit ticket-key vs branch-name validation\n');
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-ticket-mismatch-'));
+function setupRepo(tmpDir: string): void {
   const git = (cmd: string): void => {
     execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
   };
+  fs.writeFileSync(path.join(tmpDir, 'wf.config.js'), 'module.exports = {};\n');
+  git('init');
+  git('config user.email "test@example.com"');
+  git('config user.name "Test User"');
+  fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 1;\n');
+  git('add .');
+  git('commit -m init');
+  git('checkout -b feature/WBP-1__add-thing');
+}
 
+function checkMismatchExitCode(result: CliResult): void {
+  if (result.exitCode !== 0) {
+    pass('mismatched -k exits with a non-zero code instead of silently committing');
+  } else {
+    fail('mismatched -k should have exited non-zero', `exit code ${result.exitCode}`);
+  }
+}
+
+function checkMismatchBothKeys(output: string): void {
+  if (output.includes('WBP-2') && output.includes('WBP-1')) {
+    pass('mismatch message names both the explicit key and the branch key');
+  } else {
+    fail('mismatch message is missing one of the ticket keys', output.slice(0, 500));
+  }
+}
+
+function checkMismatchNoCommit(tmpDir: string): void {
+  let logAfterMismatch = '';
   try {
-    fs.writeFileSync(path.join(tmpDir, 'wf.config.js'), 'module.exports = {};\n');
-    git('init');
-    git('config user.email "test@example.com"');
-    git('config user.name "Test User"');
-    fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 1;\n');
-    git('add .');
-    git('commit -m init');
-    git('checkout -b feature/WBP-1__add-thing');
+    logAfterMismatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
+  } catch { /* no commits yet, expected */ }
+  if (!logAfterMismatch.includes('WBP-2')) {
+    pass('no commit was created under the mismatched ticket key');
+  } else {
+    fail('a commit was created despite the mismatch', logAfterMismatch);
+  }
+}
 
-    // Case A: mismatched -k, non-interactive (execSync's child has no TTY) — must exit non-zero with both keys shown
-    fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 2;\n');
-    git('add .');
+function checkMismatchCase(tmpDir: string): void {
+  const git = (cmd: string): void => {
+    execSync(`git ${cmd}`, { cwd: tmpDir, stdio: 'pipe' });
+  };
+  // Case A: mismatched -k, non-interactive (execSync's child has no TTY) — must exit non-zero with both keys shown
+  fs.writeFileSync(path.join(tmpDir, 'app.ts'), 'export const x = 2;\n');
+  git('add .');
+  const result = runCli('issue:commit -k WBP-2', tmpDir);
+  const output = result.stdout + result.stderr;
+  checkMismatchExitCode(result);
+  checkMismatchBothKeys(output);
+  checkMismatchNoCommit(tmpDir);
+}
 
-    const mismatchResult = runCli('issue:commit -k WBP-2', tmpDir);
-    const mismatchOutput = mismatchResult.stdout + mismatchResult.stderr;
+function checkMatchCase(tmpDir: string): void {
+  // Case B: matching -k — must succeed and commit normally
+  const result = runCli('issue:commit -k WBP-1 -m "test commit"', tmpDir);
+  const output = result.stdout + result.stderr;
+  if (result.exitCode === 0) {
+    pass('matching -k WBP-1 commits successfully');
+  } else {
+    fail('matching -k WBP-1 should have succeeded', output.slice(0, 500));
+  }
+  const matchLog = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
+  if (matchLog.includes('WBP-1')) {
+    pass('committed subject line is prefixed with the matching ticket key WBP-1');
+  } else {
+    fail('committed subject line missing WBP-1 prefix', matchLog);
+  }
+}
 
-    if (mismatchResult.exitCode !== 0) {
-      pass('mismatched -k exits with a non-zero code instead of silently committing');
-    } else {
-      fail('mismatched -k should have exited non-zero', `exit code ${mismatchResult.exitCode}`);
-    }
-
-    if (mismatchOutput.includes('WBP-2') && mismatchOutput.includes('WBP-1')) {
-      pass('mismatch message names both the explicit key and the branch key');
-    } else {
-      fail('mismatch message is missing one of the ticket keys', mismatchOutput.slice(0, 500));
-    }
-
-    let logAfterMismatch = '';
-    try {
-      logAfterMismatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
-    } catch { /* no commits yet, expected */ }
-    if (!logAfterMismatch.includes('WBP-2')) {
-      pass('no commit was created under the mismatched ticket key');
-    } else {
-      fail('a commit was created despite the mismatch', logAfterMismatch);
-    }
-
-    // Case B: matching -k — must succeed and commit normally
-    const matchResult = runCli('issue:commit -k WBP-1 -m "test commit"', tmpDir);
-    const matchOutput = matchResult.stdout + matchResult.stderr;
-
-    if (matchResult.exitCode === 0) {
-      pass('matching -k WBP-1 commits successfully');
-    } else {
-      fail('matching -k WBP-1 should have succeeded', matchOutput.slice(0, 500));
-    }
-
-    const matchLog = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
-    if (matchLog.includes('WBP-1')) {
-      pass('committed subject line is prefixed with the matching ticket key WBP-1');
-    } else {
-      fail('committed subject line missing WBP-1 prefix', matchLog);
-    }
+function runScenario(): void {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-ticket-mismatch-'));
+  try {
+    setupRepo(tmpDir);
+    checkMismatchCase(tmpDir);
+    checkMatchCase(tmpDir);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+}
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+function main(): void {
+  console.log('\nManual smoke test: issue:commit ticket-key vs branch-name validation\n');
+  runScenario();
+  summarise(counts);
 }
 
 main();

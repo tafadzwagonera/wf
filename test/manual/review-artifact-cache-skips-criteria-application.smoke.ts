@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: a cached review artifact short-circuits before criteria reaches the AI, and --force restores it
  *
- * Run: nr test:manual -- review-artifact-cache-skips-criteria-application.smoke
+ * Run: nr test:manual review-artifact-cache-skips-criteria-application.smoke.ts
  *
  * Scenario: The user runs `wf issue:review -k <ticket> --criteria <file>`
  * twice against the same ticket key. The first run has no cached artifact and
@@ -56,7 +56,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
@@ -134,7 +134,7 @@ const FAKE_JIRA_TICKET_PAYLOAD = JSON.stringify({
   },
 });
 
-const buildJiraHttpStubScript = (): string => `
+const jiraStubTemplate = `
 const http = require('http');
 const { EventEmitter } = require('events');
 const { Readable } = require('stream');
@@ -147,7 +147,9 @@ http.request = function (options, callback) {
   const port = Number(opts.port) || 80;
   const reqPath = opts.path || opts.pathname || '/';
 
-  if (hostname === ${JSON.stringify(JIRA_HOST)} && port === ${JIRA_PORT} && reqPath === ${JSON.stringify(JIRA_PATH)}) {
+  if (hostname === ${JSON.stringify(JIRA_HOST)} && port === ${JIRA_PORT} && reqPath === ${JSON.stringify(
+    JIRA_PATH
+  )}) {
     const req = new EventEmitter();
     req.write = () => true;
     req.setTimeout = () => req;
@@ -176,154 +178,282 @@ http.request = function (options, callback) {
 };
 `;
 
-async function main(): Promise<void> {
+function buildJiraHttpStubScript(): string {
+  return jiraStubTemplate;
+}
+
+interface TestPaths {
+  wfHomeDir: string;
+  repoDir: string;
+  binDir: string;
+  invocationLogPath: string;
+  promptsLogPath: string;
+  criteriaPath: string;
+  jiraStubPath: string;
+  reviewArtifactPath: string;
+}
+
+function buildTestPaths(tempRoot: string): TestPaths {
+  const wfHomeDir = path.join(tempRoot, 'wfhome');
+  const repoDir = path.join(tempRoot, 'repo');
+  const binDir = path.join(tempRoot, 'bin');
+  return {
+    wfHomeDir, repoDir, binDir,
+    invocationLogPath: path.join(tempRoot, 'invocations.log'),
+    promptsLogPath: path.join(tempRoot, 'invocations.prompts.log'),
+    criteriaPath: path.join(tempRoot, 'criteria.md'),
+    jiraStubPath: path.join(tempRoot, 'jira-http-stub.js'),
+    reviewArtifactPath: path.join(wfHomeDir, path.basename(repoDir), 'jira', `${TICKET_KEY}-review.md`),
+  };
+}
+
+function setupDirs(paths: TestPaths): void {
+  fs.mkdirSync(paths.repoDir, { recursive: true });
+  fs.mkdirSync(paths.binDir, { recursive: true });
+  fs.mkdirSync(path.join(paths.wfHomeDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(paths.wfHomeDir, 'state'), { recursive: true });
+  fs.mkdirSync(path.dirname(paths.reviewArtifactPath), { recursive: true });
+}
+
+function setupRepo(paths: TestPaths): void {
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
+  execFileSync('git', ['init', '-q'], { cwd: paths.repoDir, env: gitEnv });
+  fs.writeFileSync(path.join(paths.repoDir, 'src.ts'), 'line 1\nline 2\n', 'utf-8');
+  execFileSync('git', ['add', 'src.ts'], { cwd: paths.repoDir, env: gitEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: paths.repoDir, env: gitEnv });
+  fs.writeFileSync(path.join(paths.repoDir, 'src.ts'), 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
+
+const configLines = [
+  'module.exports = {',
+  '  ai: [',
+  "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+  '  ],',
+  '  atlassian: {',
+  `    baseUrl: 'http://${JIRA_HOST}:${JIRA_PORT}',`,
+  "    email: 'dev@example.com',",
+  "    jira: { apiToken: 'fake-jira-token' },",
+  '  },',
+  '  stages: {',
+  "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+  '  },',
+  '};',
+  '',
+];
+
+function buildConfigLines(): string[] {
+  return configLines;
+}
+
+function buildConfigContent(): string {
+  return buildConfigLines().join('\n');
+}
+
+function writeConfig(configPath: string): void {
+  fs.writeFileSync(configPath, buildConfigContent(), 'utf-8');
+}
+
+function setupFiles(paths: TestPaths): void {
+  fs.writeFileSync(paths.criteriaPath, CRITERIA_MARKDOWN, 'utf-8');
+  fs.writeFileSync(paths.jiraStubPath, buildJiraHttpStubScript(), 'utf-8');
+  writeConfig(path.join(paths.repoDir, 'wf.config.js'));
+  writeExecutable(path.join(paths.binDir, 'claude'), buildFakeClaudeScript(paths.invocationLogPath, paths.promptsLogPath));
+}
+
+function buildRunEnv(paths: TestPaths): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOME: os.homedir(),
+    WF_HOME: paths.wfHomeDir,
+    PATH: `${paths.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    WF_SKIP_CLI_VERSION_CHECK: '1',
+  };
+}
+
+function buildBaseCliArgs(paths: TestPaths): string[] {
+  return [
+    '-r',
+    paths.jiraStubPath,
+    distMainPath,
+    'issue:review',
+    '-r',
+    paths.repoDir,
+    '-k',
+    TICKET_KEY,
+    '--criteria',
+    paths.criteriaPath,
+    '-s',
+  ];
+}
+
+function buildCliReviewArgs(paths: TestPaths, extraArgs: string[]): string[] {
+  return [...buildBaseCliArgs(paths), ...extraArgs];
+}
+
+function runCliReview(
+  paths: TestPaths,
+  env: NodeJS.ProcessEnv,
+  extraArgs: string[]
+): SpawnResult {
+  const args = buildCliReviewArgs(paths, extraArgs);
+  const result = spawnSync('node', args, {
+    cwd: paths.repoDir,
+    env,
+    encoding: 'utf-8',
+    maxBuffer: 1024 * 1024 * 10,
+    timeout: 30000,
+  });
+  return result as SpawnResult;
+}
+
+function checkRun1(run1: SpawnResult, run1InvocationCount: number, invocationsPerReview: number): void {
+  if (run1.status === 0 && run1InvocationCount > 0) {
+    pass(`run 1 (no cache) exits 0 and calls the AI (${invocationsPerReview} invocation(s): review + epilogue)`);
+  } else {
+    fail('run 1 (no cache) should exit 0 and call the AI', `${run1.stdout}\n${run1.stderr}`);
+  }
+}
+
+function checkArtifactWritten(reviewArtifactPath: string): void {
+  if (fs.existsSync(reviewArtifactPath)) {
+    pass('review artifact now exists on disk after run 1');
+  } else {
+    fail('review artifact should exist on disk after run 1', reviewArtifactPath);
+  }
+}
+
+function checkRun2Status(run2: SpawnResult, reviewArtifactPath: string): void {
+  if (run2.status === 0 && run2.stdout.includes(reviewArtifactPath)) {
+    pass('run 2 (cached, no --force) exits 0 and prints the cached artifact path');
+  } else {
+    fail('run 2 should exit 0 and print the cached artifact path', `${run2.stdout}\n${run2.stderr}`);
+  }
+}
+
+function checkRun2InvocationCount(
+  run2InvocationCount: number,
+  run1InvocationCount: number,
+  run2: SpawnResult
+): void {
+  if (run2InvocationCount === run1InvocationCount) {
+    pass('run 2 never calls the AI — invocation count unchanged');
+  } else {
+    fail(
+      'run 2 should never call the AI',
+      `output: ${run2.stdout}\ninvocationCount: ${run2InvocationCount}`
+    );
+  }
+}
+
+function checkRun2(
+  run2: SpawnResult,
+  run2InvocationCount: number,
+  run1InvocationCount: number,
+  reviewArtifactPath: string
+): void {
+  checkRun2Status(run2, reviewArtifactPath);
+  checkRun2InvocationCount(run2InvocationCount, run1InvocationCount, run2);
+}
+
+function verifyRun3BypassedCache(
+  run3: SpawnResult,
+  run3InvocationCount: number,
+  run1InvocationCount: number,
+  invocationsPerReview: number
+): boolean {
+  return (
+    run3.status === 0
+    && run3InvocationCount === run1InvocationCount + invocationsPerReview
+  );
+}
+
+function logRun3Failure(run3: SpawnResult, run3InvocationCount: number): void {
+  fail(
+    'run 3 (--force) should bypass the cache and call the AI again',
+    `output: ${run3.stdout}\ninvocationCount: ${run3InvocationCount}`
+  );
+}
+
+function checkRun3Status(
+  run3: SpawnResult,
+  run3InvocationCount: number,
+  run1InvocationCount: number,
+  invocationsPerReview: number
+): void {
+  if (verifyRun3BypassedCache(run3, run3InvocationCount, run1InvocationCount, invocationsPerReview)) {
+    pass('run 3 (--force) bypasses the cache and calls the AI again');
+  } else {
+    logRun3Failure(run3, run3InvocationCount);
+  }
+}
+
+function getRun3Prompt(
+  promptsLogPath: string,
+  run3InvocationCount: number,
+  invocationsPerReview: number
+): string {
+  const prompts = fs.existsSync(promptsLogPath)
+    ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
+    : [];
+  return prompts[run3InvocationCount - invocationsPerReview] ?? '';
+}
+
+function checkRun3PromptContent(run3Prompt: string): void {
+  if (run3Prompt.includes(CUSTOM_GUIDELINE)) {
+    pass('run 3 prompt still carries the custom criteria guideline through --force');
+  } else {
+    fail(
+      'run 3 prompt should carry the custom criteria guideline through --force',
+      run3Prompt.slice(0, 800)
+    );
+  }
+}
+
+function checkRun3AndPrompt(
+  run3: SpawnResult,
+  run3InvocationCount: number,
+  run1InvocationCount: number,
+  invocationsPerReview: number,
+  promptsLogPath: string
+): void {
+  checkRun3Status(run3, run3InvocationCount, run1InvocationCount, invocationsPerReview);
+  const run3Prompt = getRun3Prompt(promptsLogPath, run3InvocationCount, invocationsPerReview);
+  checkRun3PromptContent(run3Prompt);
+}
+
+async function runScenario(paths: TestPaths, env: NodeJS.ProcessEnv): Promise<void> {
+  const run1 = runCliReview(paths, env, []);
+  const count1 = countInvocations(paths.invocationLogPath);
+  checkRun1(run1, count1, count1);
+  checkArtifactWritten(paths.reviewArtifactPath);
+  const run2 = runCliReview(paths, env, []);
+  checkRun2(run2, countInvocations(paths.invocationLogPath), count1, paths.reviewArtifactPath);
+  const run3 = runCliReview(paths, env, ['--force']);
+  checkRun3AndPrompt(run3, countInvocations(paths.invocationLogPath), count1, count1, paths.promptsLogPath);
+}
+
+function checkDistExists(): void {
   if (fs.existsSync(distMainPath)) {
     pass('dist/main.js exists');
   } else {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+}
 
+async function main(): Promise<void> {
+  checkDistExists();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-cache-criteria-'));
-  const wfHomeDir = path.join(tempRoot, 'wfhome');
-  const repoDir = path.join(tempRoot, 'repo');
-  const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const invocationLogPath = path.join(tempRoot, 'invocations.log');
-  const promptsLogPath = path.join(tempRoot, 'invocations.prompts.log');
-  const trackedFilePath = path.join(repoDir, 'src.ts');
-  const criteriaPath = path.join(tempRoot, 'criteria.md');
-  const jiraStubPath = path.join(tempRoot, 'jira-http-stub.js');
-  const repoBasename = path.basename(repoDir);
-  const reviewArtifactPath = path.join(wfHomeDir, repoBasename, 'jira', `${TICKET_KEY}-review.md`);
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'state'), { recursive: true });
-
-    fs.writeFileSync(criteriaPath, CRITERIA_MARKDOWN, 'utf-8');
-    fs.writeFileSync(jiraStubPath, buildJiraHttpStubScript(), 'utf-8');
-
-    const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
-    execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
-    execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
-    execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  atlassian: {',
-        `    baseUrl: 'http://${JIRA_HOST}:${JIRA_PORT}',`,
-        "    email: 'dev@example.com',",
-        "    jira: { apiToken: 'fake-jira-token' },",
-        '  },',
-        '  stages: {',
-        "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath, promptsLogPath));
-
-    const env = {
-      ...process.env,
-      HOME: os.homedir(),
-      WF_HOME: wfHomeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
-
-    const runCli = (extraArgs: string[]): SpawnResult =>
-      spawnSync(
-        'node',
-        ['-r', jiraStubPath, distMainPath, 'issue:review', '-r', repoDir, '-k', TICKET_KEY, '--criteria', criteriaPath, '-s', ...extraArgs],
-        { cwd: repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10, timeout: 30000 }
-      ) as SpawnResult;
-
-    fs.mkdirSync(path.dirname(reviewArtifactPath), { recursive: true });
-    const run1 = runCli([]);
-    const run1Output = `${run1.stdout}\n${run1.stderr}`;
-    const run1InvocationCount = countInvocations(invocationLogPath);
-    const invocationsPerReview = run1InvocationCount;
-
-    const run1Ok = run1.status === 0 && run1InvocationCount > 0;
-
-    if (run1Ok) {
-      pass(`run 1 (no cache) exits 0 and calls the AI (${invocationsPerReview} invocation(s): review + epilogue)`);
-    } else {
-      fail('run 1 (no cache) should exit 0 and call the AI', run1Output);
-    }
-
-    const artifactWritten = fs.existsSync(reviewArtifactPath);
-
-    if (artifactWritten) {
-      pass('review artifact now exists on disk after run 1');
-    } else {
-      fail('review artifact should exist on disk after run 1', reviewArtifactPath);
-    }
-
-    const run2 = runCli([]);
-    const run2Output = `${run2.stdout}\n${run2.stderr}`;
-    const run2InvocationCount = countInvocations(invocationLogPath);
-
-    const run2ServedCache = run2.status === 0 && run2.stdout.includes(reviewArtifactPath);
-
-    if (run2ServedCache) {
-      pass('run 2 (cached, no --force) exits 0 and prints the cached artifact path');
-    } else {
-      fail('run 2 should exit 0 and print the cached artifact path', run2Output);
-    }
-
-    const run2SkippedAi = run2InvocationCount === run1InvocationCount;
-
-    if (run2SkippedAi) {
-      pass('run 2 never calls the AI — invocation count unchanged');
-    } else {
-      fail('run 2 should never call the AI', `output: ${run2Output}\ninvocationCount: ${run2InvocationCount}`);
-    }
-
-    const run3 = runCli(['--force']);
-    const run3Output = `${run3.stdout}\n${run3.stderr}`;
-    const run3InvocationCount = countInvocations(invocationLogPath);
-
-    const run3ForcedRegeneration
-      = run3.status === 0 && run3InvocationCount === run1InvocationCount + invocationsPerReview;
-
-    if (run3ForcedRegeneration) {
-      pass('run 3 (--force) bypasses the cache and calls the AI again');
-    } else {
-      fail('run 3 (--force) should bypass the cache and call the AI again', `output: ${run3Output}\ninvocationCount: ${run3InvocationCount}`);
-    }
-
-    const prompts = fs.existsSync(promptsLogPath)
-      ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
-      : [];
-    const run3ReviewPromptIndex = run3InvocationCount - invocationsPerReview;
-    const run3Prompt = prompts[run3ReviewPromptIndex] ?? '';
-
-    if (run3Prompt.includes(CUSTOM_GUIDELINE)) {
-      pass('run 3 prompt still carries the custom criteria guideline through --force');
-    } else {
-      fail('run 3 prompt should carry the custom criteria guideline through --force', run3Prompt.slice(0, 800));
-    }
+    const paths = buildTestPaths(tempRoot);
+    setupDirs(paths);
+    setupFiles(paths);
+    setupRepo(paths);
+    await runScenario(paths, buildRunEnv(paths));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

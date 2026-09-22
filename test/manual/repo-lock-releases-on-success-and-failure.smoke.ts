@@ -1,7 +1,7 @@
 /**
  * Manual Test: repo lock releases after both a successful and a failed run
  *
- * Run: nr test:manual -- test-repo-lock-releases-on-success-and-failure
+ * Run: nr test:manual repo-lock-releases-on-success-and-failure.smoke.ts
  *
  * Verifies that:
  *   1. Against a repo with a staged change, the commit succeeds and no lock
@@ -21,7 +21,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -49,70 +49,66 @@ function countLockFiles(wfHome: string): number {
   return fs.readdirSync(lockDir).length;
 }
 
-async function main(): Promise<void> {
-  console.log('\n repo lock releases on success and failure\n');
+function runCommit(repoPath: string, wfHome: string) {
+  return spawnSync('node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoPath], { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } });
+}
 
+function checkSuccessCommit(result: ReturnType<typeof runCommit>, wfHome: string): void {
+  if (result.status === 0) {
+    pass('Successful commit exits 0');
+  } else {
+    fail('Expected exit 0', `${result.stdout}\n${result.stderr}`);
+  }
+  if (countLockFiles(wfHome) === 0) {
+    pass('No lock file remains after a successful commit');
+  } else {
+    fail('Lock file leaked after success', String(countLockFiles(wfHome)));
+  }
+}
+
+function checkFailureCommit(result: ReturnType<typeof runCommit>, wfHome: string): void {
+  if (result.status !== 0) {
+    pass('Commit against a repo with nothing staged exits non-zero');
+  } else {
+    fail('Expected a non-zero exit code for the failure case');
+  }
+  if (countLockFiles(wfHome) === 0) {
+    pass('No lock file remains after a failed commit');
+  } else {
+    fail('Lock file leaked after failure', String(countLockFiles(wfHome)));
+  }
+}
+
+function prepareAndCheckRerun(successRepo: string, wfHome: string): void {
+  fs.writeFileSync(path.join(successRepo, 'a.txt'), 'three\n');
+  execFileSync('git', ['add', '.'], { cwd: successRepo });
+  const rerunResult = runCommit(successRepo, wfHome);
+  if (rerunResult.status === 0 && !rerunResult.stdout.includes('RepoLockError')) {
+    pass('Immediate re-run against the same repo is not blocked by a leftover lock');
+  } else {
+    fail('Re-run was unexpectedly blocked', `${rerunResult.stdout}\n${rerunResult.stderr}`);
+  }
+}
+
+async function runAndClean(): Promise<void> {
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-lock-release-home-'));
   const successRepo = makeRepo(true);
   const failureRepo = makeRepo(false);
-
   try {
-    const successResult = spawnSync(
-      'node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', successRepo],
-      { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } }
-    );
-
-    if (successResult.status === 0) {
-      pass('Successful commit exits 0');
-    } else {
-      fail('Expected exit 0', `${successResult.stdout}\n${successResult.stderr}`);
-    }
-    if (countLockFiles(wfHome) === 0) {
-      pass('No lock file remains after a successful commit');
-    } else {
-      fail('Lock file leaked after success', String(countLockFiles(wfHome)));
-    }
-
-    const failureResult = spawnSync(
-      'node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', failureRepo],
-      { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } }
-    );
-
-    if (failureResult.status !== 0) {
-      pass('Commit against a repo with nothing staged exits non-zero');
-    } else {
-      fail('Expected a non-zero exit code for the failure case');
-    }
-    if (countLockFiles(wfHome) === 0) {
-      pass('No lock file remains after a failed commit');
-    } else {
-      fail('Lock file leaked after failure', String(countLockFiles(wfHome)));
-    }
-
-    fs.writeFileSync(path.join(successRepo, 'a.txt'), 'three\n');
-    execFileSync('git', ['add', '.'], { cwd: successRepo });
-    const rerunResult = spawnSync(
-      'node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', successRepo],
-      { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } }
-    );
-
-    if (rerunResult.status === 0 && !rerunResult.stdout.includes('RepoLockError')) {
-      pass('Immediate re-run against the same repo is not blocked by a leftover lock');
-    } else {
-      fail('Re-run was unexpectedly blocked', `${rerunResult.stdout}\n${rerunResult.stderr}`);
-    }
+    checkSuccessCommit(runCommit(successRepo, wfHome), wfHome);
+    checkFailureCommit(runCommit(failureRepo, wfHome), wfHome);
+    prepareAndCheckRerun(successRepo, wfHome);
   } finally {
     fs.rmSync(successRepo, { recursive: true, force: true });
     fs.rmSync(failureRepo, { recursive: true, force: true });
     fs.rmSync(wfHome, { recursive: true, force: true });
   }
+}
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  console.log('\n repo lock releases on success and failure\n');
+  await runAndClean();
+  summarise(counts);
 }
 
 main().catch(err => {

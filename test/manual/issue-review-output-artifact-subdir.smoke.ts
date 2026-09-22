@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: issue:review --output subdirectory paths write under the repo artifact namespace
  *
- * Run: nr test:manual -- issue-review-output-artifact-subdir.smoke
+ * Run: nr test:manual issue-review-output-artifact-subdir.smoke.ts
  *
  * Scenario: The user passes a relative output path with a directory
  * component, such as `--output reports/review.md`. wf must write the review
@@ -41,13 +41,23 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
   stdout: string;
   stderr: string;
+};
+
+type Paths = {
+  wfHomeDir: string;
+  repoDir: string;
+  binDir: string;
+  configPath: string;
+  claudeScriptPath: string;
+  trackedFilePath: string;
+  repoBasename: string;
+  absoluteOutputPath: string;
 };
 
 const projectRoot = path.resolve(__dirname, '../..');
@@ -86,115 +96,116 @@ const runReview = (repoDir: string, env: NodeJS.ProcessEnv, outputArg: string): 
   return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 };
 
-async function main(): Promise<void> {
+function buildPaths(tempRoot: string): Paths {
+  const wfHomeDir = path.join(tempRoot, 'wfhome');
+  const repoDir = path.join(tempRoot, 'repo');
+  const binDir = path.join(tempRoot, 'bin');
+  return {
+    wfHomeDir,
+    repoDir,
+    binDir,
+    configPath: path.join(repoDir, 'wf.config.js'),
+    claudeScriptPath: path.join(binDir, 'claude'),
+    trackedFilePath: path.join(repoDir, 'src.ts'),
+    repoBasename: path.basename(repoDir),
+    absoluteOutputPath: path.join(tempRoot, 'absolute-review.md'),
+  };
+}
+
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
+
+function setupGitRepo(repoDir: string, trackedFilePath: string): void {
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
+  execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
+  execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
+
+function setupFixtures(paths: Paths): void {
+  fs.mkdirSync(paths.repoDir, { recursive: true });
+  fs.mkdirSync(paths.binDir, { recursive: true });
+  fs.mkdirSync(path.join(paths.wfHomeDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(paths.wfHomeDir, 'state'), { recursive: true });
+  setupGitRepo(paths.repoDir, paths.trackedFilePath);
+  fs.writeFileSync(paths.configPath, buildConfigContent(), 'utf-8');
+  writeExecutable(paths.claudeScriptPath, buildFakeClaudeScript());
+}
+
+function buildEnv(paths: Paths): NodeJS.ProcessEnv {
+  return { ...process.env, HOME: os.homedir(), WF_HOME: paths.wfHomeDir, PATH: `${paths.binDir}${path.delimiter}${process.env.PATH ?? ''}`, WF_SKIP_CLI_VERSION_CHECK: '1' };
+}
+
+function checkDistExists(): void {
   if (!fs.existsSync(distMainPath)) {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+}
 
+function checkNestedOutput(paths: Paths, env: NodeJS.ProcessEnv): void {
+  const result = runReview(paths.repoDir, env, 'reports/review.md');
+  const output = `${result.stdout}\n${result.stderr}`;
+  const artifactPath = path.join(paths.wfHomeDir, paths.repoBasename, 'reports', 'review.md');
+  const cwdNestedPath = path.join(paths.repoDir, 'reports', 'review.md');
+  if (result.status === 0) pass('nested-output run exits 0');
+  else fail('nested-output run should exit 0', output);
+  if (fs.existsSync(artifactPath)) pass('$WF_HOME/<repo>/reports/review.md exists');
+  else fail('$WF_HOME/<repo>/reports/review.md should exist', `checked ${artifactPath}\noutput:\n${output}`);
+  const content = fs.existsSync(artifactPath) ? fs.readFileSync(artifactPath, 'utf-8') : '';
+  if (content.includes(REVIEW_SUMMARY)) pass('written file contains the fake review summary');
+  else fail('written file should contain the fake review summary', content.slice(0, 500));
+  if (!fs.existsSync(cwdNestedPath)) pass('<repo>/reports/review.md does not exist');
+  else fail('<repo>/reports/review.md should not exist', cwdNestedPath);
+}
+
+function checkFlatOutput(paths: Paths, env: NodeJS.ProcessEnv): void {
+  const result = runReview(paths.repoDir, env, 'review.md');
+  const output = `${result.stdout}\n${result.stderr}`;
+  const artifactPath = path.join(paths.wfHomeDir, paths.repoBasename, 'review.md');
+  if (result.status === 0 && fs.existsSync(artifactPath))
+    pass('filename-only output preserves $WF_HOME/<repo>/review.md behavior');
+  else fail('filename-only output should still write $WF_HOME/<repo>/review.md', `checked ${artifactPath}\noutput:\n${output}`);
+}
+
+function checkAbsoluteOutput(paths: Paths, env: NodeJS.ProcessEnv): void {
+  const result = runReview(paths.repoDir, env, paths.absoluteOutputPath);
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (result.status === 0 && fs.existsSync(paths.absoluteOutputPath))
+    pass('absolute output path writes exactly that absolute path');
+  else fail('absolute output path should write exactly that path', `checked ${paths.absoluteOutputPath}\noutput:\n${output}`);
+}
+
+function runChecks(paths: Paths, env: NodeJS.ProcessEnv): void {
+  checkNestedOutput(paths, env);
+  checkFlatOutput(paths, env);
+  checkAbsoluteOutput(paths, env);
+}
+
+async function main(): Promise<void> {
+  checkDistExists();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-output-artifact-subdir-'));
-  const wfHomeDir = path.join(tempRoot, 'wfhome');
-  const repoDir = path.join(tempRoot, 'repo');
-  const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const trackedFilePath = path.join(repoDir, 'src.ts');
-  const repoBasename = path.basename(repoDir);
-  const absoluteOutputPath = path.join(tempRoot, 'absolute-review.md');
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'state'), { recursive: true });
-
-    const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
-    execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
-    execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
-    execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript());
-
-    const env = {
-      ...process.env,
-      HOME: os.homedir(),
-      WF_HOME: wfHomeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
-
-    const nestedResult = runReview(repoDir, env, 'reports/review.md');
-    const nestedOutput = `${nestedResult.stdout}\n${nestedResult.stderr}`;
-    const nestedArtifactPath = path.join(wfHomeDir, repoBasename, 'reports', 'review.md');
-    const cwdNestedPath = path.join(repoDir, 'reports', 'review.md');
-
-    if (nestedResult.status === 0) {
-      pass('nested-output run exits 0');
-    } else {
-      fail('nested-output run should exit 0', nestedOutput);
-    }
-
-    if (fs.existsSync(nestedArtifactPath)) {
-      pass('$WF_HOME/<repo>/reports/review.md exists');
-    } else {
-      fail('$WF_HOME/<repo>/reports/review.md should exist', `checked ${nestedArtifactPath}\noutput:\n${nestedOutput}`);
-    }
-
-    const nestedContent = fs.existsSync(nestedArtifactPath) ? fs.readFileSync(nestedArtifactPath, 'utf-8') : '';
-    if (nestedContent.includes(REVIEW_SUMMARY)) {
-      pass('written file contains the fake review summary');
-    } else {
-      fail('written file should contain the fake review summary', nestedContent.slice(0, 500));
-    }
-
-    if (!fs.existsSync(cwdNestedPath)) {
-      pass('<repo>/reports/review.md does not exist');
-    } else {
-      fail('<repo>/reports/review.md should not exist', cwdNestedPath);
-    }
-
-    const flatResult = runReview(repoDir, env, 'review.md');
-    const flatOutput = `${flatResult.stdout}\n${flatResult.stderr}`;
-    const flatArtifactPath = path.join(wfHomeDir, repoBasename, 'review.md');
-
-    if (flatResult.status === 0 && fs.existsSync(flatArtifactPath)) {
-      pass('filename-only output preserves $WF_HOME/<repo>/review.md behavior');
-    } else {
-      fail('filename-only output should still write $WF_HOME/<repo>/review.md', `checked ${flatArtifactPath}\noutput:\n${flatOutput}`);
-    }
-
-    const absoluteResult = runReview(repoDir, env, absoluteOutputPath);
-    const absoluteOutput = `${absoluteResult.stdout}\n${absoluteResult.stderr}`;
-
-    if (absoluteResult.status === 0 && fs.existsSync(absoluteOutputPath)) {
-      pass('absolute output path writes exactly that absolute path');
-    } else {
-      fail('absolute output path should write exactly that path', `checked ${absoluteOutputPath}\noutput:\n${absoluteOutput}`);
-    }
+    const paths = buildPaths(tempRoot);
+    setupFixtures(paths);
+    runChecks(paths, buildEnv(paths));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

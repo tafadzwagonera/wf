@@ -16,7 +16,7 @@
  *   2. An assistant-text-only stream (no usable result) logs
  *      cli.pass_unusable ... source=assistant_text at WARN
  *
- * Run: nr test:manual -- cli-pass-outcome-log-level.smoke
+ * Run: nr test:manual cli-pass-outcome-log-level.smoke.ts
  */
 
 import { ConfigService } from '@nestjs/config';
@@ -25,7 +25,7 @@ import * as cliRunner from '../../src/integrations/ai/adapters/claude-cli-runner
 import { getWfLogDir } from '../../src/shared/utils/wf-paths';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -46,47 +46,22 @@ function createConfigService(): ConfigService {
   return { get } as unknown as ConfigService;
 }
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: cli.pass_outcome vs cli.pass_unusable log level\n');
-
-  const originalAssert = cliRunner.assertClaudeCliAvailable;
-  const originalBuild = cliRunner.buildCliArgs;
-  const originalSpawn = cliRunner.spawnCli;
+function patchCliRunner(): void {
   (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = () => undefined;
   (cliRunner as Record<string, unknown>).buildCliArgs = () => ['-p', '--output-format', 'stream-json'];
+}
 
-  const runOnce = async (messages: Record<string, unknown>[]): Promise<void> => {
-    (cliRunner as Record<string, unknown>).spawnCli = async function* () {
-      for (const msg of messages) yield msg;
-    };
-    const service = new StageAgentService(createConfigService());
-    const runner = (service as any).runCliStagePrompt.bind(service);
-    await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' }).catch(() => undefined);
+async function runOnce(messages: Record<string, unknown>[]): Promise<void> {
+  (cliRunner as Record<string, unknown>).spawnCli = async function* () {
+    for (const msg of messages) yield msg;
   };
+  const service = new StageAgentService(createConfigService());
+  const runner = (service as any).runCliStagePrompt.bind(service);
+  await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' }).catch(() => undefined);
+}
 
-  const logPath = todaysLogPath();
-  const runId = String(Date.now());
-  const successSessionId = `sess_ok_${runId}`;
-  const unusableSessionId = `sess_bad_${runId}`;
-  const validPlanResult = JSON.stringify({
-    action: 'fix',
-    summary: 'Smoke test plan',
-    steps: ['Step 1'],
-    estimatedComplexity: 'low',
-  });
-
-  // Scenario 1: a successful stream — valid structured result.
-  await runOnce([
-    {
-      type: 'assistant', message: { content: [{ type: 'text', text: 'working...' }] }, session_id: successSessionId,
-    },
-    {
-      type: 'result', result: validPlanResult, session_id: successSessionId, num_turns: 1, total_cost_usd: 0.01,
-    },
-  ]);
-  let logContent = fs.readFileSync(logPath, 'utf-8');
+function checkSuccessfulPassLogs(logContent: string, successSessionId: string): void {
   const successLinePattern = new RegExp(`\\[DEBUG\\].*cli\\.pass_outcome.*source=result.*session=${successSessionId}`);
-
   if (successLinePattern.test(logContent)) {
     pass('Successful pass logs cli.pass_outcome at DEBUG with source=result');
   } else {
@@ -97,27 +72,55 @@ async function main(): Promise<void> {
   } else {
     pass('Successful pass does NOT log cli.pass_unusable');
   }
+}
 
-  // Scenario 2: assistant-text-only stream — genuinely unusable.
-  await runOnce([
-    { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: unusableSessionId },
-  ]);
-  logContent = fs.readFileSync(logPath, 'utf-8');
+function checkUnusablePassLogs(logContent: string, unusableSessionId: string): void {
   const unusableLinePattern = new RegExp(`\\[WARN\\].*cli\\.pass_unusable.*source=assistant_text.*session=${unusableSessionId}`);
-
   if (unusableLinePattern.test(logContent)) {
     pass('Assistant-text-only pass logs cli.pass_unusable at WARN with source=assistant_text');
   } else {
     fail('Expected a WARN cli.pass_unusable source=assistant_text line', logContent.slice(-1000));
   }
+}
 
+function buildRunIds(): { successSessionId: string; unusableSessionId: string; validPlanResult: string } {
+  const runId = String(Date.now());
+  return {
+    successSessionId: `sess_ok_${runId}`,
+    unusableSessionId: `sess_bad_${runId}`,
+    validPlanResult: JSON.stringify({ action: 'fix', summary: 'Smoke test plan', steps: ['Step 1'], estimatedComplexity: 'low' }),
+  };
+}
+
+async function runSuccessScenario(logPath: string, successSessionId: string, validPlanResult: string): Promise<void> {
+  await runOnce([
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'working...' }] }, session_id: successSessionId },
+    { type: 'result', result: validPlanResult, session_id: successSessionId, num_turns: 1, total_cost_usd: 0.01 },
+  ]);
+  checkSuccessfulPassLogs(fs.readFileSync(logPath, 'utf-8'), successSessionId);
+}
+
+async function runUnusableScenario(logPath: string, unusableSessionId: string): Promise<void> {
+  await runOnce([
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'Still thinking...' }] }, session_id: unusableSessionId },
+  ]);
+  checkUnusablePassLogs(fs.readFileSync(logPath, 'utf-8'), unusableSessionId);
+}
+
+async function main(): Promise<void> {
+  console.log('Manual smoke: cli.pass_outcome vs cli.pass_unusable log level\n');
+  const originalAssert = cliRunner.assertClaudeCliAvailable;
+  const originalBuild = cliRunner.buildCliArgs;
+  const originalSpawn = cliRunner.spawnCli;
+  patchCliRunner();
+  const logPath = todaysLogPath();
+  const { successSessionId, unusableSessionId, validPlanResult } = buildRunIds();
+  await runSuccessScenario(logPath, successSessionId, validPlanResult);
+  await runUnusableScenario(logPath, unusableSessionId);
   (cliRunner as Record<string, unknown>).assertClaudeCliAvailable = originalAssert;
   (cliRunner as Record<string, unknown>).buildCliArgs = originalBuild;
   (cliRunner as Record<string, unknown>).spawnCli = originalSpawn;
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: cli.pass_outcome log level');
+  summarise(counts);
 }
 
 main().catch(error => {

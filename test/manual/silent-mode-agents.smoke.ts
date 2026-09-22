@@ -1,7 +1,7 @@
 /**
  * Manual Test: --silent mode for FetcherAgent, PlannerAgent, ReviewerAgent, CommitterAgent
  *
- * Run: nr test:manual -- test-silent-mode-agents
+ * Run: nr test:manual silent-mode-agents.smoke.ts
  *
  * Verifies:
  * 1. FetcherAgent.execute() suppresses decorative output when silent
@@ -26,7 +26,9 @@ import { PlanStageService } from '../../src/workflows/stages/plan-stage.service'
 import { ReviewStageService } from '../../src/workflows/stages/review-stage.service';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
 import { GitService } from '../../src/integrations/git/git.service';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
+
+const { counts, pass, fail } = createReporter();
 
 const MOCK_TICKET_CONTENT = '# WBP-TEST: Silent mode test\n\nDescription here.';
 const MOCK_PLAN = {
@@ -52,236 +54,153 @@ function captureConsole(): { getOutput: () => string; restore: () => void } {
   };
 }
 
-async function main(): Promise<void> {
-  console.log('\n🧪 Manual Test: --silent mode for agents\n');
+function assertSilent(output: string, subjectKey: string): void {
+  if (output.trim() === '') {
+    pass(`${subjectKey} produces no output when silent`);
+  } else {
+    fail(`${subjectKey} leaked output in silent mode`, output.slice(0, 200));
+  }
+}
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
+function assertFetcherNonSilentOutput(output: string): void {
+  if (output.includes('STAGE 1') && output.includes('Ticket fetched')) {
+    pass('FetcherAgent.execute() produces output when not silent');
+  } else {
+    fail('FetcherAgent.execute() missing expected output when not silent', output.slice(0, 200));
+  }
+}
 
-  const { counts, pass, fail } = createReporter();
+type TestEnv = { app: any; tmpDir: string; wfDir: string; ticketPath: string; planPath: string };
 
-  // resolveArtifactDir uses ~/.wf/<basename>/<platform>
+async function setupTestEnv(): Promise<TestEnv> {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const tmpBaseName = `wf-silent-test-${Date.now()}`;
   const tmpDir = path.join(os.tmpdir(), tmpBaseName);
   fs.mkdirSync(tmpDir, { recursive: true });
-  const wfHome = path.join(os.homedir(), '.wf');
-  const platformDir = path.join(wfHome, tmpBaseName, 'jira');
+  const wfDir = path.join(os.homedir(), '.wf', tmpBaseName);
+  const platformDir = path.join(wfDir, 'jira');
   fs.mkdirSync(platformDir, { recursive: true });
-
   const ticketPath = path.join(platformDir, 'WBP-TEST.md');
   fs.writeFileSync(ticketPath, MOCK_TICKET_CONTENT, 'utf-8');
-
   const planPath = path.join(platformDir, 'WBP-TEST-plan-fix.json');
   fs.writeFileSync(planPath, JSON.stringify(MOCK_PLAN), 'utf-8');
+  return { app, tmpDir, wfDir, ticketPath, planPath };
+}
 
-  // --- Test 1: FetcherAgent.execute() silent ---
-  {
-    const fetcher = app.get(FetcherAgent);
-    const origFetch = FetchStageService.prototype.fetchArtifact;
-    (FetchStageService.prototype as any).fetchArtifact = async () => ({
-      ticketKey: 'WBP-TEST',
-      content: MOCK_TICKET_CONTENT,
-      path: ticketPath,
-      fromCache: false,
-    });
-
-    const cap = captureConsole();
-    try {
-      await fetcher.execute('WBP-TEST', {
-        trackerName: 'jira',
-        silent: true,
-        baseDir: tmpDir,
-      });
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('FetcherAgent.execute() produces no output when silent');
-    } else {
-      fail('FetcherAgent.execute() leaked output in silent mode', output.slice(0, 200));
-    }
-
-    FetchStageService.prototype.fetchArtifact = origFetch;
+async function checkFetcherExecuteSilent(app: any, ticketPath: string, tmpDir: string): Promise<void> {
+  const fetcher = app.get(FetcherAgent);
+  const origFetch = FetchStageService.prototype.fetchArtifact;
+  (FetchStageService.prototype as any).fetchArtifact
+    = async () => ({ ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath, fromCache: false });
+  const cap = captureConsole();
+  try {
+    await fetcher.execute('WBP-TEST', { trackerName: 'jira', silent: true, baseDir: tmpDir });
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'FetcherAgent.execute()');
+  FetchStageService.prototype.fetchArtifact = origFetch;
+}
 
-  // --- Test 2: FetcherAgent.loadFromDisk() silent ---
-  {
-    const fetcher = app.get(FetcherAgent);
-    const cap = captureConsole();
-    try {
-      fetcher.loadFromDisk('WBP-TEST', 'jira', tmpDir, true);
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('FetcherAgent.loadFromDisk() produces no output when silent');
-    } else {
-      fail('FetcherAgent.loadFromDisk() leaked output in silent mode', output.slice(0, 200));
-    }
+async function checkFetcherLoadFromDiskSilent(app: any, tmpDir: string): Promise<void> {
+  const fetcher = app.get(FetcherAgent);
+  const cap = captureConsole();
+  try {
+    fetcher.loadFromDisk('WBP-TEST', 'jira', tmpDir, true);
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'FetcherAgent.loadFromDisk()');
+}
 
-  // --- Test 3: PlannerAgent.execute() silent ---
-  {
-    const planner = app.get(PlannerAgent);
-    const origCreate = PlanStageService.prototype.createPlanArtifact;
-    (PlanStageService.prototype as any).createPlanArtifact = async () => ({
-      plan: MOCK_PLAN,
-      action: 'fix',
-      path: planPath,
-      fromCache: false,
-    });
-
-    const cap = captureConsole();
-    try {
-      await planner.execute(
-        {
-          ticketKey: 'WBP-TEST',
-          content: MOCK_TICKET_CONTENT,
-          path: ticketPath,
-        },
-        { action: 'fix', silent: true }
-      );
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('PlannerAgent.execute() produces no output when silent');
-    } else {
-      fail('PlannerAgent.execute() leaked output in silent mode', output.slice(0, 200));
-    }
-
-    PlanStageService.prototype.createPlanArtifact = origCreate;
+async function checkPlannerExecuteSilent(app: any, ticketPath: string, planPath: string): Promise<void> {
+  const planner = app.get(PlannerAgent);
+  const origCreate = PlanStageService.prototype.createPlanArtifact;
+  (PlanStageService.prototype as any).createPlanArtifact
+    = async () => ({ plan: MOCK_PLAN, action: 'fix', path: planPath, fromCache: false });
+  const ticket = { ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath };
+  const cap = captureConsole();
+  try {
+    await planner.execute(ticket, { action: 'fix', silent: true });
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'PlannerAgent.execute()');
+  PlanStageService.prototype.createPlanArtifact = origCreate;
+}
 
-  // --- Test 4: PlannerAgent.loadFromDisk() silent ---
-  {
-    const planner = app.get(PlannerAgent);
-    const origLoad = PlanStageService.prototype.loadPlanArtifact;
-    (PlanStageService.prototype as any).loadPlanArtifact = async () => ({
-      plan: MOCK_PLAN,
-      action: 'fix',
-      path: planPath,
-      fromCache: false,
-    });
-
-    const cap = captureConsole();
-    try {
-      await planner.loadFromDisk(ticketPath, 'fix', true);
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('PlannerAgent.loadFromDisk() produces no output when silent');
-    } else {
-      fail('PlannerAgent.loadFromDisk() leaked output in silent mode', output.slice(0, 200));
-    }
-
-    PlanStageService.prototype.loadPlanArtifact = origLoad;
+async function checkPlannerLoadFromDiskSilent(app: any, ticketPath: string, planPath: string): Promise<void> {
+  const planner = app.get(PlannerAgent);
+  const origLoad = PlanStageService.prototype.loadPlanArtifact;
+  (PlanStageService.prototype as any).loadPlanArtifact
+    = async () => ({ plan: MOCK_PLAN, action: 'fix', path: planPath, fromCache: false });
+  const cap = captureConsole();
+  try {
+    await planner.loadFromDisk(ticketPath, 'fix', true);
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'PlannerAgent.loadFromDisk()');
+  PlanStageService.prototype.loadPlanArtifact = origLoad;
+}
 
-  // --- Test 5: ReviewerAgent.execute() silent (no changes) ---
-  {
-    const reviewer = app.get(ReviewerAgent);
-    const origGetStatus = GitService.prototype.getStatus;
-    (GitService.prototype as any).getStatus = async () => ({ files: [] });
-
-    const cap = captureConsole();
-    try {
-      await reviewer.execute(
-        {
-          ticketKey: 'WBP-TEST',
-          content: MOCK_TICKET_CONTENT,
-          path: ticketPath,
-        },
-        { silent: true }
-      );
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('ReviewerAgent.execute() produces no output when silent (no changes)');
-    } else {
-      fail('ReviewerAgent.execute() leaked output in silent mode', output.slice(0, 200));
-    }
-
-    GitService.prototype.getStatus = origGetStatus;
+async function checkReviewerExecuteSilent(app: any, ticketPath: string): Promise<void> {
+  const reviewer = app.get(ReviewerAgent);
+  const origGetStatus = GitService.prototype.getStatus;
+  (GitService.prototype as any).getStatus = async () => ({ files: [] });
+  const cap = captureConsole();
+  try {
+    await reviewer.execute({ ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath }, { silent: true });
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'ReviewerAgent.execute()');
+  GitService.prototype.getStatus = origGetStatus;
+}
 
-  // --- Test 6: CommitterAgent.execute() silent (no changes) ---
-  {
-    const committer = app.get(CommitterAgent);
-    const origGetStatus = GitService.prototype.getStatus;
-    (GitService.prototype as any).getStatus = async () => ({ files: [] });
-
-    const cap = captureConsole();
-    try {
-      await committer.execute('WBP-TEST', tmpDir, undefined, false, true);
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.trim() === '') {
-      pass('CommitterAgent.execute() produces no output when silent (no changes)');
-    } else {
-      fail('CommitterAgent.execute() leaked output in silent mode', output.slice(0, 200));
-    }
-
-    GitService.prototype.getStatus = origGetStatus;
+async function checkCommitterExecuteSilent(app: any, tmpDir: string): Promise<void> {
+  const committer = app.get(CommitterAgent);
+  const origGetStatus = GitService.prototype.getStatus;
+  (GitService.prototype as any).getStatus = async () => ({ files: [] });
+  const cap = captureConsole();
+  try {
+    await committer.execute('WBP-TEST', tmpDir, undefined, false, true);
+  } finally {
+    cap.restore();
   }
+  assertSilent(cap.getOutput(), 'CommitterAgent.execute()');
+  GitService.prototype.getStatus = origGetStatus;
+}
 
-  // --- Test 7: FetcherAgent.execute() non-silent produces output ---
-  {
-    const fetcher = app.get(FetcherAgent);
-    const origFetch = FetchStageService.prototype.fetchArtifact;
-    (FetchStageService.prototype as any).fetchArtifact = async () => ({
-      ticketKey: 'WBP-TEST',
-      content: MOCK_TICKET_CONTENT,
-      path: ticketPath,
-      fromCache: false,
-    });
-
-    const cap = captureConsole();
-    try {
-      await fetcher.execute('WBP-TEST', {
-        trackerName: 'jira',
-        silent: false,
-        baseDir: tmpDir,
-      });
-    } finally {
-      cap.restore();
-    }
-
-    const output = cap.getOutput();
-    if (output.includes('STAGE 1') && output.includes('Ticket fetched')) {
-      pass('FetcherAgent.execute() produces output when not silent');
-    } else {
-      fail('FetcherAgent.execute() missing expected output when not silent', output.slice(0, 200));
-    }
-
-    FetchStageService.prototype.fetchArtifact = origFetch;
+async function checkFetcherExecuteNonSilent(app: any, ticketPath: string, tmpDir: string): Promise<void> {
+  const fetcher = app.get(FetcherAgent);
+  const origFetch = FetchStageService.prototype.fetchArtifact;
+  (FetchStageService.prototype as any).fetchArtifact
+    = async () => ({ ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath, fromCache: false });
+  const cap = captureConsole();
+  try {
+    await fetcher.execute('WBP-TEST', { trackerName: 'jira', silent: false, baseDir: tmpDir });
+  } finally {
+    cap.restore();
   }
+  assertFetcherNonSilentOutput(cap.getOutput());
+  FetchStageService.prototype.fetchArtifact = origFetch;
+}
 
-  // Cleanup
+async function main(): Promise<void> {
+  console.log('\n🧪 Manual Test: --silent mode for agents\n');
+  const { app, tmpDir, wfDir, ticketPath, planPath } = await setupTestEnv();
+  await checkFetcherExecuteSilent(app, ticketPath, tmpDir);
+  await checkFetcherLoadFromDiskSilent(app, tmpDir);
+  await checkPlannerExecuteSilent(app, ticketPath, planPath);
+  await checkPlannerLoadFromDiskSilent(app, ticketPath, planPath);
+  await checkReviewerExecuteSilent(app, ticketPath);
+  await checkCommitterExecuteSilent(app, tmpDir);
+  await checkFetcherExecuteNonSilent(app, ticketPath, tmpDir);
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  fs.rmSync(path.join(wfHome, tmpBaseName), { recursive: true, force: true });
+  fs.rmSync(wfDir, { recursive: true, force: true });
   await app.close();
-
-  console.log(`\nResults: ${counts.passed} passed, ${counts.failed} failed\n`);
-  if (counts.failed > 0) {
-    process.exit(1);
-  }
+  summarise(counts);
 }
 
 main().catch(error => {

@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: stageAll surfaces a clear failure on an unresolved delete/delete merge conflict
  *
- * Run: nr test:manual -- test-stage-all-delete-delete-conflict
+ * Run: nr test:manual stage-all-delete-delete-conflict.smoke.ts
  *
  * Verifies:
  *   1. A synthetic "both deleted" (DD) unmerged conflict — stage 1 (ancestor) only,
@@ -28,7 +28,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
@@ -44,69 +44,68 @@ function makeRepo(): { dir: string; git: (cmd: string) => string } {
   return { dir, git: run };
 }
 
+function injectDDConflict(dir: string, git: (cmd: string) => string): string {
+  fs.writeFileSync(path.join(dir, 'conflict.txt'), 'content');
+  git('git add conflict.txt');
+  git('git commit -m base');
+  // Inject an unmerged "both deleted" conflict directly into the index —
+  // stage 1 (ancestor) only, no stage 2/3, no working-tree file.
+  const blobSha = git('git rev-parse HEAD:conflict.txt');
+  git('git rm --cached conflict.txt');
+  execSync(`printf '100644 %s 1\\tconflict.txt\\n' ${blobSha} | git update-index --index-info`, { cwd: dir, shell: '/bin/bash' });
+  fs.rmSync(path.join(dir, 'conflict.txt'), { force: true });
+  return git('git status --porcelain');
+}
+
+async function runStageAllOnConflict(gitService: GitService, dir: string): Promise<{ threw: boolean; error: unknown }> {
+  let threw = false;
+  let error: unknown;
+  try {
+    await gitService.stageAll(dir);
+  } catch (err: unknown) {
+    threw = true;
+    error = err;
+  }
+  return { threw, error };
+}
+
+function checkStageAllResult(
+  threw: boolean, error: unknown, porcelainBefore: string, git: (cmd: string) => string,
+): void {
+  if (threw) {
+    assert('stageAll rejects with GitError (not an unhandled exception)', error instanceof GitError, error instanceof Error ? error.message : String(error));
+    const porcelainAfter = git('git status --porcelain');
+    assert('git status is unchanged after the failed stageAll call', porcelainAfter === porcelainBefore, `before:\n${porcelainBefore}\nafter:\n${porcelainAfter}`);
+  } else {
+    const porcelainAfter = git('git status --porcelain');
+    pass('stageAll resolved without throwing');
+    console.log(chalk.gray(`    → resulting git status --porcelain:\n${porcelainAfter}`));
+  }
+}
+
+async function runDDConflictScenario(gitService: GitService, dirs: string[]): Promise<void> {
+  console.log(chalk.bold.cyan('\nSmoke test: GitService.stageAll on an unresolved delete/delete conflict\n'));
+  const { dir, git } = makeRepo();
+  dirs.push(dir);
+  const porcelainBefore = injectDDConflict(dir, git);
+  assert('git status reports DD conflict.txt before stageAll', porcelainBefore.includes('DD conflict.txt'), porcelainBefore);
+  const { threw, error } = await runStageAllOnConflict(gitService, dir);
+  checkStageAllResult(threw, error, porcelainBefore, git);
+}
+
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const gitService = app.get(GitService);
   const dirs: string[] = [];
-
   try {
-    console.log(chalk.bold.cyan('\nSmoke test: GitService.stageAll on an unresolved delete/delete conflict\n'));
-
-    const { dir, git } = makeRepo();
-    dirs.push(dir);
-
-    fs.writeFileSync(path.join(dir, 'conflict.txt'), 'content');
-    git('git add conflict.txt');
-    git('git commit -m base');
-
-    // Inject an unmerged "both deleted" conflict directly into the index —
-    // stage 1 (ancestor) only, no stage 2/3, no working-tree file.
-    const blobSha = git('git rev-parse HEAD:conflict.txt');
-    git('git rm --cached conflict.txt');
-    execSync(`printf '100644 %s 1\\tconflict.txt\\n' ${blobSha} | git update-index --index-info`, {
-      cwd: dir,
-      shell: '/bin/bash',
-    });
-    fs.rmSync(path.join(dir, 'conflict.txt'), { force: true });
-
-    const porcelainBefore = git('git status --porcelain');
-    assert('git status reports DD conflict.txt before stageAll', porcelainBefore.includes('DD conflict.txt'), porcelainBefore);
-
-    let stageAllThrew = false;
-    let stageAllError: unknown;
-    try {
-      await gitService.stageAll(dir);
-    } catch (err: unknown) {
-      stageAllThrew = true;
-      stageAllError = err;
-    }
-
-    if (stageAllThrew) {
-      assert(
-        'stageAll rejects with GitError (not an unhandled exception)',
-        stageAllError instanceof GitError,
-        stageAllError instanceof Error ? stageAllError.message : String(stageAllError)
-      );
-      const porcelainAfter = git('git status --porcelain');
-      assert(
-        'git status is unchanged after the failed stageAll call',
-        porcelainAfter === porcelainBefore,
-        `before:\n${porcelainBefore}\nafter:\n${porcelainAfter}`
-      );
-    } else {
-      const porcelainAfter = git('git status --porcelain');
-      pass('stageAll resolved without throwing');
-      console.log(chalk.gray(`    → resulting git status --porcelain:\n${porcelainAfter}`));
-    }
+    await runDDConflictScenario(gitService, dirs);
   } finally {
     await app.close();
     for (const d of dirs) {
       if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
     }
   }
-
-  console.log(chalk.bold(`\n  ${counts.passed} passed, ${counts.failed} failed\n`));
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

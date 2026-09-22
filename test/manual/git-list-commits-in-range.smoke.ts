@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: GitService.listCommitsInRange reads real git history
  *
- * Run: nr test:manual -- test-git-list-commits-in-range
+ * Run: nr test:manual git-list-commits-in-range.smoke.ts
  *
  * Verifies:
  *   1. Returns correct hash/subject pairs for commits in a range
@@ -26,7 +26,9 @@ const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
   condition ? pass(label) : fail(label, detail);
 
-function makeRepo(): { dir: string; git: (cmd: string) => string } {
+type RepoFixture = { dir: string; git: (cmd: string) => string };
+
+function makeRepo(): RepoFixture {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-rev-list-'));
   const run = (cmd: string) => execSync(cmd, { cwd: dir, encoding: 'utf-8', stdio: 'pipe' }).trim();
   run('git init');
@@ -36,91 +38,108 @@ function makeRepo(): { dir: string; git: (cmd: string) => string } {
   return { dir, git: run };
 }
 
+function buildCommitFixture(fixture: RepoFixture): string {
+  fs.writeFileSync(path.join(fixture.dir, 'a.ts'), 'v1');
+  fixture.git('git add .');
+  fixture.git('git commit -m "fix: first change"');
+  const sha1 = fixture.git('git rev-parse HEAD');
+  fs.writeFileSync(path.join(fixture.dir, 'a.ts'), 'v2');
+  fixture.git('git add .');
+  fixture.git('git commit -m "feat: second change"');
+  return sha1;
+}
+
+async function testLinearRangeAndEmpty(gitService: GitService, dirs: string[]): Promise<void> {
+  // ── Scenario 1: hash/subject pairs for a linear range ─────────────────
+  console.log('Scenario 1: hash/subject pairs for a linear range\n');
+  const fixture = makeRepo();
+  dirs.push(fixture.dir);
+  const sha1 = buildCommitFixture(fixture);
+  const commits1 = await gitService.listCommitsInRange({ from: sha1, to: 'HEAD' }, fixture.dir);
+  assert('returns exactly one commit in the range', commits1.length === 1, `got ${commits1.length}`);
+  assert('hash is a 40-char SHA', commits1[0]?.hash.length === 40, commits1[0]?.hash);
+  assert('subject matches commit message exactly', commits1[0]?.subject === 'feat: second change', commits1[0]?.subject);
+  // ── Scenario 2: empty range ────────────────────────────────────────────
+  console.log('\nScenario 2: empty range (from == HEAD) returns []\n');
+  const sha1b = fixture.git('git rev-parse HEAD');
+  const empty = await gitService.listCommitsInRange({ from: sha1b, to: 'HEAD' }, fixture.dir);
+  assert('empty range returns []', empty.length === 0, `got ${empty.length}`);
+}
+
+function buildMergeFixture(fixture: RepoFixture): string {
+  fs.writeFileSync(path.join(fixture.dir, 'a.ts'), 'v1');
+  fixture.git('git add .');
+  fixture.git('git commit -m "init"');
+  const baseline = fixture.git('git rev-parse HEAD');
+  const mainBranch = fixture.git('git rev-parse --abbrev-ref HEAD');
+  fixture.git('git checkout -b feature');
+  fs.writeFileSync(path.join(fixture.dir, 'b.ts'), 'feat');
+  fixture.git('git add .');
+  fixture.git('git commit -m "feat: feature work"');
+  fixture.git(`git checkout ${mainBranch}`);
+  fixture.git(`git merge --no-ff feature -m "Merge branch feature into ${mainBranch}"`);
+  return baseline;
+}
+
+async function testMergesOnlyFilter(gitService: GitService, dirs: string[]): Promise<void> {
+  // ── Scenario 3: mergesOnly filter ─────────────────────────────────────
+  console.log('\nScenario 3: mergesOnly: true returns only merge commits\n');
+  const fixture = makeRepo();
+  dirs.push(fixture.dir);
+  const baseline = buildMergeFixture(fixture);
+  const all3 = await gitService.listCommitsInRange({ from: baseline, to: 'HEAD' }, fixture.dir);
+  const merges3 = await gitService.listCommitsInRange({ from: baseline, to: 'HEAD', mergesOnly: true }, fixture.dir);
+  assert('range includes both regular and merge commits', all3.length === 2, `got ${all3.length}`);
+  assert('mergesOnly returns exactly one entry', merges3.length === 1, `got ${merges3.length}`);
+  assert('merge commit subject is preserved', merges3[0]?.subject.startsWith('Merge branch'), merges3[0]?.subject);
+}
+
+async function testSubjectRoundTrip(gitService: GitService, dirs: string[]): Promise<void> {
+  // ── Scenario 4: subjects with colons, parens, and spaces ──────────────
+  console.log('\nScenario 4: subjects with colons and parens round-trip\n');
+  const fixture = makeRepo();
+  dirs.push(fixture.dir);
+  fs.writeFileSync(path.join(fixture.dir, 'x.ts'), 'v0');
+  fixture.git('git add .');
+  fixture.git('git commit -m "init"');
+  const base4 = fixture.git('git rev-parse HEAD');
+  const subject = 'fix(auth): handle null token in middleware';
+  fs.writeFileSync(path.join(fixture.dir, 'x.ts'), 'v1');
+  fixture.git('git add .');
+  fixture.git(`git commit -m "${subject}"`);
+  const r4 = await gitService.listCommitsInRange({ from: base4 }, fixture.dir);
+  assert('subject with colons and parens round-trips without truncation', r4[0]?.subject === subject, r4[0]?.subject);
+}
+
+async function runAllScenarios(gitService: GitService, dirs: string[]): Promise<void> {
+  console.log(chalk.bold.cyan('\nSmoke test: GitService.listCommitsInRange\n'));
+  await testLinearRangeAndEmpty(gitService, dirs);
+  await testMergesOnlyFilter(gitService, dirs);
+  await testSubjectRoundTrip(gitService, dirs);
+}
+
+function cleanupDirs(dirs: string[]): void {
+  for (const d of dirs) {
+    if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
+  }
+}
+
+function reportResults(): void {
+  console.log(chalk.bold(`\n  ${counts.passed} passed, ${counts.failed} failed\n`));
+  if (counts.failed > 0) process.exit(1);
+}
+
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const gitService = app.get(GitService);
   const dirs: string[] = [];
-
   try {
-    console.log(chalk.bold.cyan('\nSmoke test: GitService.listCommitsInRange\n'));
-
-    // ── Scenario 1: hash/subject pairs for a linear range ─────────────────
-    console.log('Scenario 1: hash/subject pairs for a linear range\n');
-    const { dir: dir1, git: git1 } = makeRepo();
-    dirs.push(dir1);
-
-    fs.writeFileSync(path.join(dir1, 'a.ts'), 'v1');
-    git1('git add .');
-    git1('git commit -m "fix: first change"');
-    const sha1 = git1('git rev-parse HEAD');
-
-    fs.writeFileSync(path.join(dir1, 'a.ts'), 'v2');
-    git1('git add .');
-    git1('git commit -m "feat: second change"');
-
-    const commits1 = await gitService.listCommitsInRange({ from: sha1, to: 'HEAD' }, dir1);
-
-    assert('returns exactly one commit in the range', commits1.length === 1, `got ${commits1.length}`);
-    assert('hash is a 40-char SHA', commits1[0]?.hash.length === 40, commits1[0]?.hash);
-    assert('subject matches commit message exactly', commits1[0]?.subject === 'feat: second change', commits1[0]?.subject);
-
-    // ── Scenario 2: empty range ────────────────────────────────────────────
-    console.log('\nScenario 2: empty range (from == HEAD) returns []\n');
-    const sha1b = git1('git rev-parse HEAD');
-    const empty = await gitService.listCommitsInRange({ from: sha1b, to: 'HEAD' }, dir1);
-    assert('empty range returns []', empty.length === 0, `got ${empty.length}`);
-
-    // ── Scenario 3: mergesOnly filter ─────────────────────────────────────
-    console.log('\nScenario 3: mergesOnly: true returns only merge commits\n');
-    const { dir: dir3, git: git3 } = makeRepo();
-    dirs.push(dir3);
-
-    fs.writeFileSync(path.join(dir3, 'a.ts'), 'v1');
-    git3('git add .');
-    git3('git commit -m "init"');
-    const baseline3 = git3('git rev-parse HEAD');
-    const mainBranch = git3('git rev-parse --abbrev-ref HEAD');
-
-    git3('git checkout -b feature');
-    fs.writeFileSync(path.join(dir3, 'b.ts'), 'feat');
-    git3('git add .');
-    git3('git commit -m "feat: feature work"');
-    git3(`git checkout ${mainBranch}`);
-    git3(`git merge --no-ff feature -m "Merge branch feature into ${mainBranch}"`);
-
-    const all3 = await gitService.listCommitsInRange({ from: baseline3, to: 'HEAD' }, dir3);
-    const merges3 = await gitService.listCommitsInRange({ from: baseline3, to: 'HEAD', mergesOnly: true }, dir3);
-
-    assert('range includes both regular and merge commits', all3.length === 2, `got ${all3.length}`);
-    assert('mergesOnly returns exactly one entry', merges3.length === 1, `got ${merges3.length}`);
-    assert('merge commit subject is preserved', merges3[0]?.subject.startsWith('Merge branch'), merges3[0]?.subject);
-
-    // ── Scenario 4: subjects with colons, parens, and spaces ──────────────
-    console.log('\nScenario 4: subjects with colons and parens round-trip\n');
-    const { dir: dir4, git: git4 } = makeRepo();
-    dirs.push(dir4);
-
-    fs.writeFileSync(path.join(dir4, 'x.ts'), 'v0');
-    git4('git add .');
-    git4('git commit -m "init"');
-    const base4 = git4('git rev-parse HEAD');
-
-    const subject = 'fix(auth): handle null token in middleware';
-    fs.writeFileSync(path.join(dir4, 'x.ts'), 'v1');
-    git4('git add .');
-    git4(`git commit -m "${subject}"`);
-
-    const r4 = await gitService.listCommitsInRange({ from: base4 }, dir4);
-    assert('subject with colons and parens round-trips without truncation', r4[0]?.subject === subject, r4[0]?.subject);
+    await runAllScenarios(gitService, dirs);
   } finally {
     await app.close();
-    for (const d of dirs) {
-      if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true });
-    }
+    cleanupDirs(dirs);
   }
-
-  console.log(chalk.bold(`\n  ${counts.passed} passed, ${counts.failed} failed\n`));
-  if (counts.failed > 0) process.exit(1);
+  reportResults();
 }
 
 main().catch(error => {

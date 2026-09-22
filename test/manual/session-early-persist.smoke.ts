@@ -1,7 +1,7 @@
 /**
  * Manual Test: Session persisted to disk immediately after creation
  *
- * Run: nr test:manual -- test-session-early-persist
+ * Run: nr test:manual session-early-persist.smoke.ts
  *
  * Verifies:
  *   1. SessionService.save() writes a file for a new session with empty stages
@@ -14,151 +14,258 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { SessionService } from '../../src/shared/session/session.service';
+import type { SessionState } from '../../src/shared/types/session.types';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import assert from 'node:assert';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-async function main(): Promise<void> {
-  console.log('\n=== Test: Session persisted to disk immediately after creation ===\n');
+const REQUIRED_SESSION_FIELDS = [
+  'sessionId', 'ticketKey', 'toStage', 'action', 'sourceType',
+  'customPlanRef', 'createdAt', 'updatedAt', 'completedAt', 'stages',
+];
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
-  const sessionService = app.get(SessionService);
-  const sessionDir = sessionService.getSessionDir();
+const now = (): string => new Date().toISOString();
 
-  const ticketKey = `SMOKE-${Date.now()}`;
-  const sessionId = crypto.randomUUID();
+function buildSessionDates() {
+  return { createdAt: now(), updatedAt: now() };
+}
 
-  const sessionState = {
+function buildNewSessionState(sessionId: string, ticketKey: string): SessionState {
+  return {
     sessionId,
     ticketKey,
-    toStage: 'commit',
+    toStage: 'commit' as const,
     action: null,
     sourceType: 'ticket' as const,
     customPlanRef: null,
     sourceBranch: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    ...buildSessionDates(),
     completedAt: null,
     stages: {},
   };
+}
 
-  console.log('Test 1: save() writes file for empty-stages session');
-
+async function createAndSaveSession(
+  sessionService: SessionService,
+  ticketKey: string,
+  sessionId: string
+): Promise<SessionState> {
+  const sessionState = buildNewSessionState(sessionId, ticketKey);
   await sessionService.save(sessionState);
+  return sessionState;
+}
 
-  const expectedFileName = `${ticketKey}-${sessionId}.json`;
-  const expectedFilePath = path.join(sessionDir, expectedFileName);
+function checkFileCreated(expectedFileName: string, expectedFilePath: string): boolean {
+  console.log('Test 1: save() writes file for empty-stages session');
   const fileExists = fs.existsSync(expectedFilePath);
-
   if (fileExists) {
     pass(`Session file created at: ${expectedFileName}`);
   } else {
     fail('Session file not created on disk');
   }
+  return fileExists;
+}
 
-  console.log('\nTest 2: load() reads back the empty-stages session');
-
-  const loaded = await sessionService.load(sessionId);
-
-  if (loaded) {
-    pass('Session loaded successfully');
-    assert.strictEqual(loaded.sessionId, sessionId);
-    pass('Session ID matches');
-    assert.strictEqual(loaded.ticketKey, ticketKey);
-    pass('Ticket key matches');
-    assert.deepStrictEqual(loaded.stages, {});
-    pass('Stages is empty object');
-    assert.strictEqual(loaded.completedAt, null);
-    pass('completedAt is null');
-  } else {
+function verifyLoadedSession(
+  loaded: SessionState | null,
+  sessionId: string,
+  ticketKey: string
+): void {
+  if (!loaded) {
     fail('Session could not be loaded back');
+    return;
   }
+  pass('Session loaded successfully');
+  assert.strictEqual(loaded.sessionId, sessionId);
+  pass('Session ID matches');
+  assert.strictEqual(loaded.ticketKey, ticketKey);
+  pass('Ticket key matches');
+}
 
+function verifyLoadedSessionStages(loaded: SessionState): void {
+  assert.deepStrictEqual(loaded.stages, {});
+  pass('Stages is empty object');
+  assert.strictEqual(loaded.completedAt, null);
+  pass('completedAt is null');
+}
+
+async function checkLoad(
+  sessionService: SessionService,
+  sessionId: string,
+  ticketKey: string
+): Promise<void> {
+  console.log('\nTest 2: load() reads back the empty-stages session');
+  const loaded = await sessionService.load(sessionId);
+  verifyLoadedSession(loaded, sessionId, ticketKey);
+  if (loaded) {
+    verifyLoadedSessionStages(loaded);
+  }
+}
+
+async function checkFindByTicketKey(
+  sessionService: SessionService,
+  ticketKey: string,
+  sessionId: string
+): Promise<void> {
   console.log('\nTest 3: findByTicketKey() discovers the empty-stages session');
-
   const found = await sessionService.findByTicketKey(ticketKey);
-
   if (found && found.sessionId === sessionId) {
     pass('findByTicketKey returns the saved session');
   } else {
     fail('findByTicketKey did not find the saved session');
   }
+}
 
-  console.log('\nTest 4: Raw file content has all required fields');
-
-  if (fileExists) {
-    const raw = JSON.parse(fs.readFileSync(expectedFilePath, 'utf-8'));
-    const requiredFields = [
-      'sessionId',
-      'ticketKey',
-      'toStage',
-      'action',
-      'sourceType',
-      'customPlanRef',
-      'createdAt',
-      'updatedAt',
-      'completedAt',
-      'stages',
-    ];
-
-    for (const field of requiredFields) {
-      if (field in raw) {
-        pass(`Field "${field}" present`);
-      } else {
-        fail(`Field "${field}" missing from saved file`);
-      }
-    }
-
-    if (typeof raw.stages === 'object' && Object.keys(raw.stages).length === 0) {
-      pass('stages is empty object in raw file');
+function checkRequiredFields(raw: SessionState): void {
+  for (const field of REQUIRED_SESSION_FIELDS) {
+    if (field in raw) {
+      pass(`Field "${field}" present`);
     } else {
-      fail('stages is not an empty object in raw file');
+      fail(`Field "${field}" missing from saved file`);
     }
-  } else {
-    fail('Cannot verify raw content — file does not exist');
   }
+  if (typeof raw.stages === 'object' && Object.keys(raw.stages as object).length === 0) {
+    pass('stages is empty object in raw file');
+  } else {
+    fail('stages is not an empty object in raw file');
+  }
+}
 
-  console.log('\nTest 5: recordStageStart after initial save does not corrupt');
+function checkRawContent(expectedFilePath: string, fileExists: boolean): void {
+  console.log('\nTest 4: Raw file content has all required fields');
+  if (!fileExists) {
+    fail('Cannot verify raw content — file does not exist');
+    return;
+  }
+  const raw = JSON.parse(fs.readFileSync(expectedFilePath, 'utf-8'));
+  checkRequiredFields(raw);
+}
 
-  const updatedState = await sessionService.recordStageStart(
+function verifyReloadedSession(
+  reloaded: SessionState | null,
+  sessionId: string,
+  ticketKey: string
+): void {
+  if (!reloaded) {
+    fail('Session could not be loaded after recordStageStart');
+    return;
+  }
+  assert.strictEqual(reloaded.sessionId, sessionId);
+  pass('Session ID preserved after recordStageStart');
+  assert.strictEqual(reloaded.ticketKey, ticketKey);
+  pass('Ticket key preserved');
+}
+
+function verifyPlanStageRecorded(reloaded: SessionState): void {
+  assert.ok(reloaded.stages?.['plan'], 'Plan stage recorded');
+  pass('Plan stage recorded after initial empty save');
+  assert.strictEqual(
+    reloaded.stages?.['plan']?.config?.provider,
+    'anthropic'
+  );
+  pass('Plan stage config correct');
+}
+
+async function recordPlanStage(
+  sessionService: SessionService,
+  sessionState: SessionState
+): Promise<void> {
+  await sessionService.recordStageStart(
     sessionState,
     'plan',
     { provider: 'anthropic', backend: 'agent' },
     'claude-sonnet-4-20250514'
   );
+}
 
+async function loadAndVerifyAfterRecord(
+  sessionService: SessionService,
+  sessionId: string,
+  ticketKey: string,
+): Promise<void> {
   const reloaded = await sessionService.load(sessionId);
-
+  verifyReloadedSession(reloaded, sessionId, ticketKey);
   if (reloaded) {
-    assert.strictEqual(reloaded.sessionId, sessionId);
-    pass('Session ID preserved after recordStageStart');
-    assert.strictEqual(reloaded.ticketKey, ticketKey);
-    pass('Ticket key preserved');
-    assert.ok(reloaded.stages['plan'], 'Plan stage recorded');
-    pass('Plan stage recorded after initial empty save');
-    assert.strictEqual(reloaded.stages['plan']?.config?.provider, 'anthropic');
-    pass('Plan stage config correct');
-  } else {
-    fail('Session could not be loaded after recordStageStart');
+    verifyPlanStageRecorded(reloaded);
   }
+}
 
+async function recordAndVerifyPlanStage(
+  sessionService: SessionService,
+  sessionState: SessionState,
+  sessionId: string,
+  ticketKey: string
+): Promise<void> {
+  await recordPlanStage(sessionService, sessionState);
+  await loadAndVerifyAfterRecord(sessionService, sessionId, ticketKey);
+}
+
+async function checkRecordStageStart(
+  sessionService: SessionService,
+  sessionState: Awaited<ReturnType<typeof createAndSaveSession>>,
+  sessionId: string,
+  ticketKey: string
+): Promise<void> {
+  console.log('\nTest 5: recordStageStart after initial save does not corrupt');
+  await recordAndVerifyPlanStage(sessionService, sessionState, sessionId, ticketKey);
+}
+
+async function checkCleanup(
+  sessionService: SessionService,
+  sessionId: string,
+  expectedFilePath: string
+): Promise<void> {
   await sessionService.deleteBySessionId(sessionId);
   const cleanedUp = !fs.existsSync(expectedFilePath);
-
   if (cleanedUp) {
     pass('Cleanup: session file deleted');
   } else {
     fail('Cleanup: session file still exists');
   }
+}
 
+async function setupAndRun(
+  sessionService: SessionService,
+  sessionState: SessionState,
+  sessionId: string,
+  ticketKey: string,
+  expectedFilePath: string
+): Promise<void> {
+  const fileExists = checkFileCreated(`${ticketKey}-${sessionId}.json`, expectedFilePath);
+  await checkLoad(sessionService, sessionId, ticketKey);
+  await checkFindByTicketKey(sessionService, ticketKey, sessionId);
+  checkRawContent(expectedFilePath, fileExists);
+  await checkRecordStageStart(sessionService, sessionState, sessionId, ticketKey);
+  await checkCleanup(sessionService, sessionId, expectedFilePath);
+}
+
+async function initializeApp(
+  sessionService: any
+): Promise<{ ticketKey: string; sessionId: string; sessionState: SessionState; expectedFilePath: string }> {
+  const sessionDir = sessionService.getSessionDir();
+  const ticketKey = `SMOKE-${Date.now()}`;
+  const sessionId = crypto.randomUUID();
+  const sessionState = await createAndSaveSession(sessionService, ticketKey, sessionId);
+  const expectedFilePath = path.join(sessionDir, `${ticketKey}-${sessionId}.json`);
+  return { ticketKey, sessionId, sessionState, expectedFilePath };
+}
+
+function logTestHeader(): void {
+  console.log('\n=== Test: Session persisted to disk immediately after creation ===\n');
+}
+
+async function main(): Promise<void> {
+  logTestHeader();
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  const sessionService = app.get(SessionService);
+  const { ticketKey, sessionId, sessionState, expectedFilePath } = await initializeApp(sessionService);
+  await setupAndRun(sessionService, sessionState, sessionId, ticketKey, expectedFilePath);
   await app.close();
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed\n`);
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

@@ -1,7 +1,7 @@
 /**
  * Manual Test: authored example comments render as wrapped "# ..." lines in real CLI output
  *
- * Run: nr test:manual -- test-issue-examples-comment-rendering
+ * Run: nr test:manual issue-examples-comment-rendering.smoke.ts
  *
  * Verifies that:
  *   1. `wf issue:fetch --help` prints "  # Fetch ticket from primary tracker"
@@ -29,7 +29,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 const ANSI_ESCAPE = String.fromCodePoint(27);
@@ -45,71 +45,84 @@ function runCli(args: string[], cwd: string): string {
   }
 }
 
+function checkFetchHelpComment(scratchDir: string): void {
+  const fetchHelp = runCli(['issue:fetch', '--help'], scratchDir).replaceAll(ANSI_PATTERN, '');
+  const fetchLines = fetchHelp.split('\n').map(l => l.trimEnd());
+  const commentIndex = fetchLines.findIndex(l => l.trim() === '# Fetch ticket from primary tracker');
+  if (commentIndex !== -1 && fetchLines[commentIndex + 1]?.trim() === 'wf issue:fetch WBP-2971') {
+    pass('issue:fetch --help prints the authored comment directly above its command');
+  } else {
+    fail('Comment line not found (or not immediately above the command)', fetchHelp.slice(0, 400));
+  }
+}
+
+const findResumeCommentLines = (reviewLines: string[]): string[] | null => {
+  const idx = reviewLines.findIndex(l => l.includes('Resume a provider-backed review session'));
+  if (idx === -1) return null;
+  const lines = [reviewLines[idx]];
+  if (reviewLines[idx + 1]?.trim().startsWith('human-readable summary')) {
+    lines.push(reviewLines[idx + 1]);
+  }
+  return lines;
+};
+
+function checkReviewHelpWrapping(reviewLines: string[]): void {
+  const wrappedLines = findResumeCommentLines(reviewLines);
+  if (!wrappedLines) {
+    fail('Could not locate the long "Resume a provider-backed" comment in issue:review --help');
+    return;
+  }
+  const allWithin80 = wrappedLines.length > 1 && wrappedLines.every(l => l.length <= 80);
+  if (allWithin80) {
+    pass('The longest comment wraps across multiple lines, each within 80 columns');
+  } else {
+    fail('Long comment did not wrap as expected', wrappedLines.join('\\n'));
+  }
+}
+
+function checkCommentCommandsDistinct(reviewLines: string[]): void {
+  const examplesStart = reviewLines.findIndex(l => l.trim() === 'Examples:');
+  const exampleBlockLines = examplesStart === -1
+    ? []
+    : reviewLines.slice(examplesStart + 1).filter(l => l.trim().length > 0);
+  const misplacedCommandStarts = exampleBlockLines.filter(l => {
+    const trimmed = l.trim();
+    return (trimmed.startsWith('wf ') || trimmed.startsWith('yarn ')) && trimmed.startsWith('#');
+  });
+  if (exampleBlockLines.length > 0 && misplacedCommandStarts.length === 0) {
+    pass('Comment lines and command lines remain visually distinct (no line is both)');
+  } else {
+    fail('Found a line that looks like both a comment and a command', misplacedCommandStarts.join('\\n'));
+  }
+}
+
+function checkRuntimeHeaderComment(scratchDir: string): void {
+  const commitHeaderOutput = runCli(['issue:commit', '--dry-run', '-k', 'WBP-1'], scratchDir).replaceAll(ANSI_PATTERN, '');
+  if (commitHeaderOutput.includes('# AI-generated commit message')) {
+    pass('The runtime header (not just -h) also renders authored comments');
+  } else {
+    fail('Runtime header did not render the authored comment', commitHeaderOutput.slice(0, 400));
+  }
+}
+
+async function runAllChecks(scratchDir: string): Promise<void> {
+  checkFetchHelpComment(scratchDir);
+  const reviewHelp = runCli(['issue:review', '--help'], scratchDir).replaceAll(ANSI_PATTERN, '');
+  const reviewLines = reviewHelp.split('\n');
+  checkReviewHelpWrapping(reviewLines);
+  checkCommentCommandsDistinct(reviewLines);
+  checkRuntimeHeaderComment(scratchDir);
+}
+
 async function main(): Promise<void> {
   console.log('\n example comment rendering (live CLI)\n');
-
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-comment-render-'));
-
   try {
-    const fetchHelp = runCli(['issue:fetch', '--help'], scratchDir).replaceAll(ANSI_PATTERN, '');
-    const fetchLines = fetchHelp.split('\n').map(l => l.trimEnd());
-    const commentIndex = fetchLines.findIndex(l => l.trim() === '# Fetch ticket from primary tracker');
-
-    if (commentIndex !== -1 && fetchLines[commentIndex + 1]?.trim() === 'wf issue:fetch WBP-2971') {
-      pass('issue:fetch --help prints the authored comment directly above its command');
-    } else {
-      fail('Comment line not found (or not immediately above the command)', fetchHelp.slice(0, 400));
-    }
-
-    const reviewHelp = runCli(['issue:review', '--help'], scratchDir).replaceAll(ANSI_PATTERN, '');
-    const reviewLines = reviewHelp.split('\n');
-    const longCommentStart = reviewLines.findIndex(l => l.includes('Resume a provider-backed review session'));
-
-    if (longCommentStart === -1) {
-      fail('Could not locate the long "Resume a provider-backed" comment in issue:review --help');
-    } else {
-      const wrappedLines = [reviewLines[longCommentStart]];
-      if (reviewLines[longCommentStart + 1]?.trim().startsWith('human-readable summary')) {
-        wrappedLines.push(reviewLines[longCommentStart + 1]);
-      }
-      if (wrappedLines.length > 1 && wrappedLines.every(l => l.length <= 80)) {
-        pass('The longest comment wraps across multiple lines, each within 80 columns');
-      } else {
-        fail('Long comment did not wrap as expected', wrappedLines.join('\\n'));
-      }
-    }
-
-    const examplesStart = reviewLines.findIndex(l => l.trim() === 'Examples:');
-    const exampleBlockLines = examplesStart === -1
-      ? []
-      : reviewLines.slice(examplesStart + 1).filter(l => l.trim().length > 0);
-    const misplacedCommandStarts = exampleBlockLines.filter(l => {
-      const trimmed = l.trim();
-      return (trimmed.startsWith('wf ') || trimmed.startsWith('yarn ')) && trimmed.startsWith('#');
-    });
-
-    if (exampleBlockLines.length > 0 && misplacedCommandStarts.length === 0) {
-      pass('Comment lines and command lines remain visually distinct (no line is both)');
-    } else {
-      fail('Found a line that looks like both a comment and a command', misplacedCommandStarts.join('\\n'));
-    }
-
-    const commitHeaderOutput = runCli(['issue:commit', '--dry-run', '-k', 'WBP-1'], scratchDir).replaceAll(ANSI_PATTERN, '');
-    if (commitHeaderOutput.includes('# AI-generated commit message')) {
-      pass('The runtime header (not just -h) also renders authored comments');
-    } else {
-      fail('Runtime header did not render the authored comment', commitHeaderOutput.slice(0, 400));
-    }
+    await runAllChecks(scratchDir);
   } finally {
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

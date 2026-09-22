@@ -8,7 +8,7 @@
  *   4. When all repos have no changes the final hasChanges is false
  *   5. An undefined result passes through finalizeImplementResult unchanged
  *
- * Run: nr test:manual -- test-implement-result-accumulation
+ * Run: nr test:manual implement-result-accumulation.smoke.ts
  */
 
 import chalk from 'chalk';
@@ -16,19 +16,22 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
 import type { ImplementerResult } from '../../src/agents/interfaces';
+import { createReporter, summarise } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
+interface MergeResult {
+  anyHasChanges: boolean;
+  implementerResult?: ImplementerResult;
+}
+interface FinalizeResult {
+  earlyReturn: boolean;
+  implementerResult?: ImplementerResult;
+}
+type MergeFn = (result: ImplementerResult | undefined, acc: boolean) => MergeResult;
+type FinalizeFn = (result: ImplementerResult | undefined, acc: boolean) => FinalizeResult;
 
-const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  \u2713 ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  \u2717 ${label}`));
-    failed++;
-  }
-};
+const { counts, pass, fail } = createReporter();
+const assert = (label: string, condition: boolean): void =>
+  condition ? pass(label) : fail(label);
 
 const makeResult = (hasChanges: boolean): ImplementerResult => ({
   type: 'implementation',
@@ -38,56 +41,77 @@ const makeResult = (hasChanges: boolean): ImplementerResult => ({
   verificationOutcomes: [],
 });
 
+async function bootstrapCommand(): Promise<{
+  app: any;
+  mergeImplementResult: MergeFn;
+  finalizeImplementResult: FinalizeFn;
+}> {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const command = app.get(IssueCommand);
+  return {
+    app,
+    mergeImplementResult: (command as any).mergeImplementResult.bind(command),
+    finalizeImplementResult: (command as any).finalizeImplementResult.bind(command),
+  };
+}
+
+function checkChangesRepoSetsAccumulator(merge: MergeFn): void {
+  console.log(chalk.bold('  1. changes repo sets accumulator'));
+  const m1 = merge(makeResult(true), false);
+  assert('anyHasChanges becomes true', m1.anyHasChanges === true);
+  assert(
+    'implementerResult passed through',
+    m1.implementerResult?.type === 'implementation' && m1.implementerResult.hasChanges === true
+  );
+}
+
+function checkNoChangesDoesNotResetAccumulator(merge: MergeFn): void {
+  console.log(chalk.bold('\n  2. no-changes repo does not reset accumulator'));
+  const m2 = merge(makeResult(false), true);
+  assert('anyHasChanges remains true', m2.anyHasChanges === true);
+}
+
+function checkFinalizeStampsAccumulatedFlag(finalize: FinalizeFn): void {
+  console.log(chalk.bold('\n  3. finalize stamps accumulated hasChanges'));
+  const finalized = finalize(makeResult(false), true);
+  assert(
+    'hasChanges stamped as true',
+    finalized.implementerResult?.type === 'implementation' && finalized.implementerResult.hasChanges === true
+  );
+  assert('earlyReturn is false', finalized.earlyReturn === false);
+}
+
+function checkAllNoChangesYieldsFalse(merge: MergeFn, finalize: FinalizeFn): void {
+  console.log(chalk.bold('\n  4. all repos no-changes → final false'));
+  const mNone1 = merge(makeResult(false), false);
+  const mNone2 = merge(makeResult(false), mNone1.anyHasChanges);
+  const finalizedNone = finalize(mNone2.implementerResult, mNone2.anyHasChanges);
+  assert(
+    'final hasChanges is false',
+    finalizedNone.implementerResult?.type === 'implementation' && finalizedNone.implementerResult.hasChanges === false
+  );
+}
+
+function checkUndefinedResultPassesThrough(finalize: FinalizeFn): void {
+  console.log(chalk.bold('\n  5. undefined result passes through'));
+  const finalizedUndef = finalize(undefined, false);
+  assert('implementerResult is undefined', finalizedUndef.implementerResult === undefined);
+  assert('earlyReturn is false', finalizedUndef.earlyReturn === false);
+}
+
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nSmoke test: mergeImplementResult / finalizeImplementResult accumulation\n'));
-
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
-
+  const { app, mergeImplementResult, finalizeImplementResult } = await bootstrapCommand();
   try {
-    const command = app.get(IssueCommand);
-    const mergeImplementResult = (command as any).mergeImplementResult.bind(command);
-    const finalizeImplementResult = (command as any).finalizeImplementResult.bind(command);
-
-    // 1. Repo with changes sets accumulator to true
-    console.log(chalk.bold('  1. changes repo sets accumulator'));
-    const m1 = mergeImplementResult(makeResult(true), false);
-    assert('anyHasChanges becomes true', m1.anyHasChanges === true);
-    assert('implementerResult passed through', m1.implementerResult?.hasChanges === true);
-
-    // 2. No-changes repo after a changes repo does NOT reset accumulator
-    console.log(chalk.bold('\n  2. no-changes repo does not reset accumulator'));
-    const m2 = mergeImplementResult(makeResult(false), true);
-    assert('anyHasChanges remains true', m2.anyHasChanges === true);
-
-    // 3. finalizeImplementResult stamps accumulated flag onto last result
-    console.log(chalk.bold('\n  3. finalize stamps accumulated hasChanges'));
-    const finalized = finalizeImplementResult(makeResult(false), true);
-    assert('hasChanges stamped as true', finalized.implementerResult?.hasChanges === true);
-    assert('earlyReturn is false', finalized.earlyReturn === false);
-
-    // 4. All repos have no changes → final hasChanges false
-    console.log(chalk.bold('\n  4. all repos no-changes → final false'));
-    const mNone1 = mergeImplementResult(makeResult(false), false);
-    const mNone2 = mergeImplementResult(makeResult(false), mNone1.anyHasChanges);
-    const finalizedNone = finalizeImplementResult(mNone2.implementerResult, mNone2.anyHasChanges);
-    assert('final hasChanges is false', finalizedNone.implementerResult?.hasChanges === false);
-
-    // 5. undefined result passes through finalizeImplementResult
-    console.log(chalk.bold('\n  5. undefined result passes through'));
-    const finalizedUndef = finalizeImplementResult(undefined, false);
-    assert('implementerResult is undefined', finalizedUndef.implementerResult === undefined);
-    assert('earlyReturn is false', finalizedUndef.earlyReturn === false);
-
-    console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
-
-    if (failed > 0) {
-      process.exit(1);
-    }
+    checkChangesRepoSetsAccumulator(mergeImplementResult);
+    checkNoChangesDoesNotResetAccumulator(mergeImplementResult);
+    checkFinalizeStampsAccumulatedFlag(finalizeImplementResult);
+    checkAllNoChangesYieldsFalse(mergeImplementResult, finalizeImplementResult);
+    checkUndefinedResultPassesThrough(finalizeImplementResult);
   } finally {
     await app.close();
   }
+  summarise(counts);
 }
 
 main().catch(error => {

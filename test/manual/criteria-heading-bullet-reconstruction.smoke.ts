@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: criteria markdown parsing reconstructs headed, unfragmented bullets
  *
- * Run: nr test:manual -- criteria-heading-bullet-reconstruction.smoke
+ * Run: nr test:manual criteria-heading-bullet-reconstruction.smoke.ts
  *
  * Scenario: The user supplies a `--criteria` markdown file written in the
  * common style of `## Section` headers followed by bullets that wrap across
@@ -49,12 +49,21 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
   stdout: string;
   stderr: string;
+};
+
+type TestEnv = {
+  repoDir: string;
+  binDir: string;
+  wfHomeDir: string;
+  promptsLogPath: string;
+  criteriaPath: string;
+  claudeScriptPath: string;
 };
 
 const projectRoot = path.resolve(__dirname, '../..');
@@ -112,118 +121,154 @@ process.stdin.on('end', () => {
 });
 `;
 
-async function main(): Promise<void> {
+function assertDistExists(): void {
   if (fs.existsSync(distMainPath)) {
     pass('dist/main.js exists');
-  } else {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
+    return;
   }
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
+}
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-criteria-heading-'));
+function createTestDirs(tempRoot: string): TestEnv {
   const wfHomeDir = path.join(tempRoot, 'wfhome');
   const repoDir = path.join(tempRoot, 'repo');
   const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const invocationLogPath = path.join(tempRoot, 'invocations.log');
-  const promptsLogPath = path.join(tempRoot, 'invocations.prompts.log');
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(path.join(wfHomeDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(wfHomeDir, 'state'), { recursive: true });
+  return {
+    repoDir, binDir, wfHomeDir,
+    promptsLogPath: path.join(tempRoot, 'invocations.prompts.log'),
+    criteriaPath: path.join(tempRoot, 'criteria.md'),
+    claudeScriptPath: path.join(binDir, 'claude'),
+  };
+}
+
+function setupGitRepo(repoDir: string): void {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'wf',
+    GIT_AUTHOR_EMAIL: 'wf@example.com',
+    GIT_COMMITTER_NAME: 'wf',
+    GIT_COMMITTER_EMAIL: 'wf@example.com',
+  };
   const trackedFilePath = path.join(repoDir, 'src.ts');
-  const criteriaPath = path.join(tempRoot, 'criteria.md');
+  execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
+  execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
 
-  try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(wfHomeDir, 'state'), { recursive: true });
+const WF_CONFIG_LINES = [
+  'module.exports = {',
+  '  ai: [',
+  "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+  '  ],',
+  '  stages: {',
+  "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+  '  },',
+  '};',
+  '',
+].join('\n');
 
-    fs.writeFileSync(criteriaPath, CRITERIA_MARKDOWN, 'utf-8');
+function writeWfConfig(repoDir: string): void {
+  fs.writeFileSync(path.join(repoDir, 'wf.config.js'), WF_CONFIG_LINES, 'utf-8');
+}
 
-    const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
-    execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
-    execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
-    execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+function runReviewCommand(env: TestEnv): SpawnResult {
+  const spawnEnv = {
+    ...process.env,
+    HOME: os.homedir(),
+    WF_HOME: env.wfHomeDir,
+    PATH: `${env.binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+    WF_SKIP_CLI_VERSION_CHECK: '1',
+  };
+  return spawnSync(
+    'node',
+    [distMainPath, 'issue:review', '-r', env.repoDir, '--criteria', env.criteriaPath, '-s'],
+    { cwd: env.repoDir, env: spawnEnv, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10 }
+  ) as SpawnResult;
+}
 
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
+function readPrompts(promptsLogPath: string): string[] {
+  if (!fs.existsSync(promptsLogPath)) return [];
+  return fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean);
+}
+
+const checkStatusExit = (result: SpawnResult, output: string): void => {
+  if (result.status === 0) pass('command exits 0');
+  else fail('command should exit 0', output);
+};
+
+const checkReconstructedGuideline = (firstPrompt: string): void => {
+  if (firstPrompt.includes(RECONSTRUCTED_GUIDELINE)) {
+    pass('review prompt contains the fully-reconstructed, section-prefixed guideline');
+  } else {
+    fail('review prompt should contain the fully-reconstructed guideline', firstPrompt.slice(0, 800));
+  }
+};
+
+const checkOrphanFragment = (firstPrompt: string): void => {
+  const promptLines = firstPrompt.split('\n').map(line => line.replace(/^\d+\.\s+/, '').trim());
+  if (promptLines.every(line => line !== ORPHAN_FRAGMENT)) {
+    pass('review prompt does not contain the continuation line as an orphan fragment');
+  } else {
+    fail(
+      'review prompt should not contain the continuation line as its own fragment',
+      firstPrompt.slice(0, 800),
     );
+  }
+};
 
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath, promptsLogPath));
+const checkAccessibilityGuideline = (firstPrompt: string): void => {
+  if (firstPrompt.includes(ACCESSIBILITY_GUIDELINE)) {
+    pass('review prompt contains the second section\'s correctly-prefixed guideline');
+  } else {
+    fail('review prompt should contain the Accessibility-prefixed guideline', firstPrompt.slice(0, 800));
+  }
+};
 
-    const env = {
-      ...process.env,
-      HOME: os.homedir(),
-      WF_HOME: wfHomeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
+const checkNoBareHeadings = (firstPrompt: string): void => {
+  const noBareHeading = firstPrompt.split('\n').every(
+    line => line.trim() !== '## Design fidelity' && line.trim() !== '## Accessibility',
+  );
+  if (noBareHeading) pass('review prompt does not contain a bare markdown heading line');
+  else fail('review prompt should not contain a bare markdown heading line', firstPrompt.slice(0, 800));
+};
 
-    const result = spawnSync(
-      'node',
-      [distMainPath, 'issue:review', '-r', repoDir, '--criteria', criteriaPath, '-s'],
-      { cwd: repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10 }
-    ) as SpawnResult;
-    const output = `${result.stdout}\n${result.stderr}`;
+function checkHeadingReconstructionResults(result: SpawnResult, firstPrompt: string): void {
+  const output = `${result.stdout}\n${result.stderr}`;
+  checkStatusExit(result, output);
+  checkReconstructedGuideline(firstPrompt);
+  checkOrphanFragment(firstPrompt);
+  checkAccessibilityGuideline(firstPrompt);
+  checkNoBareHeadings(firstPrompt);
+}
 
-    const prompts = fs.existsSync(promptsLogPath)
-      ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
-      : [];
-    const firstPrompt = prompts[0] ?? '';
+function runTestInDir(tempRoot: string): void {
+  const env = createTestDirs(tempRoot);
+  fs.writeFileSync(env.criteriaPath, CRITERIA_MARKDOWN, 'utf-8');
+  setupGitRepo(env.repoDir);
+  writeWfConfig(env.repoDir);
+  const fakeScript = buildFakeClaudeScript(path.join(tempRoot, 'invocations.log'), env.promptsLogPath);
+  writeExecutable(env.claudeScriptPath, fakeScript);
+  const result = runReviewCommand(env);
+  checkHeadingReconstructionResults(result, readPrompts(env.promptsLogPath)[0] ?? '');
+}
 
-    if (result.status === 0) {
-      pass('command exits 0');
-    } else {
-      fail('command should exit 0', output);
-    }
-
-    if (firstPrompt.includes(RECONSTRUCTED_GUIDELINE)) {
-      pass('review prompt contains the fully-reconstructed, section-prefixed guideline');
-    } else {
-      fail('review prompt should contain the fully-reconstructed guideline', firstPrompt.slice(0, 800));
-    }
-
-    const promptLines = firstPrompt.split('\n').map(line => line.replace(/^\d+\.\s+/, '').trim());
-    const noOrphanFragmentLine = promptLines.every(line => line !== ORPHAN_FRAGMENT);
-
-    if (noOrphanFragmentLine) {
-      pass('review prompt does not contain the continuation line as an orphan fragment');
-    } else {
-      fail('review prompt should not contain the continuation line as its own fragment', firstPrompt.slice(0, 800));
-    }
-
-    if (firstPrompt.includes(ACCESSIBILITY_GUIDELINE)) {
-      pass('review prompt contains the second section\'s correctly-prefixed guideline');
-    } else {
-      fail('review prompt should contain the Accessibility-prefixed guideline', firstPrompt.slice(0, 800));
-    }
-
-    const noBareHeadingLine = firstPrompt.split('\n').every(line => line.trim() !== '## Design fidelity' && line.trim() !== '## Accessibility');
-
-    if (noBareHeadingLine) {
-      pass('review prompt does not contain a bare markdown heading line');
-    } else {
-      fail('review prompt should not contain a bare markdown heading line', firstPrompt.slice(0, 800));
-    }
+async function main(): Promise<void> {
+  console.log(chalk.bold.cyan('\ncriteria-heading-bullet-reconstruction smoke test\n'));
+  assertDistExists();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-criteria-heading-'));
+  try {
+    runTestInDir(tempRoot);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

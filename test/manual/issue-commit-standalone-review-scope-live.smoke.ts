@@ -2,7 +2,7 @@
  * Manual smoke test: standalone issue:commit resolves scope summary from an
  * on-disk review artifact through the real command pipeline
  *
- * Run: nr test:manual -- test-issue-commit-standalone-review-scope-live
+ * Run: nr test:manual issue-commit-standalone-review-scope-live.smoke.ts
  *
  * Spins up the real NestJS app context and drives IssueCommitCommand's real
  * `.run()` against a real git repo with a staged change and a real review
@@ -30,7 +30,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
@@ -44,108 +44,178 @@ const stageChange = (repoDir: string, contents: string): void => {
   run('add .');
 };
 
-async function main(): Promise<void> {
-  console.log('\nManual smoke test: standalone issue:commit resolves scope summary from a real review artifact\n');
-
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const commitCmd = app.get(IssueCommitCommand);
-  const commitStageService = app.get(CommitStageService);
-
-  const originalGenerate = commitStageService.generateCommitMessage.bind(commitStageService);
-  let capturedOptions: Parameters<typeof commitStageService.generateCommitMessage>[0] | undefined;
+function stubCommitStage(service: CommitStageService): { getCaptured: () => any; restore: () => void } {
+  const original = service.generateCommitMessage.bind(service);
+  let capturedOptions: Parameters<typeof service.generateCommitMessage>[0] | undefined;
   let callCount = 0;
-  commitStageService.generateCommitMessage = async options => {
+  service.generateCommitMessage = async options => {
     capturedOptions = options;
     callCount++;
     return `canned commit message #${callCount}`;
   };
+  return {
+    getCaptured: () => capturedOptions,
+    restore: () => { service.generateCommitMessage = original; },
+  };
+}
 
-  const tmpWfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-standalone-review-home-'));
+function setupRepo(tmpRepo: string): void {
+  const git = (cmd: string): void => {
+    execSync(`git ${cmd}`, { cwd: tmpRepo, stdio: 'pipe' });
+  };
+  git('init');
+  git('config user.email "test@example.com"');
+  git('config user.name "Test User"');
+  fs.writeFileSync(path.join(tmpRepo, 'a.ts'), 'export const a = 1;\n');
+  git('add .');
+  git('commit -m init');
+}
+
+function createReviewArtifact(tmpRepo: string, trackerName: string, ticketKey: string): string {
+  const reviewPath = resolveReviewArtifactPath(tmpRepo, trackerName, ticketKey);
+  fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+  fs.writeFileSync(
+    reviewPath,
+    `# Code Review: ${ticketKey}\n\n## Summary\nLIVE REVIEW SCOPE SUMMARY\n\n## Issues\n- none\n`
+  );
+  return reviewPath;
+}
+
+function setWfHome(tmpWfHome: string): () => void {
   const originalWfHome = process.env.WF_HOME;
-  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-standalone-review-repo-'));
-
-  try {
-    process.env.WF_HOME = tmpWfHome;
-
-    const git = (cmd: string): void => {
-      execSync(`git ${cmd}`, { cwd: tmpRepo, stdio: 'pipe' });
-    };
-    git('init');
-    git('config user.email "test@example.com"');
-    git('config user.name "Test User"');
-    fs.writeFileSync(path.join(tmpRepo, 'a.ts'), 'export const a = 1;\n');
-    git('add .');
-    git('commit -m init');
-
-    const ticketKey = 'WBP-9002';
-    const trackerName = 'jira';
-    const reviewPath = resolveReviewArtifactPath(tmpRepo, trackerName, ticketKey);
-    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(
-      reviewPath,
-      `# Code Review: ${ticketKey}\n\n## Summary\nLIVE REVIEW SCOPE SUMMARY\n\n## Issues\n- none\n`
-    );
-
-    stageChange(tmpRepo, 'export const a = 2;\n');
-
-    let consoleOutput = '';
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => {
-      consoleOutput += args.join(' ') + '\n';
-    };
-    try {
-      await commitCmd.run([], { ticketKey, repos: [tmpRepo], tracker: trackerName });
-    } finally {
-      console.log = originalLog;
-    }
-
-    assert('run 1: prints the prior review/plan note', consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
-    assert(
-      'run 1: commit message generator received the exact review summary',
-      capturedOptions?.scopeSummary === 'LIVE REVIEW SCOPE SUMMARY',
-      `got: ${JSON.stringify(capturedOptions)}`
-    );
-
-    const gitLog1 = execSync('git log -1 --format=%B', { cwd: tmpRepo, encoding: 'utf-8' });
-    assert('run 1: a real git commit was created', gitLog1.includes('canned commit message #1'), gitLog1);
-
-    fs.rmSync(reviewPath);
-    stageChange(tmpRepo, 'export const a = 3;\n');
-
-    consoleOutput = '';
-    console.log = (...args: unknown[]) => {
-      consoleOutput += args.join(' ') + '\n';
-    };
-    try {
-      await commitCmd.run([], { ticketKey, repos: [tmpRepo], tracker: trackerName });
-    } finally {
-      console.log = originalLog;
-    }
-
-    assert('run 2: no prior review/plan note once the artifact is gone', !consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
-    assert(
-      'run 2: no scope summary is passed once the artifact is gone',
-      capturedOptions?.scopeSummary === undefined,
-      `got: ${JSON.stringify(capturedOptions)}`
-    );
-
-    const gitLog2 = execSync('git log -1 --format=%B', { cwd: tmpRepo, encoding: 'utf-8' });
-    assert('run 2: a second real git commit was created', gitLog2.includes('canned commit message #2'), gitLog2);
-  } finally {
-    commitStageService.generateCommitMessage = originalGenerate;
+  process.env.WF_HOME = tmpWfHome;
+  return () => {
     if (originalWfHome) process.env.WF_HOME = originalWfHome;
     else delete process.env.WF_HOME;
-    fs.rmSync(tmpWfHome, { recursive: true, force: true });
-    fs.rmSync(tmpRepo, { recursive: true, force: true });
+  };
+}
+
+function setupTempDirectories(prefix1: string, prefix2: string): [string, string] {
+  const tmpWfHome = fs.mkdtempSync(path.join(os.tmpdir(), prefix1));
+  const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), prefix2));
+  return [tmpWfHome, tmpRepo];
+}
+
+async function setupScenarioFixtures(tmpRepo: string, trackerName: string, ticketKey: string): Promise<string> {
+  setupRepo(tmpRepo);
+  return createReviewArtifact(tmpRepo, trackerName, ticketKey);
+}
+
+function cleanupScenarioFixtures(tmpWfHome: string, tmpRepo: string, restoreWfHome: () => void): void {
+  restoreWfHome();
+  fs.rmSync(tmpWfHome, { recursive: true, force: true });
+  fs.rmSync(tmpRepo, { recursive: true, force: true });
+}
+
+function buildScenarioOpts(ticketKey: string, tmpRepo: string, trackerName: string): object {
+  return { ticketKey, repos: [tmpRepo], tracker: trackerName };
+}
+
+async function captureRun(commitCmd: IssueCommitCommand, opts: object): Promise<string> {
+  let consoleOutput = '';
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    consoleOutput += args.join(' ') + '\n';
+  };
+  try {
+    await commitCmd.run([], opts);
+  } finally {
+    console.log = originalLog;
+  }
+  return consoleOutput;
+}
+
+function checkRun1Note(consoleOutput: string): void {
+  assert('run 1: prints the prior review/plan note', consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
+}
+
+function checkRun1Summary(capturedOptions: any): void {
+  assert('run 1: commit message generator received the exact review summary', capturedOptions?.scopeSummary === 'LIVE REVIEW SCOPE SUMMARY', `got: ${JSON.stringify(capturedOptions)}`);
+}
+
+function checkRun1Commit(gitLog: string): void {
+  assert('run 1: a real git commit was created', gitLog.includes('canned commit message #1'), gitLog);
+}
+
+function checkRun2Note(consoleOutput: string): void {
+  assert('run 2: no prior review/plan note once the artifact is gone', !consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
+}
+
+function checkRun2Summary(capturedOptions: any): void {
+  assert('run 2: no scope summary is passed once the artifact is gone', capturedOptions?.scopeSummary === undefined, `got: ${JSON.stringify(capturedOptions)}`);
+}
+
+function checkRun2Commit(gitLog: string): void {
+  assert('run 2: a second real git commit was created', gitLog.includes('canned commit message #2'), gitLog);
+}
+
+async function executeRun1(
+  commitCmd: IssueCommitCommand,
+  getCaptured: () => any,
+  tmpRepo: string,
+  opts: object,
+): Promise<void> {
+  stageChange(tmpRepo, 'export const a = 2;\n');
+  const run1Output = await captureRun(commitCmd, opts);
+  checkRun1Note(run1Output);
+  checkRun1Summary(getCaptured());
+  checkRun1Commit(execSync('git log -1 --format=%B', { cwd: tmpRepo, encoding: 'utf-8' }));
+}
+
+async function executeRun2(
+  commitCmd: IssueCommitCommand,
+  getCaptured: () => any,
+  tmpRepo: string,
+  reviewPath: string,
+  opts: object,
+): Promise<void> {
+  fs.rmSync(reviewPath);
+  stageChange(tmpRepo, 'export const a = 3;\n');
+  const run2Output = await captureRun(commitCmd, opts);
+  checkRun2Note(run2Output);
+  checkRun2Summary(getCaptured());
+  checkRun2Commit(execSync('git log -1 --format=%B', { cwd: tmpRepo, encoding: 'utf-8' }));
+}
+
+async function executeRuns(
+  commitCmd: IssueCommitCommand,
+  getCaptured: () => any,
+  tmpRepo: string,
+  reviewPath: string,
+  opts: object,
+): Promise<void> {
+  await executeRun1(commitCmd, getCaptured, tmpRepo, opts);
+  await executeRun2(commitCmd, getCaptured, tmpRepo, reviewPath, opts);
+}
+
+async function runScenario(
+  commitCmd: IssueCommitCommand,
+  getCaptured: () => any,
+  ticketKey: string,
+  trackerName: string,
+): Promise<void> {
+  const [tmpWfHome, tmpRepo] = setupTempDirectories('wf-standalone-review-home-', 'wf-standalone-review-repo-');
+  const restoreWfHome = setWfHome(tmpWfHome);
+  try {
+    const reviewPath = await setupScenarioFixtures(tmpRepo, trackerName, ticketKey);
+    await executeRuns(commitCmd, getCaptured, tmpRepo, reviewPath, buildScenarioOpts(ticketKey, tmpRepo, trackerName));
+  } finally {
+    cleanupScenarioFixtures(tmpWfHome, tmpRepo, restoreWfHome);
+  }
+}
+
+async function main(): Promise<void> {
+  console.log('\nManual smoke test: standalone issue:commit resolves scope summary from a real review artifact\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const commitCmd = app.get(IssueCommitCommand);
+  const stub = stubCommitStage(app.get(CommitStageService));
+  try {
+    await runScenario(commitCmd, stub.getCaptured, 'WBP-9002', 'jira');
+  } finally {
+    stub.restore();
     await app.close();
   }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

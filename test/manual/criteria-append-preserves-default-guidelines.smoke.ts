@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: --criteria appends to the default rubric instead of replacing it
  *
- * Run: nr test:manual -- criteria-append-preserves-default-guidelines.smoke
+ * Run: nr test:manual criteria-append-preserves-default-guidelines.smoke.ts
  *
  * Scenario: The user supplies `--criteria <file>` (not `--replace-criteria`).
  * The review prompt must contain both a built-in default guideline category
@@ -48,7 +48,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
@@ -100,131 +100,166 @@ process.stdin.on('end', () => {
 });
 `;
 
-const runReview = (tempRoot: string, criteriaFlag: '--criteria' | '--replace-criteria', criteriaPath: string): { status: number | null; firstPrompt: string } => {
+function buildDirectoryPaths(tempRoot: string): {
+  wfHomeDir: string;
+  repoDir: string;
+  binDir: string;
+  trackedFilePath: string;
+} {
   const wfHomeDir = path.join(tempRoot, 'wfhome');
   const repoDir = path.join(tempRoot, 'repo');
   const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const invocationLogPath = path.join(tempRoot, 'invocations.log');
-  const promptsLogPath = path.join(tempRoot, 'invocations.prompts.log');
-  const trackedFilePath = path.join(repoDir, 'src.ts');
+  return { wfHomeDir, repoDir, binDir, trackedFilePath: path.join(repoDir, 'src.ts') };
+}
 
-  fs.mkdirSync(repoDir, { recursive: true });
-  fs.mkdirSync(binDir, { recursive: true });
-  fs.mkdirSync(path.join(wfHomeDir, 'logs'), { recursive: true });
-  fs.mkdirSync(path.join(wfHomeDir, 'state'), { recursive: true });
+function setupDirectories(tempRoot: string): {
+  wfHomeDir: string;
+  repoDir: string;
+  binDir: string;
+  trackedFilePath: string;
+} {
+  const dirs = buildDirectoryPaths(tempRoot);
+  fs.mkdirSync(dirs.repoDir, { recursive: true });
+  fs.mkdirSync(dirs.binDir, { recursive: true });
+  fs.mkdirSync(path.join(dirs.wfHomeDir, 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(dirs.wfHomeDir, 'state'), { recursive: true });
+  return dirs;
+}
 
-  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
+function setupGitRepo(repoDir: string, trackedFilePath: string): void {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'wf',
+    GIT_AUTHOR_EMAIL: 'wf@example.com',
+    GIT_COMMITTER_NAME: 'wf',
+    GIT_COMMITTER_EMAIL: 'wf@example.com',
+  };
   execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
   fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
   execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
   execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
   fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
 
-  fs.writeFileSync(
-    configPath,
-    [
-      'module.exports = {',
-      '  ai: [',
-      "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-      '  ],',
-      '  stages: {',
-      "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-      '  },',
-      '};',
-      '',
-    ].join('\n'),
-    'utf-8'
-  );
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
 
+function setupConfigAndBinaries(
+  repoDir: string,
+  binDir: string,
+  invocationLogPath: string,
+  promptsLogPath: string
+): void {
+  const configPath = path.join(repoDir, 'wf.config.js');
+  fs.writeFileSync(configPath, buildConfigContent(), 'utf-8');
+  const claudeScriptPath = path.join(binDir, 'claude');
   writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath, promptsLogPath));
+}
 
-  const env = {
+function buildReviewEnv(wfHomeDir: string, binDir: string): typeof process.env {
+  return {
     ...process.env,
     HOME: os.homedir(),
     WF_HOME: wfHomeDir,
     PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
     WF_SKIP_CLI_VERSION_CHECK: '1',
   };
+}
 
-  const result = spawnSync(
+function extractPromptsFromFile(promptsLogPath: string): string[] {
+  return fs.existsSync(promptsLogPath)
+    ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
+    : [];
+}
+
+function executeReviewCommand(
+  repoDir: string,
+  binDir: string,
+  wfHomeDir: string,
+  criteriaFlag: '--criteria' | '--replace-criteria',
+  criteriaPath: string
+): SpawnResult {
+  const env = buildReviewEnv(wfHomeDir, binDir);
+  return spawnSync(
     'node',
     [distMainPath, 'issue:review', '-r', repoDir, criteriaFlag, criteriaPath, '-s'],
     { cwd: repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10 }
   ) as SpawnResult;
+}
 
-  const prompts = fs.existsSync(promptsLogPath)
-    ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
-    : [];
-
+function runReview(
+  tempRoot: string,
+  criteriaFlag: '--criteria' | '--replace-criteria',
+  criteriaPath: string
+): { status: number | null; firstPrompt: string } {
+  const { wfHomeDir, repoDir, binDir, trackedFilePath } = setupDirectories(tempRoot);
+  setupGitRepo(repoDir, trackedFilePath);
+  const invocationLogPath = path.join(tempRoot, 'invocations.log');
+  const promptsLogPath = path.join(tempRoot, 'invocations.prompts.log');
+  setupConfigAndBinaries(repoDir, binDir, invocationLogPath, promptsLogPath);
+  const result = executeReviewCommand(repoDir, binDir, wfHomeDir, criteriaFlag, criteriaPath);
+  const prompts = extractPromptsFromFile(promptsLogPath);
   return { status: result.status, firstPrompt: prompts[0] ?? '' };
-};
+}
 
-async function main(): Promise<void> {
-  if (fs.existsSync(distMainPath)) {
-    pass('dist/main.js exists');
-  } else {
+function checkRunAResults(runA: { status: number | null; firstPrompt: string }): void {
+  if (runA.status === 0) pass('run A (--criteria) exits 0');
+  else fail('run A (--criteria) should exit 0', runA.firstPrompt);
+  if (runA.firstPrompt.includes(CUSTOM_GUIDELINE)) pass('run A prompt contains the custom guideline text');
+  else fail('run A prompt should contain the custom guideline text', runA.firstPrompt.slice(0, 800));
+  if (runA.firstPrompt.includes(DEFAULT_GUIDELINE)) pass('run A prompt still contains a built-in default guideline (append preserves defaults)');
+  else fail('run A prompt should still contain a built-in default guideline', runA.firstPrompt.slice(0, 800));
+}
+
+function checkRunBResults(runB: { status: number | null; firstPrompt: string }): void {
+  if (runB.status === 0) pass('run B (--replace-criteria) exits 0');
+  else fail('run B (--replace-criteria) should exit 0', runB.firstPrompt);
+  if (runB.firstPrompt.includes(CUSTOM_GUIDELINE)) pass('run B prompt contains the custom guideline text');
+  else fail('run B prompt should contain the custom guideline text', runB.firstPrompt.slice(0, 800));
+  if (!runB.firstPrompt.includes(DEFAULT_GUIDELINE)) pass('run B prompt does not contain the built-in default guideline (replace drops defaults)');
+  else fail('run B prompt should not contain the built-in default guideline', runB.firstPrompt.slice(0, 800));
+}
+
+function checkDistExists(): void {
+  if (!fs.existsSync(distMainPath)) {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+  pass('dist/main.js exists');
+}
 
+async function runBothReviews(tempRootA: string, tempRootB: string): Promise<void> {
+  fs.writeFileSync(path.join(tempRootA, 'criteria.md'), CRITERIA_MARKDOWN, 'utf-8');
+  fs.writeFileSync(path.join(tempRootB, 'criteria.md'), CRITERIA_MARKDOWN, 'utf-8');
+  const runA = runReview(tempRootA, '--criteria', path.join(tempRootA, 'criteria.md'));
+  const runB = runReview(tempRootB, '--replace-criteria', path.join(tempRootB, 'criteria.md'));
+  checkRunAResults(runA);
+  checkRunBResults(runB);
+}
+
+async function main(): Promise<void> {
+  console.log(chalk.bold.cyan('\ncriteria-append-preserves-default-guidelines smoke test\n'));
+  checkDistExists();
   const tempRootA = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-criteria-append-'));
   const tempRootB = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-criteria-replace-'));
-  const criteriaPathA = path.join(tempRootA, 'criteria.md');
-  const criteriaPathB = path.join(tempRootB, 'criteria.md');
-
   try {
-    fs.writeFileSync(criteriaPathA, CRITERIA_MARKDOWN, 'utf-8');
-    fs.writeFileSync(criteriaPathB, CRITERIA_MARKDOWN, 'utf-8');
-
-    const runA = runReview(tempRootA, '--criteria', criteriaPathA);
-    const runB = runReview(tempRootB, '--replace-criteria', criteriaPathB);
-
-    if (runA.status === 0) {
-      pass('run A (--criteria) exits 0');
-    } else {
-      fail('run A (--criteria) should exit 0', runA.firstPrompt);
-    }
-
-    if (runB.status === 0) {
-      pass('run B (--replace-criteria) exits 0');
-    } else {
-      fail('run B (--replace-criteria) should exit 0', runB.firstPrompt);
-    }
-
-    if (runA.firstPrompt.includes(CUSTOM_GUIDELINE)) {
-      pass('run A prompt contains the custom guideline text');
-    } else {
-      fail('run A prompt should contain the custom guideline text', runA.firstPrompt.slice(0, 800));
-    }
-
-    if (runA.firstPrompt.includes(DEFAULT_GUIDELINE)) {
-      pass('run A prompt still contains a built-in default guideline (append preserves defaults)');
-    } else {
-      fail('run A prompt should still contain a built-in default guideline', runA.firstPrompt.slice(0, 800));
-    }
-
-    if (runB.firstPrompt.includes(CUSTOM_GUIDELINE)) {
-      pass('run B prompt contains the custom guideline text');
-    } else {
-      fail('run B prompt should contain the custom guideline text', runB.firstPrompt.slice(0, 800));
-    }
-
-    const runBDroppedDefault = !runB.firstPrompt.includes(DEFAULT_GUIDELINE);
-
-    if (runBDroppedDefault) {
-      pass('run B prompt does not contain the built-in default guideline (replace drops defaults)');
-    } else {
-      fail('run B prompt should not contain the built-in default guideline', runB.firstPrompt.slice(0, 800));
-    }
+    await runBothReviews(tempRootA, tempRootB);
   } finally {
     fs.rmSync(tempRootA, { recursive: true, force: true });
     fs.rmSync(tempRootB, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

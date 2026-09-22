@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: Markdown-fenced valid plan JSON is accepted without a spurious retry
  *
- * Run: nr test:manual -- test-issue-plan-claude-fenced-json-live
+ * Run: nr test:manual issue-plan-claude-fenced-json-live.smoke.ts
  *
  * Scenario: `resolveStageResponseIssues`/`resolveStageZodIssues` were fixed
  * to use the fence-aware `parseJsonResponse` instead of raw `JSON.parse`. A
@@ -35,7 +35,7 @@ import {
   buildPlanArtifactFilename,
   hashPlanArtifactSources,
 } from '../../src/shared/utils/plan-artifact';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
@@ -90,13 +90,24 @@ process.stdin.on('end', () => {
 });
 `;
 
-async function main(): Promise<void> {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+function readInvocations(logPath: string): string[][] {
+  return fs.existsSync(logPath)
+    ? fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
+    : [];
+}
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-fenced-json-'));
+type Paths = {
+  homeDir: string;
+  repoDir: string;
+  binDir: string;
+  sourcePath: string;
+  configPath: string;
+  claudeScriptPath: string;
+  invocationLogPath: string;
+  planPath: string;
+};
+
+function buildPaths(tempRoot: string): Paths {
   const homeDir = path.join(tempRoot, 'home');
   const repoDir = path.join(tempRoot, 'repo');
   const binDir = path.join(tempRoot, 'bin');
@@ -106,90 +117,109 @@ async function main(): Promise<void> {
   const invocationLogPath = path.join(tempRoot, 'invocations.log');
   const repoName = path.basename(repoDir);
   const sourceStem = path.basename(sourcePath, '.md');
-  const planFilename = buildPlanArtifactFilename({
-    hash: hashPlanArtifactSources([sourceStem]),
-    action: 'fix',
-    format: 'json',
-  });
+  const planFilename = buildPlanArtifactFilename({ hash: hashPlanArtifactSources([sourceStem]), action: 'fix', format: 'json' });
   const artifactDir = path.join(homeDir, '.wf', repoName);
   const planPath = path.join(artifactDir, planFilename);
+  return { homeDir, repoDir, binDir, sourcePath, configPath, claudeScriptPath, invocationLogPath, planPath };
+}
 
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    plan: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
+
+function writeConfigFile(configPath: string): void {
+  fs.writeFileSync(configPath, buildConfigContent(), 'utf-8');
+}
+
+function setupWorkspace(opts: Omit<Paths, 'planPath'>): NodeJS.ProcessEnv {
+  fs.mkdirSync(opts.repoDir, { recursive: true });
+  fs.mkdirSync(opts.binDir, { recursive: true });
+  fs.mkdirSync(opts.homeDir, { recursive: true });
+  fs.mkdirSync(path.join(opts.homeDir, '.wf', 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(opts.homeDir, '.wf', 'state'), { recursive: true });
+  writeConfigFile(opts.configPath);
+  fs.writeFileSync(opts.sourcePath, ['# Smoke source', '', 'This file forces the real plan stage to invoke the CLI backend.', ''].join('\n'), 'utf-8');
+  writeExecutable(opts.claudeScriptPath, buildFakeClaudeScript(opts.invocationLogPath));
+  return { ...process.env, HOME: opts.homeDir, PATH: `${opts.binDir}${path.delimiter}${process.env.PATH ?? ''}`, WF_SKIP_CLI_VERSION_CHECK: '1' };
+}
+
+function runScenario(paths: ReturnType<typeof buildPaths>): { result: SpawnResult; invocations: string[][] } {
+  const env = setupWorkspace(paths);
+  const result = runCommand(paths.repoDir, paths.sourcePath, env);
+  const invocations = readInvocations(paths.invocationLogPath);
+  return { result, invocations };
+}
+
+function checkCommandExitsZero(result: SpawnResult, output: string): void {
+  if (result.status === 0) {
+    pass('command exits 0');
+  } else {
+    fail('command should exit 0', output);
+  }
+}
+
+function checkPlanArtifactWritten(planPath: string, output: string): void {
+  if (fs.existsSync(planPath)) {
+    pass('a plan artifact was written');
+  } else {
+    fail('expected a plan artifact to be written', `planPath: ${planPath}\noutput:\n${output}`);
+  }
+}
+
+function checkSingleInvocation(invocations: string[][]): void {
+  if (invocations.length === 1) {
+    pass('fake claude binary was invoked exactly once (no spurious retry)');
+  } else {
+    fail('expected exactly 1 claude invocation', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
+  }
+}
+
+function checkArtifactSummary(planPath: string, expectedSummary: string): void {
+  if (!fs.existsSync(planPath)) return;
+  const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
+  if (artifact.summary === expectedSummary) {
+    pass('plan artifact reflects the fenced payload content');
+  } else {
+    fail('plan artifact should reflect the fenced payload', JSON.stringify(artifact.summary));
+  }
+}
+
+function checkBuildExists(): void {
+  if (!fs.existsSync(distMainPath)) {
+    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+    process.exit(1);
+  }
+}
+
+function runChecks(paths: Paths): void {
+  const { result, invocations } = runScenario(paths);
+  const output = `${result.stdout}\n${result.stderr}`;
+  checkCommandExitsZero(result, output);
+  checkPlanArtifactWritten(paths.planPath, output);
+  checkSingleInvocation(invocations);
+  checkArtifactSummary(paths.planPath, 'Fenced plan accepted');
+}
+
+async function main(): Promise<void> {
+  checkBuildExists();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-fenced-json-'));
+  const paths = buildPaths(tempRoot);
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(homeDir, { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'state'), { recursive: true });
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    plan: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    fs.writeFileSync(
-      sourcePath,
-      ['# Smoke source', '', 'This file forces the real plan stage to invoke the CLI backend.', ''].join('\n'),
-      'utf-8'
-    );
-
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath));
-
-    const env = {
-      ...process.env,
-      HOME: homeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
-
-    const result = runCommand(repoDir, sourcePath, env);
-    const output = `${result.stdout}\n${result.stderr}`;
-    const invocations = fs.existsSync(invocationLogPath)
-      ? fs.readFileSync(invocationLogPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-      : [];
-
-    if (result.status === 0) {
-      pass('command exits 0');
-    } else {
-      fail('command should exit 0', output);
-    }
-
-    if (fs.existsSync(planPath)) {
-      pass('a plan artifact was written');
-    } else {
-      fail('expected a plan artifact to be written', `planPath: ${planPath}\noutput:\n${output}`);
-    }
-
-    if (invocations.length === 1) {
-      pass('fake claude binary was invoked exactly once (no spurious retry)');
-    } else {
-      fail('expected exactly 1 claude invocation', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
-    }
-
-    if (fs.existsSync(planPath)) {
-      const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
-      if (artifact.summary === 'Fenced plan accepted') {
-        pass('plan artifact reflects the fenced payload content');
-      } else {
-        fail('plan artifact should reflect the fenced payload', JSON.stringify(artifact.summary));
-      }
-    }
+    runChecks(paths);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: continuation prompt contains verification commands exactly once
  *
- * Run: nr test:manual -- test-continuation-verification-uniqueness
+ * Run: nr test:manual continuation-verification-uniqueness.smoke.ts
  *
  * Verifies:
  *   1. All three adapters removed their legacy formatVerificationBlock functions.
@@ -15,44 +15,40 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildTaskBrief } from '../../src/integrations/ai/adapters/shared-routing';
+import { createReporter, summarise } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
+const { counts, pass, fail } = createReporter();
 
 const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  ✓ ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  ✗ ${label}`));
-    failed++;
-  }
+  if (condition) pass(label);
+  else fail(label);
 };
 
-async function main(): Promise<void> {
+type AdapterSources = { anthropic: string; openai: string; cli: string };
+
+function loadAdapterSources(): AdapterSources {
   const adaptersDir = path.join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters');
-  const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
-  const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
-  const cliSource = fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8');
+  return {
+    anthropic: fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8'),
+    openai: fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8'),
+    cli: fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8'),
+  };
+}
 
-  console.log(chalk.bold('\n  Scenario 1: legacy formatVerificationBlock removed from all adapters\n'));
+function checkLegacyFunctionsRemoved(sources: AdapterSources): void {
+  assert('Anthropic: formatVerificationBlock removed', !sources.anthropic.includes('formatVerificationBlock'));
+  assert('OpenAI: formatOaiVerificationBlock removed', !sources.openai.includes('formatOaiVerificationBlock'));
+  assert('CLI: formatCliVerificationBlock removed', !sources.cli.includes('formatCliVerificationBlock'));
+}
 
-  assert('Anthropic: formatVerificationBlock removed', !anthropicSource.includes('formatVerificationBlock'));
-  assert('OpenAI: formatOaiVerificationBlock removed', !openaiSource.includes('formatOaiVerificationBlock'));
-  assert('CLI: formatCliVerificationBlock removed', !cliSource.includes('formatCliVerificationBlock'));
+function checkBuildTaskBriefUsed(sources: AdapterSources): void {
+  assert('Anthropic buildContinuationPrompt calls buildTaskBrief', sources.anthropic.includes('buildTaskBrief(p.taskBriefParams)'));
+  assert('OpenAI buildContinuationPrompt calls buildTaskBrief', sources.openai.includes('buildTaskBrief(p.taskBriefParams)'));
+  assert('CLI buildContinuationPrompt calls buildTaskBrief', sources.cli.includes('buildTaskBrief(p.taskBriefParams)'));
+}
 
-  console.log(chalk.bold('\n  Scenario 2: all adapters call buildTaskBrief in continuation prompt\n'));
-
-  assert('Anthropic buildContinuationPrompt calls buildTaskBrief',
-    anthropicSource.includes('buildTaskBrief(p.taskBriefParams)'));
-  assert('OpenAI buildContinuationPrompt calls buildTaskBrief',
-    openaiSource.includes('buildTaskBrief(p.taskBriefParams)'));
-  assert('CLI buildContinuationPrompt calls buildTaskBrief',
-    cliSource.includes('buildTaskBrief(p.taskBriefParams)'));
-
-  console.log(chalk.bold('\n  Scenario 3: live verification uniqueness\n'));
-
-  const brief = buildTaskBrief({
+function buildTestBrief(): string {
+  return buildTaskBrief({
     ticketKey: 'VDUP-1',
     repoName: 'repo',
     repoFiles: ['repo/src/a.ts'],
@@ -65,17 +61,24 @@ async function main(): Promise<void> {
     planSummary: 'Fix lint errors',
     planAction: 'fix',
   });
+}
 
+function checkVerificationUniqueness(brief: string): void {
   const verificationCount = (brief.match(/Verification commands:/g) ?? []).length;
-  assert(`buildTaskBrief contains 'Verification commands:' exactly once (got ${verificationCount})`,
-    verificationCount === 1);
-  assert("buildTaskBrief does NOT contain 'Verification (run after all edits):'",
-    !brief.includes('Verification (run after all edits):'));
+  assert(`buildTaskBrief contains 'Verification commands:' exactly once (got ${verificationCount})`, verificationCount === 1);
+  assert("buildTaskBrief does NOT contain 'Verification (run after all edits):'", !brief.includes('Verification (run after all edits):'));
   assert('buildTaskBrief contains yarn lint', brief.includes('yarn lint'));
   assert('buildTaskBrief contains yarn test', brief.includes('yarn test'));
+}
 
-  console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
-  if (failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  console.log(chalk.bold('\n  continuation-verification-uniqueness smoke test\n'));
+  const sources = loadAdapterSources();
+  checkLegacyFunctionsRemoved(sources);
+  checkBuildTaskBriefUsed(sources);
+  const brief = buildTestBrief();
+  checkVerificationUniqueness(brief);
+  summarise(counts);
 }
 
 main().catch(error => {

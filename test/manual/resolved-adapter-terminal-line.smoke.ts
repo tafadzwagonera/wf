@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: resolved provider and model appear on terminal after each AI call
  *
- * Run: nr test:manual -- resolved-adapter-terminal-line
+ * Run: nr test:manual resolved-adapter-terminal-line.smoke.ts
  *
  * Verifies that after execute() and executeWithHistory() the terminal receives a blue
  * info line containing the actual resolved provider and model, and that the log file
@@ -11,10 +11,10 @@ import chalk from 'chalk';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import type { LlmAdapter } from '../../src/integrations/ai/llm-adapter.interface';
-import type { AIConversationRequest } from '../../src/integrations/ai/ai.service';
+import type { AIConversationRequest } from '../../src/shared/types/ai.types';
 import type { ConfigService } from '@nestjs/config';
 import * as logFileWriter from '../../src/shared/logger/log-file-writer';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const PROVIDER = 'anthropic';
 const MODEL = 'claude-sonnet-4-6';
@@ -57,76 +57,86 @@ async function captureConsoleLogs(fn: () => Promise<void>): Promise<string[]> {
   return lines;
 }
 
+function checkExecuteNoPlaceholders(executeLines: string[]): void {
+  const lacksPlaceholders = !executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
+  if (lacksPlaceholders) {
+    pass('execute() terminal output contains no literal placeholder strings');
+  } else {
+    fail('execute() terminal output contains literal placeholder strings', executeLines.join(' | '));
+  }
+}
+
+function checkExecuteTerminalLine(executeLines: string[]): void {
+  const executeMatch = executeLines.some(l =>
+    /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6/.test(l),
+  );
+  if (executeMatch) {
+    pass('execute() emits ℹ llm.adapter resolved-provider and resolved-model on terminal');
+  } else {
+    fail('execute() did not emit resolved-provider/resolved-model on terminal', executeLines.join(' | ') || '(none)');
+  }
+  checkExecuteNoPlaceholders(executeLines);
+}
+
+function checkHistoryTerminalLine(historyLines: string[]): void {
+  const historyMatch = historyLines.some(l =>
+    /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6/.test(l),
+  );
+  if (historyMatch) {
+    pass('executeWithHistory() emits ℹ llm.adapter resolved-provider and resolved-model on terminal');
+  } else {
+    fail('executeWithHistory() did not emit resolved-provider/resolved-model on terminal', historyLines.join(' | ') || '(none)');
+  }
+}
+
+function checkFileCostLine(fileLines: string[]): void {
+  const fileCostLine = fileLines.some(l => /resolved-provider=anthropic.*cost=/.test(l));
+  if (fileCostLine) {
+    pass('log file entry includes cost= field alongside resolved-provider');
+  } else {
+    fail('log file entry missing cost= field', fileLines.join(' | ') || '(none)');
+  }
+}
+
+async function runScenario(service: AiService, fileLines: string[]): Promise<void> {
+  const executeLines = await captureConsoleLogs(async () => {
+    await service.execute({ prompt: 'test', stage: 'plan' });
+  });
+  checkExecuteTerminalLine(executeLines);
+  fileLines.length = 0;
+  const historyLines = await captureConsoleLogs(async () => {
+    await service.executeWithHistory({ messages: [{ role: 'user', content: 'test' }], stage: 'plan' } as unknown as AIConversationRequest);
+  });
+  checkHistoryTerminalLine(historyLines);
+  checkFileCostLine(fileLines);
+}
+
+function buildService(): AiService {
+  return new AiService(
+    new LoggerService(buildConfigService()),
+    buildAdapter(PROVIDER, MODEL),
+    buildConfigService(),
+  );
+}
+
+function makeLogCapture(fileLines: string[]) {
+  return (level: string, message: string, context?: string) => {
+    fileLines.push(`[${level}] [${context ?? ''}] ${message}`);
+  };
+}
+
 async function main(): Promise<void> {
   console.log(chalk.bold('\nResolved adapter terminal line smoke test\n'));
-
-  const configService = buildConfigService();
-  const loggerService = new LoggerService(configService);
-  const adapter = buildAdapter(PROVIDER, MODEL);
-  const service = new AiService(loggerService, adapter, configService);
-
+  const service = buildService();
   const fileLines: string[] = [];
   const originalAppend = logFileWriter.appendToLogFile;
-  (logFileWriter as Record<string, unknown>).appendToLogFile = (
-    level: string,
-    message: string,
-    context?: string,
-  ) => fileLines.push(`[${level}] [${context ?? ''}] ${message}`);
-
+  (logFileWriter as Record<string, unknown>).appendToLogFile = makeLogCapture(fileLines);
   try {
-    const executeLines = await captureConsoleLogs(async () => {
-      await service.execute({ prompt: 'test', stage: 'plan' });
-    });
-
-    const executeMatch = executeLines.some(l =>
-      /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6/.test(l),
-    );
-    if (executeMatch) {
-      pass('execute() emits ℹ llm.adapter resolved-provider and resolved-model on terminal');
-    } else {
-      fail('execute() did not emit resolved-provider/resolved-model on terminal', executeLines.join(' | ') || '(none)');
-    }
-
-    const lacksPlaceholders = !executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
-    if (lacksPlaceholders) {
-      pass('execute() terminal output contains no literal placeholder strings');
-    } else {
-      fail('execute() terminal output contains literal placeholder strings', executeLines.join(' | '));
-    }
-
-    fileLines.length = 0;
-    const historyLines = await captureConsoleLogs(async () => {
-      await service.executeWithHistory({
-        messages: [{ role: 'user', content: 'test' }],
-        stage: 'plan',
-      } as unknown as AIConversationRequest);
-    });
-
-    const historyMatch = historyLines.some(l =>
-      /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6/.test(l),
-    );
-    if (historyMatch) {
-      pass('executeWithHistory() emits ℹ llm.adapter resolved-provider and resolved-model on terminal');
-    } else {
-      fail('executeWithHistory() did not emit resolved-provider/resolved-model on terminal', historyLines.join(' | ') || '(none)');
-    }
-
-    const fileCostLine = fileLines.some(l => /resolved-provider=anthropic.*cost=/.test(l));
-    if (fileCostLine) {
-      pass('log file entry includes cost= field alongside resolved-provider');
-    } else {
-      fail('log file entry missing cost= field', fileLines.join(' | ') || '(none)');
-    }
+    await runScenario(service, fileLines);
   } finally {
     (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;
   }
-
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`Results: ✓ ${counts.passed} passed   ✗ ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('✓ All tests passed!');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(error => {

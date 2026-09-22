@@ -8,27 +8,17 @@
  *   3. The old message fragment "not in plan's affected repositories" (without
  *      "or new") never appears
  *
- * Run: nr test:manual -- test-multi-repo-skip-message
+ * Run: nr test:manual multi-repo-skip-message.smoke.ts
  */
 
 import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueImplementCommand } from '../../src/commands/issue-implement.command';
+import { createReporter, summarise } from './support/reporter';
 import type { PlanArtifact } from '../../src/agents/interfaces';
 
-let passed = 0;
-let failed = 0;
-
-const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  \u2713 ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  \u2717 ${label}`));
-    failed++;
-  }
-};
+const { counts, pass, fail } = createReporter();
 
 const buildPlan = (overrides?: Partial<PlanArtifact['plan']>): PlanArtifact => ({
   action: 'fix',
@@ -44,65 +34,80 @@ const buildPlan = (overrides?: Partial<PlanArtifact['plan']>): PlanArtifact => (
   },
 });
 
+function captureSkipLog(filterActiveRepos: (...args: unknown[]) => unknown): string {
+  const logged: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => logged.push(args.map(String).join(' '));
+  const plan1 = buildPlan({ affectedRepositories: ['repo-a'], newRepositories: [] });
+  filterActiveRepos(['repo-a', 'repo-b'], plan1);
+  console.log = original;
+  return logged.join('\n');
+}
+
+function captureNewRepoLog(filterActiveRepos: (...args: unknown[]) => unknown): { result: string[]; plain: string } {
+  const logged2: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => logged2.push(args.map(String).join(' '));
+  const plan2 = buildPlan({ affectedRepositories: ['repo-a'], newRepositories: ['brand-new-service'] });
+  const result = filterActiveRepos(['repo-a', 'brand-new-service', 'repo-b'], plan2) as string[];
+  console.log = original;
+  return { result, plain: logged2.join('\n') };
+}
+
+function checkSkipMessageContent(plain: string): void {
+  if (plain.includes("not in plan's affected or new repositories")) {
+    pass('message says "not in plan\'s affected or new repositories"');
+  } else {
+    fail('message says "not in plan\'s affected or new repositories"');
+  }
+  if (!plain.includes("not in plan's affected repositories")) {
+    pass('old message fragment absent');
+  } else {
+    fail('old message fragment absent');
+  }
+}
+
+function checkBrandNewServiceSkipless(plain: string): void {
+  if (!plain.includes('brand-new-service')) {
+    pass('no skip message for brand-new-service');
+  } else {
+    fail('no skip message for brand-new-service');
+  }
+}
+
+function checkNewRepositoryIsKept(result: string[], plain: string): void {
+  if (result.includes('brand-new-service')) {
+    pass('brand-new-service kept in result');
+  } else {
+    fail('brand-new-service kept in result');
+  }
+  if (!result.includes('repo-b')) {
+    pass('repo-b removed from result');
+  } else {
+    fail('repo-b removed from result');
+  }
+  checkBrandNewServiceSkipless(plain);
+}
+
+async function runTests(filterActiveRepos: (...args: unknown[]) => unknown): Promise<void> {
+  console.log(chalk.bold('  1. skip message for repo absent from affected + new'));
+  checkSkipMessageContent(captureSkipLog(filterActiveRepos));
+  console.log(chalk.bold('\n  2. repo in newRepositories is NOT skipped'));
+  const { result, plain } = captureNewRepoLog(filterActiveRepos);
+  checkNewRepositoryIsKept(result, plain);
+}
+
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nSmoke test: filterActiveRepos skip log message\n'));
-
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
-
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   try {
     const command = app.get(IssueImplementCommand);
     const filterActiveRepos = (command as any).filterActiveRepos.bind(command);
-
-    // 1. Skipped repo produces the updated message
-    console.log(chalk.bold('  1. skip message for repo absent from affected + new'));
-    const logged: string[] = [];
-    const original = console.log;
-    console.log = (...args: unknown[]) => logged.push(args.map(String).join(' '));
-
-    const plan1 = buildPlan({ affectedRepositories: ['repo-a'], newRepositories: [] });
-    filterActiveRepos(['repo-a', 'repo-b'], plan1);
-
-    console.log = original;
-
-    const plain = logged.join('\n');
-    assert(
-      'message says "not in plan\'s affected or new repositories"',
-      plain.includes("not in plan's affected or new repositories"),
-    );
-    assert(
-      'old message fragment absent',
-      !plain.includes("not in plan's affected repositories"),
-    );
-
-    // 2. A repo in newRepositories is kept and produces no skip log
-    console.log(chalk.bold('\n  2. repo in newRepositories is NOT skipped'));
-    const logged2: string[] = [];
-    console.log = (...args: unknown[]) => logged2.push(args.map(String).join(' '));
-
-    const plan2 = buildPlan({
-      affectedRepositories: ['repo-a'],
-      newRepositories: ['brand-new-service'],
-    });
-    const result2 = filterActiveRepos(['repo-a', 'brand-new-service', 'repo-b'], plan2);
-
-    console.log = original;
-
-    assert('brand-new-service kept in result', result2.includes('brand-new-service'));
-    assert('repo-b removed from result', !result2.includes('repo-b'));
-
-    const plain2 = logged2.join('\n');
-    assert('no skip message for brand-new-service', !plain2.includes('brand-new-service'));
-
-    console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
-
-    if (failed > 0) {
-      process.exit(1);
-    }
+    await runTests(filterActiveRepos);
   } finally {
     await app.close();
   }
+  summarise(counts);
 }
 
 main().catch(err => {

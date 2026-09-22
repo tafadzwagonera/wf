@@ -1,7 +1,7 @@
 /**
  * ADF Request Format Validator
  *
- * Run: echo '{"fields":{"description":{...}}}' | nr test:manual -- test-verify-request-format
+ * Run: echo '{"fields":{"description":{...}}}' | nr test:manual verify-request-format.smoke.ts
  *
  * Reads a serialized Jira REST payload (or bare ADF doc) from stdin,
  * walks the node tree, and outputs structured JSON diagnostics.
@@ -52,16 +52,20 @@ const RULES: Array<{
   },
 ];
 
+const checkTextNode = (text: string, path: string, issues: ValidationIssue[]): void => {
+  for (const rule of RULES) {
+    if (rule.pattern.test(text)) {
+      issues.push({
+        error: rule.error(path),
+        suggestion: rule.suggestion,
+      });
+    }
+  }
+};
+
 const walkNodes = (node: AdfNode, path: string, issues: ValidationIssue[]): void => {
   if (node.type === 'text' && typeof node.text === 'string') {
-    for (const rule of RULES) {
-      if (rule.pattern.test(node.text)) {
-        issues.push({
-          error: rule.error(path),
-          suggestion: rule.suggestion,
-        });
-      }
-    }
+    checkTextNode(node.text, path, issues);
   }
 
   if (Array.isArray(node.content)) {
@@ -71,82 +75,87 @@ const walkNodes = (node: AdfNode, path: string, issues: ValidationIssue[]): void
   }
 };
 
-const validate = (input: unknown): ValidationResult => {
-  const issues: ValidationIssue[] = [];
-
-  // Accept both { fields: { description } } and bare ADF doc
-  let doc: AdfNode;
+const extractDoc = (input: unknown): AdfNode => {
   const asPayload = input as { fields?: { description?: AdfNode } };
-  if (asPayload?.fields?.description) {
-    doc = asPayload.fields.description;
-  } else {
-    doc = input as AdfNode;
-  }
+  return asPayload?.fields?.description ? asPayload.fields.description : (input as AdfNode);
+};
 
+const validateDocType = (doc: AdfNode, issues: ValidationIssue[]): boolean => {
   if (doc?.type !== 'doc') {
     issues.push({
       error: 'ADF root node is not `type: "doc"`',
       suggestion: 'Description must be a valid ADF document with `type: "doc"`',
     });
-    return { passed: false, issues };
+    return false;
   }
+  return true;
+};
 
+const validateDocHasContent = (doc: AdfNode, issues: ValidationIssue[]): boolean => {
   if (!Array.isArray(doc.content) || doc.content.length === 0) {
     issues.push({
       error: 'ADF document has no block nodes in `content`',
       suggestion: 'Description must contain at least one block node (paragraph, heading, etc.)',
     });
+    return false;
+  }
+  return true;
+};
+
+const validate = (input: unknown): ValidationResult => {
+  const issues: ValidationIssue[] = [];
+  const doc = extractDoc(input);
+
+  if (!validateDocType(doc, issues) || !validateDocHasContent(doc, issues)) {
     return { passed: false, issues };
   }
 
   walkNodes(doc, 'doc', issues);
-
   return { passed: issues.length === 0, issues };
 };
 
+function outputAndExit(result: ValidationResult): void {
+  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  process.exit(result.passed ? 0 : 1);
+}
+
+function handleNoInput(): void {
+  outputAndExit({
+    passed: false,
+    issues: [{
+      error: 'No input received on stdin',
+      suggestion: 'Pipe a JSON payload to stdin: echo \'{"fields":...}\' | nr test:manual verify-request-format.smoke.ts',
+    }],
+  });
+}
+
+function handleInvalidJson(): void {
+  outputAndExit({
+    passed: false,
+    issues: [{ error: 'Invalid JSON on stdin', suggestion: 'Input must be valid JSON' }],
+  });
+}
+
+function processInput(raw: string): void {
+  if (!raw) {
+    handleNoInput();
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    handleInvalidJson();
+    return;
+  }
+  outputAndExit(validate(parsed));
+}
+
 function main(): void {
   const chunks: Buffer[] = [];
-
   process.stdin.on('data', (chunk: Buffer) => chunks.push(chunk));
-
   process.stdin.on('end', () => {
-    const raw = Buffer.concat(chunks).toString('utf-8').trim();
-
-    if (!raw) {
-      const result: ValidationResult = {
-        passed: false,
-        issues: [
-          {
-            error: 'No input received on stdin',
-            suggestion:
-              'Pipe a JSON payload to stdin: echo \'{"fields":...}\' | nr test:manual -- test-verify-request-format',
-          },
-        ],
-      };
-      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-      process.exit(1);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      const result: ValidationResult = {
-        passed: false,
-        issues: [
-          {
-            error: 'Invalid JSON on stdin',
-            suggestion: 'Input must be valid JSON',
-          },
-        ],
-      };
-      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-      process.exit(1);
-    }
-
-    const result = validate(parsed);
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    process.exit(result.passed ? 0 : 1);
+    processInput(Buffer.concat(chunks).toString('utf-8').trim());
   });
 }
 

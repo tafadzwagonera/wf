@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: wf config clean
  *
- * Run: nr test:manual -- test-config-clean
+ * Run: nr test:manual config-clean.smoke.ts
  *
  * Prerequisites: yarn build  (the CLI runs from dist/)
  *
@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const SESSION_DIR = path.join(os.homedir(), '.wf', 'state', 'sessions');
 
@@ -27,6 +27,15 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
   }
 };
 
+const parseExecError = (err: unknown): { stdout: string; stderr: string; status: number } => {
+  const e = err as { stdout?: string; stderr?: string; status?: number };
+  return {
+    stdout: e.stdout ?? '',
+    stderr: e.stderr ?? '',
+    status: e.status ?? 1,
+  };
+};
+
 const run = (args: string): { stdout: string; stderr: string; status: number } => {
   try {
     const stdout = execSync(`node dist/main.js config clean ${args}`, {
@@ -36,16 +45,32 @@ const run = (args: string): { stdout: string; stderr: string; status: number } =
     });
     return { stdout, stderr: '', status: 0 };
   } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; status?: number };
-    return {
-      stdout: e.stdout ?? '',
-      stderr: e.stderr ?? '',
-      status: e.status ?? 1,
-    };
+    return parseExecError(err);
   }
 };
 
-/** Write a minimal valid session JSON into the session directory and return its sessionId. */
+const buildSessionObject = (now: string, overrides: {
+  sessionId: string;
+  ticketKey: string;
+  createdAt?: string;
+  completedAt?: string | null;
+}): any => ({
+  sessionId: overrides.sessionId,
+  ticketKey: overrides.ticketKey,
+  toStage: null, action: null, sourceType: null,
+  customPlanRef: null,
+  createdAt: overrides.createdAt ?? now,
+  updatedAt: now,
+  completedAt: overrides.completedAt ?? null,
+  stages: {},
+});
+
+const writeSessionFile = (session: any): void => {
+  fs.mkdirSync(SESSION_DIR, { recursive: true });
+  const filePath = path.join(SESSION_DIR, `${session.ticketKey}-${session.sessionId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+};
+
 const createScratchSession = (overrides: {
   sessionId: string;
   ticketKey: string;
@@ -53,21 +78,8 @@ const createScratchSession = (overrides: {
   completedAt?: string | null;
 }): string => {
   const now = new Date().toISOString();
-  const session = {
-    sessionId: overrides.sessionId,
-    ticketKey: overrides.ticketKey,
-    toStage: null,
-    action: null,
-    sourceType: null,
-    customPlanRef: null,
-    createdAt: overrides.createdAt ?? now,
-    updatedAt: now,
-    completedAt: overrides.completedAt ?? null,
-    stages: {},
-  };
-  fs.mkdirSync(SESSION_DIR, { recursive: true });
-  const filePath = path.join(SESSION_DIR, `${session.ticketKey}-${session.sessionId}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+  const session = buildSessionObject(now, overrides);
+  writeSessionFile(session);
   return session.sessionId;
 };
 
@@ -76,217 +88,111 @@ const scratchSessionExists = (sessionId: string): boolean => {
   return fs.readdirSync(SESSION_DIR).some(f => f.includes(sessionId));
 };
 
-function main(): void {
-  console.log(chalk.bold.cyan('\nconfig-clean smoke tests\n'));
-
-  if (!fs.existsSync(path.join(process.cwd(), 'dist', 'main.js'))) {
-    console.error(chalk.red('dist/main.js not found — run `yarn build` first.'));
-    process.exit(1);
+function cleanupSessions(sessionIds: string[]): void {
+  for (const sid of sessionIds) {
+    for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid))) {
+      fs.unlinkSync(path.join(SESSION_DIR, f));
+    }
   }
+}
 
-  console.log(chalk.bold('Scenario 1: no filter → ValidationError'));
-
+function checkScenario1(): void {
   const noFilter = run('');
-  assert(
-    'exits with code 1',
-    noFilter.status === 1,
-    `status: ${noFilter.status}`,
-  );
-  assert(
-    'stderr contains "At least one filter is required"',
-    noFilter.stderr.includes('At least one filter is required'),
-    noFilter.stderr.slice(0, 200),
-  );
+  assert('exits with code 1', noFilter.status === 1, `status: ${noFilter.status}`);
+  assert('stderr contains "At least one filter is required"', noFilter.stderr.includes('At least one filter is required'), noFilter.stderr.slice(0, 200));
+}
 
-  // ── Scenario 2: --session-id filter, --dry-run — lists session, no delete ──
-
-  console.log(chalk.bold('\nScenario 2: --session-id --dry-run lists session without deleting'));
-
+function checkScenario2(): void {
   const sid2 = `smoke-test-${Date.now()}-a`;
   createScratchSession({ sessionId: sid2, ticketKey: 'SMOKE-2' });
-
   const dryRun = run(`--session-id ${sid2} --dry-run`);
-  assert(
-    'exits with code 0',
-    dryRun.status === 0,
-    `status: ${dryRun.status}\n${dryRun.stderr}`,
-  );
-  assert(
-    'stdout contains "Matched 1 session(s)"',
-    dryRun.stdout.includes('Matched 1 session(s)'),
-    dryRun.stdout.slice(0, 300),
-  );
-  assert(
-    'stdout contains "Dry run"',
-    dryRun.stdout.includes('Dry run'),
-    dryRun.stdout.slice(0, 300),
-  );
-  assert(
-    'session file still exists after --dry-run',
-    scratchSessionExists(sid2),
-  );
+  assert('exits with code 0', dryRun.status === 0, `status: ${dryRun.status}\n${dryRun.stderr}`);
+  assert('stdout contains "Matched 1 session(s)"', dryRun.stdout.includes('Matched 1 session(s)'), dryRun.stdout.slice(0, 300));
+  assert('stdout contains "Dry run"', dryRun.stdout.includes('Dry run'), dryRun.stdout.slice(0, 300));
+  assert('session file still exists after --dry-run', scratchSessionExists(sid2));
+  cleanupSessions([sid2]);
+}
 
-  for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid2))) {
-    fs.unlinkSync(path.join(SESSION_DIR, f));
-  }
-
-  console.log(chalk.bold('\nScenario 3: --ticket --force deletes the matching session'));
-
+function checkScenario3(): void {
   const sid3 = `smoke-test-${Date.now()}-b`;
   createScratchSession({ sessionId: sid3, ticketKey: 'SMOKE-3-UNIQUE' });
-
   const forceDelete = run('--ticket SMOKE-3-UNIQUE --force');
-  assert(
-    'exits with code 0',
-    forceDelete.status === 0,
-    `status: ${forceDelete.status}\n${forceDelete.stderr}`,
-  );
-  assert(
-    'stdout contains "Deleted 1 session(s)"',
-    forceDelete.stdout.includes('Deleted 1 session(s)'),
-    forceDelete.stdout.slice(0, 300),
-  );
-  assert(
-    'session file is gone after delete',
-    !scratchSessionExists(sid3),
-  );
+  assert('exits with code 0', forceDelete.status === 0, `status: ${forceDelete.status}\n${forceDelete.stderr}`);
+  assert('stdout contains "Deleted 1 session(s)"', forceDelete.stdout.includes('Deleted 1 session(s)'), forceDelete.stdout.slice(0, 300));
+  assert('session file is gone after delete', !scratchSessionExists(sid3));
+}
 
-  console.log(chalk.bold('\nScenario 4: --pattern --dry-run matches by regex'));
-
+function checkScenario4(): void {
   const sid4a = `smoke-test-${Date.now()}-c`;
   const sid4b = `smoke-test-${Date.now()}-d`;
   createScratchSession({ sessionId: sid4a, ticketKey: 'SMOKE-PAT-123' });
   createScratchSession({ sessionId: sid4b, ticketKey: 'OTHER-99' });
-
   const patternRun = run('--pattern "^SMOKE-PAT-" --dry-run');
-  assert(
-    'exits with code 0',
-    patternRun.status === 0,
-    `status: ${patternRun.status}\n${patternRun.stderr}`,
-  );
-  assert(
-    'stdout contains the matching ticket key',
-    patternRun.stdout.includes('SMOKE-PAT-123'),
-    patternRun.stdout.slice(0, 300),
-  );
-  assert(
-    'stdout does not contain the non-matching ticket key',
-    !patternRun.stdout.includes('OTHER-99'),
-    patternRun.stdout.slice(0, 300),
-  );
+  assert('exits with code 0', patternRun.status === 0, `status: ${patternRun.status}\n${patternRun.stderr}`);
+  assert('stdout contains the matching ticket key', patternRun.stdout.includes('SMOKE-PAT-123'), patternRun.stdout.slice(0, 300));
+  assert('stdout does not contain the non-matching ticket key', !patternRun.stdout.includes('OTHER-99'), patternRun.stdout.slice(0, 300));
+  cleanupSessions([sid4a, sid4b]);
+}
 
-  for (const sid of [sid4a, sid4b]) {
-    for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid))) {
-      fs.unlinkSync(path.join(SESSION_DIR, f));
-    }
-  }
-
-  console.log(chalk.bold('\nScenario 5: --before filter matches only older sessions'));
-
+function checkScenario5(): void {
   const sid5old = `smoke-test-${Date.now()}-e`;
   const sid5new = `smoke-test-${Date.now()}-f`;
   createScratchSession({ sessionId: sid5old, ticketKey: 'SMOKE-BEFORE-OLD', createdAt: '2020-01-01T00:00:00.000Z' });
   createScratchSession({ sessionId: sid5new, ticketKey: 'SMOKE-BEFORE-NEW' });
-
   const beforeRun = run('--before 2021-01-01 --dry-run');
-  assert(
-    'exits with code 0',
-    beforeRun.status === 0,
-    `status: ${beforeRun.status}\n${beforeRun.stderr}`,
-  );
-  assert(
-    'stdout contains the old session ticket key',
-    beforeRun.stdout.includes('SMOKE-BEFORE-OLD'),
-    beforeRun.stdout.slice(0, 300),
-  );
-  assert(
-    'stdout does not contain the new session ticket key',
-    !beforeRun.stdout.includes('SMOKE-BEFORE-NEW'),
-    beforeRun.stdout.slice(0, 300),
-  );
+  assert('exits with code 0', beforeRun.status === 0, `status: ${beforeRun.status}\n${beforeRun.stderr}`);
+  assert('stdout contains the old session ticket key', beforeRun.stdout.includes('SMOKE-BEFORE-OLD'), beforeRun.stdout.slice(0, 300));
+  assert('stdout does not contain the new session ticket key', !beforeRun.stdout.includes('SMOKE-BEFORE-NEW'), beforeRun.stdout.slice(0, 300));
+  cleanupSessions([sid5old, sid5new]);
+}
 
-  for (const sid of [sid5old, sid5new]) {
-    for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid))) {
-      fs.unlinkSync(path.join(SESSION_DIR, f));
-    }
-  }
-
-  console.log(chalk.bold('\nScenario 6: session status labels appear correctly'));
-
+function checkScenario6(): void {
   const sid6active = `smoke-test-${Date.now()}-g`;
   const sid6done = `smoke-test-${Date.now()}-h`;
   createScratchSession({ sessionId: sid6active, ticketKey: 'SMOKE-STATUS', completedAt: null });
   createScratchSession({ sessionId: sid6done, ticketKey: 'SMOKE-STATUS', completedAt: new Date().toISOString() });
-
   const statusRun = run('--ticket SMOKE-STATUS --dry-run');
-  assert(
-    'exits with code 0',
-    statusRun.status === 0,
-    `status: ${statusRun.status}\n${statusRun.stderr}`,
-  );
-  assert(
-    'stdout contains "status: active"',
-    statusRun.stdout.includes('status: active'),
-    statusRun.stdout.slice(0, 400),
-  );
-  assert(
-    'stdout contains "status: completed"',
-    statusRun.stdout.includes('status: completed'),
-    statusRun.stdout.slice(0, 400),
-  );
+  assert('exits with code 0', statusRun.status === 0, `status: ${statusRun.status}\n${statusRun.stderr}`);
+  assert('stdout contains "status: active"', statusRun.stdout.includes('status: active'), statusRun.stdout.slice(0, 400));
+  assert('stdout contains "status: completed"', statusRun.stdout.includes('status: completed'), statusRun.stdout.slice(0, 400));
+  cleanupSessions([sid6active, sid6done]);
+}
 
-  for (const sid of [sid6active, sid6done]) {
-    for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid))) {
-      fs.unlinkSync(path.join(SESSION_DIR, f));
-    }
-  }
-
-  console.log(chalk.bold('\nScenario 7: non-interactive mode without --force → ValidationError'));
-
+function checkScenario7(): void {
   const sid7 = `smoke-test-${Date.now()}-i`;
   createScratchSession({ sessionId: sid7, ticketKey: 'SMOKE-NOFORCE' });
-
   const noForce = run(`--session-id ${sid7}`);
-  assert(
-    'exits with code 1',
-    noForce.status === 1,
-    `status: ${noForce.status}`,
-  );
-  assert(
-    'stderr contains "Non-interactive mode requires --force"',
-    noForce.stderr.includes('Non-interactive mode requires --force'),
-    noForce.stderr.slice(0, 200),
-  );
-  assert(
-    'session file still exists (no delete occurred)',
-    scratchSessionExists(sid7),
-  );
+  assert('exits with code 1', noForce.status === 1, `status: ${noForce.status}`);
+  assert('stderr contains "Non-interactive mode requires --force"', noForce.stderr.includes('Non-interactive mode requires --force'), noForce.stderr.slice(0, 200));
+  assert('session file still exists (no delete occurred)', scratchSessionExists(sid7));
+  cleanupSessions([sid7]);
+}
 
-  for (const f of fs.readdirSync(SESSION_DIR).filter(f => f.includes(sid7))) {
-    fs.unlinkSync(path.join(SESSION_DIR, f));
-  }
-
-  console.log(chalk.bold('\nScenario 8: no matches → informational message, exit 0'));
-
+function checkScenario8(): void {
   const noMatchRun = run('--session-id this-id-does-not-exist-at-all --force');
-  assert(
-    'exits with code 0',
-    noMatchRun.status === 0,
-    `status: ${noMatchRun.status}\n${noMatchRun.stderr}`,
-  );
-  assert(
-    'stdout contains "No matching sessions found."',
-    noMatchRun.stdout.includes('No matching sessions found.'),
-    noMatchRun.stdout.slice(0, 200),
-  );
+  assert('exits with code 0', noMatchRun.status === 0, `status: ${noMatchRun.status}\n${noMatchRun.stderr}`);
+  assert('stdout contains "No matching sessions found."', noMatchRun.stdout.includes('No matching sessions found.'), noMatchRun.stdout.slice(0, 200));
+}
 
-  console.log(
-    chalk.bold(
-      `\n${counts.passed + counts.failed} assertions: ${chalk.green(`${counts.passed} passed`)}${counts.failed > 0 ? `, ${chalk.red(`${counts.failed} failed`)}` : ''}`,
-    ),
-  );
+const ensureDistBuilt = (): void => {
+  if (!fs.existsSync(path.join(process.cwd(), 'dist', 'main.js'))) {
+    console.error(chalk.red('dist/main.js not found — run `yarn build` first.'));
+    process.exit(1);
+  }
+};
 
-  if (counts.failed > 0) process.exit(1);
+function main(): void {
+  console.log(chalk.bold.cyan('\nconfig-clean smoke tests\n'));
+  ensureDistBuilt();
+  checkScenario1();
+  checkScenario2();
+  checkScenario3();
+  checkScenario4();
+  checkScenario5();
+  checkScenario6();
+  checkScenario7();
+  checkScenario8();
+  summarise(counts);
 }
 
 main();

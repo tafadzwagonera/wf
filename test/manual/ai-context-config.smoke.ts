@@ -19,7 +19,7 @@ import { GeminiAdapter } from '../../src/integrations/ai/adapters/gemini.adapter
 import { DeepSeekAdapter } from '../../src/integrations/ai/adapters/deepseek.adapter';
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../../src/shared/logger/logger.service';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const configPath = path.join(process.cwd(), 'wf.config.js');
 const anthropicProjectPath = path.join(process.cwd(), 'CLAUDE.md');
@@ -27,6 +27,8 @@ const deepseekProjectPath = path.join(process.cwd(), 'DEEPSEEK.md');
 const tempHomePath = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-ai-context-'));
 const anthropicGlobalPath = path.join(tempHomePath, '.claude', 'CLAUDE.md');
 const deepseekGlobalPath = path.join(tempHomePath, '.deepseek', 'DEEPSEEK.md');
+
+const { counts, pass, fail } = createReporter();
 
 type BackupEntry = {
   path: string;
@@ -62,119 +64,114 @@ const restoreFile = ({ path: filePath, existed, content }: BackupEntry): void =>
   fs.writeFileSync(filePath, content ?? '', 'utf-8');
 };
 
-async function main(): Promise<void> {
-  console.log('🧪 Testing issue:generate warning gating for AI context files\n');
+const PROVIDERS = [
+  { provider: 'anthropic', apiKey: 'anthropic-test-key', model: 'claude-sonnet-4-20250514', default: true },
+  { provider: 'openai', apiKey: 'openai-test-key' },
+  { provider: 'deepseek', apiKey: 'deepseek-test-key', model: 'deepseek-reasoner' },
+];
 
-  const { counts, pass, fail } = createReporter();
+const TEST_CONFIG = [
+  'module.exports = {',
+  '  ai: [',
+  '    { provider: "anthropic", apiKey: "anthropic-test-key", model: "claude-sonnet-4-20250514", default: true },',
+  '    { provider: "openai", apiKey: "openai-test-key" },',
+  '    { provider: "deepseek", apiKey: "deepseek-test-key", model: "deepseek-reasoner" },',
+  '  ],',
+  '};',
+  '',
+].join('\n');
 
+function buildMockConfigService(): ConfigService {
+  const values: Record<string, unknown> = {
+    'ai.providers': PROVIDERS,
+    'ai.anthropicApiKey': 'anthropic-test-key',
+    'ai.openaiApiKey': 'openai-test-key',
+    'ai.geminiApiKey': undefined,
+    'ai.deepseekApiKey': 'deepseek-test-key',
+    'ai.model': 'claude-sonnet-4-20250514',
+  };
+  return { get: (key: string, defaultValue?: unknown) => key in values ? values[key] : defaultValue } as ConfigService;
+}
+
+function buildMockLogger(): LoggerService {
+  return {
+    debug: () => undefined,
+    error: () => undefined,
+    warn: () => undefined,
+    log: () => undefined,
+  } as unknown as LoggerService;
+}
+
+function prepareFilesystem(): BackupEntry[] {
   const backups = [backupFile(configPath), backupFile(anthropicProjectPath), backupFile(deepseekProjectPath)];
-  const originalHome = process.env.HOME;
+  removeFileIfPresent(anthropicProjectPath);
+  removeFileIfPresent(deepseekProjectPath);
+  removeFileIfPresent(anthropicGlobalPath);
+  removeFileIfPresent(deepseekGlobalPath);
+  fs.writeFileSync(configPath, TEST_CONFIG, 'utf-8');
+  return backups;
+}
+
+function restoreFilesystem(originalHome: string | undefined, backups: BackupEntry[]): void {
+  process.env.HOME = originalHome;
+  for (const backup of backups.reverse()) restoreFile(backup);
+  fs.rmSync(tempHomePath, { recursive: true, force: true });
+}
+
+async function runAdaptersAndCaptureWarnings(
+  mockConfigService: ConfigService,
+  mockLogger: LoggerService,
+): Promise<string> {
   const warnSpy = jestLikeSpy();
-
   try {
-    removeFileIfPresent(anthropicProjectPath);
-    removeFileIfPresent(deepseekProjectPath);
-    removeFileIfPresent(anthropicGlobalPath);
-    removeFileIfPresent(deepseekGlobalPath);
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        '    { provider: "anthropic", apiKey: "anthropic-test-key", model: "claude-sonnet-4-20250514", default: true },',
-        '    { provider: "openai", apiKey: "openai-test-key" },',
-        '    { provider: "deepseek", apiKey: "deepseek-test-key", model: "deepseek-reasoner" },',
-        '  ],',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    process.env.HOME = tempHomePath;
-    const providers = [
-      {
-        provider: 'anthropic',
-        apiKey: 'anthropic-test-key',
-        model: 'claude-sonnet-4-20250514',
-        default: true,
-      },
-      {
-        provider: 'openai',
-        apiKey: 'openai-test-key',
-      },
-      {
-        provider: 'deepseek',
-        apiKey: 'deepseek-test-key',
-        model: 'deepseek-reasoner',
-      },
-    ];
-
-    const mockConfigService = {
-      get: (key: string, defaultValue?: unknown) => {
-        const values: Record<string, unknown> = {
-          'ai.providers': providers,
-          'ai.anthropicApiKey': 'anthropic-test-key',
-          'ai.openaiApiKey': 'openai-test-key',
-          'ai.geminiApiKey': undefined,
-          'ai.deepseekApiKey': 'deepseek-test-key',
-          'ai.model': 'claude-sonnet-4-20250514',
-        };
-
-        return key in values ? values[key] : defaultValue;
-      },
-    } as ConfigService;
-    const mockLogger = {
-      debug: () => undefined,
-      error: () => undefined,
-      warn: () => undefined,
-      log: () => undefined,
-    } as unknown as LoggerService;
-
     await new AnthropicAdapter(mockConfigService, mockLogger).onModuleInit();
     await new OpenAIAdapter(mockConfigService, mockLogger).onModuleInit();
     await new GeminiAdapter(mockConfigService, mockLogger).onModuleInit();
     await new DeepSeekAdapter(mockConfigService, mockLogger).onModuleInit();
-
-    const output = warnSpy.messages.join('\n');
-
-    if (output.includes('No anthropic context file found (looked for')) {
-      pass('Anthropic warns when usage intent exists and context files are missing');
-    } else {
-      fail('Anthropic warning missing', output || '(no warnings captured)');
-    }
-
-    if (!output.includes('No deepseek context file found')) {
-      pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
-    } else {
-      fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
-    }
-
-    if (!output.includes('No openai context file found')) {
-      pass('OpenAI does not warn when provider intent is incomplete');
-    } else {
-      fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
-    }
+    return warnSpy.messages.join('\n');
   } finally {
     warnSpy.restore();
-    process.env.HOME = originalHome;
-
-    for (const backup of backups.reverse()) {
-      restoreFile(backup);
-    }
-
-    fs.rmSync(tempHomePath, { recursive: true, force: true });
   }
+}
 
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`Results: ✓ ${counts.passed} passed   ✗ ${counts.failed} failed`);
-  if (counts.failed === 0) {
-    console.log('✓ All tests passed!');
+function checkAnthropicWarns(output: string): void {
+  if (output.includes('No anthropic context file found (looked for')) {
+    pass('Anthropic warns when usage intent exists and context files are missing');
+  } else {
+    fail('Anthropic warning missing', output || '(no warnings captured)');
   }
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
 
-  if (counts.failed > 0) process.exit(1);
+function checkDeepSeekSilent(output: string): void {
+  if (!output.includes('No deepseek context file found')) {
+    pass('DeepSeek does not warn when it is a non-default provider without stage overrides');
+  } else {
+    fail('DeepSeek warning should be suppressed for non-default provider without stage overrides', output || '(no warnings captured)');
+  }
+}
+
+function checkOpenAISilent(output: string): void {
+  if (!output.includes('No openai context file found')) {
+    pass('OpenAI does not warn when provider intent is incomplete');
+  } else {
+    fail('OpenAI warning should be suppressed when model is missing', output || '(no warnings captured)');
+  }
+}
+
+async function main(): Promise<void> {
+  console.log('🧪 Testing issue:generate warning gating for AI context files\n');
+  const backups = prepareFilesystem();
+  const originalHome = process.env.HOME;
+  process.env.HOME = tempHomePath;
+  try {
+    const output = await runAdaptersAndCaptureWarnings(buildMockConfigService(), buildMockLogger());
+    checkAnthropicWarns(output);
+    checkDeepSeekSilent(output);
+    checkOpenAISilent(output);
+  } finally {
+    restoreFilesystem(originalHome, backups);
+  }
+  summarise(counts);
 }
 
 main().catch(error => {
@@ -182,17 +179,17 @@ main().catch(error => {
   process.exit(1);
 });
 
+const captureWarning = (messages: string[]) => (...args: unknown[]) => {
+  messages.push(args.map(String).join(' '));
+};
+
 function jestLikeSpy(): {
   messages: string[];
   restore: () => void;
 } {
   const messages: string[] = [];
   const originalWarn = console.warn;
-
-  console.warn = (...args: unknown[]) => {
-    messages.push(args.map(String).join(' '));
-  };
-
+  console.warn = captureWarning(messages);
   return {
     messages,
     restore: () => {

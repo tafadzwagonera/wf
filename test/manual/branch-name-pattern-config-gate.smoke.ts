@@ -9,14 +9,14 @@
  *   4. A valid pattern passes the config gate (any later failure is not the
  *      config-validation error)
  *
- * Run: nr test:manual -- branch-name-pattern-config-gate.smoke
+ * Run: nr test:manual branch-name-pattern-config-gate.smoke.ts
  */
 
 import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -38,53 +38,60 @@ const runCli = (args: string, cwd: string): CliResult => {
   }
 };
 
+function assertInvalidPatternResult(result: CliResult): void {
+  if (result.exitCode === 0) {
+    fail('CLI should exit non-zero on an invalid git.branchNamePattern regex', result.output.slice(0, 500));
+  } else {
+    pass(`CLI exits non-zero (${result.exitCode}) on an invalid git.branchNamePattern regex`);
+  }
+  if (result.output.includes('git.branchNamePattern')) {
+    pass('error output names git.branchNamePattern');
+  } else {
+    fail('error output should name git.branchNamePattern', result.output.slice(0, 500));
+  }
+}
+
+function checkInvalidPatternExit(tmpDir: string): void {
+  fs.writeFileSync(
+    path.join(tmpDir, 'wf.config.js'),
+    "module.exports = { git: { branchNamePattern: '[' } };\n"
+  );
+  const result = runCli('issue:implement -k WBP-1 --dry-run', tmpDir);
+  assertInvalidPatternResult(result);
+}
+
+function checkNoArtifactsLeft(tmpDir: string): void {
+  if (fs.existsSync(path.join(tmpDir, '.wf'))) {
+    fail('aborted run should leave no .wf/ artifacts in the project');
+  } else {
+    pass('aborted run left no .wf/ artifacts in the project');
+  }
+}
+
+function checkValidPatternPasses(tmpDir: string): void {
+  fs.writeFileSync(
+    path.join(tmpDir, 'wf.config.js'),
+    "module.exports = { git: { branchNamePattern: '^team\\\\/[a-z-]+$' } };\n"
+  );
+  const validResult = runCli('issue:implement -k WBP-1 --dry-run', tmpDir);
+  if (validResult.output.includes('Invalid wf config')) {
+    fail('a valid pattern should pass the config gate', validResult.output.slice(0, 500));
+  } else {
+    pass('a valid pattern passes the config gate (no "Invalid wf config" error)');
+  }
+}
+
 function main(): void {
   console.log('\nManual smoke test: invalid git.branchNamePattern fails config load\n');
-
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-config-gate-'));
-
   try {
-    fs.writeFileSync(
-      path.join(tmpDir, 'wf.config.js'),
-      "module.exports = { git: { branchNamePattern: '[' } };\n"
-    );
-
-    const invalidResult = runCli('issue:implement -k WBP-1 --dry-run', tmpDir);
-    if (invalidResult.exitCode === 0) {
-      fail('CLI should exit non-zero on an invalid git.branchNamePattern regex', invalidResult.output.slice(0, 500));
-    } else {
-      pass(`CLI exits non-zero (${invalidResult.exitCode}) on an invalid git.branchNamePattern regex`);
-    }
-
-    if (invalidResult.output.includes('git.branchNamePattern')) {
-      pass('error output names git.branchNamePattern');
-    } else {
-      fail('error output should name git.branchNamePattern', invalidResult.output.slice(0, 500));
-    }
-
-    if (fs.existsSync(path.join(tmpDir, '.wf'))) {
-      fail('aborted run should leave no .wf/ artifacts in the project');
-    } else {
-      pass('aborted run left no .wf/ artifacts in the project');
-    }
-
-    fs.writeFileSync(
-      path.join(tmpDir, 'wf.config.js'),
-      "module.exports = { git: { branchNamePattern: '^team\\\\/[a-z-]+$' } };\n"
-    );
-    const validResult = runCli('issue:implement -k WBP-1 --dry-run', tmpDir);
-    if (validResult.output.includes('Invalid wf config')) {
-      fail('a valid pattern should pass the config gate', validResult.output.slice(0, 500));
-    } else {
-      pass('a valid pattern passes the config gate (no "Invalid wf config" error)');
-    }
+    checkInvalidPatternExit(tmpDir);
+    checkNoArtifactsLeft(tmpDir);
+    checkValidPatternPasses(tmpDir);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: git.branchNamePattern config gate');
+  summarise(counts);
 }
 
 main();

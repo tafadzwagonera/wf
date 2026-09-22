@@ -9,7 +9,7 @@
  * the links must appear in the persisted manifest but not in the figmaLinks
  * argument passed to the AI call.
  *
- * Run: nr test:manual -- figma-links-design-system-gate-manifest-only.smoke
+ * Run: nr test:manual figma-links-design-system-gate-manifest-only.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -22,6 +22,8 @@ import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
+type Conventions = ReturnType<typeof detectRepoConventions>;
+
 function makeDesignSystemRepo(dir: string): void {
   fs.writeFileSync(
     path.join(dir, 'package.json'),
@@ -33,60 +35,81 @@ function makeDesignSystemRepo(dir: string): void {
   );
 }
 
+function runDetectionCase(conventions: Conventions): void {
+  console.log(chalk.bold.cyan('\nTest 1: detectRepoConventions detects hasUiEnvironment when design system present'));
+  if (conventions.designSystem?.hasUiEnvironment) {
+    pass(`Design system detected with hasUiEnvironment=true: ${conventions.designSystem.hasUiEnvironment}`);
+  } else {
+    fail('Expected hasUiEnvironment: true to be detected — check makeDesignSystemRepo fixture');
+  }
+}
+
+async function runNoPromptCase(
+  ticketContent: string,
+  autoLinks: string[],
+  conventions: Conventions,
+): Promise<void> {
+  const label = '\nTest 2: resolvePostParseFigmaLinks with allowPrompt: false'
+    + ' returns [] when design system present but prompt disallowed';
+  console.log(chalk.bold.cyan(label));
+  const result = await resolvePostParseFigmaLinks(ticketContent, autoLinks, { allowPrompt: false, conventions });
+  if (result.length === 0) {
+    pass('resolvePostParseFigmaLinks returns [] when allowPrompt is false, even with design system detected');
+  } else {
+    fail('resolvePostParseFigmaLinks returned links unexpectedly', JSON.stringify(result));
+  }
+}
+
+function setNonTtyMode(): boolean {
+  const isTTY = process.stdout.isTTY;
+  Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+  return isTTY ?? false;
+}
+
+function restoreTtyMode(isTTY: boolean): void {
+  Object.defineProperty(process.stdout, 'isTTY', { value: isTTY, configurable: true });
+}
+
+function checkNonTtyResult(result: string[]): void {
+  if (result.length === 0) {
+    pass('Non-TTY stdout suppresses inquirer prompt inside searchFigmaLinksForTicket');
+  } else {
+    fail('Expected [] in non-TTY session, got links', JSON.stringify(result));
+  }
+}
+
+async function runNonTtyCase(
+  ticketContent: string,
+  autoLinks: string[],
+  conventions: Conventions,
+): Promise<void> {
+  console.log(chalk.bold.cyan('\nTest 3: non-interactive session (non-TTY stdout) suppresses the prompt even with a design system'));
+  const isTTY = setNonTtyMode();
+  const result = await resolvePostParseFigmaLinks(ticketContent, autoLinks, { allowPrompt: true, conventions });
+  restoreTtyMode(isTTY);
+  checkNonTtyResult(result);
+}
+
+function reportResults(): void {
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
+  console.log('\nManual smoke test passed: design-system gate controls Figma prompt');
+}
+
 async function main(): Promise<void> {
   console.log('Manual smoke: prompted Figma links go to manifest only, not AI context\n');
-
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-gate-'));
-
   try {
     makeDesignSystemRepo(tempDir);
     const conventions = detectRepoConventions(tempDir);
     const ticketContent = '# WBP-200: Update the hero section layout';
-    const autoLinks: string[] = [];
-
-    console.log(chalk.bold.cyan('\nTest 1: detectRepoConventions detects hasUiEnvironment when design system present'));
-
-    if (conventions.designSystem?.hasUiEnvironment) {
-      pass(`Design system detected with hasUiEnvironment=true: ${conventions.designSystem.hasUiEnvironment}`);
-    } else {
-      fail('Expected hasUiEnvironment: true to be detected — check makeDesignSystemRepo fixture');
-    }
-
-    console.log(chalk.bold.cyan('\nTest 2: resolvePostParseFigmaLinks with allowPrompt: false returns [] when design system present but prompt disallowed'));
-
-    const noPromptLinks = await resolvePostParseFigmaLinks(
-      ticketContent, autoLinks, { allowPrompt: false, conventions }
-    );
-
-    if (noPromptLinks.length === 0) {
-      pass('resolvePostParseFigmaLinks returns [] when allowPrompt is false, even with design system detected');
-    } else {
-      fail('resolvePostParseFigmaLinks returned links unexpectedly', JSON.stringify(noPromptLinks));
-    }
-
-    console.log(chalk.bold.cyan('\nTest 3: non-interactive session (non-TTY stdout) suppresses the prompt even with a design system'));
-
-    const isTTY = process.stdout.isTTY;
-    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
-
-    const nonTtyLinks = await resolvePostParseFigmaLinks(
-      ticketContent, autoLinks, { allowPrompt: true, conventions }
-    );
-
-    Object.defineProperty(process.stdout, 'isTTY', { value: isTTY, configurable: true });
-
-    if (nonTtyLinks.length === 0) {
-      pass('Non-TTY stdout suppresses inquirer prompt inside searchFigmaLinksForTicket');
-    } else {
-      fail('Expected [] in non-TTY session, got links', JSON.stringify(nonTtyLinks));
-    }
+    runDetectionCase(conventions);
+    await runNoPromptCase(ticketContent, [], conventions);
+    await runNonTtyCase(ticketContent, [], conventions);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: design-system gate controls Figma prompt');
+  reportResults();
 }
 
 main().catch(error => {

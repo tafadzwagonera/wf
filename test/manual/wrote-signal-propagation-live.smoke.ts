@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: wrote signal propagates correctly through the full call chain
  *
- * Run: nr test:manual -- test-wrote-signal-propagation-live
+ * Run: nr test:manual wrote-signal-propagation-live.smoke.ts
  *
  * Verifies:
  *   claude-cli adapter:
@@ -33,7 +33,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -42,37 +42,7 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
   else fail(label, detail);
 };
 
-const spawnProbe = (script: string): Promise<string[]> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      ['--require', 'ts-node/register', '-e', script],
-      { stdio: ['ignore', 'pipe', 'pipe'], cwd: path.resolve(__dirname, '../..') },
-    );
-    const lines: string[] = [];
-    const rl = createInterface({ input: child.stdout });
-    rl.on('line', (line: string) => lines.push(line));
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-    child.on('close', (code: number | null) => {
-      if (code !== 0) reject(new Error(`Child exited ${code}: ${stderr.slice(0, 500)}`));
-      else resolve(lines);
-    });
-    setTimeout(() => {
-      child.kill();
-      reject(new Error('Timed out'));
-    }, 15_000);
-  });
-
-const get = (lines: string[], prefix: string): string =>
-  lines.find(l => l.includes(prefix + ':'))?.split(prefix + ':')[1] ?? '';
-
-async function testClaudeCliChain(): Promise<void> {
-  console.log(chalk.bold.underline('  claude-cli adapter'));
-
-  const script = `
+const claudeCliScript = `
     const { ClaudeCliAdapter } = require('./src/integrations/ai/adapters/claude-cli.adapter');
     const adapter = Object.create(ClaudeCliAdapter.prototype);
     const as = { verificationOutcomes: [] };
@@ -148,23 +118,49 @@ async function testClaudeCliChain(): Promise<void> {
     console.log('T10:' + wrote10);
   `;
 
-  const lines = await spawnProbe(script);
-  assert('Write block with valid file_path -> true', get(lines, 'T1') === 'true', `got: ${get(lines, 'T1')}`);
-  assert('Write block with empty file_path -> false', get(lines, 'T2') === 'false', `got: ${get(lines, 'T2')}`);
-  assert('Read block -> false', get(lines, 'T3') === 'false', `got: ${get(lines, 'T3')}`);
-  assert('Edit adds relative path to touchedFiles', get(lines, 'T4') === 'src/bar.ts', `got: "${get(lines, 'T4')}"`);
-  assert('Read then Edit -> aggregation monotonically true', get(lines, 'T5') === 'true', `got: ${get(lines, 'T5')}`);
-  assert('system/progress then Write -> progress does not intercept', get(lines, 'T6') === 'true', `got: ${get(lines, 'T6')}`);
-  assert('Multiple blocks with one Edit -> true', get(lines, 'T7') === 'true', `got: ${get(lines, 'T7')}`);
-  assert('Bash block -> false', get(lines, 'T8') === 'false', `got: ${get(lines, 'T8')}`);
-  assert('Read-only fix pass sequence -> wrote false', get(lines, 'T9') === 'false', `got: ${get(lines, 'T9')}`);
-  assert('Fix pass with Edit -> wrote true', get(lines, 'T10') === 'true', `got: ${get(lines, 'T10')}`);
+function spawnProbe(script: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['--require', 'ts-node/register', '-e', script],
+      { stdio: ['ignore', 'pipe', 'pipe'], cwd: path.resolve(__dirname, '../..') },
+    );
+    const lines: string[] = [];
+    setupProbeListeners(child, lines, resolve, reject);
+  });
 }
 
-async function testCodexCliChain(): Promise<void> {
-  console.log(chalk.bold.underline('\n  codex-cli adapter'));
+function setupProbeListeners(
+  child: any,
+  lines: string[],
+  resolve: (v: string[]) => void,
+  reject: (err: Error) => void,
+): void {
+  let stderr = '';
+  createInterface({ input: child.stdout }).on('line', (l: string) => lines.push(l));
+  child.stderr.on('data', (c: Buffer) => {
+    stderr += c.toString();
+  });
+  child.on('close', makeChildCloseHandler(lines, stderr, resolve, reject));
+  setTimeout(handleProbeTimeout(child, reject), 15_000);
+}
 
-  const script = `
+const makeChildCloseHandler = (
+  lines: string[], stderr: string, resolve: (v: string[]) => void, reject: (err: Error) => void,
+) => (code: number | null) => {
+  if (code === 0) resolve(lines);
+  else reject(new Error(`Child exited ${code}: ${stderr.slice(0, 500)}`));
+};
+
+const handleProbeTimeout = (child: any, reject: (err: Error) => void) => () => {
+  child.kill();
+  reject(new Error('Timed out'));
+};
+
+const get = (lines: string[], prefix: string): string =>
+  lines.find(l => l.includes(prefix + ':'))?.split(prefix + ':')[1] ?? '';
+
+const codexCliScript = `
     const fs = require('fs');
     const pth = require('path');
     const mod = require('./dist/integrations/ai/adapters/codex-cli.adapter');
@@ -211,7 +207,24 @@ async function testCodexCliChain(): Promise<void> {
     console.log('T20_S:' + passResult.outcomes[0].status);
   `;
 
-  const lines = await spawnProbe(script);
+async function testClaudeCliChain(): Promise<void> {
+  console.log(chalk.bold.underline('  claude-cli adapter'));
+  const lines = await spawnProbe(claudeCliScript);
+  assert('Write block with valid file_path -> true', get(lines, 'T1') === 'true', `got: ${get(lines, 'T1')}`);
+  assert('Write block with empty file_path -> false', get(lines, 'T2') === 'false', `got: ${get(lines, 'T2')}`);
+  assert('Read block -> false', get(lines, 'T3') === 'false', `got: ${get(lines, 'T3')}`);
+  assert('Edit adds relative path to touchedFiles', get(lines, 'T4') === 'src/bar.ts', `got: "${get(lines, 'T4')}"`);
+  assert('Read then Edit -> aggregation monotonically true', get(lines, 'T5') === 'true', `got: ${get(lines, 'T5')}`);
+  assert('system/progress then Write -> progress does not intercept', get(lines, 'T6') === 'true', `got: ${get(lines, 'T6')}`);
+  assert('Multiple blocks with one Edit -> true', get(lines, 'T7') === 'true', `got: ${get(lines, 'T7')}`);
+  assert('Bash block -> false', get(lines, 'T8') === 'false', `got: ${get(lines, 'T8')}`);
+  assert('Read-only fix pass sequence -> wrote false', get(lines, 'T9') === 'false', `got: ${get(lines, 'T9')}`);
+  assert('Fix pass with Edit -> wrote true', get(lines, 'T10') === 'true', `got: ${get(lines, 'T10')}`);
+}
+
+async function testCodexCliChain(): Promise<void> {
+  console.log(chalk.bold.underline('\n  codex-cli adapter'));
+  const lines = await spawnProbe(codexCliScript);
   assert('CodexCliAdapter exports correctly from dist', get(lines, 'T11') === 'true');
   assert('attemptCodexFix exists on prototype', get(lines, 'T12') === 'true');
   assert('runCodexFixPass exists on prototype', get(lines, 'T13') === 'true');
@@ -239,12 +252,7 @@ async function main(): Promise<void> {
     fail('codex-cli chain probe', error instanceof Error ? error.message : String(error));
   }
 
-  console.log(
-    chalk.bold(
-      `\n${counts.passed + counts.failed} assertions: ${chalk.green(`${counts.passed} passed`)}${counts.failed > 0 ? `, ${chalk.red(`${counts.failed} failed`)}` : ''}\n`,
-    ),
-  );
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(error => {

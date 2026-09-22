@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: context overflow fix for Claude CLI verification fix loop
  *
- * Run: nr test:manual -- test-cli-verification-fix-pass-context
+ * Run: nr test:manual cli-verification-fix-pass-context.smoke.ts
  *
  * Verifies:
  *   1. buildCliArgs omits --append-system-prompt when appendSystemPrompt is undefined
@@ -18,7 +18,7 @@
 import chalk from 'chalk';
 import { buildCliArgs } from '../../src/integrations/ai/adapters/claude-cli-runner';
 import { buildVerificationFixPrompt } from '../../src/integrations/ai/adapters/verification-report';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -27,105 +27,72 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
   else fail(label, detail);
 };
 
-function main(): void {
-  console.log(chalk.bold('\nCLI verification fix-pass context overflow smoke test\n'));
+function checkAppendSystemPromptOmitted(): void {
+  const argsNoPrompt = buildCliArgs({ prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo', appendSystemPrompt: undefined });
+  assert('buildCliArgs omits --append-system-prompt when undefined', !argsNoPrompt.includes('--append-system-prompt'), `got args: ${argsNoPrompt.join(' ')}`);
+}
 
-  // 1. buildCliArgs omits --append-system-prompt when undefined
-  const argsNoPrompt = buildCliArgs({
-    prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo',
-    appendSystemPrompt: undefined,
-  });
-  assert(
-    'buildCliArgs omits --append-system-prompt when undefined',
-    !argsNoPrompt.includes('--append-system-prompt'),
-    `got args: ${argsNoPrompt.join(' ')}`,
-  );
+function checkAppendSystemPromptIncluded(): void {
+  const argsWithPrompt = buildCliArgs({ prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo', appendSystemPrompt: 'You are helpful' });
+  assert('buildCliArgs includes --append-system-prompt when provided', argsWithPrompt.includes('--append-system-prompt') && argsWithPrompt.includes('You are helpful'), `got args: ${argsWithPrompt.join(' ')}`);
+}
 
-  // 2. buildCliArgs includes --append-system-prompt when provided
-  const argsWithPrompt = buildCliArgs({
-    prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo',
-    appendSystemPrompt: 'You are helpful',
-  });
-  assert(
-    'buildCliArgs includes --append-system-prompt when provided',
-    argsWithPrompt.includes('--append-system-prompt') && argsWithPrompt.includes('You are helpful'),
-    `got args: ${argsWithPrompt.join(' ')}`,
-  );
+function checkMaxTurnsAbsent(): void {
+  const argsAll = buildCliArgs({ prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo' });
+  assert('buildCliArgs does not include --max-turns', !argsAll.includes('--max-turns'), `got args: ${argsAll.join(' ')}`);
+}
 
-  // 3. buildCliArgs does not include --max-turns (removed)
-  const argsAll = buildCliArgs({
-    prompt: 'test', model: 'claude-sonnet-4-6', cwd: '/repo',
-  });
-  assert(
-    'buildCliArgs does not include --max-turns',
-    !argsAll.includes('--max-turns'),
-    `got args: ${argsAll.join(' ')}`,
-  );
-
-  // 4. buildVerificationFixPrompt returns empty string for empty array
+function checkVerificationFixPromptEmpty(): void {
   const emptyResult = buildVerificationFixPrompt([]);
-  assert(
-    'buildVerificationFixPrompt returns empty string for empty failures',
-    emptyResult === '',
-    `got: "${emptyResult}"`,
-  );
+  assert('buildVerificationFixPrompt returns empty string for empty failures', emptyResult === '', `got: "${emptyResult}"`);
+}
 
-  // 5. buildVerificationFixPrompt truncates long output to 500 chars
+function checkVerificationFixPromptTruncates(): void {
   const longOutput = 'x'.repeat(1000);
   const truncatedPrompt = buildVerificationFixPrompt([
     { id: 't1', command: 'yarn test', policy: 'enforced', status: 'failed', output: longOutput } as never,
   ]);
   const outputSection = truncatedPrompt.split('Output:\n')[1]?.split('\n\n')[0] ?? '';
-  assert(
-    'buildVerificationFixPrompt truncates output to 500 chars',
-    outputSection.startsWith('...') && outputSection.length <= 503,
-    `output section length: ${outputSection.length}`,
-  );
+  assert('buildVerificationFixPrompt truncates output to 500 chars', outputSection.startsWith('...') && outputSection.length <= 503, `output section length: ${outputSection.length}`);
+}
 
-  // 6. buildVerificationFixPrompt preserves short output
+function checkVerificationFixPromptPreservesShort(): void {
   const shortPrompt = buildVerificationFixPrompt([
     { id: 't2', command: 'yarn build', policy: 'enforced', status: 'failed', output: 'error: missing semicolon' } as never,
   ]);
-  assert(
-    'buildVerificationFixPrompt preserves short output without truncation',
-    shortPrompt.includes('error: missing semicolon') && !shortPrompt.includes('...error'),
-    `got: ${shortPrompt.slice(0, 200)}`,
-  );
+  assert('buildVerificationFixPrompt preserves short output without truncation', shortPrompt.includes('error: missing semicolon') && !shortPrompt.includes('...error'), `got: ${shortPrompt.slice(0, 200)}`);
+}
 
-  // 7. SinglePassParams accepts appendSystemPrompt as undefined (runtime proxy)
+function checkSinglePassParamsUndefined(): void {
   const singlePassParams: Record<string, unknown> = {
     passNumber: 1, sessionId: 's1', currentUnvisited: [],
     appendSystemPrompt: undefined, model: 'claude-sonnet-4-6',
     repoDir: '/repo', additionalRepoDirs: [], touchedFiles: new Set(),
     activityState: { verificationOutcomes: [] },
   };
-  assert(
-    'SinglePassParams accepts appendSystemPrompt as undefined',
-    singlePassParams.appendSystemPrompt === undefined,
-  );
+  assert('SinglePassParams accepts appendSystemPrompt as undefined', singlePassParams.appendSystemPrompt === undefined);
+}
 
-  // 8. TimeoutManager exposes clearInactivity
-  // We verify the interface contract indirectly: buildCliArgs should not crash
-  // and the TimeoutManager interface is satisfied by the createTimeoutManager
-  // factory (tested via unit tests; here we just confirm the module loads cleanly)
+function checkTimeoutManagerLoads(): void {
   try {
     const runner = require('../../src/integrations/ai/adapters/claude-cli-runner');
-    assert(
-      'claude-cli-runner module loads without error (clearInactivity wired)',
-      typeof runner.buildCliArgs === 'function',
-    );
+    assert('claude-cli-runner module loads without error (clearInactivity wired)', typeof runner.buildCliArgs === 'function');
   } catch (error) {
     fail('claude-cli-runner module loads without error', `threw: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
 
-  // Summary
-  console.log(
-    chalk.bold(
-      `\n${counts.passed + counts.failed} assertions: ${chalk.green(`${counts.passed} passed`)}${counts.failed > 0 ? `, ${chalk.red(`${counts.failed} failed`)}` : ''}`
-    )
-  );
-
-  if (counts.failed > 0) process.exit(1);
+function main(): void {
+  console.log(chalk.bold('\nCLI verification fix-pass context overflow smoke test\n'));
+  checkAppendSystemPromptOmitted();
+  checkAppendSystemPromptIncluded();
+  checkMaxTurnsAbsent();
+  checkVerificationFixPromptEmpty();
+  checkVerificationFixPromptTruncates();
+  checkVerificationFixPromptPreservesShort();
+  checkSinglePassParamsUndefined();
+  checkTimeoutManagerLoads();
+  summarise(counts);
 }
 
 main();

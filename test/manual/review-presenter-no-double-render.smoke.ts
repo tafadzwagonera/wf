@@ -11,7 +11,7 @@
  *   3. Silent mode prints only the artifact path
  *
  * Run:
- *   nr test:manual -- test-review-presenter-no-double-render
+ *   nr test:manual review-presenter-no-double-render.smoke.ts
  */
 
 import { NestFactory } from '@nestjs/core';
@@ -22,47 +22,85 @@ import { IssueCommand } from '../../src/commands/issue.command';
 import chalk from 'chalk';
 import { createReporter } from './support/reporter';
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: ReviewPresenter no double render\n');
+function checkConstructor(a: ReviewerAgent, pass: (msg: string) => void, fail: (msg: string) => void): void {
+  const src = Object.getPrototypeOf(a).constructor.toString();
+  if (src.includes('reviewPresenter') || src.includes('ReviewPresenter')) fail('ReviewerAgent constructor still references ReviewPresenter');
+  else pass('ReviewerAgent constructor has no ReviewPresenter reference');
+}
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
+function checkPresenterInstance(
+  a: ReviewerAgent,
+  pass: (msg: string) => void,
+  fail: (msg: string, msg2: string) => void,
+): void {
+  const key = Object.keys(a).find(
+    k => (a as unknown as Record<string, unknown>)[k] instanceof ReviewPresenter,
+  );
+  if (!key) pass('ReviewerAgent holds no ReviewPresenter instance');
+  else fail(`ReviewerAgent has ReviewPresenter instance on key "${key}"`, '');
+}
+
+function testAgent(a: ReviewerAgent, pass: (msg: string) => void, fail: any): void {
+  checkConstructor(a, pass, fail);
+  checkPresenterInstance(a, pass, fail);
+}
+
+function captureLog(fn: () => void): string[] {
+  const captured: string[] = [];
+  const orig = console.log;
+  console.log = (...args: unknown[]) => {
+    captured.push(args.map(String).join(' '));
+  };
+  fn();
+  console.log = orig;
+  return captured;
+}
+
+function checkSummaryCount(output: string, pass: any, fail: any): void {
+  const cnt = output.split('UNIQUE_MARKER_SUMMARY').length - 1;
+  if (cnt === 1) pass(`Summary rendered exactly once (found ${cnt})`);
+  else fail(`Summary rendered ${cnt} times, expected 1`);
+}
+
+function checkApprovalCount(output: string, pass: any, fail: any): void {
+  const cnt = output.split('Approval Status').length - 1;
+  if (cnt === 1) pass(`Approval status rendered exactly once (found ${cnt})`);
+  else fail(`Approval status rendered ${cnt} times, expected 1`);
+}
+
+function testRenderCount(cmd: IssueCommand, artifact: unknown, strip: any, pass: any, fail: any): void {
+  const captured = captureLog(() => {
+    (cmd as any).printReviewStatus(artifact, false);
   });
+  const output = strip(captured.join('\n'));
+  checkSummaryCount(output, pass, fail);
+  checkApprovalCount(output, pass, fail);
+}
 
-  const originalLog = console.log;
-  const { counts, pass, fail } = createReporter();
+function checkSilentOutput(out: string, expected: string, pass: any, fail: any): void {
+  if (out === expected) pass('Silent mode outputs only the artifact path');
+  else fail(`Silent mode output: "${out}", expected: "${expected}"`);
+}
 
-  // eslint-disable-next-line no-control-regex
-  const stripAnsi = (s: string) => s.replaceAll(/\x1B\[[0-9;]*m/g, '');
+function testSilent(cmd: IssueCommand, artifact: unknown, pass: any, fail: any): void {
+  const captured = captureLog(() => {
+    (cmd as any).printReviewStatus(artifact, true);
+  });
+  const out = captured.join('\n').trim();
+  const expected = (artifact as any).path;
+  checkSilentOutput(out, expected, pass, fail);
+  if (out.includes('Summary')) fail('Silent mode unexpectedly contains review content');
+  else pass('Silent mode does not contain review content');
+}
 
+function runTest1(originalLog: typeof console.log, agent: ReviewerAgent): void {
   originalLog(chalk.bold.cyan('Test 1: ReviewerAgent has no ReviewPresenter dependency'));
+  const { pass, fail } = createReporter();
+  testAgent(agent, pass, fail);
+}
 
-  const agent = app.get(ReviewerAgent);
-  const agentProto = Object.getPrototypeOf(agent);
-  const constructorSource = agentProto.constructor.toString();
-
-  if (constructorSource.includes('reviewPresenter') || constructorSource.includes('ReviewPresenter')) {
-    fail('ReviewerAgent constructor still references ReviewPresenter');
-  } else {
-    pass('ReviewerAgent constructor has no ReviewPresenter reference');
-  }
-
-  const agentKeys = Object.keys(agent);
-  const presenterKey = agentKeys.find(k => {
-    const val = (agent as unknown as Record<string, unknown>)[k];
-    return val instanceof ReviewPresenter;
-  });
-
-  if (!presenterKey) {
-    pass('ReviewerAgent holds no ReviewPresenter instance');
-  } else {
-    fail(`ReviewerAgent has ReviewPresenter instance on key "${presenterKey}"`);
-  }
-
-  originalLog(chalk.bold.cyan('\nTest 2: printReviewStatus renders exactly once (non-silent)'));
-
-  const command = app.get(IssueCommand);
-  const mockArtifact = {
+function mkArtifact(): unknown {
+  return {
     review: {
       summary: 'UNIQUE_MARKER_SUMMARY',
       issues: [{ severity: 'warning', message: 'test issue' }],
@@ -72,59 +110,45 @@ async function main(): Promise<void> {
     path: '/tmp/.wf/test/review.md',
     approved: true,
   };
+}
 
-  const captured: string[] = [];
-  console.log = (...args: unknown[]) => {
-    captured.push(args.map(String).join(' '));
-  };
+function runTest2(originalLog: any, command: IssueCommand, stripAnsi: any): void {
+  originalLog(chalk.bold.cyan('\nTest 2: printReviewStatus renders exactly once (non-silent)'));
+  const { pass, fail } = createReporter();
+  testRenderCount(command, mkArtifact(), stripAnsi, pass, fail);
+}
 
-  (command as any).printReviewStatus(mockArtifact, false);
-
-  console.log = originalLog;
-  const output = stripAnsi(captured.join('\n'));
-
-  const summaryCount = output.split('UNIQUE_MARKER_SUMMARY').length - 1;
-  if (summaryCount === 1) {
-    pass(`Summary rendered exactly once (found ${summaryCount})`);
-  } else {
-    fail(`Summary rendered ${summaryCount} times, expected 1`);
-  }
-
-  const approvalCount = output.split('Approval Status').length - 1;
-  if (approvalCount === 1) {
-    pass(`Approval status rendered exactly once (found ${approvalCount})`);
-  } else {
-    fail(`Approval status rendered ${approvalCount} times, expected 1`);
-  }
-
+function runTest3(originalLog: any, command: IssueCommand): void {
   originalLog(chalk.bold.cyan('\nTest 3: printReviewStatus silent mode prints path only'));
+  const { pass, fail } = createReporter();
+  testSilent(command, mkArtifact(), pass, fail);
+}
 
-  const capturedSilent: string[] = [];
-  console.log = (...args: unknown[]) => {
-    capturedSilent.push(args.map(String).join(' '));
-  };
+function mkStripAnsi(): (s: string) => string {
+  const pattern = `[${String.fromCharCode(27)}]\\[[0-9;]*m`;
+  return (s: string) => s.replaceAll(new RegExp(pattern, 'g'), '');
+}
 
-  (command as any).printReviewStatus(mockArtifact, true);
+async function runTests(
+  app: any,
+  originalLog: typeof console.log,
+  stripAnsi: (s: string) => string,
+): Promise<void> {
+  const agent = app.get(ReviewerAgent);
+  runTest1(originalLog, agent);
+  const command = app.get(IssueCommand);
+  runTest2(originalLog, command, stripAnsi);
+  runTest3(originalLog, command);
+}
 
-  console.log = originalLog;
-  const silentOutput = capturedSilent.join('\n').trim();
-
-  if (silentOutput === mockArtifact.path) {
-    pass('Silent mode outputs only the artifact path');
-  } else {
-    fail(`Silent mode output: "${silentOutput}", expected: "${mockArtifact.path}"`);
-  }
-
-  if (silentOutput.includes('Summary')) {
-    fail('Silent mode unexpectedly contains review content');
-  } else {
-    pass('Silent mode does not contain review content');
-  }
-
+async function main(): Promise<void> {
+  console.log('Manual smoke: ReviewPresenter no double render\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const originalLog = console.log;
+  const { counts } = createReporter();
+  await runTests(app, originalLog, mkStripAnsi());
   originalLog(`\n${counts.passed} passed, ${counts.failed} failed`);
-
   await app.close();
-
   if (counts.failed > 0) process.exit(1);
   originalLog('\nManual smoke test passed: no double render');
 }

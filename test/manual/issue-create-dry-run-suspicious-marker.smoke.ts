@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: suspicious Jira marker flagged in --dry-run preview (C4 dry-run path)
  *
- * Run: nr test:manual -- test-issue-create-dry-run-suspicious-marker
+ * Run: nr test:manual issue-create-dry-run-suspicious-marker.smoke.ts
  *
  * Verifies that analyzeJiraPayload is exercised on the --dry-run path — i.e.,
  * that C4 sharing is in effect for dry-runs.
@@ -39,27 +39,30 @@ const runCreate = (artifactPath: string, extraArgs: string[] = []): { status: nu
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 };
 
-function main(): void {
-  console.log('\nManual Test: suspicious Jira marker flagged in --dry-run preview\n');
-
+function checkDistExists(): void {
   if (!fs.existsSync(DIST_MAIN)) {
     throw new Error('dist/main.js must exist before running this smoke test. Run `yarn build` first.');
   }
+}
 
+function verifyDryRunSurfacesMarker(artifactPath: string): void {
+  const dryRun = runCreate(artifactPath, ['--dry-run']);
+  assert.strictEqual(dryRun.status, 0, `--dry-run with suspicious artifact should exit 0, got ${dryRun.status}:\n${dryRun.output}`);
+  assert.ok(
+    dryRun.output.includes('{code}') || dryRun.output.toLowerCase().includes('suspicious'),
+    `--dry-run must surface the suspicious marker in output:\n${dryRun.output}`,
+  );
+  console.log('  PASS: suspicious marker surfaced in --dry-run preview');
+}
+
+function main(): void {
+  console.log('\nManual Test: suspicious Jira marker flagged in --dry-run preview\n');
+  checkDistExists();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-suspicious-dryrun-'));
   const artifactPath = path.join(tmpDir, 'suspicious.md');
-
   try {
     fs.writeFileSync(artifactPath, ARTIFACT);
-
-    const dryRun = runCreate(artifactPath, ['--dry-run']);
-    assert.strictEqual(dryRun.status, 0, `--dry-run with suspicious artifact should exit 0, got ${dryRun.status}:\n${dryRun.output}`);
-    assert.ok(
-      dryRun.output.includes('{code}') || dryRun.output.toLowerCase().includes('suspicious'),
-      `--dry-run must surface the suspicious marker in output:\n${dryRun.output}`,
-    );
-    console.log('  PASS: suspicious marker surfaced in --dry-run preview');
-
+    verifyDryRunSurfacesMarker(artifactPath);
     console.log('\nAll suspicious-marker dry-run checks passed.\n');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -2,7 +2,7 @@
  * Manual smoke test: stripped-section names are reported in non-silent output
  * and ### Risks & Assumptions is preserved through the dry-run preview
  *
- * Run: nr test:manual -- test-issue-create-section-strip-report
+ * Run: nr test:manual issue-create-section-strip-report.smoke.ts
  *
  * Verifies:
  *   1. Non-silent dry-run output contains "Removed internal-only sections:"
@@ -52,45 +52,44 @@ const run = (artifactPath: string, extraArgs: string[] = []): { status: number |
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
 };
 
-function main(): void {
-  console.log('\nManual Test: issue:create section strip report and Risks & Assumptions preservation\n');
-
+function checkDistExists(): void {
   if (!fs.existsSync(DIST_MAIN)) {
     throw new Error('dist/main.js must exist before running this smoke test. Run `yarn build` first.');
   }
+}
 
+function checkNonSilentDryRun(artifactPath: string): void {
+  const nonSilent = run(artifactPath);
+  assert.strictEqual(nonSilent.status, 0, `non-silent dry-run should exit 0, got ${nonSilent.status}:\n${nonSilent.output}`);
+  const strippedLine = nonSilent.output.split('\n').find(l => l.includes('Removed internal-only sections:'));
+  assert.ok(strippedLine, `expected "Removed internal-only sections:" in output:\n${nonSilent.output}`);
+  assert.ok(!strippedLine.includes('Risks'), `"Risks" must not appear in stripped-sections line: ${strippedLine}`);
+  console.log('  PASS: stripped-sections line present and excludes Risks & Assumptions');
+  assert.ok(
+    nonSilent.output.includes('Risks') || nonSilent.output.includes('Rolling out without a migration plan'),
+    `### Risks & Assumptions content must appear in dry-run preview:\n${nonSilent.output}`,
+  );
+  console.log('  PASS: ### Risks & Assumptions content present in dry-run preview');
+}
+
+function checkSilentDryRun(artifactPath: string): void {
+  const silent = run(artifactPath, ['--silent']);
+  assert.ok(
+    !silent.output.includes('Removed internal-only sections:'),
+    `--silent must suppress stripped-sections line:\n${silent.output}`,
+  );
+  console.log('  PASS: --silent suppresses stripped-sections report');
+}
+
+function main(): void {
+  console.log('\nManual Test: issue:create section strip report and Risks & Assumptions preservation\n');
+  checkDistExists();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-section-strip-'));
   const artifactPath = path.join(tmpDir, 'artifact.md');
-
   try {
     fs.writeFileSync(artifactPath, ARTIFACT);
-
-    const nonSilent = run(artifactPath);
-    assert.strictEqual(nonSilent.status, 0, `non-silent dry-run should exit 0, got ${nonSilent.status}:\n${nonSilent.output}`);
-
-    const strippedLine = nonSilent.output
-      .split('\n')
-      .find(l => l.includes('Removed internal-only sections:'));
-    assert.ok(strippedLine, `expected "Removed internal-only sections:" in output:\n${nonSilent.output}`);
-    assert.ok(
-      !strippedLine.includes('Risks'),
-      `"Risks" must not appear in stripped-sections line: ${strippedLine}`,
-    );
-    console.log('  PASS: stripped-sections line present and excludes Risks & Assumptions');
-
-    assert.ok(
-      nonSilent.output.includes('Risks') || nonSilent.output.includes('Rolling out without a migration plan'),
-      `### Risks & Assumptions content must appear in dry-run preview:\n${nonSilent.output}`,
-    );
-    console.log('  PASS: ### Risks & Assumptions content present in dry-run preview');
-
-    const silent = run(artifactPath, ['--silent']);
-    assert.ok(
-      !silent.output.includes('Removed internal-only sections:'),
-      `--silent must suppress stripped-sections line:\n${silent.output}`,
-    );
-    console.log('  PASS: --silent suppresses stripped-sections report');
-
+    checkNonSilentDryRun(artifactPath);
+    checkSilentDryRun(artifactPath);
     console.log('\nAll section strip report checks passed.\n');
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

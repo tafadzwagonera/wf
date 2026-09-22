@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue command plan token resolution fallback
  *
- * Run: nr test:manual -- test-issue-plan-token-fallback
+ * Run: nr test:manual issue-plan-token-fallback.smoke.ts
  *
  * Verifies:
  *   1. Plan token in trackerDir resolves via manifest-based resolution
@@ -21,7 +21,7 @@ import {
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -130,190 +130,153 @@ function scaffoldCustomDir(tmpDir: string): { customDir: string; planPath: strin
   return { customDir, planPath, trackerDir };
 }
 
+function mockCwd(tmpDir: string): () => void {
+  const origCwd = process.cwd.bind(process);
+  (process as any).cwd = () => tmpDir;
+  return () => {
+    (process as any).cwd = origCwd;
+  };
+}
+
+function mockProcessExit(): { restore: () => number | undefined } {
+  let exitCode: number | undefined;
+  const orig = process.exit.bind(process);
+  (process as any).exit = (code?: number) => {
+    exitCode = code;
+  };
+  return {
+    restore: () => {
+      (process as any).exit = orig;
+      return exitCode;
+    },
+  };
+}
+
+function captureOutputs(): { restore: () => string } {
+  const stdout = captureStdout();
+  const stderr = captureStderr();
+  return { restore: () => stdout.restore() + stderr.restore() };
+}
+
+function teardown(tmpDir: string, restoreCwd: () => void, restoreHome: () => void): void {
+  restoreCwd();
+  restoreHome();
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+}
+
+function shuffleManifestForTest2(planPath: string): void {
+  // Remove .sources.json files from the directory listing (rename the manifest
+  // sidecar so the scanner cannot find it), but the plan file and manifest
+  // at the direct path still exist.
+  const manifestPath = buildPlanArtifactManifestPath(planPath);
+  const hiddenManifest = manifestPath + '.hidden';
+  fs.renameSync(manifestPath, hiddenManifest);
+
+  // Re-create the manifest at the expected sidecar path so the direct-path
+  // fallback can read it
+  fs.writeFileSync(manifestPath, buildManifest(planPath));
+
+  // But also remove it from directory scan by creating a subdirectory barrier:
+  // The scanner uses readdirSync and filters for .sources.json — since the file
+  // is present again, the scanner WILL find it. To truly test the direct fallback,
+  // we need the manifest-based scanner to fail. The simplest way: rename the
+  // .sources.json to something the scanner won't match, and ensure our direct
+  // path still works.
+  // Actually, let's just remove the hidden copy and keep the manifest.
+  // The manifest-based scan will succeed here, making this test redundant with
+  // Test 1. Instead, verify the overall fallback chain by ensuring test 3 below
+  // covers the customDir fallback.
+  fs.unlinkSync(hiddenManifest);
+}
+
+async function runTest1(command: IssueCommand): Promise<void> {
+  console.log('\n🧪 Test 1: manifest-based resolution in trackerDir\n' + '─'.repeat(60));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
+  const restoreHome = overrideHomeDir(tmpDir);
+  scaffoldTrackerDir(tmpDir);
+  const restoreCwd = mockCwd(tmpDir);
+  const stdoutCapture = captureStdout();
+  await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
+  const output = stdoutCapture.restore();
+  teardown(tmpDir, restoreCwd, restoreHome);
+  if (output.includes(ticketKey)) pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
+  else fail('Dry-run output does not contain resolved ticket key', `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`);
+}
+
+async function runTest2(command: IssueCommand): Promise<void> {
+  console.log('\n🧪 Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n' + '─'.repeat(60));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
+  const restoreHome = overrideHomeDir(tmpDir);
+  const { planPath } = scaffoldTrackerDir(tmpDir);
+  shuffleManifestForTest2(planPath);
+  const restoreCwd = mockCwd(tmpDir);
+  const stdoutCapture = captureStdout();
+  await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
+  const output = stdoutCapture.restore();
+  teardown(tmpDir, restoreCwd, restoreHome);
+  if (output.includes(ticketKey)) pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
+  else fail('Dry-run output does not contain resolved ticket key', `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`);
+}
+
+function verifyTest3Output(output: string): void {
+  if (output.includes(ticketKey)) {
+    pass(`Dry-run resolved plan token from customDir to ticket key: ${ticketKey}`);
+  } else {
+    fail(
+      'Dry-run output does not contain resolved ticket key from customDir',
+      `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`
+    );
+  }
+}
+
+async function runTest3(command: IssueCommand): Promise<void> {
+  console.log('\n🧪 Test 3: customDir fallback when trackerDir has no match\n' + '─'.repeat(60));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
+  const restoreHome = overrideHomeDir(tmpDir);
+  scaffoldCustomDir(tmpDir);
+  const restoreCwd = mockCwd(tmpDir);
+  const stdoutCapture = captureStdout();
+  await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
+  const output = stdoutCapture.restore();
+  teardown(tmpDir, restoreCwd, restoreHome);
+  verifyTest3Output(output);
+}
+
+function checkTest4Result(combined: string, exitCode: number | undefined): void {
+  if (exitCode === 1 || combined.includes('not found') || combined.includes('Error')) {
+    pass('Unresolvable argument fails with an error (treated as ticket key, downstream load fails)');
+  } else {
+    fail('Expected an error for unresolvable argument', `output: ${combined.slice(0, 500)}\nexitCode: ${exitCode}`);
+  }
+}
+
+async function runTest4(command: IssueCommand): Promise<void> {
+  console.log('\n🧪 Test 4: missing plan token throws ValidationError\n' + '─'.repeat(60));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
+  const restoreHome = overrideHomeDir(tmpDir);
+  fs.mkdirSync(path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira'), { recursive: true });
+  const restoreCwd = mockCwd(tmpDir);
+  const exitMock = mockProcessExit();
+  const outputCapture = captureOutputs();
+  await command.run(['nonexistent-plan.json'], { from: 'implement', to: 'implement', tracker: 'jira' });
+  const combined = outputCapture.restore();
+  const exitCode = exitMock.restore();
+  teardown(tmpDir, restoreCwd, restoreHome);
+  checkTest4Result(combined, exitCode);
+}
+
 async function main(): Promise<void> {
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const command = app.get(IssueCommand);
-
-  // ── Test 1: manifest-based resolution in trackerDir ────────────────────
-  console.log('\n\uD83E\uDDEA Test 1: manifest-based resolution in trackerDir\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    scaffoldTrackerDir(tmpDir);
-
-    const origCwd = process.cwd.bind(process);
-    (process as any).cwd = () => tmpDir;
-
-    const stdoutCapture = captureStdout();
-    await command.run([planFilename], {
-      from: 'implement',
-      to: 'implement',
-      tracker: 'jira',
-      dryRun: true,
-    });
-    const output = stdoutCapture.restore();
-
-    (process as any).cwd = origCwd;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (output.includes(ticketKey)) {
-      pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
-    } else {
-      fail(
-        'Dry-run output does not contain resolved ticket key',
-        `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`
-      );
-    }
+  try {
+    await runTest1(command);
+    await runTest2(command);
+    await runTest3(command);
+    await runTest4(command);
+  } finally {
+    await app.close();
   }
-
-  // ── Test 2: direct file-path fallback in trackerDir ────────────────────
-  console.log(
-    '\n\uD83E\uDDEA Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n'
-    + '\u2500'.repeat(60)
-  );
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    const { trackerDir, planPath } = scaffoldTrackerDir(tmpDir);
-
-    // Remove .sources.json files from the directory listing (rename the manifest
-    // sidecar so the scanner cannot find it), but the plan file and manifest
-    // at the direct path still exist.
-    const manifestPath = buildPlanArtifactManifestPath(planPath);
-    const hiddenManifest = manifestPath + '.hidden';
-    fs.renameSync(manifestPath, hiddenManifest);
-
-    // Re-create the manifest at the expected sidecar path so the direct-path
-    // fallback can read it
-    fs.writeFileSync(manifestPath, buildManifest(planPath));
-
-    // But also remove it from directory scan by creating a subdirectory barrier:
-    // The scanner uses readdirSync and filters for .sources.json — since the file
-    // is present again, the scanner WILL find it. To truly test the direct fallback,
-    // we need the manifest-based scanner to fail. The simplest way: rename the
-    // .sources.json to something the scanner won't match, and ensure our direct
-    // path still works.
-    // Actually, let's just remove the hidden copy and keep the manifest.
-    // The manifest-based scan will succeed here, making this test redundant with
-    // Test 1. Instead, verify the overall fallback chain by ensuring test 3 below
-    // covers the customDir fallback.
-    fs.unlinkSync(hiddenManifest);
-
-    const origCwd = process.cwd.bind(process);
-    (process as any).cwd = () => tmpDir;
-
-    const stdoutCapture = captureStdout();
-    await command.run([planFilename], {
-      from: 'implement',
-      to: 'implement',
-      tracker: 'jira',
-      dryRun: true,
-    });
-    const output = stdoutCapture.restore();
-
-    (process as any).cwd = origCwd;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (output.includes(ticketKey)) {
-      pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
-    } else {
-      fail(
-        'Dry-run output does not contain resolved ticket key',
-        `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`
-      );
-    }
-  }
-
-  // ── Test 3: customDir fallback when trackerDir has no match ────────────
-  console.log('\n\uD83E\uDDEA Test 3: customDir fallback when trackerDir has no match\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    const { trackerDir } = scaffoldCustomDir(tmpDir);
-
-    // trackerDir exists but has no plan artifact — only the ticket markdown
-    // (scaffoldCustomDir already creates the ticket there)
-
-    const origCwd = process.cwd.bind(process);
-    (process as any).cwd = () => tmpDir;
-
-    const stdoutCapture = captureStdout();
-    await command.run([planFilename], {
-      from: 'implement',
-      to: 'implement',
-      tracker: 'jira',
-      dryRun: true,
-    });
-    const output = stdoutCapture.restore();
-
-    (process as any).cwd = origCwd;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (output.includes(ticketKey)) {
-      pass(`Dry-run resolved plan token from customDir to ticket key: ${ticketKey}`);
-    } else {
-      fail(
-        'Dry-run output does not contain resolved ticket key from customDir',
-        `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`
-      );
-    }
-  }
-
-  // ── Test 4: missing plan token throws ValidationError ──────────────────
-  console.log('\n\uD83E\uDDEA Test 4: missing plan token throws ValidationError\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    const appBase = path.basename(tmpDir);
-    const trackerDir = path.join(tmpDir, '.wf', appBase, 'jira');
-    fs.mkdirSync(trackerDir, { recursive: true });
-
-    const origCwd = process.cwd.bind(process);
-    (process as any).cwd = () => tmpDir;
-
-    // Suppress process.exit so we can capture the error
-    const origExit = process.exit.bind(process);
-    let exitCode: number | undefined;
-    (process as any).exit = (code?: number) => {
-      exitCode = code;
-    };
-
-    const stdoutCapture = captureStdout();
-    const stderrCapture = captureStderr();
-    await command.run(['nonexistent-plan.json'], {
-      from: 'implement',
-      to: 'implement',
-      tracker: 'jira',
-    });
-    const output = stdoutCapture.restore();
-    const errOutput = stderrCapture.restore();
-
-    (process as any).cwd = origCwd;
-    (process as any).exit = origExit;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    const combined = output + errOutput;
-    if (exitCode === 1 || combined.includes('not found') || combined.includes('Error')) {
-      pass('Unresolvable argument fails with an error (treated as ticket key, downstream load fails)');
-    } else {
-      fail('Expected an error for unresolvable argument', `output: ${combined.slice(0, 500)}\nexitCode: ${exitCode}`);
-    }
-  }
-
-  await app.close();
-
-  console.log('\n' + '\u2501'.repeat(60));
-  console.log(`Results: \u2705 ${counts.passed} passed   \u274C ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('\u2705 All tests passed!');
-  console.log('\u2501'.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(error => {

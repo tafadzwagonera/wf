@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: Claude CLI review retry resumes session instead of fresh-starting
  *
- * Run: nr test:manual -- test-issue-review-claude-session-resume-live
+ * Run: nr test:manual issue-review-claude-session-resume-live.smoke.ts
  *
  * Scenario: S4 removed `handleReviewFreshStart`, which used to null out the
  * session id on every review-stage retry. Live-verify a review-stage
@@ -43,13 +43,30 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
   stdout: string;
   stderr: string;
+};
+
+type Paths = {
+  homeDir: string;
+  repoDir: string;
+  binDir: string;
+  configPath: string;
+  claudeScriptPath: string;
+  invocationLogPath: string;
+  promptsLogPath: string;
+  trackedFilePath: string;
+};
+
+type ScenarioData = {
+  result: SpawnResult;
+  output: string;
+  invocations: string[][];
+  prompts: string[];
 };
 
 const projectRoot = path.resolve(__dirname, '../..');
@@ -83,138 +100,143 @@ const validReviewJson = JSON.stringify({
   approved: true,
 });
 
-const buildFakeClaudeScript = (invocationLogPath: string): string => `#!/usr/bin/env node
-const fs = require('fs');
-const args = process.argv.slice(2);
-
-fs.appendFileSync(${JSON.stringify(invocationLogPath)}, JSON.stringify(args) + '\\n');
-
-const isResume = args.includes('--resume');
-
-let input = '';
+function buildClaudeScriptBody(invocationLogPath: string): string {
+  const p = JSON.stringify(invocationLogPath);
+  return `const fs = require('fs'),args = process.argv.slice(2),isResume = args.includes('--resume');
+fs.appendFileSync(${p}, JSON.stringify(args) + '\\n');let input = '';
 process.stdin.on('data', chunk => { input += chunk; });
 process.stdin.on('end', () => {
-  fs.appendFileSync(${JSON.stringify(invocationLogPath)}.replace(/\\.log$/, '.prompts.log'), input + '\\n---\\n');
+  fs.appendFileSync(${p}.replace(/\\.log$/, '.prompts.log'), input + '\\n---\\n');
+  const n = fs.readFileSync(${p}, 'utf-8').trim().split('\\n').filter(Boolean).length;
+  if (!isResume) return console.log(JSON.stringify({type:'assistant',message:{content:[{type:'text',text:'thinking...'}]},session_id:'sess-review-1'}));
+  if (n === 2) return console.log(JSON.stringify({type:'result',subtype:'success',result:${JSON.stringify(validReviewJson)},session_id:'sess-review-1'}));
+  console.log(JSON.stringify({type:'result',subtype:'success',result:'Review summary: looks good.',session_id:'sess-review-1'}));
+});`;
+}
 
-  const invocationCount = fs.readFileSync(${JSON.stringify(invocationLogPath)}, 'utf-8').trim().split('\\n').filter(Boolean).length;
+const buildFakeClaudeScript = (invocationLogPath: string): string =>
+  `#!/usr/bin/env node\n${buildClaudeScriptBody(invocationLogPath)}`;
 
-  if (!isResume) {
-    console.log(JSON.stringify({
-      type: 'assistant',
-      message: { content: [{ type: 'text', text: 'thinking...' }] },
-      session_id: 'sess-review-1',
-    }));
-    return;
-  }
-  if (invocationCount === 2) {
-    console.log(JSON.stringify({ type: 'result', subtype: 'success', result: ${JSON.stringify(validReviewJson)}, session_id: 'sess-review-1' }));
-    return;
-  }
-  console.log(JSON.stringify({
-    type: 'result', subtype: 'success', result: 'Review summary: looks good.', session_id: 'sess-review-1',
-  }));
-});
-`;
+function buildPaths(tempRoot: string): Paths {
+  const homeDir = path.join(tempRoot, 'home');
+  const repoDir = path.join(tempRoot, 'repo');
+  const binDir = path.join(tempRoot, 'bin');
+  return {
+    homeDir,
+    repoDir,
+    binDir,
+    configPath: path.join(repoDir, 'wf.config.js'),
+    claudeScriptPath: path.join(binDir, 'claude'),
+    invocationLogPath: path.join(tempRoot, 'invocations.log'),
+    promptsLogPath: path.join(tempRoot, 'invocations.prompts.log'),
+    trackedFilePath: path.join(repoDir, 'src.ts'),
+  };
+}
 
-async function main(): Promise<void> {
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
+
+function setupGitRepo(repoDir: string, trackedFilePath: string, gitEnv: NodeJS.ProcessEnv): void {
+  execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
+  execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
+
+function setupFixtures(paths: Paths): void {
+  fs.mkdirSync(paths.repoDir, { recursive: true });
+  fs.mkdirSync(paths.binDir, { recursive: true });
+  fs.mkdirSync(paths.homeDir, { recursive: true });
+  fs.mkdirSync(path.join(paths.homeDir, '.wf', 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(paths.homeDir, '.wf', 'state'), { recursive: true });
+  const gitEnv = { ...process.env, HOME: paths.homeDir, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
+  setupGitRepo(paths.repoDir, paths.trackedFilePath, gitEnv);
+  fs.writeFileSync(paths.configPath, buildConfigContent(), 'utf-8');
+  writeExecutable(paths.claudeScriptPath, buildFakeClaudeScript(paths.invocationLogPath));
+}
+
+function buildEnv(homeDir: string, binDir: string): NodeJS.ProcessEnv {
+  return { ...process.env, HOME: homeDir, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`, WF_SKIP_CLI_VERSION_CHECK: '1' };
+}
+
+function readInvocations(logPath: string): string[][] {
+  if (!fs.existsSync(logPath)) return [];
+  return fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+}
+
+function readPrompts(logPath: string): string[] {
+  if (!fs.existsSync(logPath)) return [];
+  return fs.readFileSync(logPath, 'utf-8').split('\n---\n').filter(Boolean);
+}
+
+function runScenario(tempRoot: string): ScenarioData {
+  const paths = buildPaths(tempRoot);
+  setupFixtures(paths);
+  const result = runCommand(paths.repoDir, buildEnv(paths.homeDir, paths.binDir));
+  const output = `${result.stdout}\n${result.stderr}`;
+  const invocations = readInvocations(paths.invocationLogPath);
+  const prompts = readPrompts(paths.promptsLogPath);
+  return { result, output, invocations, prompts };
+}
+
+function checkDistExists(): void {
   if (!fs.existsSync(distMainPath)) {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+}
 
+function checkInvocationCount(invocations: string[][], output: string): void {
+  if (invocations.length >= 2) pass('fake claude binary was invoked at least twice (schema-retry pair, plus optional epilogue)');
+  else fail('expected at least 2 claude invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}\noutput:\n${output}`);
+}
+
+function checkSecondResume(invocations: string[][]): void {
+  const secondArgs = invocations[1] ?? [];
+  if (secondArgs.includes('--resume') && secondArgs.includes('sess-review-1'))
+    pass('second invocation resumes session sess-review-1');
+  else fail('second invocation should carry --resume sess-review-1', JSON.stringify(secondArgs));
+}
+
+function checkRepairPrompt(firstPrompt: string, secondPrompt: string): void {
+  if (secondPrompt.length < firstPrompt.length && secondPrompt.includes('usable result'))
+    pass('second invocation sends the short repair prompt, not the full original review prompt');
+  else fail('second invocation should send the short repair prompt', `first (${firstPrompt.length} chars) / second (${secondPrompt.length} chars): ${secondPrompt.slice(0, 300)}`);
+}
+
+function checkExitsZero(result: SpawnResult, output: string): void {
+  if (result.status === 0) pass('command exits 0');
+  else fail('command should exit 0', output);
+}
+
+function runChecks(data: ScenarioData): void {
+  checkInvocationCount(data.invocations, data.output);
+  checkSecondResume(data.invocations);
+  checkRepairPrompt(data.prompts[0] ?? '', data.prompts[1] ?? '');
+  checkExitsZero(data.result, data.output);
+}
+
+async function main(): Promise<void> {
+  checkDistExists();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-claude-review-resume-'));
-  const homeDir = path.join(tempRoot, 'home');
-  const repoDir = path.join(tempRoot, 'repo');
-  const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const invocationLogPath = path.join(tempRoot, 'invocations.log');
-  const promptsLogPath = path.join(tempRoot, 'invocations.prompts.log');
-  const trackedFilePath = path.join(repoDir, 'src.ts');
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(homeDir, { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'state'), { recursive: true });
-
-    const gitEnv = { ...process.env, HOME: homeDir, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
-    execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
-    execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
-    execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath));
-
-    const env = {
-      ...process.env,
-      HOME: homeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
-
-    const result = runCommand(repoDir, env);
-    const output = `${result.stdout}\n${result.stderr}`;
-    const invocations = fs.existsSync(invocationLogPath)
-      ? fs.readFileSync(invocationLogPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
-      : [];
-    const prompts = fs.existsSync(promptsLogPath)
-      ? fs.readFileSync(promptsLogPath, 'utf-8').split('\n---\n').filter(Boolean)
-      : [];
-
-    if (invocations.length >= 2) {
-      pass('fake claude binary was invoked at least twice (schema-retry pair, plus optional epilogue)');
-    } else {
-      fail('expected at least 2 claude invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}\noutput:\n${output}`);
-    }
-
-    const secondArgs = invocations[1] ?? [];
-    if (secondArgs.includes('--resume') && secondArgs.includes('sess-review-1')) {
-      pass('second invocation resumes session sess-review-1');
-    } else {
-      fail('second invocation should carry --resume sess-review-1', JSON.stringify(secondArgs));
-    }
-
-    const firstPrompt = prompts[0] ?? '';
-    const secondPrompt = prompts[1] ?? '';
-    if (secondPrompt.length < firstPrompt.length && secondPrompt.includes('usable result')) {
-      pass('second invocation sends the short repair prompt, not the full original review prompt');
-    } else {
-      fail(
-        'second invocation should send the short repair prompt',
-        `first (${firstPrompt.length} chars) / second (${secondPrompt.length} chars): ${secondPrompt.slice(0, 300)}`
-      );
-    }
-
-    if (result.status === 0) {
-      pass('command exits 0');
-    } else {
-      fail('command should exit 0', output);
-    }
+    runChecks(runScenario(tempRoot));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

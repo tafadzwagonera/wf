@@ -5,16 +5,13 @@ export interface TestCounts {
   failed: number;
 }
 
-/**
- * Create pass/fail reporters that share one mutable counts object.
- *
- * @returns The shared counts object plus `pass`/`fail` reporter functions
- */
-export function createReporter(): {
+export interface Reporter {
   counts: TestCounts;
   pass: (msg: string) => void;
   fail: (msg: string, detail?: string) => void;
-} {
+}
+
+export function createReporter(): Reporter {
   const counts: TestCounts = { passed: 0, failed: 0 };
 
   const pass = (msg: string): void => {
@@ -29,4 +26,12 @@ export function createReporter(): {
   };
 
   return { counts, pass, fail };
+}
+
+export function summarise(counts: TestCounts): void {
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`Results: ✓ ${counts.passed} passed   ✗ ${counts.failed} failed`);
+  if (counts.failed === 0) console.log('✓ All tests passed!');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  if (counts.failed > 0) process.exit(1);
 }

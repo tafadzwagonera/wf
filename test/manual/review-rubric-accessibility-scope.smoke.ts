@@ -7,7 +7,7 @@
  * the F-phase changes. Exercises buildReviewGuidelines via prototype access so
  * no real AI call is made.
  *
- * Run: nr test:manual -- review-rubric-accessibility-scope.smoke
+ * Run: nr test:manual review-rubric-accessibility-scope.smoke.ts
  */
 
 import chalk from 'chalk';
@@ -18,86 +18,81 @@ import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
+function checkRequired(g: string[], pass: any, fail: any): void {
+  if (g.some(x => x.includes('Scope & necessity'))) pass('Guidelines include "Scope & necessity"');
+  else fail('"Scope & necessity" missing from guidelines', g.join('\n'));
+  if (g.some(x => x.includes('Accessibility'))) pass('Guidelines include "Accessibility"');
+  else fail('"Accessibility" missing from guidelines', g.join('\n'));
+}
+
+function checkStandalone(g: string[], pass: any, fail: any): void {
+  if (g.includes('Necessity')) fail('Standalone "Necessity" criterion still present');
+  else pass('Standalone "Necessity" criterion is absent');
+  if (g.includes('Scope')) fail('Standalone "Scope" criterion still present');
+  else pass('Standalone "Scope" criterion is absent');
+}
+
+function test1(build: any, ctx: string): void {
+  const g = build({ context: ctx });
+  checkRequired(g, pass, fail);
+  checkStandalone(g, pass, fail);
+}
+
+function test2(
+  build: (o: { context: string; extraCriteria?: string[] }) => string[],
+  ctx: string,
+): void {
+  const g = build({ context: ctx });
+  const cnt = g.filter(x => !x.startsWith('Relevancy:')).length;
+  if (cnt === 13) {
+    pass('Default criteria count = 13');
+  } else {
+    const details = g.map((x, i) => (i + 1) + '. ' + x.slice(0, 60)).join('\n');
+    fail('Expected 13 default criteria, got ' + cnt, details);
+  }
+}
+
+function checkCustomCriteria(g: string[], pass: any, fail: any): void {
+  if (g.includes('Custom: check X')) pass('extraCriteria entry present');
+  else fail('extraCriteria entry missing');
+}
+
+function checkScopeAndAccess(g: string[], pass: any, fail: any): void {
+  if (g.some(x => x.includes('Scope & necessity'))) pass('"Scope & necessity" still present after extraCriteria');
+  else fail('"Scope & necessity" removed by extraCriteria');
+  if (g.some(x => x.includes('Accessibility'))) pass('"Accessibility" still present after extraCriteria');
+  else fail('"Accessibility" removed by extraCriteria');
+}
+
+function test3(build: any, ctx: string): void {
+  const g = build({ context: ctx, extraCriteria: ['Custom: check X'] });
+  checkCustomCriteria(g, pass, fail);
+  checkScopeAndAccess(g, pass, fail);
+}
+
+function getBuild(svc: ReviewStageService): (opts: { context: string; extraCriteria?: string[] }) => string[] {
+  const method = svc['buildReviewGuidelines'];
+  return method.bind(svc);
+}
+
+function runAllTests(build: any, ctx: string): void {
+  console.log(chalk.bold.cyan('\nTest 1: default guidelines contain required criteria'));
+  test1(build, ctx);
+  console.log(chalk.bold.cyan('\nTest 2: defaultReviewGuidelines has 13 entries (Relevancy added separately)'));
+  test2(build, ctx);
+  console.log(chalk.bold.cyan('\nTest 3: extraCriteria appended without removing defaults'));
+  test3(build, ctx);
+}
+
 async function main(): Promise<void> {
   console.log('Manual smoke: review rubric Accessibility and Scope & necessity\n');
-
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-
+  const build = getBuild(app.get(ReviewStageService));
   try {
-    const svc = app.get(ReviewStageService);
-    const buildReviewGuidelines = (
-      (svc as unknown as Record<string, unknown>)['buildReviewGuidelines'] as (
-        opts: { context: string; extraCriteria?: string[] }
-      ) => string[]
-    ).bind(svc);
-
-    const STUB_CONTEXT = 'ticket WBP-0: smoke test';
-
-    console.log(chalk.bold.cyan('\nTest 1: default guidelines contain required criteria'));
-    {
-      const guidelines = buildReviewGuidelines({ context: STUB_CONTEXT });
-
-      if (guidelines.some(g => g.includes('Scope & necessity'))) {
-        pass('Guidelines include "Scope & necessity"');
-      } else {
-        fail('"Scope & necessity" missing from guidelines', guidelines.join('\n'));
-      }
-
-      if (guidelines.some(g => g.includes('Accessibility'))) {
-        pass('Guidelines include "Accessibility"');
-      } else {
-        fail('"Accessibility" missing from guidelines', guidelines.join('\n'));
-      }
-
-      if (guidelines.includes('Necessity')) {
-        fail('Standalone "Necessity" criterion still present');
-      } else {
-        pass('Standalone "Necessity" criterion is absent');
-      }
-
-      if (guidelines.includes('Scope')) {
-        fail('Standalone "Scope" criterion still present');
-      } else {
-        pass('Standalone "Scope" criterion is absent');
-      }
-    }
-
-    console.log(chalk.bold.cyan('\nTest 2: defaultReviewGuidelines has 13 entries (Relevancy added separately)'));
-    {
-      const guidelines = buildReviewGuidelines({ context: STUB_CONTEXT });
-      const defaultCount = guidelines.filter(g => !g.startsWith('Relevancy:')).length;
-
-      if (defaultCount === 13) {
-        pass('Default criteria count = 13');
-      } else {
-        fail('Expected 13 default criteria, got ' + defaultCount, guidelines.map((g, i) => (i + 1) + '. ' + g.slice(0, 60)).join('\n'));
-      }
-    }
-
-    console.log(chalk.bold.cyan('\nTest 3: extraCriteria appended without removing defaults'));
-    {
-      const guidelines = buildReviewGuidelines({ context: STUB_CONTEXT, extraCriteria: ['Custom: check X'] });
-
-      if (guidelines.includes('Custom: check X')) {
-        pass('extraCriteria entry present');
-      } else {
-        fail('extraCriteria entry missing');
-      }
-      if (guidelines.some(g => g.includes('Scope & necessity'))) {
-        pass('"Scope & necessity" still present after extraCriteria');
-      } else {
-        fail('"Scope & necessity" removed by extraCriteria');
-      }
-      if (guidelines.some(g => g.includes('Accessibility'))) {
-        pass('"Accessibility" still present after extraCriteria');
-      } else {
-        fail('"Accessibility" removed by extraCriteria');
-      }
-    }
+    runAllTests(build, 'ticket WBP-0: smoke test');
   } finally {
     await app.close();
   }
-
   console.log('\n' + counts.passed + ' passed, ' + counts.failed + ' failed');
   if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: review rubric Accessibility and Scope & necessity');

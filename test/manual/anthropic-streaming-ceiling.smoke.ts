@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: AnthropicAdapter uses streaming when max_tokens exceeds 21333
  *
- * Run: nr test:manual -- test-anthropic-streaming-ceiling
+ * Run: nr test:manual anthropic-streaming-ceiling.smoke.ts
  *
  * Scenarios:
  *   1. maxTokens: 128000 (above ceiling) → request body has stream: true
@@ -26,7 +26,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { AnthropicAdapter } from '../../src/integrations/ai/adapters/anthropic.adapter';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
-import type { AIResponse } from '../../src/integrations/ai/ai.service';
+import type { AIResponse } from '../../src/shared/types/ai.types';
 import { createReporter } from './support/reporter';
 
 type CapturedRequest = {
@@ -76,65 +76,69 @@ const NON_STREAMING_BODY = JSON.stringify({
   usage: { input_tokens: 10, output_tokens: 5 },
 });
 
-const startServer = async (): Promise<{
-  server: http.Server;
-  baseUrl: string;
-  capturedRequests: CapturedRequest[];
-}> => {
-  const capturedRequests: CapturedRequest[] = [];
+async function parseRequestBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+  }
+  const bodyText = Buffer.concat(chunks).toString('utf-8') || '{}';
+  try {
+    return JSON.parse(bodyText) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
 
-  const server = http.createServer((req, res) => {
-    void (async () => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-      }
+function sendRequestError(res: http.ServerResponse, error: unknown): void {
+  if (!res.headersSent) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+  }
+  res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+}
 
-      const bodyText = Buffer.concat(chunks).toString('utf-8') || '{}';
-      let body: Record<string, unknown>;
-      try {
-        body = JSON.parse(bodyText) as Record<string, unknown>;
-      } catch {
-        body = {};
-      }
-
-      capturedRequests.push({ pathname: req.url ?? '', body });
-
-      if (body.stream === true) {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Transfer-Encoding': 'chunked',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        res.write(SSE_BODY);
-        res.end();
-      } else {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(NON_STREAMING_BODY);
-      }
-    })().catch(error => {
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-      }
-      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
-    });
+const sendStreamingResponse = (res: http.ServerResponse): void => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Transfer-Encoding': 'chunked',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
   });
+  res.write(SSE_BODY);
+  res.end();
+};
 
+const sendNonStreamingResponse = (res: http.ServerResponse): void => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(NON_STREAMING_BODY);
+};
+
+async function handleRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  capturedRequests: CapturedRequest[],
+): Promise<void> {
+  const body = await parseRequestBody(req);
+  capturedRequests.push({ pathname: req.url ?? '', body });
+  if (body.stream === true) {
+    sendStreamingResponse(res);
+  } else {
+    sendNonStreamingResponse(res);
+  }
+}
+
+async function startServer(): Promise<{ server: http.Server; baseUrl: string; capturedRequests: CapturedRequest[] }> {
+  const capturedRequests: CapturedRequest[] = [];
+  const server = http.createServer((req, res) => {
+    void handleRequest(req, res, capturedRequests).catch(error => sendRequestError(res, error));
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-
   const address = server.address();
   if (address === null || typeof address === 'string') {
     throw new Error('Failed to bind local capture server');
   }
-
-  return {
-    server,
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    capturedRequests,
-  };
-};
+  return { server, baseUrl: `http://127.0.0.1:${address.port}`, capturedRequests };
+}
 
 type TestCase = {
   label: string;
@@ -148,135 +152,179 @@ const TEST_CASES: TestCase[] = [
   { label: 'maxTokens = 21334 (just above ceiling → streaming)', maxTokens: 21334, expectStreaming: true },
 ];
 
-async function runCase(
-  adapter: AnthropicAdapter,
-  capturedRequests: CapturedRequest[],
-  tc: TestCase
-): Promise<boolean> {
-  console.log(chalk.bold(`\nCase: ${tc.label}`));
-  capturedRequests.length = 0;
+function buildErrorDetail(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const e = err as unknown as Record<string, unknown>;
+  const details = JSON.stringify(e['details'] ?? e['cause'] ?? 'none');
+  const stack = err.stack?.split('\n').slice(1, 4).join(' | ') ?? '';
+  return `${err.name}: ${err.message}\n    details: ${details}\n    stack: ${stack}`;
+}
 
-  let result: AIResponse;
+async function executeAdapter(adapter: AnthropicAdapter, tc: TestCase): Promise<AIResponse | null> {
   try {
-    result = await adapter.execute({
+    return await adapter.execute({
       prompt: 'Hello',
       systemPrompt: 'You are a test assistant.',
       maxTokens: tc.maxTokens,
     });
   } catch (err) {
-    const e = err as unknown as Record<string, unknown>;
-    const detail = err instanceof Error
-      ? `${err.name}: ${err.message}\n    details: ${JSON.stringify(e['details'] ?? e['cause'] ?? 'none')}\n    stack: ${err.stack?.split('\n').slice(1, 4).join(' | ') ?? ''}`
-      : String(err);
-    fail('execute() threw unexpectedly', detail);
-    return false;
+    fail('execute() threw unexpectedly', buildErrorDetail(err));
+    return null;
   }
+}
 
-  let ok = true;
+const buildStreamCheckMessage = (
+  expectStreaming: boolean,
+  isError: boolean,
+): string => {
+  if (isError) {
+    return expectStreaming
+      ? 'Expected stream: true in request body'
+      : 'Expected no stream: true in request body';
+  }
+  return expectStreaming
+    ? 'Request body has stream: true'
+    : 'Request body does NOT have stream: true (non-streaming path)';
+};
+
+const checkStreamFlag = (
+  expectStreaming: boolean,
+  actualStream: boolean,
+  body: Record<string, unknown>,
+): boolean => {
+  if (expectStreaming === actualStream) {
+    pass(buildStreamCheckMessage(expectStreaming, false));
+    return true;
+  }
+  fail(buildStreamCheckMessage(expectStreaming, true), JSON.stringify(body));
+  return false;
+};
+
+function assertStreaming(captured: CapturedRequest, tc: TestCase): boolean {
+  return checkStreamFlag(tc.expectStreaming, captured.body.stream === true, captured.body);
+}
+
+function assertContent(result: AIResponse): boolean {
+  if (result.content && result.content.length > 0) {
+    pass(`execute() returned non-empty content: "${result.content.slice(0, 40)}"`);
+    return true;
+  }
+  fail('execute() returned empty or missing content', JSON.stringify(result));
+  return false;
+}
+
+async function runCase(adapter: AnthropicAdapter, capturedRequests: CapturedRequest[], tc: TestCase): Promise<boolean> {
+  console.log(chalk.bold(`\nCase: ${tc.label}`));
+  capturedRequests.length = 0;
+  const result = await executeAdapter(adapter, tc);
+  if (result === null) return false;
   const captured = capturedRequests[0];
-
   if (!captured) {
     fail('No HTTP request was captured by the local server');
     return false;
   }
+  const streamOk = assertStreaming(captured, tc);
+  const contentOk = assertContent(result);
+  return streamOk && contentOk;
+}
 
-  // Streaming assertion
-  if (tc.expectStreaming) {
-    if (captured.body.stream === true) {
-      pass('Request body has stream: true');
-    } else {
-      fail('Expected stream: true in request body', JSON.stringify(captured.body));
-      ok = false;
-    }
+function formatFatalError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  return `${err.name}: ${err.message}\n${err.stack ?? ''}`;
+}
+
+function restoreEnvVar(key: string, original: string | undefined): void {
+  if (original === undefined) {
+    delete process.env[key];
   } else {
-    if (captured.body.stream === true) {
-      fail('Expected no stream: true in request body', JSON.stringify(captured.body));
-      ok = false;
-    } else {
-      pass('Request body does NOT have stream: true (non-streaming path)');
-    }
+    process.env[key] = original;
   }
+}
 
-  // Content assertion
-  if (result.content && result.content.length > 0) {
-    pass(`execute() returned non-empty content: "${result.content.slice(0, 40)}"`);
+function setupTempRepo(repoDir: string, configPath: string): void {
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(
+    configPath,
+    [
+      'module.exports = {',
+      '  ai: [',
+      "    { provider: 'anthropic', model: 'claude-opus-5', default: true, apiKey: 'test-key' },",
+      '  ],',
+      '};',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
+async function runTests(adapter: AnthropicAdapter, capturedRequests: CapturedRequest[]): Promise<number> {
+  let exitCode = 0;
+  for (const tc of TEST_CASES) {
+    const passed = await runCase(adapter, capturedRequests, tc);
+    if (!passed) exitCode = 1;
+  }
+  console.log('');
+  if (exitCode === 0) {
+    console.log(chalk.bold.green('All cases passed.'));
   } else {
-    fail('execute() returned empty or missing content', JSON.stringify(result));
-    ok = false;
+    console.log(chalk.bold.red('One or more cases failed.'));
   }
+  return exitCode;
+}
 
-  return ok;
+function teardownSmoke(originalCwd: string, server: http.Server, tempRoot: string, exitCode: number): void {
+  process.chdir(originalCwd);
+  server.close();
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+  process.exit(exitCode);
+}
+
+type EnvSnapshot = { origBaseUrl: string | undefined; origApiKey: string | undefined };
+
+async function setupEnvAndConfig(repoDir: string, baseUrl: string): Promise<EnvSnapshot> {
+  process.chdir(repoDir);
+  await initializeWfConfig(repoDir);
+  const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
+  const origApiKey = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_BASE_URL = baseUrl;
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+  return { origBaseUrl, origApiKey };
+}
+
+async function runWithApp(repoDir: string, baseUrl: string, capturedRequests: CapturedRequest[]): Promise<number> {
+  const { origBaseUrl, origApiKey } = await setupEnvAndConfig(repoDir, baseUrl);
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  try {
+    return await runTests(app.get(AnthropicAdapter), capturedRequests);
+  } finally {
+    await app.close();
+    restoreEnvVar('ANTHROPIC_BASE_URL', origBaseUrl);
+    restoreEnvVar('ANTHROPIC_API_KEY', origApiKey);
+  }
+}
+
+type TestEnvironment = { server: http.Server; baseUrl: string; capturedRequests: CapturedRequest[]; repoDir: string };
+
+async function createTestEnvironment(tempRoot: string): Promise<TestEnvironment> {
+  const repoDir = path.join(tempRoot, 'repo');
+  const configPath = path.join(repoDir, 'wf.config.js');
+  const { server, baseUrl, capturedRequests } = await startServer();
+  setupTempRepo(repoDir, configPath);
+  return { server, baseUrl, capturedRequests, repoDir };
 }
 
 async function main(): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-anthropic-streaming-'));
-  const repoDir = path.join(tempRoot, 'repo');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const { server, baseUrl, capturedRequests } = await startServer();
+  const { server, baseUrl, capturedRequests, repoDir } = await createTestEnvironment(tempRoot);
   const originalCwd = process.cwd();
   let exitCode = 0;
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-opus-5', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    process.chdir(repoDir);
-    await initializeWfConfig(repoDir);
-
-    const originalAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
-    const originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY;
-    process.env.ANTHROPIC_BASE_URL = baseUrl;
-    process.env.ANTHROPIC_API_KEY = 'test-key';
-
-    const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
-
-    try {
-      const adapter = app.get(AnthropicAdapter);
-
-      for (const tc of TEST_CASES) {
-        const passed = await runCase(adapter, capturedRequests, tc);
-        if (!passed) exitCode = 1;
-      }
-
-      console.log('');
-      if (exitCode === 0) {
-        console.log(chalk.bold.green('All cases passed.'));
-      } else {
-        console.log(chalk.bold.red('One or more cases failed.'));
-      }
-    } finally {
-      await app.close();
-      if (originalAnthropicBaseUrl === undefined) {
-        delete process.env.ANTHROPIC_BASE_URL;
-      } else {
-        process.env.ANTHROPIC_BASE_URL = originalAnthropicBaseUrl;
-      }
-      if (originalAnthropicApiKey === undefined) {
-        delete process.env.ANTHROPIC_API_KEY;
-      } else {
-        process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey;
-      }
-    }
+    exitCode = await runWithApp(repoDir, baseUrl, capturedRequests);
   } catch (err) {
-    console.error(chalk.red('Fatal error:'), err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err));
+    console.error(chalk.red('Fatal error:'), formatFatalError(err));
     exitCode = 1;
   } finally {
-    process.chdir(originalCwd);
-    server.close();
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    process.exit(exitCode);
+    teardownSmoke(originalCwd, server, tempRoot, exitCode);
   }
 }
 

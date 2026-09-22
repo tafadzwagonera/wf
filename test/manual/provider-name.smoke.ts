@@ -1,7 +1,7 @@
 /**
  * Manual Test: Provider display name in issue:commit --dry-run output
  *
- * Run: nr test:manual -- test-provider-name
+ * Run: nr test:manual provider-name.smoke.ts
  *
  * Verifies that:
  *   1. Default (anthropic) provider shows 'Anthropic Claude' in dry-run output
@@ -15,94 +15,81 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
 
-function main(): void {
-  console.log('🧪 Testing provider display names in issue:commit --dry-run\n');
+const { counts, pass, fail } = createReporter();
 
-  const { counts, pass, fail } = createReporter();
+function extractStdout(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'stdout' in error && typeof error.stdout === 'string'
+    ? error.stdout
+    : '';
+}
 
-  const configPath = path.join(process.cwd(), 'wf.config.js');
-  const existingConfig = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : null;
+function extractStderr(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
+    ? error.stderr
+    : '';
+}
 
-  const writeConfig = (provider: string, model: string): void => {
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        `    { provider: '${provider}', apiKey: 'test-key', model: '${model}', default: true },`,
-        '  ],',
-        '};',
-        '',
-      ].join('\n')
-    );
-  };
+function writeConfig(provider: string, model: string, configPath: string): void {
+  fs.writeFileSync(
+    configPath,
+    [
+      'module.exports = {',
+      '  ai: [',
+      `    { provider: '${provider}', apiKey: 'test-key', model: '${model}', default: true },`,
+      '  ],',
+      '};',
+      '',
+    ].join('\n')
+  );
+}
 
-  const runDryRun = (provider: string, model: string): string => {
-    writeConfig(provider, model);
-
-    try {
-      return execSync('node dist/main.js issue:commit --dry-run', {
-        encoding: 'utf-8',
-        cwd: process.cwd(),
-        env: { ...process.env },
-      });
-    } catch (error: unknown) {
-      const stdout
-        = typeof error === 'object' && error !== null && 'stdout' in error && typeof error.stdout === 'string'
-          ? error.stdout
-          : '';
-      const stderr
-        = typeof error === 'object' && error !== null && 'stderr' in error && typeof error.stderr === 'string'
-          ? error.stderr
-          : '';
-      return stdout + stderr;
-    }
-  };
-
+function runDryRun(provider: string, model: string, configPath: string): string {
+  writeConfig(provider, model, configPath);
   try {
-    const anthropicOutput = runDryRun('anthropic', 'claude-sonnet-4-20250514');
-    if (anthropicOutput.includes('Anthropic Claude')) {
-      pass('Anthropic config shows "Anthropic Claude" in dry-run output');
-    } else {
-      fail('Anthropic config does NOT show "Anthropic Claude"', anthropicOutput.slice(0, 300));
-    }
-
-    const openaiOutput = runDryRun('openai', 'gpt-5.4');
-    if (openaiOutput.includes('OpenAI')) {
-      pass('OpenAI config shows "OpenAI" in dry-run output');
-    } else {
-      fail('OpenAI config does NOT show "OpenAI"', openaiOutput.slice(0, 300));
-    }
-
-    const geminiOutput = runDryRun('google', 'gemini-2.5-pro');
-    if (geminiOutput.includes('Google Gemini')) {
-      pass('Gemini config shows "Google Gemini" in dry-run output');
-    } else {
-      fail('Gemini config does NOT show "Google Gemini"', geminiOutput.slice(0, 300));
-    }
-
-    const deepseekOutput = runDryRun('deepseek', 'deepseek-reasoner');
-    if (deepseekOutput.includes('DeepSeek')) {
-      pass('DeepSeek config shows "DeepSeek" in dry-run output');
-    } else {
-      fail('DeepSeek config does NOT show "DeepSeek"', deepseekOutput.slice(0, 300));
-    }
-  } finally {
-    if (existingConfig === null) {
-      fs.rmSync(configPath, { force: true });
-    } else {
-      fs.writeFileSync(configPath, existingConfig);
-    }
+    return execSync('node dist/main.js issue:commit --dry-run', {
+      encoding: 'utf-8',
+      cwd: process.cwd(),
+      env: { ...process.env },
+    });
+  } catch (error: unknown) {
+    return extractStdout(error) + extractStderr(error);
   }
+}
 
+function checkProvider(output: string, label: string, marker: string): void {
+  if (output.includes(marker)) {
+    pass(`${label} shows "${marker}" in dry-run output`);
+  } else {
+    fail(`${label} does NOT show "${marker}"`, output.slice(0, 300));
+  }
+}
+
+function restoreConfig(configPath: string, existingConfig: string | null): void {
+  if (existingConfig === null) fs.rmSync(configPath, { force: true });
+  else fs.writeFileSync(configPath, existingConfig);
+}
+
+function printResults(): void {
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`Results: ✓ ${counts.passed} passed   ✗ ${counts.failed} failed`);
-  if (counts.failed === 0) {
-    console.log('✓ All tests passed!');
-  }
+  if (counts.failed === 0) console.log('✓ All tests passed!');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
   if (counts.failed > 0) process.exit(1);
+}
+
+function main(): void {
+  console.log('🧪 Testing provider display names in issue:commit --dry-run\n');
+  const configPath = path.join(process.cwd(), 'wf.config.js');
+  const existingConfig = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf-8') : null;
+  try {
+    checkProvider(runDryRun('anthropic', 'claude-sonnet-4-20250514', configPath), 'Anthropic config', 'Anthropic Claude');
+    checkProvider(runDryRun('openai', 'gpt-5.4', configPath), 'OpenAI config', 'OpenAI');
+    checkProvider(runDryRun('google', 'gemini-2.5-pro', configPath), 'Gemini config', 'Google Gemini');
+    checkProvider(runDryRun('deepseek', 'deepseek-reasoner', configPath), 'DeepSeek config', 'DeepSeek');
+  } finally {
+    restoreConfig(configPath, existingConfig);
+  }
+  printResults();
 }
 
 main();

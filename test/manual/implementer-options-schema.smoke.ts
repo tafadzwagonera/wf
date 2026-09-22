@@ -21,46 +21,33 @@ import {
 } from '../../src/shared/schemas/agent.schema';
 
 import type { ImplementerOptions, TicketArtifact, PlanArtifact, ModelRouting } from '../../src/agents/interfaces';
+import { createReporter, summarise } from './support/reporter';
 
-function main(): void {
-  let passed = 0;
-  let failed = 0;
+const { counts, pass, fail } = createReporter();
+const testCase = (name: string, fn: () => void): void => {
+  try {
+    fn();
+    pass(name);
+  } catch (e: any) {
+    fail(name, e.message);
+  }
+};
 
-  const test = (name: string, fn: () => void) => {
-    try {
-      fn();
-      console.log(chalk.green(`  PASS  ${name}`));
-      passed++;
-    } catch (e: any) {
-      console.log(chalk.red(`  FAIL  ${name}: ${e.message}`));
-      failed++;
-    }
-  };
-
-  // --- 1. implementerOptionsSchema parsing ---
-  console.log(chalk.bold('\n--- implementerOptionsSchema parsing ---'));
-
-  test('accepts minimal options (trackerName only)', () => {
+function testAcceptsMinimalOptions(): void {
+  testCase('accepts minimal options (trackerName only)', () => {
     const result = implementerOptionsSchema.safeParse({ trackerName: 'jira' });
     assert.ok(result.success, 'Expected parse to succeed');
     assert.equal(result.data.trackerName, 'jira');
   });
+}
 
-  test('accepts full options with all fields', () => {
+function testAcceptsFullOptions(): void {
+  testCase('accepts full options with all fields', () => {
     const full: ImplementerOptions = {
-      trackerName: 'bitbucket',
-      repoDir: '/tmp/repo',
-      additionalRepoDirs: ['/tmp/other-repo'],
-      suppressHeader: true,
-      conversationContext: 'prior context',
-      customBranchSlug: 'my-feature',
-      allowMultiRepoScope: true,
-      modelRouting: 'auto',
-      silent: false,
-      noBranch: true,
-      branchNamePattern: '^(feature|bugfix)/',
-      priorStageSummary: 'Plan summary here',
-      resumeProviderSessionId: 'session-abc-123',
+      trackerName: 'bitbucket', repoDir: '/tmp/repo', additionalRepoDirs: ['/tmp/other-repo'],
+      suppressHeader: true, conversationContext: 'prior context', customBranchSlug: 'my-feature',
+      allowMultiRepoScope: true, modelRouting: 'auto', silent: false, noBranch: true,
+      branchNamePattern: '^(feature|bugfix)/', priorStageSummary: 'Plan summary here', resumeProviderSessionId: 'session-abc-123',
     };
     const result = implementerOptionsSchema.safeParse(full);
     assert.ok(result.success, 'Expected parse to succeed');
@@ -68,154 +55,161 @@ function main(): void {
     assert.equal(result.data.modelRouting, 'auto');
     assert.equal(result.data.noBranch, true);
   });
+}
 
-  test('rejects missing required trackerName', () => {
+function testRejectsMissingTrackerName(): void {
+  testCase('rejects missing required trackerName', () => {
     const result = implementerOptionsSchema.safeParse({});
     assert.ok(!result.success, 'Expected parse to fail');
   });
+}
 
-  test('rejects non-string trackerName', () => {
+function testRejectsNonStringTrackerName(): void {
+  testCase('rejects non-string trackerName', () => {
     const result = implementerOptionsSchema.safeParse({ trackerName: 42 });
     assert.ok(!result.success, 'Expected parse to fail');
   });
+}
 
-  test('rejects invalid modelRouting value', () => {
-    const result = implementerOptionsSchema.safeParse({
-      trackerName: 'jira',
-      modelRouting: 'invalid-routing',
-    });
+function testRejectsInvalidModelRouting(): void {
+  testCase('rejects invalid modelRouting value', () => {
+    const result = implementerOptionsSchema.safeParse({ trackerName: 'jira', modelRouting: 'invalid-routing' });
     assert.ok(!result.success, 'Expected parse to fail');
   });
+}
 
-  test('accepts all valid modelRouting values', () => {
+function testAcceptsAllValidModelRoutings(): void {
+  testCase('accepts all valid modelRouting values', () => {
     for (const routing of ['auto', 'default', 'mechanical'] as ModelRouting[]) {
-      const result = implementerOptionsSchema.safeParse({
-        trackerName: 'jira',
-        modelRouting: routing,
-      });
+      const result = implementerOptionsSchema.safeParse({ trackerName: 'jira', modelRouting: routing });
       assert.ok(result.success, `Expected '${routing}' to succeed`);
     }
   });
+}
 
-  test('rejects non-boolean for boolean fields', () => {
-    const result = implementerOptionsSchema.safeParse({
-      trackerName: 'jira',
-      silent: 'yes',
-    });
+function testRejectsNonBooleanForBooleanFields(): void {
+  testCase('rejects non-boolean for boolean fields', () => {
+    const result = implementerOptionsSchema.safeParse({ trackerName: 'jira', silent: 'yes' });
     assert.ok(!result.success, 'Expected parse to fail for string in boolean field');
   });
+}
 
-  test('rejects non-array for additionalRepoDirs', () => {
-    const result = implementerOptionsSchema.safeParse({
-      trackerName: 'jira',
-      additionalRepoDirs: '/single/path',
-    });
+function testRejectsNonArrayForAdditionalRepoDirs(): void {
+  testCase('rejects non-array for additionalRepoDirs', () => {
+    const result = implementerOptionsSchema.safeParse({ trackerName: 'jira', additionalRepoDirs: '/single/path' });
     assert.ok(!result.success, 'Expected parse to fail for string in array field');
   });
+}
 
-  // --- 2. ticketArtifactSchema regression ---
-  console.log(chalk.bold('\n--- ticketArtifactSchema regression ---'));
-
-  test('ticketArtifactSchema accepts valid ticket', () => {
-    const ticket: TicketArtifact = {
-      ticketKey: 'WBP-1000',
-      content: 'Fix the build',
-      path: '/tmp/.wf/state/WBP-1000.md',
-    };
+function testTicketArtifactAcceptsValid(): void {
+  testCase('ticketArtifactSchema accepts valid ticket', () => {
+    const ticket: TicketArtifact = { ticketKey: 'WBP-1000', content: 'Fix the build', path: '/tmp/.wf/state/WBP-1000.md' };
     const result = ticketArtifactSchema.safeParse(ticket);
     assert.ok(result.success, 'Expected parse to succeed');
   });
+}
 
-  test('ticketArtifactSchema accepts optional fromCache', () => {
-    const result = ticketArtifactSchema.safeParse({
-      ticketKey: 'WBP-1000',
-      content: 'Fix the build',
-      path: '/tmp/.wf/state/WBP-1000.md',
-      fromCache: true,
-    });
+function testTicketArtifactAcceptsOptionalFromCache(): void {
+  testCase('ticketArtifactSchema accepts optional fromCache', () => {
+    const result = ticketArtifactSchema.safeParse({ ticketKey: 'WBP-1000', content: 'Fix the build', path: '/tmp/.wf/state/WBP-1000.md', fromCache: true });
     assert.ok(result.success, 'Expected parse to succeed');
   });
+}
 
-  test('ticketArtifactSchema rejects missing content', () => {
-    const result = ticketArtifactSchema.safeParse({
-      ticketKey: 'WBP-1000',
-      path: '/tmp/.wf/state/WBP-1000.md',
-    });
+function testTicketArtifactRejectsMissingContent(): void {
+  testCase('ticketArtifactSchema rejects missing content', () => {
+    const result = ticketArtifactSchema.safeParse({ ticketKey: 'WBP-1000', path: '/tmp/.wf/state/WBP-1000.md' });
     assert.ok(!result.success, 'Expected parse to fail');
   });
+}
 
-  // --- 3. planArtifactSchema regression ---
-  console.log(chalk.bold('\n--- planArtifactSchema regression ---'));
-
-  test('planArtifactSchema accepts valid plan artifact', () => {
+function testPlanArtifactAcceptsValid(): void {
+  testCase('planArtifactSchema accepts valid plan artifact', () => {
     const planArtifact: PlanArtifact = {
-      plan: {
-        action: 'fix',
-        summary: 'Fix the build',
-        steps: ['Step 1'],
-        estimatedComplexity: 'low',
-      },
+      plan: { action: 'fix', summary: 'Fix the build', steps: ['Step 1'], estimatedComplexity: 'low' },
       action: 'fix',
       path: '/tmp/.wf/state/WBP-1000-plan.md',
     };
     const result = planArtifactSchema.safeParse(planArtifact);
     assert.ok(result.success, 'Expected parse to succeed');
   });
+}
 
-  test('planArtifactSchema rejects invalid action', () => {
-    const result = planArtifactSchema.safeParse({
-      plan: {
-        action: 'fix',
-        summary: 'Fix',
-        steps: ['Step 1'],
-        estimatedComplexity: 'low',
-      },
-      action: 'destroy',
-      path: '/tmp/plan.md',
-    });
+function testPlanArtifactRejectsInvalidAction(): void {
+  testCase('planArtifactSchema rejects invalid action', () => {
+    const result = planArtifactSchema.safeParse({ plan: { action: 'fix', summary: 'Fix', steps: ['Step 1'], estimatedComplexity: 'low' }, action: 'destroy', path: '/tmp/plan.md' });
     assert.ok(!result.success, 'Expected parse to fail');
   });
+}
 
-  // --- 4. Re-export chain ---
-  console.log(chalk.bold('\n--- Re-export chain ---'));
-
-  test('resolutionActionSchema values match expected set', () => {
+function testResolutionActionSchemaValues(): void {
+  testCase('resolutionActionSchema values match expected set', () => {
     const values = resolutionActionSchema.options;
     assert.deepEqual(values, ['feature', 'fix', 'investigate']);
   });
+}
 
-  test('modelRoutingSchema values match expected set', () => {
+function testModelRoutingSchemaValues(): void {
+  testCase('modelRoutingSchema values match expected set', () => {
     const values = modelRoutingSchema.options;
     assert.deepEqual(values, ['auto', 'default', 'mechanical']);
   });
+}
 
-  test('implementerOptionsSchema shape keys match original interface fields', () => {
+function testImplementerOptionsSchemaShapeKeys(): void {
+  testCase('implementerOptionsSchema shape keys match original interface fields', () => {
     const keys = Object.keys(implementerOptionsSchema.shape).sort();
     const expected = [
-      'additionalRepoDirs',
-      'allowMultiRepoScope',
-      'branchNamePattern',
-      'conversationContext',
-      'customBranchSlug',
-      'initialPromptOverride',
-      'isNewRepo',
-      'modelRouting',
-      'noBranch',
-      'priorStageSummary',
-      'repoDir',
-      'resumeProviderSessionId',
-      'silent',
-      'suppressHeader',
-      'trackerName',
+      'additionalRepoDirs', 'allowMultiRepoScope', 'branchNamePattern', 'conversationContext',
+      'customBranchSlug', 'initialPromptOverride', 'isNewRepo', 'modelRouting', 'noBranch',
+      'priorStageSummary', 'repoDir', 'resumeProviderSessionId', 'silent', 'suppressHeader', 'trackerName',
     ];
     assert.deepEqual(keys, expected);
   });
+}
 
-  // --- Summary ---
-  console.log(chalk.bold(`\n--- Results: ${passed} passed, ${failed} failed ---`));
-  if (failed > 0) {
-    process.exit(1);
-  }
+function checkImplementerOptionsSchemaBaseCases(): void {
+  console.log(chalk.bold('\n--- implementerOptionsSchema parsing ---'));
+  testAcceptsMinimalOptions();
+  testAcceptsFullOptions();
+  testRejectsMissingTrackerName();
+  testRejectsNonStringTrackerName();
+}
+
+function checkImplementerOptionsSchemaValidation(): void {
+  testRejectsInvalidModelRouting();
+  testAcceptsAllValidModelRoutings();
+  testRejectsNonBooleanForBooleanFields();
+  testRejectsNonArrayForAdditionalRepoDirs();
+}
+
+function checkTicketArtifactSchema(): void {
+  console.log(chalk.bold('\n--- ticketArtifactSchema regression ---'));
+  testTicketArtifactAcceptsValid();
+  testTicketArtifactAcceptsOptionalFromCache();
+  testTicketArtifactRejectsMissingContent();
+}
+
+function checkPlanArtifactSchema(): void {
+  console.log(chalk.bold('\n--- planArtifactSchema regression ---'));
+  testPlanArtifactAcceptsValid();
+  testPlanArtifactRejectsInvalidAction();
+}
+
+function checkReExportChain(): void {
+  console.log(chalk.bold('\n--- Re-export chain ---'));
+  testResolutionActionSchemaValues();
+  testModelRoutingSchemaValues();
+  testImplementerOptionsSchemaShapeKeys();
+}
+
+function main(): void {
+  checkImplementerOptionsSchemaBaseCases();
+  checkImplementerOptionsSchemaValidation();
+  checkTicketArtifactSchema();
+  checkPlanArtifactSchema();
+  checkReExportChain();
+  summarise(counts);
 }
 
 main();

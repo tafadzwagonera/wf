@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: Skill tool listed in buildSystemPrompt
  *
- * Run: nr test:manual -- test-skill-in-system-prompt
+ * Run: nr test:manual skill-in-system-prompt.smoke.ts
  *
  * Verifies:
  *   1. buildSystemPrompt output contains the Skill tool entry
@@ -14,7 +14,7 @@
 import chalk from 'chalk';
 import { buildSystemPrompt } from '../../src/integrations/ai/adapters/anthropic-agent.adapter';
 
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -26,20 +26,16 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
   fail(label, detail);
 };
 
-function main(): void {
-  console.log(chalk.bold.cyan('\n  Skill in buildSystemPrompt smoke test\n'));
-
-  const prompt = buildSystemPrompt({ repoDir: '/tmp/repo' });
-
-  // Test 1: Skill tool entry is present
+function checkSkillEntryPresent(prompt: string): void {
   console.log(chalk.bold('Test 1: buildSystemPrompt contains Skill tool entry'));
   assert(
     'prompt contains "- Skill(skill, args?): invoke a specialized skill"',
     prompt.includes('- Skill(skill, args?): invoke a specialized skill'),
     `Skill entry not found in prompt`
   );
+}
 
-  // Test 2: Skill appears in the Available tools section
+function checkSkillInToolsSection(prompt: string): void {
   console.log(chalk.bold('\nTest 2: Skill appears in the Available tools section'));
   const toolsSection = prompt.split('Available tools:\n')[1]?.split('\n\nRules:')[0] ?? '';
   assert(
@@ -47,8 +43,9 @@ function main(): void {
     toolsSection.includes('- Skill(skill, args?)'),
     `Tools section: ${toolsSection.substring(0, 200)}`
   );
+}
 
-  // Test 3: Skill entry includes signature and description
+function checkSkillSignatureAndDescription(prompt: string): void {
   console.log(chalk.bold('\nTest 3: Skill entry has expected signature and description'));
   const skillLine = prompt.split('\n').find(l => l.includes('Skill(skill, args?)'));
   assert(
@@ -61,11 +58,17 @@ function main(): void {
     !!skillLine && skillLine.includes('plan-quality') && skillLine.includes('executing-plans'),
     `Got: ${skillLine}`
   );
+}
 
-  // Test 4: Total tool count is 7
-  console.log(chalk.bold('\nTest 4: Available tools section lists exactly 7 tools'));
+function extractToolNames(prompt: string): string[] {
+  const toolsSection = prompt.split('Available tools:\n')[1]?.split('\n\nRules:')[0] ?? '';
   const toolLines = toolsSection.split('\n').filter(l => l.startsWith('- '));
-  const toolNames = toolLines.map(l => (/^- (\w+)\(/.exec(l))?.[1]).filter(Boolean);
+  return toolLines.map(l => (/^- (\w+)\(/.exec(l))?.[1]).filter(Boolean) as string[];
+}
+
+function checkToolCount(prompt: string): void {
+  console.log(chalk.bold('\nTest 4: Available tools section lists exactly 7 tools'));
+  const toolNames = extractToolNames(prompt);
   assert(
     `7 tools listed: ${toolNames.join(', ')}`,
     toolNames.length === 7,
@@ -76,13 +79,16 @@ function main(): void {
     ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'Skill'].every(t => toolNames.includes(t)),
     `Missing tools from: ${toolNames.join(', ')}`
   );
+}
 
-  // Summary
-  console.log(chalk.bold('\nSummary'));
-  console.log(`  Passed: ${counts.passed}`);
-  console.log(`  Failed: ${counts.failed}`);
-
-  if (counts.failed > 0) process.exit(1);
+function main(): void {
+  console.log(chalk.bold.cyan('\n  Skill in buildSystemPrompt smoke test\n'));
+  const prompt = buildSystemPrompt({ repoDir: '/tmp/repo' });
+  checkSkillEntryPresent(prompt);
+  checkSkillInToolsSection(prompt);
+  checkSkillSignatureAndDescription(prompt);
+  checkToolCount(prompt);
+  summarise(counts);
 }
 
 main();

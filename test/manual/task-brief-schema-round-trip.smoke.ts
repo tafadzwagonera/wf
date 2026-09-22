@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: BuildTaskBriefParams Zod schema round-trip with buildTaskBrief
  *
- * Run: nr test:manual -- test-task-brief-schema-round-trip
+ * Run: nr test:manual task-brief-schema-round-trip.smoke.ts
  *
  * Verifies:
  *   1. buildTaskBriefParamsSchema.parse succeeds for valid input.
@@ -21,19 +21,12 @@ import {
   buildPlanContextParamsSchema,
 } from '../../src/shared/schemas/agent.schema';
 import { buildTaskBrief, buildPlanContext } from '../../src/integrations/ai/adapters/shared-routing';
+import { createReporter, summarise } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
+const { counts, pass, fail } = createReporter();
 
-const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  ✓ ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  ✗ ${label}`));
-    failed++;
-  }
-};
+const assert = (label: string, condition: boolean): void =>
+  condition ? pass(label) : fail(label);
 
 const FULL_PARAMS = {
   ticketKey: 'SCHEMA-1',
@@ -63,73 +56,92 @@ const MINIMAL_PARAMS = {
   planSteps: ['Do something'],
 };
 
-async function main(): Promise<void> {
-  console.log(chalk.bold('\n  Scenario 1: buildTaskBriefParamsSchema parse\n'));
-
+function checkFullParams() {
   const fullParsed = buildTaskBriefParamsSchema.parse(FULL_PARAMS);
   assert('full params parsed successfully', fullParsed.ticketKey === 'SCHEMA-1');
   assert('parsed planAction is feature', fullParsed.planAction === 'feature');
   assert('parsed phases has one entry', fullParsed.phases?.length === 1);
+  return fullParsed;
+}
 
+function checkMinimalParams(): void {
   const minimalParsed = buildTaskBriefParamsSchema.parse(MINIMAL_PARAMS);
   assert('minimal params parsed successfully (optionals omitted)', minimalParsed.ticketKey === 'SCHEMA-2');
   assert('minimal params has undefined planSummary', minimalParsed.planSummary === undefined);
   assert('minimal params has undefined planRisks', minimalParsed.planRisks === undefined);
+}
 
-  console.log(chalk.bold('\n  Scenario 2: buildTaskBriefParamsSchema rejection\n'));
-
-  let missingTicketKey = false;
+function parseThrowsZodError(parse: () => void): boolean {
   try {
-    buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, ticketKey: undefined });
+    parse();
+    return false;
   } catch (e) {
-    missingTicketKey = e instanceof ZodError;
+    return e instanceof ZodError;
   }
-  assert('rejects when ticketKey is missing', missingTicketKey);
+}
 
-  let invalidScript = false;
-  try {
-    buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, verificationScripts: [{ bad: true }] });
-  } catch (e) {
-    invalidScript = e instanceof ZodError;
-  }
-  assert('rejects when verificationScripts contains invalid entries', invalidScript);
+function checkSchemaRejections(): void {
+  assert(
+    'rejects when ticketKey is missing',
+    parseThrowsZodError(() => buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, ticketKey: undefined })),
+  );
+  assert(
+    'rejects when verificationScripts contains invalid entries',
+    parseThrowsZodError(() =>
+      buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, verificationScripts: [{ bad: true }] })),
+  );
+  assert(
+    'rejects when repoDir is missing',
+    parseThrowsZodError(() => buildPlanContextParamsSchema.parse(FULL_PARAMS)),
+  );
+}
 
-  console.log(chalk.bold('\n  Scenario 3: buildPlanContextParamsSchema parse\n'));
-
-  const planCtxParsed = buildPlanContextParamsSchema.parse({ ...FULL_PARAMS, repoDir: '/tmp/repo' });
+function parsePlanContext(fullParsed: ReturnType<typeof buildTaskBriefParamsSchema.parse>) {
+  const planCtxParsed = buildPlanContextParamsSchema.parse({ ...fullParsed, repoDir: '/tmp/repo' });
   assert('plan context params parsed with repoDir', planCtxParsed.repoDir === '/tmp/repo');
+  return planCtxParsed;
+}
 
-  let missingRepoDir = false;
-  try {
-    buildPlanContextParamsSchema.parse(FULL_PARAMS);
-  } catch (e) {
-    missingRepoDir = e instanceof ZodError;
-  }
-  assert('rejects when repoDir is missing', missingRepoDir);
-
-  console.log(chalk.bold('\n  Scenario 4: parsed output accepted by prompt builders\n'));
-
-  const briefOutput = buildTaskBrief(fullParsed);
-  assert('buildTaskBrief accepts schema-parsed output', typeof briefOutput === 'string');
+function assertBriefContent(briefOutput: string): void {
   assert('output contains Ticket key', briefOutput.includes('Ticket key: SCHEMA-1'));
   assert('output contains Plan summary', briefOutput.includes('Refactor the module'));
   assert('output contains Plan steps', briefOutput.includes('1. Step one'));
   assert('output contains Verification commands', briefOutput.includes('yarn build'));
   assert('output contains Risks and considerations', briefOutput.includes('May break downstream'));
+}
+
+function assertBriefMetadata(briefOutput: string): void {
   assert('output contains Skill-specific instructions', briefOutput.includes("Skill('tdd')"));
   assert('output contains Phase checkpoints', briefOutput.includes('Phase 1: Phase A'));
+}
 
+function checkBuildTaskBrief(fullParsed: ReturnType<typeof buildTaskBriefParamsSchema.parse>): void {
+  const briefOutput = buildTaskBrief(fullParsed);
+  assert('buildTaskBrief accepts schema-parsed output', typeof briefOutput === 'string');
+  assertBriefContent(briefOutput);
+  assertBriefMetadata(briefOutput);
+}
+
+function checkBuildPlanContext(planCtxParsed: ReturnType<typeof buildPlanContextParamsSchema.parse>): void {
   const planCtxOutput = buildPlanContext(planCtxParsed);
   assert('buildPlanContext accepts schema-parsed output', typeof planCtxOutput === 'string');
-  assert('buildPlanContext starts with behavioral context',
-    planCtxOutput.startsWith('You are an expert software engineer'));
-  assert('buildPlanContext contains repository directory',
-    planCtxOutput.includes('Repository directory: /tmp/repo'));
-  assert('buildPlanContext contains task brief content',
-    planCtxOutput.includes('Ticket key: SCHEMA-1'));
+  assert('buildPlanContext starts with behavioral context', planCtxOutput.startsWith('You are an expert software engineer'));
+  assert('buildPlanContext contains repository directory', planCtxOutput.includes('Repository directory: /tmp/repo'));
+  assert('buildPlanContext contains task brief content', planCtxOutput.includes('Ticket key: SCHEMA-1'));
+}
 
-  console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
-  if (failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  console.log(chalk.bold('\n  Scenario 1: buildTaskBriefParamsSchema parse\n'));
+  const fullParsed = checkFullParams();
+  checkMinimalParams();
+  console.log(chalk.bold('\n  Scenario 2: buildTaskBriefParamsSchema rejection\n'));
+  checkSchemaRejections();
+  console.log(chalk.bold('\n  Scenario 3: buildPlanContextParamsSchema parse\n'));
+  const planCtxParsed = parsePlanContext(fullParsed);
+  console.log(chalk.bold('\n  Scenario 4: parsed output accepted by prompt builders\n'));
+  checkBuildTaskBrief(fullParsed);
+  checkBuildPlanContext(planCtxParsed);
+  summarise(counts);
 }
 
 main().catch(error => {

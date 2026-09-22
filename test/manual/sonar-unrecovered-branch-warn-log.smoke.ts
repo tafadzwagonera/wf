@@ -13,7 +13,7 @@
  *      WF_HOME/logs/agent-<date>.log — read back with fs, not spied on.
  *   3. The same message also reaches the onProgress callback.
  *
- * Run: nr test:manual -- test-sonar-unrecovered-branch-warn-log
+ * Run: nr test:manual sonar-unrecovered-branch-warn-log.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -25,49 +25,52 @@ import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { SonarStageService } from '../../src/review/sonar-stage.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: unrecovered source branch WARN log\n');
+type WfEnvironment = { repoDir: string; wfHome: string; originalWfHome: string | undefined };
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const sonarStageService = app.get(SonarStageService);
-
-  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-warn-log-'));
-  const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-warn-log-home-'));
+function setupWfEnvironment(prefix: string, homePrefix: string): WfEnvironment {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
   const originalWfHome = process.env.WF_HOME;
   process.env.WF_HOME = wfHome;
+  return { repoDir, wfHome, originalWfHome };
+}
 
+function cleanupWfEnvironment(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+  fs.rmSync(repoDir, { recursive: true, force: true });
+  fs.rmSync(wfHome, { recursive: true, force: true });
+  if (originalWfHome === undefined) delete process.env.WF_HOME;
+  else process.env.WF_HOME = originalWfHome;
+}
+
+function setupSoloRepo(repoDir: string): void {
   git(repoDir, ['init', '-q', '-b', 'solo']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
   git(repoDir, ['config', 'user.name', 'Test']);
   fs.writeFileSync(path.join(repoDir, 'a.txt'), 'base\n');
   git(repoDir, ['add', 'a.txt']);
   git(repoDir, ['commit', '-q', '-m', 'base']);
+}
 
-  const capturedRefs: unknown[] = [];
+function mockSonarScanCapture(capturedRefs: unknown[]): () => void {
   const originalRunSonarScan = sonarScannerModule.runSonarScan;
   (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = async (opts: unknown) => {
     capturedRefs.push(opts);
     return { status: 'clean', steps: [] };
   };
+  return () => {
+    (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;
+  };
+}
 
-  const target = { repoDir, diff: '', title: '', context: '' };
-  const progressMessages: string[] = [];
-
+function checkBareAnalyzeFallback(capturedRefs: unknown[]): void {
   console.log(chalk.bold.cyan('\nTest 1: falls back to a bare analyze instead of skipping'));
-  await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir,
-    force: true,
-    allowPrompt: true,
-    onProgress: (m: string) => progressMessages.push(m),
-  });
-
   if (
     capturedRefs.length === 1
     && JSON.stringify((capturedRefs[0] as { scope: unknown }).scope) === JSON.stringify({ kind: 'branch' })
@@ -76,9 +79,9 @@ async function main(): Promise<void> {
   } else {
     fail('Expected a single bare-analyze runSonarScan call', JSON.stringify(capturedRefs));
   }
+}
 
-  const expectedMessage = 'SonarQube CLI: no base branch to diff against — running a bare analyze instead';
-
+function checkWarnLogFile(wfHome: string, expectedMessage: string): void {
   console.log(chalk.bold.cyan('\nTest 2: a real WARN line lands in the on-disk log file'));
   const today = new Date().toISOString().split('T')[0];
   const logFilePath = path.join(wfHome, 'logs', `agent-${today}.log`);
@@ -92,25 +95,54 @@ async function main(): Promise<void> {
   } else {
     fail(`Expected log file to exist at ${logFilePath}`);
   }
+}
 
+function checkProgressCallback(progressMessages: string[], expectedMessage: string): void {
   console.log(chalk.bold.cyan('\nTest 3: the same message reaches onProgress'));
   if (progressMessages.includes(expectedMessage)) {
     pass('onProgress received the same skip message');
   } else {
     fail('Expected onProgress to receive the skip message', JSON.stringify(progressMessages));
   }
+}
 
-  (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;
+async function runAndCapture(
+  sonarStageService: SonarStageService,
+  repoDir: string,
+  progressMessages: string[],
+  capturedRefs: unknown[],
+): Promise<() => void> {
+  const restore = mockSonarScanCapture(capturedRefs);
+  await sonarStageService.scanIfEnabled({
+    repoDir,
+    force: true,
+    allowPrompt: true,
+    onProgress: (m: string) => progressMessages.push(m),
+  });
+  return restore;
+}
 
-  fs.rmSync(repoDir, { recursive: true, force: true });
-  fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+function verifySmoke(capturedRefs: unknown[], wfHome: string, progressMessages: string[]): void {
+  const expectedMessage = 'SonarQube CLI: no base branch to diff against — running a bare analyze instead';
+  checkBareAnalyzeFallback(capturedRefs);
+  checkWarnLogFile(wfHome, expectedMessage);
+  checkProgressCallback(progressMessages, expectedMessage);
+}
 
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+async function main(): Promise<void> {
+  console.log('Manual smoke: unrecovered source branch WARN log\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const sonarStageService = app.get(SonarStageService);
+  const { repoDir, wfHome, originalWfHome } = setupWfEnvironment('sonar-warn-log-', 'sonar-warn-log-home-');
+  setupSoloRepo(repoDir);
+  const capturedRefs: unknown[] = [];
+  const progressMessages: string[] = [];
+  const restore = await runAndCapture(sonarStageService, repoDir, progressMessages, capturedRefs);
+  restore();
+  verifySmoke(capturedRefs, wfHome, progressMessages);
+  cleanupWfEnvironment(repoDir, wfHome, originalWfHome);
   await app.close();
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: unrecovered source branch WARN log');
+  summarise(counts);
 }
 
 main().catch(error => {

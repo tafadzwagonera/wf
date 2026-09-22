@@ -21,7 +21,7 @@ import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const MOCK_TICKET = JSON.stringify({
   title: 'Hook Discovery',
@@ -49,7 +49,43 @@ const MOCK_TICKET = JSON.stringify({
 
 const { counts, pass, fail } = createReporter();
 
-const createRepo = (repoRoot: string, gitHookTool: 'lefthook' | 'husky' | 'none'): void => {
+type AiMockHandles = {
+  originalExecute: typeof AiService.prototype.execute;
+  originalGenerateFromPrompt: typeof StageAgentService.prototype.generateFromPrompt;
+};
+
+type AiProto = { execute: typeof AiService.prototype.execute };
+type StageAgentProto = { generateFromPrompt: typeof StageAgentService.prototype.generateFromPrompt };
+
+function patchAiMocks(onCapture: (prompt: string) => void): AiMockHandles {
+  const originalExecute = AiService.prototype.execute;
+  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
+  (AiService.prototype as unknown as AiProto).execute = async (request: { prompt?: string }) => {
+    onCapture(request.prompt ?? '');
+    return { content: MOCK_TICKET };
+  };
+  (StageAgentService.prototype as unknown as StageAgentProto).generateFromPrompt = async (prompt: string) => {
+    onCapture(prompt);
+    return { content: MOCK_TICKET };
+  };
+  return { originalExecute, originalGenerateFromPrompt };
+}
+
+async function capturePrompt(command: IssueGenerateCommand, args: string[], repos: string[]): Promise<string> {
+  let capturedPrompt = '';
+  const handles = patchAiMocks(prompt => {
+    capturedPrompt = prompt;
+  });
+  try {
+    await command.run(args, { repos, silent: true });
+  } finally {
+    AiService.prototype.execute = handles.originalExecute;
+    StageAgentService.prototype.generateFromPrompt = handles.originalGenerateFromPrompt;
+  }
+  return capturedPrompt;
+}
+
+function writeRepoBaseFiles(repoRoot: string): void {
   fs.mkdirSync(repoRoot, { recursive: true });
   fs.writeFileSync(
     path.join(repoRoot, 'package.json'),
@@ -57,132 +93,143 @@ const createRepo = (repoRoot: string, gitHookTool: 'lefthook' | 'husky' | 'none'
     'utf-8'
   );
   fs.writeFileSync(path.join(repoRoot, 'ticket.md'), '# Source\n\nSmoke test source.\n', 'utf-8');
+}
 
+function writeLefthookConfig(repoRoot: string): void {
+  fs.writeFileSync(
+    path.join(repoRoot, 'lefthook.yml'),
+    [
+      'pre-commit:',
+      '  commands:',
+      '    lint:',
+      '      run: yarn lint',
+      '    typecheck:',
+      '      run: yarn typecheck',
+      '',
+    ].join('\n'),
+    'utf-8'
+  );
+}
+
+function writeHuskyConfig(repoRoot: string): void {
+  const huskyDir = path.join(repoRoot, '.husky');
+  fs.mkdirSync(huskyDir, { recursive: true });
+  fs.writeFileSync(path.join(huskyDir, 'pre-commit'), '#!/usr/bin/env sh\nyarn lint\n', 'utf-8');
+}
+
+function createRepo(repoRoot: string, gitHookTool: 'lefthook' | 'husky' | 'none'): void {
+  writeRepoBaseFiles(repoRoot);
   if (gitHookTool === 'lefthook') {
-    fs.writeFileSync(
-      path.join(repoRoot, 'lefthook.yml'),
-      [
-        'pre-commit:',
-        '  commands:',
-        '    lint:',
-        '      run: yarn lint',
-        '    typecheck:',
-        '      run: yarn typecheck',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
+    writeLefthookConfig(repoRoot);
     return;
   }
-
   if (gitHookTool === 'husky') {
-    const huskyDir = path.join(repoRoot, '.husky');
-    fs.mkdirSync(huskyDir, { recursive: true });
-    fs.writeFileSync(path.join(huskyDir, 'pre-commit'), '#!/usr/bin/env sh\nyarn lint\n', 'utf-8');
+    writeHuskyConfig(repoRoot);
   }
+}
+
+function checkPrimaryRepoHooks(prompt: string): void {
+  if (prompt.includes('Git hooks (lefthook):')) {
+    pass('live prompt includes the primary repo git-hooks section');
+  } else {
+    fail('live prompt is missing the primary repo git-hooks section', prompt.slice(0, 800));
+  }
+  if (prompt.includes('  - pre-commit: yarn lint, yarn typecheck')) {
+    pass('live prompt renders nested hook bullets for lefthook');
+  } else {
+    fail('live prompt does not render nested lefthook bullets', prompt.slice(0, 800));
+  }
+}
+
+function checkSecondaryHuskySection(prompt: string): void {
+  if (prompt.includes('Repository conventions (secondary-husky):')) {
+    pass('live prompt includes the full conventions section for the secondary repo using a different git-hooks tool');
+  } else {
+    fail('live prompt is missing the full conventions section for secondary-husky', prompt.slice(0, 800));
+  }
+  if (prompt.includes('Git hooks (husky):')) {
+    pass('live prompt surfaces the husky git-hooks tool inside the secondary-husky conventions section');
+  } else {
+    fail('live prompt is missing the husky git-hooks entry in secondary-husky conventions', prompt.slice(0, 800));
+  }
+}
+
+function checkMissingHooksAssertion(prompt: string): void {
+  if (prompt.includes('secondary-empty has no git hooks (primary uses lefthook)')) {
+    pass('live prompt includes the cross-repo delta when the secondary repo has no hooks');
+  } else {
+    fail('live prompt is missing the cross-repo no-hooks delta', prompt.slice(0, 800));
+  }
+}
+
+async function runDifferingToolsScenario(
+  command: IssueGenerateCommand,
+  primaryRepo: string,
+  secondaryRepoWithDifferentTool: string,
+): Promise<void> {
+  const ticketPath = path.join(primaryRepo, 'ticket.md');
+  const prompt = await capturePrompt(
+    command,
+    [ticketPath],
+    [primaryRepo, secondaryRepoWithDifferentTool],
+  );
+  checkPrimaryRepoHooks(prompt);
+  checkSecondaryHuskySection(prompt);
+}
+
+async function runMissingHooksScenario(
+  command: IssueGenerateCommand,
+  primaryRepo: string,
+  secondaryRepoWithoutHooks: string,
+): Promise<void> {
+  const ticketPath = path.join(primaryRepo, 'ticket.md');
+  const prompt = await capturePrompt(
+    command,
+    [ticketPath],
+    [primaryRepo, secondaryRepoWithoutHooks],
+  );
+  checkMissingHooksAssertion(prompt);
+}
+
+async function runAllScenarios(
+  command: IssueGenerateCommand,
+  primaryRepo: string,
+  secondaryRepoWithDifferentTool: string,
+  secondaryRepoWithoutHooks: string,
+): Promise<void> {
+  await runDifferingToolsScenario(command, primaryRepo, secondaryRepoWithDifferentTool);
+  await runMissingHooksScenario(command, primaryRepo, secondaryRepoWithoutHooks);
+}
+
+type RepoSetup = {
+  primaryRepo: string;
+  secondaryRepoWithDifferentTool: string;
+  secondaryRepoWithoutHooks: string;
 };
 
-const capturePrompt = async (command: IssueGenerateCommand, args: string[], repos: string[]): Promise<string> => {
-  const originalExecute = AiService.prototype.execute;
-  const originalGenerateFromPrompt = StageAgentService.prototype.generateFromPrompt;
-  let capturedPrompt = '';
-
-  const aiPrototype = AiService.prototype as unknown as {
-    execute: typeof AiService.prototype.execute;
-  };
-  aiPrototype.execute = async (request: { prompt?: string }) => {
-    capturedPrompt = request.prompt ?? '';
-    return { content: MOCK_TICKET };
-  };
-
-  const stageAgentPrototype = StageAgentService.prototype as unknown as {
-    generateFromPrompt: typeof StageAgentService.prototype.generateFromPrompt;
-  };
-  stageAgentPrototype.generateFromPrompt = async (prompt: string) => {
-    capturedPrompt = prompt;
-    return { content: MOCK_TICKET };
-  };
-
-  try {
-    await command.run(args, { repos, silent: true });
-  } finally {
-    AiService.prototype.execute = originalExecute;
-    StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
-  }
-
-  return capturedPrompt;
-};
-
-async function main(): Promise<void> {
-  console.log(chalk.bold.cyan('\n🧪 Manual Test: issue:generate cross-repo git-hooks discovery\n'));
-
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-cross-repo-git-hooks-'));
+function setupRepos(tempRoot: string): RepoSetup {
   const primaryRepo = path.join(tempRoot, 'primary-repo');
   const secondaryRepoWithDifferentTool = path.join(tempRoot, 'secondary-husky');
   const secondaryRepoWithoutHooks = path.join(tempRoot, 'secondary-empty');
-
   createRepo(primaryRepo, 'lefthook');
   createRepo(secondaryRepoWithDifferentTool, 'husky');
   createRepo(secondaryRepoWithoutHooks, 'none');
+  return { primaryRepo, secondaryRepoWithDifferentTool, secondaryRepoWithoutHooks };
+}
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
-
+async function main(): Promise<void> {
+  console.log(chalk.bold.cyan('\n🧪 Manual Test: issue:generate cross-repo git-hooks discovery\n'));
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-manual-cross-repo-git-hooks-'));
+  const { primaryRepo, secondaryRepoWithDifferentTool, secondaryRepoWithoutHooks } = setupRepos(tempRoot);
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   try {
     const command = app.get(IssueGenerateCommand);
-
-    const differingToolsPrompt = await capturePrompt(
-      command,
-      [path.join(primaryRepo, 'ticket.md')],
-      [primaryRepo, secondaryRepoWithDifferentTool]
-    );
-
-    if (differingToolsPrompt.includes('Git hooks (lefthook):')) {
-      pass('live prompt includes the primary repo git-hooks section');
-    } else {
-      fail('live prompt is missing the primary repo git-hooks section', differingToolsPrompt.slice(0, 800));
-    }
-
-    if (differingToolsPrompt.includes('  - pre-commit: yarn lint, yarn typecheck')) {
-      pass('live prompt renders nested hook bullets for lefthook');
-    } else {
-      fail('live prompt does not render nested lefthook bullets', differingToolsPrompt.slice(0, 800));
-    }
-
-    if (differingToolsPrompt.includes('Repository conventions (secondary-husky):')) {
-      pass('live prompt includes the full conventions section for the secondary repo using a different git-hooks tool');
-    } else {
-      fail('live prompt is missing the full conventions section for secondary-husky', differingToolsPrompt.slice(0, 800));
-    }
-
-    if (differingToolsPrompt.includes('Git hooks (husky):')) {
-      pass('live prompt surfaces the husky git-hooks tool inside the secondary-husky conventions section');
-    } else {
-      fail('live prompt is missing the husky git-hooks entry in secondary-husky conventions', differingToolsPrompt.slice(0, 800));
-    }
-
-    const missingHooksPrompt = await capturePrompt(
-      command,
-      [path.join(primaryRepo, 'ticket.md')],
-      [primaryRepo, secondaryRepoWithoutHooks]
-    );
-
-    if (missingHooksPrompt.includes('secondary-empty has no git hooks (primary uses lefthook)')) {
-      pass('live prompt includes the cross-repo delta when the secondary repo has no hooks');
-    } else {
-      fail('live prompt is missing the cross-repo no-hooks delta', missingHooksPrompt.slice(0, 800));
-    }
+    await runAllScenarios(command, primaryRepo, secondaryRepoWithDifferentTool, secondaryRepoWithoutHooks);
   } finally {
     await app.close();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold.cyan(`\n  Results: ${counts.passed} passed, ${counts.failed} failed\n`));
-
-  if (counts.failed > 0) {
-    process.exit(1);
-  }
+  summarise(counts);
 }
 
 main().catch(error => {

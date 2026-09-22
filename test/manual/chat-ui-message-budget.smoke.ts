@@ -14,42 +14,52 @@ const capturedMessages: string[] = [];
   return { message: 'exit' };
 };
 
-async function main(): Promise<void> {
-  console.log(chalk.bold('\n--- Test: message budget in conversation prompt ---\n'));
+interface TestCase {
+  turn: number;
+  maxTurns: number;
+  expected: string;
+}
 
-  const cases = [
+function buildTestCases(): TestCase[] {
+  return [
     { turn: 1, maxTurns: 20, expected: '19 turns left (1/20)' },
     { turn: 10, maxTurns: 20, expected: '10 turns left (10/20)' },
     { turn: 20, maxTurns: 20, expected: '0 turns left (20/20)' },
     { turn: 1, maxTurns: 5, expected: '4 turns left (1/5)' },
   ];
+}
 
-  let passed = 0;
+async function runSingleCase(turn: number, maxTurns: number, expected: string): Promise<boolean> {
+  capturedMessages.length = 0;
+  await service.promptUserInput(turn, maxTurns);
+  const message = capturedMessages[0] ?? '';
+  const ok = message.includes(expected);
+  console.log(
+    ok ? chalk.green('  PASS') : chalk.red('  FAIL'),
+    `turn=${turn}, maxTurns=${maxTurns}`,
+    ok ? `contains "${expected}"` : `expected "${expected}" in "${message}"`
+  );
+  return ok;
+}
 
-  for (const { turn, maxTurns, expected } of cases) {
-    capturedMessages.length = 0;
-    await service.promptUserInput(turn, maxTurns);
-
-    const message = capturedMessages[0] ?? '';
-    const ok = message.includes(expected);
-
-    console.log(
-      ok ? chalk.green('  PASS') : chalk.red('  FAIL'),
-      `turn=${turn}, maxTurns=${maxTurns}`,
-      ok ? `contains "${expected}"` : `expected "${expected}" in "${message}"`
-    );
-
-    if (ok) passed += 1;
-  }
-
+function printSummary(passed: number, total: number): void {
   console.log();
   console.log(
-    passed === cases.length
-      ? chalk.green(`All ${cases.length} cases passed.`)
-      : chalk.red(`${passed}/${cases.length} cases passed.`)
+    passed === total
+      ? chalk.green(`All ${total} cases passed.`)
+      : chalk.red(`${passed}/${total} cases passed.`)
   );
   console.log(chalk.bold('\n--- End of test ---\n'));
+}
 
+async function main(): Promise<void> {
+  console.log(chalk.bold('\n--- Test: message budget in conversation prompt ---\n'));
+  const cases = buildTestCases();
+  let passed = 0;
+  for (const { turn, maxTurns, expected } of cases) {
+    if (await runSingleCase(turn, maxTurns, expected)) passed += 1;
+  }
+  printSummary(passed, cases.length);
   process.exit(passed === cases.length ? 0 : 1);
 }
 

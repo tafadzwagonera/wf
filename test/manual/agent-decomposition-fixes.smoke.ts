@@ -9,7 +9,7 @@
  * 5. utils.ts: slugify strips leading/trailing hyphens with grouped alternation
  * 6. utils.ts: tryResolvePath and tryResolveSegmentFallback are callable (declared before use)
  *
- * Run: nr test:manual -- test-agent-decomposition-fixes
+ * Run: nr test:manual agent-decomposition-fixes.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -29,180 +29,234 @@ import { createReporter } from './support/reporter';
 const origLog = console.log;
 const { counts, pass, fail } = createReporter();
 
-async function main(): Promise<void> {
-  origLog('\nManual Test: agent decomposition review fixes\n');
+type CallRecorder = {
+  stageAllCalled: boolean;
+  stageAllCwd: string | undefined;
+  getDiffStaged: boolean | undefined;
+  restore: () => void;
+};
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
+function captureGitServiceCalls(gs: GitService, restore: () => void): CallRecorder {
+  let stageAllCalled = false;
+  let stageAllCwd: string | undefined;
+  let getDiffStaged: boolean | undefined;
 
-  origLog('  Part 1: CommitterAgent stages before diff');
-  {
-    const committer = app.get(CommitterAgent);
-    const gitService = app.get(GitService);
+  gs.stageAll = async (cwd?: string) => {
+    stageAllCalled = true;
+    stageAllCwd = cwd;
+  };
+  gs.getDiff = async (staged: boolean) => {
+    getDiffStaged = staged;
+    return 'diff --git a/src/a.ts b/src/a.ts';
+  };
 
-    let stageAllCalled = false;
-    let stageAllCwd: string | undefined;
-    let getDiffStaged: boolean | undefined;
+  return { stageAllCalled, stageAllCwd, getDiffStaged, restore };
+}
 
-    const origGetStatus = gitService.getStatus.bind(gitService);
-    const origStageAll = gitService.stageAll.bind(gitService);
-    const origGetDiff = gitService.getDiff.bind(gitService);
-    const origGetCommits = gitService.getRecentCommits.bind(gitService);
-    const origCommit = gitService.commit.bind(gitService);
+function setupGitMocks(gs: GitService): CallRecorder {
+  const orig = {
+    getStatus: gs.getStatus.bind(gs),
+    stageAll: gs.stageAll.bind(gs),
+    getDiff: gs.getDiff.bind(gs),
+    getRecentCommits: gs.getRecentCommits.bind(gs),
+    commit: gs.commit.bind(gs),
+  };
 
-    gitService.getStatus = async () => ({ files: [{ path: 'src/a.ts' }], staged: [] }) as any;
-    gitService.stageAll = async (cwd?: string) => {
-      stageAllCalled = true;
-      stageAllCwd = cwd;
-    };
-    gitService.getDiff = async (staged: boolean) => {
-      getDiffStaged = staged;
-      return 'diff --git a/src/a.ts b/src/a.ts';
-    };
-    gitService.getRecentCommits = async () => [{ message: 'WBP-1: prior' }] as any;
-    gitService.commit = async () => 'abc123';
+  gs.getStatus = async () => ({ files: [{ path: 'src/a.ts' }], staged: [] }) as any;
+  const restore = () => Object.assign(gs, orig);
+  const calls = captureGitServiceCalls(gs, restore);
+  gs.getRecentCommits = async () => [{ message: 'WBP-1: prior' }] as any;
+  gs.commit = async () => 'abc123';
 
-    const origGenerate = CommitStageService.prototype.generateCommitMessage;
-    (CommitStageService.prototype as any).generateCommitMessage = async () => 'WBP-1: test commit';
+  return calls;
+}
 
-    // Suppress console output during the test
-    console.log = () => {};
-    try {
-      await committer.execute('WBP-1', '/tmp/repo', 'context', false, false);
-    } finally {
-      console.log = origLog;
-    }
-
-    if (stageAllCalled) {
-      pass('stageAll was called before getDiff');
-    } else {
-      fail('stageAll was NOT called — committer skipped staging');
-    }
-
-    if (stageAllCwd === '/tmp/repo') {
-      pass('stageAll received the correct repoDir');
-    } else {
-      fail('stageAll received wrong repoDir', `got: ${stageAllCwd}`);
-    }
-
-    if (getDiffStaged === true) {
-      pass('getDiff was called with staged=true');
-    } else {
-      fail('getDiff was called with staged=false — should be true after stageAll');
-    }
-
-    gitService.getStatus = origGetStatus;
-    gitService.stageAll = origStageAll;
-    gitService.getDiff = origGetDiff;
-    gitService.getRecentCommits = origGetCommits;
-    gitService.commit = origCommit;
-    CommitStageService.prototype.generateCommitMessage = origGenerate;
+function assertStageAllCalled(state: any): void {
+  if (state.stageAllCalled) {
+    pass('stageAll was called before getDiff');
+  } else {
+    fail('stageAll was NOT called — committer skipped staging');
   }
+}
 
-  origLog('  Part 2: ReviewerAgent cached approval detection');
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-agent-fix-'));
-    const ticketPath = path.join(tmpDir, 'WBP-TEST.md');
-    fs.writeFileSync(ticketPath, '# WBP-TEST: Test');
+function assertStageAllCwd(state: any): void {
+  if (state.stageAllCwd === '/tmp/repo') {
+    pass('stageAll received the correct repoDir');
+  } else {
+    fail('stageAll received wrong repoDir', `got: ${state.stageAllCwd}`);
+  }
+}
 
-    const reviewPath = deriveReviewArtifactPath(ticketPath);
-    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+function assertGetDiffStaged(state: any): void {
+  if (state.getDiffStaged === true) {
+    pass('getDiff was called with staged=true');
+  } else {
+    fail('getDiff was called with staged=false — should be true after stageAll');
+  }
+}
 
-    fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n\u2714 ${REVIEW_VERDICT_APPROVED}\n`);
+async function executeCommitterTest(committer: any): Promise<void> {
+  console.log = () => {};
+  try {
+    await committer.execute('WBP-1', '/tmp/repo', 'context', false, false);
+  } finally {
+    console.log = origLog;
+  }
+}
 
-    const reviewer = app.get(ReviewerAgent);
-    const result = await reviewer.execute(
-      { ticketKey: 'WBP-TEST', content: '# WBP-TEST: Test', path: ticketPath },
-      { skipExisting: true, silent: true }
-    );
+function setupGenerateCommitMessageMock(): () => void {
+  const origGenerate = CommitStageService.prototype.generateCommitMessage;
+  (CommitStageService.prototype as any).generateCommitMessage = async () => 'WBP-1: test commit';
+  return () => {
+    CommitStageService.prototype.generateCommitMessage = origGenerate;
+  };
+}
 
-    if (result?.approved === true) {
-      pass('Cached review detected as approved via REVIEW_VERDICT_APPROVED constant');
-    } else {
-      fail('Cached review NOT detected as approved', `result: ${JSON.stringify(result)}`);
-    }
+function runCommitterAssertions(state: any): void {
+  assertStageAllCalled(state);
+  assertStageAllCwd(state);
+  assertGetDiffStaged(state);
+}
 
-    fs.writeFileSync(reviewPath, '# Code Review\n\n## Approval Status\nChanges Requested\n');
-    const result2 = await reviewer.execute(
-      { ticketKey: 'WBP-TEST', content: '# WBP-TEST: Test', path: ticketPath },
-      { skipExisting: true, silent: true }
-    );
+async function testCommitterAgent(app: any): Promise<void> {
+  const committer = app.get(CommitterAgent);
+  const gitService = app.get(GitService);
+  const state = setupGitMocks(gitService);
+  const restoreGenerate = setupGenerateCommitMessageMock();
+  await executeCommitterTest(committer);
+  state.restore();
+  restoreGenerate();
+  runCommitterAssertions(state);
+}
 
-    if (result2?.approved === false) {
-      pass('Cached review without approval marker detected as not-approved');
-    } else {
-      fail('Cached review without marker incorrectly detected as approved');
-    }
+function setupApprovedReview(tmpDir: string): string {
+  const ticketPath = path.join(tmpDir, 'WBP-TEST.md');
+  fs.writeFileSync(ticketPath, '# WBP-TEST: Test');
+  const reviewPath = deriveReviewArtifactPath(ticketPath);
+  fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+  fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n✓ ${REVIEW_VERDICT_APPROVED}\n`);
+  return ticketPath;
+}
 
+async function testReviewerApprovalPath1(app: any, tmpDir: string): Promise<void> {
+  const ticketPath = setupApprovedReview(tmpDir);
+  const reviewer = app.get(ReviewerAgent);
+  const result = await reviewer.execute(
+    { ticketKey: 'WBP-TEST', content: '# WBP-TEST: Test', path: ticketPath },
+    { skipExisting: true, silent: true }
+  );
+  if (result?.approved === true) {
+    pass('Cached review detected as approved via REVIEW_VERDICT_APPROVED constant');
+  } else {
+    fail('Cached review NOT detected as approved', `result: ${JSON.stringify(result)}`);
+  }
+}
+
+async function testReviewerApprovalPath2(app: any, tmpDir: string): Promise<void> {
+  const ticketPath = path.join(tmpDir, 'WBP-TEST.md');
+  const reviewPath = deriveReviewArtifactPath(ticketPath);
+  fs.writeFileSync(reviewPath, '# Code Review\n\n## Approval Status\nChanges Requested\n');
+  const reviewer = app.get(ReviewerAgent);
+  const result2 = await reviewer.execute(
+    { ticketKey: 'WBP-TEST', content: '# WBP-TEST: Test', path: ticketPath },
+    { skipExisting: true, silent: true }
+  );
+  if (result2?.approved === false) {
+    pass('Cached review without approval marker detected as not-approved');
+  } else {
+    fail('Cached review without marker incorrectly detected as approved');
+  }
+}
+
+async function testReviewerAgent(app: any): Promise<void> {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-agent-fix-'));
+  try {
+    await testReviewerApprovalPath1(app, tmpDir);
+    await testReviewerApprovalPath2(app, tmpDir);
+  } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+}
 
+function testExtractSummaryKeyed(): void {
+  const result = extractSummary('# WBP-123: Fix login redirect\n\nBody text');
+  if (result === 'Fix login redirect') pass('extractSummary extracts keyed heading');
+  else fail('extractSummary keyed heading failed', `got: ${result}`);
+}
+
+function testExtractSummaryPlain(): void {
+  const result = extractSummary('# Generic heading\n\nBody');
+  if (result === 'Generic heading') pass('extractSummary extracts plain heading');
+  else fail('extractSummary plain heading failed', `got: ${result}`);
+}
+
+function testExtractSummaryFallback(): void {
+  const result = extractSummary('No heading here');
+  if (result === 'Implementation') pass('extractSummary returns fallback for missing heading');
+  else fail('extractSummary fallback failed', `got: ${result}`);
+}
+
+function testSlugifyLeadingTrailing(): void {
+  const result = slugify('--Hello World--');
+  if (result === 'hello-world') pass('slugify strips leading/trailing hyphens');
+  else fail('slugify leading/trailing hyphens not stripped', `got: ${result}`);
+}
+
+function testSlugifySpecialChars(): void {
+  const result = slugify('Fix: login   redirect!!!');
+  if (result === 'fix-login-redirect') pass('slugify handles special chars and collapsed spaces');
+  else fail('slugify special chars failed', `got: ${result}`);
+}
+
+function testResolveRepoBasePathUndefined(): void {
+  const result = resolveRepoBasePath(undefined);
+  if (result === process.cwd()) pass('resolveRepoBasePath(undefined) returns cwd');
+  else fail('resolveRepoBasePath(undefined) did not return cwd', `got: ${result}`);
+}
+
+function testResolveRepoBasePathNonexistent(): void {
+  console.log = () => {};
+  const result = resolveRepoBasePath('nonexistent-repo-xyz-123');
+  console.log = origLog;
+  if (result === process.cwd()) pass('resolveRepoBasePath(nonexistent) falls back to cwd');
+  else fail('resolveRepoBasePath(nonexistent) did not fall back', `got: ${result}`);
+}
+
+async function runUtilsTests(): Promise<void> {
+  testExtractSummaryKeyed();
+  testExtractSummaryPlain();
+  testExtractSummaryFallback();
+  testSlugifyLeadingTrailing();
+  testSlugifySpecialChars();
+  testResolveRepoBasePathUndefined();
+  testResolveRepoBasePathNonexistent();
+}
+
+async function runTests(app: any): Promise<void> {
+  origLog('  Part 1: CommitterAgent stages before diff');
+  await testCommitterAgent(app);
+  origLog('  Part 2: ReviewerAgent cached approval detection');
+  await testReviewerAgent(app);
   origLog('  Part 3: utils.ts function contracts');
-  {
-    const summary1 = extractSummary('# WBP-123: Fix login redirect\n\nBody text');
-    if (summary1 === 'Fix login redirect') {
-      pass('extractSummary extracts keyed heading');
-    } else {
-      fail('extractSummary keyed heading failed', `got: ${summary1}`);
-    }
+  await runUtilsTests();
+}
 
-    const summary2 = extractSummary('# Generic heading\n\nBody');
-    if (summary2 === 'Generic heading') {
-      pass('extractSummary extracts plain heading');
-    } else {
-      fail('extractSummary plain heading failed', `got: ${summary2}`);
-    }
-
-    const summary3 = extractSummary('No heading here');
-    if (summary3 === 'Implementation') {
-      pass('extractSummary returns fallback for missing heading');
-    } else {
-      fail('extractSummary fallback failed', `got: ${summary3}`);
-    }
-  }
-
-  {
-    const slug1 = slugify('--Hello World--');
-    if (slug1 === 'hello-world') {
-      pass('slugify strips leading/trailing hyphens');
-    } else {
-      fail('slugify leading/trailing hyphens not stripped', `got: ${slug1}`);
-    }
-
-    const slug2 = slugify('Fix: login   redirect!!!');
-    if (slug2 === 'fix-login-redirect') {
-      pass('slugify handles special chars and collapsed spaces');
-    } else {
-      fail('slugify special chars failed', `got: ${slug2}`);
-    }
-  }
-
-  {
-    const result = resolveRepoBasePath(undefined);
-    if (result === process.cwd()) {
-      pass('resolveRepoBasePath(undefined) returns cwd');
-    } else {
-      fail('resolveRepoBasePath(undefined) did not return cwd', `got: ${result}`);
-    }
-
-    // Suppress the warning log for a non-existent repo
-    console.log = () => {};
-    const result2 = resolveRepoBasePath('nonexistent-repo-xyz-123');
-    console.log = origLog;
-    if (result2 === process.cwd()) {
-      pass('resolveRepoBasePath(nonexistent) falls back to cwd');
-    } else {
-      fail('resolveRepoBasePath(nonexistent) did not fall back', `got: ${result2}`);
-    }
-  }
-
-  await app.close();
-
+function reportResults(): void {
   origLog(`\nResults: ${counts.passed} passed, ${counts.failed} failed\n`);
   if (counts.failed > 0) {
     process.exit(1);
   }
+}
+
+async function main(): Promise<void> {
+  origLog('\nManual Test: agent decomposition review fixes\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+  try {
+    await runTests(app);
+  } finally {
+    await app.close();
+  }
+  reportResults();
 }
 
 main().catch(error => {

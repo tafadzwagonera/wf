@@ -21,7 +21,7 @@
  *   6. AiService.execute was called exactly twice — once per step — with
  *      stage: 'review' and maxTokens: 2048
  *
- * Run: nr test:manual -- step-spec-fidelity-error-findings-enrich-steps.smoke
+ * Run: nr test:manual step-spec-fidelity-error-findings-enrich-steps.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -33,21 +33,20 @@ import { AppModule } from '../../src/app.module';
 import { StepSpecFidelityService } from '../../src/agents/step-spec-fidelity.service';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
 import { AiService } from '../../src/integrations/ai/ai.service';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: error findings from verifyAll are appended as [SPEC FIDELITY ERRORS] blocks\n');
+const ERROR_FINDING_RESPONSE = JSON.stringify({
+  findings: [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }],
+});
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const stepSpecFidelity = app.get(StepSpecFidelityService);
-  const implementer = app.get(ImplementerAgent);
-  const aiService = app.get(AiService);
+type AiRequest = { stage?: string; maxTokens?: number };
 
+function createTempRepo(): { repoDir: string; baselineSha: string } {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'step-fidelity-enrich-'));
   git(repoDir, ['init', '-q', '-b', 'master']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
@@ -57,100 +56,131 @@ async function main(): Promise<void> {
   git(repoDir, ['add', '.']);
   git(repoDir, ['commit', '-q', '-m', 'baseline']);
   const baselineSha = git(repoDir, ['rev-parse', 'HEAD']);
+  return { repoDir, baselineSha };
+}
 
-  // Unstaged change so captureDiff returns a non-empty diff
-  fs.writeFileSync(path.join(repoDir, 'a.ts'), 'v2\n');
-
-  const capturedRequests: Array<{ stage?: string; maxTokens?: number }> = [];
+function stubAiExecute(aiService: AiService, capturedRequests: AiRequest[]): () => void {
   let callIndex = 0;
   const originalExecute = aiService.execute.bind(aiService);
-  (aiService as any).execute = async (req: { stage?: string; maxTokens?: number }) => {
+  (aiService as any).execute = async (req: AiRequest) => {
     capturedRequests.push(req);
-    if (callIndex++ === 0) {
-      return {
-        content: JSON.stringify({
-          findings: [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }],
-        }),
-      };
-    }
-    return { content: '{"findings":[]}' };
+    return { content: callIndex++ === 0 ? ERROR_FINDING_RESPONSE : '{"findings":[]}' };
   };
+  return () => {
+    (aiService as any).execute = originalExecute;
+  };
+}
 
+async function buildTestServices(): Promise<{
+  app: any;
+  stepSpecFidelity: StepSpecFidelityService;
+  implementer: ImplementerAgent;
+  aiService: AiService;
+}> {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  return {
+    app,
+    stepSpecFidelity: app.get(StepSpecFidelityService),
+    implementer: app.get(ImplementerAgent),
+    aiService: app.get(AiService),
+  };
+}
+
+async function runVerifyAllWithStub(
+  stepSpecFidelity: StepSpecFidelityService,
+  aiService: AiService,
+  repoDir: string,
+  baselineSha: string,
+): Promise<{ result: unknown[][]; capturedRequests: AiRequest[] }> {
+  const capturedRequests: AiRequest[] = [];
+  const restore = stubAiExecute(aiService, capturedRequests);
   const result = await stepSpecFidelity.verifyAll(['Step A', 'Step B'], repoDir, baselineSha);
+  restore();
+  return { result, capturedRequests };
+}
 
-  (aiService as any).execute = originalExecute;
+async function runEnrichWithStub(
+  implementer: ImplementerAgent,
+  aiService: AiService,
+  repoDir: string,
+  baselineSha: string,
+  capturedRequests: AiRequest[],
+): Promise<string[]> {
+  const restore = stubAiExecute(aiService, capturedRequests);
+  const enriched = await (implementer as any).enrichStepsWithFidelityErrors(
+    ['Step A', 'Step B'], repoDir, baselineSha,
+  );
+  restore();
+  return enriched;
+}
 
-  // Verify 1
+function checkResult0HasErrorFinding(result: unknown[][]): void {
+  if (result[0]?.length === 1 && (result[0][0] as any)?.severity === 'error') {
+    pass('Result[0] contains one error-severity finding');
+  } else {
+    fail('Expected result[0] to have one error finding', JSON.stringify(result[0]));
+  }
+}
+
+function checkVerifyAllResults(result: unknown[][]): void {
   if (result.length === 2) {
     pass('verifyAll returns an array of length 2 (one entry per step)');
   } else {
     fail(`Expected result.length === 2, got ${result.length}`);
   }
-
-  // Verify 2
-  if (result[0]?.length === 1 && result[0][0]?.severity === 'error') {
-    pass('Result[0] contains one error-severity finding');
-  } else {
-    fail('Expected result[0] to have one error finding', JSON.stringify(result[0]));
-  }
-
-  // Verify 3
+  checkResult0HasErrorFinding(result);
   if (result[1]?.length === 0) {
     pass('Result[1] is an empty array');
   } else {
     fail('Expected result[1] to be empty', JSON.stringify(result[1]));
   }
+}
 
-  // Verify 4 and 5: enrichStepsWithFidelityErrors via private access
-  // Re-stub with same fixture
-  callIndex = 0;
-  (aiService as any).execute = async (req: { stage?: string; maxTokens?: number }) => {
-    capturedRequests.push(req);
-    if (callIndex++ === 0) {
-      return {
-        content: JSON.stringify({
-          findings: [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }],
-        }),
-      };
-    }
-    return { content: '{"findings":[]}' };
-  };
-
-  const enriched: string[] = await (implementer as any).enrichStepsWithFidelityErrors(
-    ['Step A', 'Step B'], repoDir, baselineSha,
+function checkStepAEnriched(enriched: string[]): void {
+  const hasErrorBlock = enriched[0]?.includes(
+    '[SPEC FIDELITY ERRORS — must fix before this step is considered done]',
   );
-
-  (aiService as any).execute = originalExecute;
-
-  if (
-    enriched[0]?.includes('[SPEC FIDELITY ERRORS — must fix before this step is considered done]')
-    && enriched[0]?.includes('/\\.ts$/')
-  ) {
+  if (hasErrorBlock && enriched[0]?.includes('/\\.ts$/')) {
     pass('Step A enriched with [SPEC FIDELITY ERRORS] block containing the claim verbatim');
   } else {
     fail('Expected step A to contain [SPEC FIDELITY ERRORS] and claim text', enriched[0]?.slice(0, 400));
   }
+}
 
+function checkReviewCallCount(capturedRequests: AiRequest[]): void {
+  const reviewCalls = capturedRequests.filter(r => r.stage === 'review' && r.maxTokens === 2048);
+  if (reviewCalls.length >= 2) {
+    pass(`AiService.execute called with stage: 'review' and maxTokens: 2048 (${reviewCalls.length} calls)`);
+  } else {
+    fail(
+      `Expected ≥ 2 calls with stage 'review' and maxTokens 2048, got ${reviewCalls.length}`,
+      JSON.stringify(capturedRequests),
+    );
+  }
+}
+
+function checkEnrichResults(enriched: string[], capturedRequests: AiRequest[]): void {
+  checkStepAEnriched(enriched);
   if (enriched[1] === 'Step B') {
     pass('Step B returned unchanged (no [SPEC FIDELITY ERRORS] block)');
   } else {
     fail('Expected step B to be unchanged', enriched[1]);
   }
+  checkReviewCallCount(capturedRequests);
+}
 
-  // Verify 6: stage and maxTokens on every AI call (capturedRequests includes calls from both stubs)
-  const reviewCalls = capturedRequests.filter(r => r.stage === 'review' && r.maxTokens === 2048);
-  if (reviewCalls.length >= 2) {
-    pass(`AiService.execute called with stage: 'review' and maxTokens: 2048 (${reviewCalls.length} calls)`);
-  } else {
-    fail(`Expected ≥ 2 calls with stage 'review' and maxTokens 2048, got ${reviewCalls.length}`, JSON.stringify(capturedRequests));
-  }
-
+async function main(): Promise<void> {
+  console.log('Manual smoke: error findings from verifyAll are appended as [SPEC FIDELITY ERRORS] blocks\n');
+  const { app, stepSpecFidelity, implementer, aiService } = await buildTestServices();
+  const { repoDir, baselineSha } = createTempRepo();
+  fs.writeFileSync(path.join(repoDir, 'a.ts'), 'v2\n');
+  const { result, capturedRequests } = await runVerifyAllWithStub(stepSpecFidelity, aiService, repoDir, baselineSha);
+  checkVerifyAllResults(result);
+  const enriched = await runEnrichWithStub(implementer, aiService, repoDir, baselineSha, capturedRequests);
+  checkEnrichResults(enriched, capturedRequests);
   fs.rmSync(repoDir, { recursive: true, force: true });
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: step-spec-fidelity error findings enrich steps');
+  summarise(counts);
 }
 
 main().catch(error => {

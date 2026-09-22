@@ -1,7 +1,7 @@
 /**
  * Smoke test: filterStepsForRepo and resolveAssessedSteps handle the planner em-dash format
  *
- * Run: nr test:manual -- multi-repo-plan-step-filter-planner-format
+ * Run: nr test:manual multi-repo-plan-step-filter-planner-format.smoke.ts
  *
  * Scenario: The planner emits steps as '<repo> — in src/path/file.ts ...' (em-dash),
  * not '<repo>/src/path/file.ts ...' (slash-delimited). The old regex required a leading
@@ -28,79 +28,98 @@ import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
+function checkEmDashStepKept(filterSteps: (steps: string[], files: string[], repo: string) => string[]): void {
+  const result: string[] = filterSteps(
+    ['api-gw — in src/x.ts fix', 'Run tests'],
+    ['api-gw/src/x.ts'],
+    'api-gw',
+  );
+  if (result.length === 2 && result.includes('api-gw — in src/x.ts fix') && result.includes('Run tests')) {
+    pass("filterStepsForRepo keeps em-dash step referencing this repo's stripped path and generic step");
+  } else {
+    fail('unexpected result for em-dash step matching this repo', JSON.stringify(result));
+  }
+}
+
+function checkEmDashStepExcluded(filterSteps: (steps: string[], files: string[], repo: string) => string[]): void {
+  const result: string[] = filterSteps(
+    ['api-gw — in src/x.ts fix'],
+    ['shop/src/cart.ts'],
+    'shop',
+  );
+  if (result.length === 0) {
+    pass("filterStepsForRepo excludes em-dash step that does not reference shop's files");
+  } else {
+    fail('expected empty result when em-dash step references a different repo', JSON.stringify(result));
+  }
+}
+
+function checkSrcNotesIsGeneric(filterSteps: (steps: string[], files: string[], repo: string) => string[]): void {
+  const result: string[] = filterSteps(
+    ['update docs/src-notes.md'],
+    ['api-gw/src/x.ts'],
+    'api-gw',
+  );
+  if (result.length === 1 && result[0] === 'update docs/src-notes.md') {
+    pass("filterStepsForRepo treats 'src-notes' (no trailing slash) as a generic step");
+  } else {
+    fail("expected 'update docs/src-notes.md' to be kept as a generic step", JSON.stringify(result));
+  }
+}
+
+function checkResolvedAssessedInMultiRepo(
+  resolveAssessed: (steps: string[], opts: { additionalRepoDirs: string[] }) => string[],
+): void {
+  const result: string[] = resolveAssessed(
+    ['api-gw — in src/x.ts add endpoint', 'Run tests'],
+    { additionalRepoDirs: ['/tmp/repo-b'] },
+  );
+  if (result.length === 1 && result[0] === 'api-gw — in src/x.ts add endpoint') {
+    pass('resolveAssessedSteps returns the em-dash step and excludes the generic step');
+  } else {
+    fail('unexpected assessedSteps result for em-dash steps', JSON.stringify(result));
+  }
+}
+
+function checkResolvedAssessedEmpty(
+  resolveAssessed: (steps: string[], opts: { additionalRepoDirs: string[] }) => string[],
+): void {
+  const result: string[] = resolveAssessed(
+    ['Run tests', 'Update CHANGELOG'],
+    { additionalRepoDirs: ['/tmp/repo-b'] },
+  );
+  if (result.length === 0) {
+    pass('resolveAssessedSteps returns [] when no step has a src/|test/|lib/|app/ segment');
+  } else {
+    fail('expected [] when all steps are generic', JSON.stringify(result));
+  }
+}
+
+function runScenarios(app: { get(token: any): any }): void {
+  const agent = app.get(ImplementerAgent);
+  const filterSteps = agent.filterStepsForRepo.bind(agent);
+  const resolveAssessed = agent.resolveAssessedSteps.bind(agent);
+  checkEmDashStepKept(filterSteps);
+  checkEmDashStepExcluded(filterSteps);
+  checkSrcNotesIsGeneric(filterSteps);
+  checkResolvedAssessedInMultiRepo(resolveAssessed);
+  checkResolvedAssessedEmpty(resolveAssessed);
+}
+
+function printResults(): void {
+  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+  if (counts.failed > 0) process.exit(1);
+}
+
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nSmoke: filterStepsForRepo and resolveAssessedSteps — planner em-dash format\n'));
-
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-
   try {
-    const agent = app.get(ImplementerAgent);
-    const filterSteps = (agent as any).filterStepsForRepo.bind(agent);
-    const resolveAssessed = (agent as any).resolveAssessedSteps.bind(agent);
-
-    // 1. Em-dash step referencing this repo's files is kept
-    const result1: string[] = filterSteps(
-      ['api-gw — in src/x.ts fix', 'Run tests'],
-      ['api-gw/src/x.ts'],
-      'api-gw',
-    );
-    if (result1.length === 2 && result1.includes('api-gw — in src/x.ts fix') && result1.includes('Run tests')) {
-      pass("filterStepsForRepo keeps em-dash step referencing this repo's stripped path and generic step");
-    } else {
-      fail('unexpected result for em-dash step matching this repo', JSON.stringify(result1));
-    }
-
-    // 2. Em-dash step referencing another repo's files is excluded
-    const result2: string[] = filterSteps(
-      ['api-gw — in src/x.ts fix'],
-      ['shop/src/cart.ts'],
-      'shop',
-    );
-    if (result2.length === 0) {
-      pass("filterStepsForRepo excludes em-dash step that does not reference shop's files");
-    } else {
-      fail('expected empty result when em-dash step references a different repo', JSON.stringify(result2));
-    }
-
-    // 3. 'src-notes' (no trailing slash) is not mistaken for a repo path
-    const result3: string[] = filterSteps(
-      ['update docs/src-notes.md'],
-      ['api-gw/src/x.ts'],
-      'api-gw',
-    );
-    if (result3.length === 1 && result3[0] === 'update docs/src-notes.md') {
-      pass("filterStepsForRepo treats 'src-notes' (no trailing slash) as a generic step");
-    } else {
-      fail("expected 'update docs/src-notes.md' to be kept as a generic step", JSON.stringify(result3));
-    }
-
-    // 4. resolveAssessedSteps returns em-dash step in multi-repo mode
-    const result4: string[] = resolveAssessed(
-      ['api-gw — in src/x.ts add endpoint', 'Run tests'],
-      { additionalRepoDirs: ['/tmp/repo-b'] },
-    );
-    if (result4.length === 1 && result4[0] === 'api-gw — in src/x.ts add endpoint') {
-      pass('resolveAssessedSteps returns the em-dash step and excludes the generic step');
-    } else {
-      fail('unexpected assessedSteps result for em-dash steps', JSON.stringify(result4));
-    }
-
-    // 5. resolveAssessedSteps returns [] when no step has a path segment
-    const result5: string[] = resolveAssessed(
-      ['Run tests', 'Update CHANGELOG'],
-      { additionalRepoDirs: ['/tmp/repo-b'] },
-    );
-    if (result5.length === 0) {
-      pass('resolveAssessedSteps returns [] when no step has a src/|test/|lib/|app/ segment');
-    } else {
-      fail('expected [] when all steps are generic', JSON.stringify(result5));
-    }
+    runScenarios(app);
   } finally {
     await app.close();
   }
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
-  if (counts.failed > 0) process.exit(1);
+  printResults();
 }
 
 main().catch(err => {

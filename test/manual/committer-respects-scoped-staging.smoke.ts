@@ -14,7 +14,7 @@
  *   2. The unrelated untracked file is NOT included in the commit
  *   3. The unrelated untracked file remains untracked in the working tree afterward
  *
- * Run: nr test:manual -- test-committer-respects-scoped-staging
+ * Run: nr test:manual committer-respects-scoped-staging.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -25,20 +25,14 @@ import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { CommitterAgent } from '../../src/agents/committer.agent';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: CommitterAgent respects an already-scoped git add\n');
-
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const committer = app.get(CommitterAgent);
-
-  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'committer-scoped-staging-'));
+function setupTestRepo(repoDir: string): void {
   git(repoDir, ['init', '-q', '-b', 'master']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
   git(repoDir, ['config', 'user.name', 'Test']);
@@ -46,46 +40,47 @@ async function main(): Promise<void> {
   fs.writeFileSync(path.join(repoDir, 'b.ts'), 'export const b = 1;\n');
   git(repoDir, ['add', '.']);
   git(repoDir, ['commit', '-q', '-m', 'baseline']);
-
-  // The intended, scoped change.
   fs.writeFileSync(path.join(repoDir, 'a.ts'), 'export const a = 2;\n');
   git(repoDir, ['add', 'a.ts']);
-
-  // An unrelated file sitting in the same working tree — must NOT be swept in.
   fs.writeFileSync(path.join(repoDir, 'unrelated-feature.ts'), 'export const unrelated = true;\n');
+}
 
-  await committer.execute('WBP-1', repoDir, undefined, true, true);
-
-  const headCommit = git(repoDir, ['rev-parse', 'HEAD']);
-  const filesInCommit = git(repoDir, ['show', '--name-only', '--format=', headCommit])
-    .split('\n')
-    .filter(Boolean);
-
-  if (filesInCommit.includes('a.ts') && filesInCommit.length === 1) {
-    pass('Commit contains exactly the explicitly staged file (a.ts)');
-  } else {
-    fail('Expected commit to contain only a.ts', JSON.stringify(filesInCommit));
-  }
-
+function assertUnrelatedFileExcluded(filesInCommit: string[], statusAfter: string): void {
   if (filesInCommit.includes('unrelated-feature.ts')) {
     fail('Unrelated file was incorrectly included in the commit', JSON.stringify(filesInCommit));
   } else {
     pass('Unrelated untracked file was NOT swept into the commit');
   }
-
-  const statusAfter = git(repoDir, ['status', '--porcelain']);
   if (statusAfter.includes('?? unrelated-feature.ts')) {
     pass('Unrelated file remains untracked in the working tree afterward');
   } else {
     fail('Expected unrelated-feature.ts to remain untracked', statusAfter);
   }
+}
 
+function checkScopedStagingResults(filesInCommit: string[], statusAfter: string): void {
+  if (filesInCommit.includes('a.ts') && filesInCommit.length === 1) {
+    pass('Commit contains exactly the explicitly staged file (a.ts)');
+  } else {
+    fail('Expected commit to contain only a.ts', JSON.stringify(filesInCommit));
+  }
+  assertUnrelatedFileExcluded(filesInCommit, statusAfter);
+}
+
+async function main(): Promise<void> {
+  console.log('Manual smoke: CommitterAgent respects an already-scoped git add\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const committer = app.get(CommitterAgent);
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'committer-scoped-staging-'));
+  setupTestRepo(repoDir);
+  await committer.execute('WBP-1', repoDir, undefined, true, true);
+  const headCommit = git(repoDir, ['rev-parse', 'HEAD']);
+  const filesInCommit = git(repoDir, ['show', '--name-only', '--format=', headCommit]).split('\n').filter(Boolean);
+  const statusAfter = git(repoDir, ['status', '--porcelain']);
+  checkScopedStagingResults(filesInCommit, statusAfter);
   fs.rmSync(repoDir, { recursive: true, force: true });
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: CommitterAgent respects scoped staging');
+  summarise(counts);
 }
 
 main().catch(error => {

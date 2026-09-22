@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: scaffoldNewRepo creates a usable git repository
  *
- * Run: nr test:manual -- test-scaffold-new-repo
+ * Run: nr test:manual scaffold-new-repo.smoke.ts
  *
  * Verifies:
  *   1. scaffoldNewRepo returns the correct sibling path
@@ -17,65 +17,66 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { scaffoldNewRepo, isRepoResolvable } from '../../src/agents/utils';
+import { createReporter, summarise } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
+const { counts, pass, fail } = createReporter();
 
-const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  \u2713 ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  \u2717 ${label}`));
-    failed++;
+const assert = (label: string, condition: boolean): void =>
+  condition ? pass(label) : fail(label);
+
+function checkReturnedPath(result: string, expectedPath: string): void {
+  assert('returns the resolved sibling path', result === expectedPath);
+}
+
+function checkDirectoryAndGit(result: string): void {
+  assert('scaffolded directory exists on disk', fs.existsSync(result));
+  assert('contains a .git/ subdirectory', fs.existsSync(path.join(result, '.git')));
+}
+
+function checkGitLog(result: string): void {
+  const log = execSync('git log --oneline', { cwd: result, encoding: 'utf-8' }).trim();
+  const lines = log.split('\n').filter(Boolean);
+  assert('git log shows exactly one commit', lines.length === 1);
+  assert('commit message is "chore: initial commit"', lines[0].includes('chore: initial commit'));
+}
+
+function checkBranchCount(result: string): void {
+  const branches = execSync('git branch', { cwd: result, encoding: 'utf-8' })
+    .trim().split('\n').filter(Boolean);
+  assert('git branch shows a single branch', branches.length === 1);
+}
+
+function checkIsRepoResolvable(result: string, baseDir: string): void {
+  const origCwd = process.cwd;
+  (process as any).cwd = () => baseDir;
+  try {
+    assert('isRepoResolvable returns true for the scaffolded repo', isRepoResolvable('new-contracts'));
+  } finally {
+    (process as any).cwd = origCwd;
   }
-};
+}
+
+async function runChecks(tmpBase: string, baseDir: string): Promise<void> {
+  const result = scaffoldNewRepo('new-contracts', baseDir);
+  const expectedPath = path.resolve(baseDir, '..', 'new-contracts');
+  checkReturnedPath(result, expectedPath);
+  checkDirectoryAndGit(result);
+  checkGitLog(result);
+  checkBranchCount(result);
+  checkIsRepoResolvable(result, baseDir);
+}
 
 const main = async (): Promise<void> => {
   console.log(chalk.bold('\nSmoke test: scaffoldNewRepo live side effects\n'));
-
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-scaffold-test-'));
   const baseDir = path.join(tmpBase, 'existing-app');
   fs.mkdirSync(baseDir, { recursive: true });
-
   try {
-    const result = scaffoldNewRepo('new-contracts', baseDir);
-    const expectedPath = path.resolve(baseDir, '..', 'new-contracts');
-
-    // 1. Correct sibling path
-    assert('returns the resolved sibling path', result === expectedPath);
-
-    // 2. Directory exists
-    assert('scaffolded directory exists on disk', fs.existsSync(result));
-
-    // 3. .git/ exists
-    assert('contains a .git/ subdirectory', fs.existsSync(path.join(result, '.git')));
-
-    // 4. Exactly one commit with the expected message
-    const log = execSync('git log --oneline', { cwd: result, encoding: 'utf-8' }).trim();
-    const lines = log.split('\n').filter(Boolean);
-    assert('git log shows exactly one commit', lines.length === 1);
-    assert('commit message is "chore: initial commit"', lines[0].includes('chore: initial commit'));
-
-    // 5. Single branch
-    const branches = execSync('git branch', { cwd: result, encoding: 'utf-8' })
-      .trim().split('\n').filter(Boolean);
-    assert('git branch shows a single branch', branches.length === 1);
-
-    // 6. isRepoResolvable sees the scaffolded repo
-    const origCwd = process.cwd;
-    (process as any).cwd = () => baseDir;
-    try {
-      assert('isRepoResolvable returns true for the scaffolded repo', isRepoResolvable('new-contracts'));
-    } finally {
-      (process as any).cwd = origCwd;
-    }
+    await runChecks(tmpBase, baseDir);
   } finally {
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
-  if (failed > 0) process.exit(1);
+  summarise(counts);
 };
 
 main().catch(err => {

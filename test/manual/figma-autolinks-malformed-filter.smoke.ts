@@ -2,7 +2,7 @@
  * Manual smoke test: resolvePostParseFigmaLinks filters malformed autoLinks and
  * falls through to design-system detection when all provided links are invalid.
  *
- * Run: nr test:manual -- figma-autolinks-malformed-filter.smoke
+ * Run: nr test:manual figma-autolinks-malformed-filter.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -24,84 +24,89 @@ function makeDesignSystemRepo(dir: string): void {
   );
 }
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: resolvePostParseFigmaLinks malformed-autoLinks filter\n');
-
+function setupTempDirs(): { designSystemDir: string; plainDir: string } {
   const designSystemDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-ds-'));
   const plainDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-plain-'));
+  makeDesignSystemRepo(designSystemDir);
+  return { designSystemDir, plainDir };
+}
 
-  try {
-    makeDesignSystemRepo(designSystemDir);
+function cleanupTempDirs(designSystemDir: string, plainDir: string): void {
+  fs.rmSync(designSystemDir, { recursive: true, force: true });
+  fs.rmSync(plainDir, { recursive: true, force: true });
+}
 
-    // Case 1: partial-malformed — valid subset returned, no design-system check triggered.
-    // We pass conventions with hasUiEnvironment:true so that if detectRepoConventions were
-    // incorrectly called via fallthrough, searchFigmaLinksForTicket would find no links in
-    // the content and return [] — proving a wrong result. The expected return is the valid
-    // link only.
-    const case1 = await resolvePostParseFigmaLinks(
-      'no figma links here',
-      ["https://figma.com/design/X/Y'", 'https://figma.com/design/A/B'],
-      { allowPrompt: false, conventions: { designSystem: { hasUiEnvironment: true } } },
-    );
-
-    if (case1.length === 1 && case1[0] === 'https://figma.com/design/A/B') {
-      pass('partial-malformed: returns valid subset, malformed link excluded');
-    } else {
-      fail('partial-malformed: unexpected result', JSON.stringify(case1));
-    }
-
-    // Case 2: all-malformed — falls through to design-system detection. The temp dir has
-    // tailwind so detectRepoConventions returns hasUiEnvironment:true. Content contains a
-    // clean figma URL; searchFigmaLinksForTicket(content, false) returns it. If the filter
-    // failed to fall through, valid.length would be 1 (malformed kept), returning early with
-    // the malformed URL — not matching the expected result.
-    const contentWithLink = 'See https://figma.com/design/abc/Screen for reference.';
-    const case2 = await resolvePostParseFigmaLinks(
-      contentWithLink,
-      ["https://figma.com/design/X/Y'"],
-      { allowPrompt: false, repoDir: designSystemDir },
-    );
-
-    if (case2.length === 1 && case2[0] === 'https://figma.com/design/abc/Screen') {
-      pass('all-malformed: falls through to design-system detection, returns link from content');
-    } else {
-      fail('all-malformed: unexpected result', JSON.stringify(case2));
-    }
-
-    // Case 3: empty autoLinks — unchanged prior behaviour, falls through to design-system
-    // detection. Plain dir has no design system so returns [].
-    const case3 = await resolvePostParseFigmaLinks(
-      'no figma links here',
-      [],
-      { allowPrompt: false, repoDir: plainDir },
-    );
-
-    if (case3.length === 0) {
-      pass('empty autoLinks: returns [] when no design system present');
-    } else {
-      fail('empty autoLinks: unexpected result', JSON.stringify(case3));
-    }
-
-    // Case 4: all-valid — fast path, returned unchanged.
-    const case4 = await resolvePostParseFigmaLinks(
-      'no figma links here',
-      ['https://figma.com/design/A/B'],
-      { allowPrompt: false, repoDir: plainDir },
-    );
-
-    if (case4.length === 1 && case4[0] === 'https://figma.com/design/A/B') {
-      pass('all-valid: returns links unchanged via fast path');
-    } else {
-      fail('all-valid: unexpected result', JSON.stringify(case4));
-    }
-  } finally {
-    fs.rmSync(designSystemDir, { recursive: true, force: true });
-    fs.rmSync(plainDir, { recursive: true, force: true });
-  }
-
+function reportResults(): void {
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   if (counts.failed > 0) process.exit(1);
   console.log('\nManual smoke test passed: malformed-autoLinks filter and fallthrough behave correctly');
+}
+
+async function runPartialMalformedCase(designSystemDir: string): Promise<void> {
+  const result = await resolvePostParseFigmaLinks(
+    'no figma links here',
+    ["https://figma.com/design/X/Y'", 'https://figma.com/design/A/B'],
+    { allowPrompt: false, conventions: { designSystem: { hasUiEnvironment: true } } },
+  );
+  if (result.length === 1 && result[0] === 'https://figma.com/design/A/B') {
+    pass('partial-malformed: returns valid subset, malformed link excluded');
+  } else {
+    fail('partial-malformed: unexpected result', JSON.stringify(result));
+  }
+}
+
+async function runAllMalformedCase(designSystemDir: string): Promise<void> {
+  const contentWithLink = 'See https://figma.com/design/abc/Screen for reference.';
+  const result = await resolvePostParseFigmaLinks(
+    contentWithLink,
+    ["https://figma.com/design/X/Y'"],
+    { allowPrompt: false, repoDir: designSystemDir },
+  );
+  if (result.length === 1 && result[0] === 'https://figma.com/design/abc/Screen') {
+    pass('all-malformed: falls through to design-system detection, returns link from content');
+  } else {
+    fail('all-malformed: unexpected result', JSON.stringify(result));
+  }
+}
+
+async function runEmptyAutoLinksCase(plainDir: string): Promise<void> {
+  const result = await resolvePostParseFigmaLinks(
+    'no figma links here',
+    [],
+    { allowPrompt: false, repoDir: plainDir },
+  );
+  if (result.length === 0) {
+    pass('empty autoLinks: returns [] when no design system present');
+  } else {
+    fail('empty autoLinks: unexpected result', JSON.stringify(result));
+  }
+}
+
+async function runAllValidCase(plainDir: string): Promise<void> {
+  const result = await resolvePostParseFigmaLinks(
+    'no figma links here',
+    ['https://figma.com/design/A/B'],
+    { allowPrompt: false, repoDir: plainDir },
+  );
+  if (result.length === 1 && result[0] === 'https://figma.com/design/A/B') {
+    pass('all-valid: returns links unchanged via fast path');
+  } else {
+    fail('all-valid: unexpected result', JSON.stringify(result));
+  }
+}
+
+async function main(): Promise<void> {
+  console.log('Manual smoke: resolvePostParseFigmaLinks malformed-autoLinks filter\n');
+  const { designSystemDir, plainDir } = setupTempDirs();
+  try {
+    await runPartialMalformedCase(designSystemDir);
+    await runAllMalformedCase(designSystemDir);
+    await runEmptyAutoLinksCase(plainDir);
+    await runAllValidCase(plainDir);
+  } finally {
+    cleanupTempDirs(designSystemDir, plainDir);
+  }
+  reportResults();
 }
 
 main().catch(error => {

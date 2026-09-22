@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:implement prints a runtime header where none existed before
  *
- * Run: nr test:manual -- test-issue-implement-runtime-header
+ * Run: nr test:manual issue-implement-runtime-header.smoke.ts
  *
  * Verifies that:
  *   1. `wf issue:implement --dry-run -k <key>` prints the command summary line
@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -31,43 +31,48 @@ function runCli(args: string[], cwd: string): string {
   }
 }
 
+function runScenario(scratchDir: string): { withHeader: string; silent: string } {
+  const withHeader = runCli(['issue:implement', '--dry-run', '-k', 'WBP-1'], scratchDir);
+  const silent = runCli(['issue:implement', '--dry-run', '-k', 'WBP-1', '--silent'], scratchDir);
+  return { withHeader, silent };
+}
+
+function checkImplementSummaryLine(withHeader: string): void {
+  if (withHeader.includes('Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact.')) {
+    pass('Prints the issue:implement summary line');
+  } else {
+    fail('Missing summary line', withHeader.slice(0, 300));
+  }
+}
+
+function checkImplementExamples(withHeader: string): void {
+  if (/Examples:/.test(withHeader) && /wf issue:implement/.test(withHeader)) {
+    pass('Prints an Examples: heading with a wf issue:implement example');
+  } else {
+    fail('Missing Examples: section', withHeader.slice(0, 300));
+  }
+}
+
+function checkSilentSuppressesHeader(silent: string): void {
+  if (!silent.includes('Carry out an implementation plan') && !silent.includes('Examples:')) {
+    pass('--silent suppresses the summary and Examples: section');
+  } else {
+    fail('--silent did not suppress the header', silent.slice(0, 300));
+  }
+}
+
 async function main(): Promise<void> {
   console.log('\n issue:implement runtime header\n');
-
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-implement-header-'));
-
   try {
-    const withHeader = runCli(['issue:implement', '--dry-run', '-k', 'WBP-1'], scratchDir);
-
-    if (withHeader.includes('Carry out an implementation plan from a ticket-backed, hashed, or custom plan artifact.')) {
-      pass('Prints the issue:implement summary line');
-    } else {
-      fail('Missing summary line', withHeader.slice(0, 300));
-    }
-
-    if (/Examples:/.test(withHeader) && /wf issue:implement/.test(withHeader)) {
-      pass('Prints an Examples: heading with a wf issue:implement example');
-    } else {
-      fail('Missing Examples: section', withHeader.slice(0, 300));
-    }
-
-    const silent = runCli(['issue:implement', '--dry-run', '-k', 'WBP-1', '--silent'], scratchDir);
-
-    if (!silent.includes('Carry out an implementation plan') && !silent.includes('Examples:')) {
-      pass('--silent suppresses the summary and Examples: section');
-    } else {
-      fail('--silent did not suppress the header', silent.slice(0, 300));
-    }
+    const { withHeader, silent } = runScenario(scratchDir);
+    checkImplementSummaryLine(withHeader);
+    checkImplementExamples(withHeader);
+    checkSilentSuppressesHeader(silent);
   } finally {
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

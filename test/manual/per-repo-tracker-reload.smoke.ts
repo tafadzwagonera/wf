@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: per-repo config reload updates tracker and nested config per repo
  *
- * Run: nr test:manual -- per-repo-tracker-reload
+ * Run: nr test:manual per-repo-tracker-reload.smoke.ts
  *
  * Scenario: In a multi-repo wf run each repo may carry its own `wf.config.js`.
  * `initializeWfConfig` must reload and merge the config in-place so that
@@ -16,7 +16,7 @@ import { initializeWfConfig, getLoadedWfConfig } from '../../src/config/wf-confi
 import { IssueTrackerService } from '../../src/integrations/issue-trackers/issue-tracker.service';
 import type { IssueTrackerAdapter } from '../../src/integrations/issue-trackers/issue-tracker-adapter.interface';
 import type { ConfigService } from '@nestjs/config';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
@@ -37,65 +37,38 @@ const mkProjectRoot = (tracker: string): string => {
   return dir;
 };
 
+async function checkConfigReferences(cwdA: string, cwdB: string): Promise<void> {
+  const refA = await initializeWfConfig(cwdA);
+  assert('getLoadedWfConfig().tracker is jira after initializeWfConfig(cwdA)', getLoadedWfConfig().tracker === 'jira', `got: ${getLoadedWfConfig().tracker}`);
+  const refB = await initializeWfConfig(cwdB);
+  assert('getLoadedWfConfig().tracker is github after initializeWfConfig(cwdB)', getLoadedWfConfig().tracker === 'github', `got: ${getLoadedWfConfig().tracker}`);
+  assert('second initializeWfConfig returns the same object reference (in-place mutation)', refB === refA, 'references differ — a new object was allocated instead of mutating in-place');
+}
+
+async function checkAdapterReload(cwdA: string, cwdB: string): Promise<void> {
+  const service = new IssueTrackerService(stubConfigService());
+  const jiraAdapter = buildAdapter('jira');
+  const githubAdapter = buildAdapter('github');
+  service.registerAdapter(jiraAdapter);
+  service.registerAdapter(githubAdapter);
+  await initializeWfConfig(cwdA);
+  assert('IssueTrackerService.getAdapter() returns jira adapter after reload to cwdA', service.getAdapter() === jiraAdapter);
+  await initializeWfConfig(cwdB);
+  assert('IssueTrackerService.getAdapter() returns github adapter after reload to cwdB', service.getAdapter() === githubAdapter);
+}
+
 async function main(): Promise<void> {
   console.log(chalk.bold('\nPer-repo tracker reload smoke test\n'));
-
   const cwdA = mkProjectRoot('jira');
   const cwdB = mkProjectRoot('github');
-
   try {
-    const refA = await initializeWfConfig(cwdA);
-
-    assert(
-      'getLoadedWfConfig().tracker is jira after initializeWfConfig(cwdA)',
-      getLoadedWfConfig().tracker === 'jira',
-      `got: ${getLoadedWfConfig().tracker}`,
-    );
-
-    const refB = await initializeWfConfig(cwdB);
-
-    assert(
-      'getLoadedWfConfig().tracker is github after initializeWfConfig(cwdB)',
-      getLoadedWfConfig().tracker === 'github',
-      `got: ${getLoadedWfConfig().tracker}`,
-    );
-
-    assert(
-      'second initializeWfConfig returns the same object reference (in-place mutation)',
-      refB === refA,
-      'references differ — a new object was allocated instead of mutating in-place',
-    );
-
-    const service = new IssueTrackerService(stubConfigService());
-    const jiraAdapter = buildAdapter('jira');
-    const githubAdapter = buildAdapter('github');
-    service.registerAdapter(jiraAdapter);
-    service.registerAdapter(githubAdapter);
-
-    await initializeWfConfig(cwdA);
-    assert(
-      'IssueTrackerService.getAdapter() returns jira adapter after reload to cwdA',
-      service.getAdapter() === jiraAdapter,
-    );
-
-    await initializeWfConfig(cwdB);
-    assert(
-      'IssueTrackerService.getAdapter() returns github adapter after reload to cwdB',
-      service.getAdapter() === githubAdapter,
-    );
+    await checkConfigReferences(cwdA, cwdB);
+    await checkAdapterReload(cwdA, cwdB);
   } finally {
     fs.rmSync(cwdA, { recursive: true, force: true });
     fs.rmSync(cwdB, { recursive: true, force: true });
   }
-
-  const total = counts.passed + counts.failed;
-  console.log(
-    chalk.bold(
-      `\n${total} assertions: ${chalk.green(`${counts.passed} passed`)}`
-      + (counts.failed > 0 ? `, ${chalk.red(`${counts.failed} failed`)}` : ''),
-    ),
-  );
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main();

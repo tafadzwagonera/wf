@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: Review issue line numbers survive post-processing (S1 diff-threading fix)
  *
- * Run: nr test:manual -- test-issue-review-diff-line-numbers-live
+ * Run: nr test:manual issue-review-diff-line-numbers-live.smoke.ts
  *
  * Scenario: `parseAndProcessReview` used to pass the model's own JSON
  * response into `sanitizeCodeReviewTrace`/`postProcessCodeReview` where the
@@ -35,13 +35,29 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {
   status: number | null;
   stdout: string;
   stderr: string;
+};
+
+type Paths = {
+  homeDir: string;
+  repoDir: string;
+  binDir: string;
+  configPath: string;
+  claudeScriptPath: string;
+  invocationLogPath: string;
+  trackedFilePath: string;
+  outputPath: string;
+};
+
+type ScenarioData = {
+  result: SpawnResult;
+  output: string;
+  outputPath: string;
 };
 
 const projectRoot = path.resolve(__dirname, '../..');
@@ -91,95 +107,116 @@ process.stdin.on('end', () => {
 });
 `;
 
-async function main(): Promise<void> {
+function buildPaths(tempRoot: string): Paths {
+  const homeDir = path.join(tempRoot, 'home');
+  const repoDir = path.join(tempRoot, 'repo');
+  const binDir = path.join(tempRoot, 'bin');
+  return {
+    homeDir,
+    repoDir,
+    binDir,
+    configPath: path.join(repoDir, 'wf.config.js'),
+    claudeScriptPath: path.join(binDir, 'claude'),
+    invocationLogPath: path.join(tempRoot, 'invocations.log'),
+    trackedFilePath: path.join(repoDir, 'src.ts'),
+    outputPath: path.join(tempRoot, 'review-output.json'),
+  };
+}
+
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
+
+function setupGitRepo(repoDir: string, trackedFilePath: string, homeDir: string): void {
+  const gitEnv = { ...process.env, HOME: homeDir, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
+  execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
+  execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
+  fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
+}
+
+function setupFixtures(paths: Paths): void {
+  fs.mkdirSync(paths.repoDir, { recursive: true });
+  fs.mkdirSync(paths.binDir, { recursive: true });
+  fs.mkdirSync(paths.homeDir, { recursive: true });
+  fs.mkdirSync(path.join(paths.homeDir, '.wf', 'logs'), { recursive: true });
+  fs.mkdirSync(path.join(paths.homeDir, '.wf', 'state'), { recursive: true });
+  setupGitRepo(paths.repoDir, paths.trackedFilePath, paths.homeDir);
+  fs.writeFileSync(paths.configPath, buildConfigContent(), 'utf-8');
+  writeExecutable(paths.claudeScriptPath, buildFakeClaudeScript(paths.invocationLogPath));
+}
+
+function buildEnv(homeDir: string, binDir: string): NodeJS.ProcessEnv {
+  return { ...process.env, HOME: homeDir, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`, WF_SKIP_CLI_VERSION_CHECK: '1' };
+}
+
+function runScenario(tempRoot: string): ScenarioData {
+  const paths = buildPaths(tempRoot);
+  setupFixtures(paths);
+  const result = runCommand(paths.repoDir, paths.outputPath, buildEnv(paths.homeDir, paths.binDir));
+  return { result, output: `${result.stdout}\n${result.stderr}`, outputPath: paths.outputPath };
+}
+
+function checkDistExists(): void {
   if (!fs.existsSync(distMainPath)) {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+}
 
+function checkExitsZero(result: SpawnResult, output: string): void {
+  if (result.status === 0) pass('command exits 0');
+  else fail('command should exit 0', output);
+}
+
+function checkLineNumber(outputPath: string, output: string): void {
+  if (!fs.existsSync(outputPath)) {
+    fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
+    return;
+  }
+  const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+  const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
+  const issue = Array.isArray(issues) ? issues[0] : undefined;
+  if (issue?.line === 3) pass('review issue line number survives post-processing (line 3, the real added line)');
+  else fail('review issue line should survive as 3', JSON.stringify(saved));
+}
+
+function checkFilePath(outputPath: string): void {
+  if (!fs.existsSync(outputPath)) return;
+  const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+  const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
+  const issue = Array.isArray(issues) ? issues[0] : undefined;
+  if (typeof issue?.file === 'string' && issue.file.replace(/^[ab]\//, '') === 'src.ts')
+    pass('review issue file path matches the diff destination path');
+  else fail('review issue file should match src.ts', JSON.stringify(issue));
+}
+
+function runChecks(data: ScenarioData): void {
+  checkExitsZero(data.result, data.output);
+  checkLineNumber(data.outputPath, data.output);
+  checkFilePath(data.outputPath);
+}
+
+async function main(): Promise<void> {
+  checkDistExists();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-diff-lines-'));
-  const homeDir = path.join(tempRoot, 'home');
-  const repoDir = path.join(tempRoot, 'repo');
-  const binDir = path.join(tempRoot, 'bin');
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const claudeScriptPath = path.join(binDir, 'claude');
-  const invocationLogPath = path.join(tempRoot, 'invocations.log');
-  const trackedFilePath = path.join(repoDir, 'src.ts');
-  const outputPath = path.join(tempRoot, 'review-output.json');
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-    fs.mkdirSync(binDir, { recursive: true });
-    fs.mkdirSync(homeDir, { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'logs'), { recursive: true });
-    fs.mkdirSync(path.join(homeDir, '.wf', 'state'), { recursive: true });
-
-    const gitEnv = { ...process.env, HOME: homeDir, GIT_AUTHOR_NAME: 'wf', GIT_AUTHOR_EMAIL: 'wf@example.com', GIT_COMMITTER_NAME: 'wf', GIT_COMMITTER_EMAIL: 'wf@example.com' };
-    execFileSync('git', ['init', '-q'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\n', 'utf-8');
-    execFileSync('git', ['add', 'src.ts'], { cwd: repoDir, env: gitEnv });
-    execFileSync('git', ['commit', '-q', '-m', 'initial'], { cwd: repoDir, env: gitEnv });
-    fs.writeFileSync(trackedFilePath, 'line 1\nline 2\nline 3 added\n', 'utf-8');
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    review: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    writeExecutable(claudeScriptPath, buildFakeClaudeScript(invocationLogPath));
-
-    const env = {
-      ...process.env,
-      HOME: homeDir,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
-      WF_SKIP_CLI_VERSION_CHECK: '1',
-    };
-
-    const result = runCommand(repoDir, outputPath, env);
-    const output = `${result.stdout}\n${result.stderr}`;
-
-    if (result.status === 0) {
-      pass('command exits 0');
-    } else {
-      fail('command should exit 0', output);
-    }
-
-    if (fs.existsSync(outputPath)) {
-      const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-      const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
-      const issue = Array.isArray(issues) ? issues[0] : undefined;
-
-      if (issue?.line === 3) {
-        pass('review issue line number survives post-processing (line 3, the real added line)');
-      } else {
-        fail('review issue line should survive as 3', JSON.stringify(saved));
-      }
-
-      if (typeof issue?.file === 'string' && issue.file.replace(/^[ab]\//, '') === 'src.ts') {
-        pass('review issue file path matches the diff destination path');
-      } else {
-        fail('review issue file should match src.ts', JSON.stringify(issue));
-      }
-    } else {
-      fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
-    }
+    runChecks(runScenario(tempRoot));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
-
-  console.log(chalk.bold(`\nSummary: ${counts.passed} passed, ${counts.failed} failed`));
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

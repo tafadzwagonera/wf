@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:commit --ticket-key flag migration
  *
- * Run: nr test:manual -- test-issue-commit-ticket-key-flag
+ * Run: nr test:manual issue-commit-ticket-key-flag.smoke.ts
  *
  * Verifies:
  *   1. issue:commit --help shows -k, --ticket-key
@@ -16,7 +16,7 @@ import { IssueCommitCommand } from '../../src/commands/issue-commit.command';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
@@ -49,86 +49,86 @@ const extractLongFlag = (flags: string): string => {
   return match ? match[1] : flags;
 };
 
-async function main(): Promise<void> {
-  console.log('\n issue:commit --ticket-key flag migration\n');
-
-  // Tests 1–2 & 4: CLI help output via dist/main.js
+function getHelpOutput(): string {
   const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
-  let help: string;
   try {
-    help = execSync(`node ${DIST_MAIN} issue:commit --help`, {
-      encoding: 'utf-8',
-      cwd: os.tmpdir(),
-    });
+    return execSync(`node ${DIST_MAIN} issue:commit --help`, { encoding: 'utf-8', cwd: os.tmpdir() });
   } catch (err: any) {
-    help = (err.stdout ?? '') + (err.stderr ?? '');
+    return (err.stdout ?? '') + (err.stderr ?? '');
   }
+}
 
-  // Test 1: --help shows -k, --ticket-key
-  console.log(' Test 1: --help shows -k, --ticket-key');
+function checkHelpShowsTicketKeyFlag(help: string): void {
   if (help.includes('-k, --ticket-key')) {
     pass('issue:commit --help shows -k, --ticket-key');
   } else {
     fail('issue:commit --help does NOT show -k, --ticket-key', help.slice(0, 300));
   }
+}
 
+function checkHelpShowsConventionalFlag(help: string): void {
   if (help.includes('-c, --conventional')) {
     pass('issue:commit --help shows -c, --conventional');
   } else {
     fail('issue:commit --help does NOT show -c, --conventional', help.slice(0, 300));
   }
+}
 
-  // Test 2: --help no longer shows [ticket-key] positional
-  console.log(' Test 2: --help no longer shows [ticket-key] positional');
+function checkHelpHasNoPositional(help: string): void {
   if (!help.includes('[ticket-key]')) {
     pass('issue:commit --help does not show [ticket-key] positional');
   } else {
     fail('issue:commit --help still shows [ticket-key] positional');
   }
+}
 
+async function checkTicketKeyAccepted(): Promise<void> {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const commitCmd = app.get(IssueCommitCommand);
+  const errCap = captureConsoleError();
+  const logCap = suppressConsoleLog();
+  await commitCmd.run([], { ticketKey: 'WBP-9999', dryRun: true });
+  const err = errCap.restore();
+  logCap.restore();
+  if (!err.includes('Error') && !err.includes('error')) {
+    pass('Dry-run with --ticket-key accepted without errors');
+  } else {
+    fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
+  }
+  await app.close();
+}
+
+function checkOptionsAlphabetical(help: string): void {
+  const optionRegex = /^\s+(-\w,\s+)?--([a-z][-a-z]*)/gm;
+  const flags: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = optionRegex.exec(help)) !== null) {
+    flags.push(m[2]);
+  }
+  const sorted = [...flags].sort();
+  if (JSON.stringify(flags) === JSON.stringify(sorted)) {
+    pass(`Options alphabetically ordered: [${flags.join(', ')}]`);
+  } else {
+    fail(`Options not alphabetical: got [${flags.join(', ')}], expected [${sorted.join(', ')}]`);
+  }
+}
+
+async function main(): Promise<void> {
+  console.log('\n issue:commit --ticket-key flag migration\n');
+  // Tests 1–2 & 4: CLI help output via dist/main.js
+  console.log(' Test 1: --help shows -k, --ticket-key');
+  const help = getHelpOutput();
+  checkHelpShowsTicketKeyFlag(help);
+  checkHelpShowsConventionalFlag(help);
+  console.log(' Test 2: --help no longer shows [ticket-key] positional');
+  checkHelpHasNoPositional(help);
   // Test 3: issue:commit accepts --ticket-key via NestJS options
   console.log(' Test 3: issue:commit accepts --ticket-key via NestJS options');
-  {
-    const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-    const commitCmd = app.get(IssueCommitCommand);
-    const errCap = captureConsoleError();
-    const logCap = suppressConsoleLog();
-    await commitCmd.run([], { ticketKey: 'WBP-9999', dryRun: true });
-    const err = errCap.restore();
-    logCap.restore();
-
-    if (!err.includes('Error') && !err.includes('error')) {
-      pass('Dry-run with --ticket-key accepted without errors');
-    } else {
-      fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
-    }
-
-    await app.close();
-  }
-
+  await checkTicketKeyAccepted();
   // Test 4: options in alphabetical order
   console.log(' Test 4: options are in alphabetical order');
-  {
-    const optionRegex = /^\s+(-\w,\s+)?--([a-z][-a-z]*)/gm;
-    const flags: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = optionRegex.exec(help)) !== null) {
-      flags.push(m[2]);
-    }
-    const sorted = [...flags].sort();
-    if (JSON.stringify(flags) === JSON.stringify(sorted)) {
-      pass(`Options alphabetically ordered: [${flags.join(', ')}]`);
-    } else {
-      fail(`Options not alphabetical: got [${flags.join(', ')}], expected [${sorted.join(', ')}]`);
-    }
-  }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  checkOptionsAlphabetical(help);
+  summarise(counts);
 }
 
 main().catch(err => {

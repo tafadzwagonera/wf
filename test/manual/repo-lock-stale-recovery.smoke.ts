@@ -1,7 +1,7 @@
 /**
  * Manual Test: repo lock auto-recovers from a lock left by a dead process
  *
- * Run: nr test:manual -- test-repo-lock-stale-recovery
+ * Run: nr test:manual repo-lock-stale-recovery.smoke.ts
  *
  * Verifies that:
  *   1. A lock file whose pid is no longer running is removed before the
@@ -18,7 +18,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -54,52 +54,60 @@ function findDeadPid(): number {
   throw new Error('Could not find an unused pid to simulate a dead process');
 }
 
-async function main(): Promise<void> {
-  console.log('\n repo lock stale-lock recovery\n');
+function writeStaleLockFile(wfHome: string, repoDir: string): string {
+  const lockPath = lockPathFor(wfHome, repoDir);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({ pid: findDeadPid(), repoDir: path.resolve(repoDir), startedAt: new Date().toISOString() }),
+  );
+  return lockPath;
+}
 
+function checkExitZero(result: ReturnType<typeof spawnSync>): void {
+  if (result.status === 0) {
+    pass('CLI exits 0 despite the dead-pid lock file');
+  } else {
+    fail('Expected exit 0', `status=${result.status}\n${result.stdout}\n${result.stderr}`);
+  }
+}
+
+function checkCommitCreated(repoDir: string): void {
+  const log = execFileSync('git', ['log', '--oneline'], { cwd: repoDir, encoding: 'utf-8' });
+  if (log.trim().split('\n').length === 2) {
+    pass('A real commit was created');
+  } else {
+    fail('Expected exactly 2 commits (init + new)', log);
+  }
+}
+
+function checkLockCleared(lockPath: string): void {
+  if (fs.existsSync(lockPath)) {
+    fail('Stale lock file was not cleared and replaced correctly');
+  } else {
+    pass('No lock file remains after the run');
+  }
+}
+
+async function runAndClean(): Promise<void> {
   const repoDir = makeScratchRepo();
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-lock-stale-home-'));
-
   try {
-    const lockPath = lockPathFor(wfHome, repoDir);
-    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fs.writeFileSync(lockPath, JSON.stringify({
-      pid: findDeadPid(), repoDir: path.resolve(repoDir), startedAt: new Date().toISOString(),
-    }));
-
-    const result = spawnSync('node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoDir], {
-      encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome },
-    });
-
-    if (result.status === 0) {
-      pass('CLI exits 0 despite the dead-pid lock file');
-    } else {
-      fail('Expected exit 0', `status=${result.status}\n${result.stdout}\n${result.stderr}`);
-    }
-
-    const log = execFileSync('git', ['log', '--oneline'], { cwd: repoDir, encoding: 'utf-8' });
-    if (log.trim().split('\n').length === 2) {
-      pass('A real commit was created');
-    } else {
-      fail('Expected exactly 2 commits (init + new)', log);
-    }
-
-    if (fs.existsSync(lockPath)) {
-      fail('Stale lock file was not cleared and replaced correctly');
-    } else {
-      pass('No lock file remains after the run');
-    }
+    const lockPath = writeStaleLockFile(wfHome, repoDir);
+    const result = spawnSync('node', [DIST_MAIN, 'issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoDir], { encoding: 'utf-8', env: { ...process.env, WF_HOME: wfHome } });
+    checkExitZero(result);
+    checkCommitCreated(repoDir);
+    checkLockCleared(lockPath);
   } finally {
     fs.rmSync(repoDir, { recursive: true, force: true });
     fs.rmSync(wfHome, { recursive: true, force: true });
   }
+}
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  console.log('\n repo lock stale-lock recovery\n');
+  await runAndClean();
+  summarise(counts);
 }
 
 main().catch(err => {

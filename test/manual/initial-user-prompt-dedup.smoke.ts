@@ -1,7 +1,7 @@
 /**
  * Manual smoke test: buildInitialUserPrompt shared between Anthropic and CLI adapters
  *
- * Run: nr test:manual -- test-initial-user-prompt-dedup
+ * Run: nr test:manual initial-user-prompt-dedup.smoke.ts
  *
  * Verifies:
  *   1. buildInitialUserPrompt is exported from shared-routing.ts.
@@ -15,28 +15,22 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildInitialUserPrompt } from '../../src/integrations/ai/adapters/shared-routing';
+import { createReporter, summarise } from './support/reporter';
 
-let passed = 0;
-let failed = 0;
+const { counts, pass, fail } = createReporter();
+const assert = (label: string, condition: boolean): void =>
+  condition ? pass(label) : fail(label);
 
-const assert = (label: string, condition: boolean): void => {
-  if (condition) {
-    console.log(chalk.green(`  ✓ ${label}`));
-    passed++;
-  } else {
-    console.log(chalk.red(`  ✗ ${label}`));
-    failed++;
-  }
-};
-
-async function main(): Promise<void> {
+function readAdapterSources(): { anthropicSource: string; cliSource: string; sharedSource: string } {
   const adaptersDir = path.join(__dirname, '..', '..', 'src', 'integrations', 'ai', 'adapters');
-  const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
-  const cliSource = fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8');
-  const sharedSource = fs.readFileSync(path.join(adaptersDir, 'shared-routing.ts'), 'utf8');
+  return {
+    anthropicSource: fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8'),
+    cliSource: fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8'),
+    sharedSource: fs.readFileSync(path.join(adaptersDir, 'shared-routing.ts'), 'utf8'),
+  };
+}
 
-  console.log(chalk.bold('\n  Scenario 1: deduplication structural assertions\n'));
-
+function checkStructuralAssertions(anthropicSource: string, cliSource: string, sharedSource: string): void {
   assert('shared-routing exports buildInitialUserPrompt',
     sharedSource.includes('export const buildInitialUserPrompt'));
   assert('Anthropic adapter does NOT define local buildInitialUserPrompt',
@@ -47,10 +41,10 @@ async function main(): Promise<void> {
     anthropicSource.includes('buildInitialUserPrompt') && anthropicSource.includes("from './shared-routing'"));
   assert('CLI adapter imports buildInitialUserPrompt from shared-routing',
     cliSource.includes('buildInitialUserPrompt') && cliSource.includes("from './shared-routing'"));
+}
 
-  console.log(chalk.bold('\n  Scenario 2: live output assertions\n'));
-
-  const output = buildInitialUserPrompt({
+function buildOutputForLiveAssertions(): string {
+  return buildInitialUserPrompt({
     ticketKey: 'DEDUP-1',
     repoName: 'repo',
     repoFiles: ['repo/src/main.ts'],
@@ -62,7 +56,9 @@ async function main(): Promise<void> {
     planSummary: 'Refactor entry point',
     planAction: 'feature',
   });
+}
 
+function checkLiveOutputAssertions(output: string): void {
   assert('output starts with Ticket key', output.startsWith('Ticket key: DEDUP-1'));
   assert('output contains plan summary', output.includes('Refactor entry point'));
   assert('output contains action instruction',
@@ -72,9 +68,16 @@ async function main(): Promise<void> {
     !output.includes('You are an expert software engineer'));
   assert('output does NOT contain Repository directory:',
     !output.includes('Repository directory:'));
+}
 
-  console.log(chalk.bold(`\nResults: ${passed} passed, ${failed} failed\n`));
-  if (failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  const { anthropicSource, cliSource, sharedSource } = readAdapterSources();
+  console.log(chalk.bold('\n  Scenario 1: deduplication structural assertions\n'));
+  checkStructuralAssertions(anthropicSource, cliSource, sharedSource);
+  console.log(chalk.bold('\n  Scenario 2: live output assertions\n'));
+  const output = buildOutputForLiveAssertions();
+  checkLiveOutputAssertions(output);
+  summarise(counts);
 }
 
 main().catch(error => {

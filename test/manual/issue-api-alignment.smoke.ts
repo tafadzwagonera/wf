@@ -1,7 +1,7 @@
 /**
  * Manual test: issue API alignment
  *
- * Run: nr test:manual -- test-issue-api-alignment
+ * Run: nr test:manual issue-api-alignment.smoke.ts
  *
  * Verifies:
  *   1. --chat-mode flag is accepted (dry-run exits 0)
@@ -23,208 +23,175 @@ import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
+
+const { counts, pass, fail } = createReporter();
+
+const distMain = path.join(__dirname, '../../dist/main.js');
+
+function buildCliErrorResult(err: any): { output: string; exitCode: number } {
+  return {
+    output: (err.stdout ?? '') + (err.stderr ?? ''),
+    exitCode: err.status ?? 1,
+  };
+}
+
+const runCli = (args: string): { output: string; exitCode: number } => {
+  try {
+    const output = execSync(`node ${distMain} issue ${args}`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      cwd: os.tmpdir(),
+      timeout: 15_000,
+    });
+    return { output, exitCode: 0 };
+  } catch (err: any) {
+    return buildCliErrorResult(err);
+  }
+};
+
+const makeArtifactFixture = (ticketKey: string): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-'));
+  const homeDir = path.join(tmpRoot, 'home');
+  const wfHome = path.join(homeDir, '.wf');
+  const platformDir = path.join(wfHome, path.basename(tmpRoot), 'jira');
+  fs.mkdirSync(platformDir, { recursive: true });
+  fs.writeFileSync(path.join(platformDir, `${ticketKey}.md`), `# ${ticketKey}: Fixture ticket\n`, 'utf-8');
+  return {
+    tmpRoot,
+    homeDir,
+    cleanup: () => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    },
+  };
+};
+
+const captureStdout = async (fn: () => Promise<void>): Promise<string> => {
+  const chunks: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  (process.stdout.write as any) = (chunk: any, ...rest: any[]) => {
+    chunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
+    return original(chunk, ...rest);
+  };
+  try {
+    await fn();
+  } finally {
+    (process.stdout.write as any) = original;
+  }
+  return chunks.join('');
+};
+
+function applyTmpEnv(
+  ticketKey: string,
+): { cleanup: () => void; originalCwd: string; originalHome: string | undefined } {
+  const { tmpRoot, homeDir, cleanup } = makeArtifactFixture(ticketKey);
+  const originalCwd = process.cwd();
+  const originalHome = process.env.HOME;
+  process.chdir(tmpRoot);
+  process.env.HOME = homeDir;
+  return { cleanup, originalCwd, originalHome };
+}
+
+function teardownTmpEnv(originalCwd: string, originalHome: string | undefined, cleanup: () => void): void {
+  process.chdir(originalCwd);
+  process.env.HOME = originalHome;
+  cleanup();
+}
+
+async function runWithTmpEnv(
+  command: IssueCommand,
+  ticketKey: string,
+  opts: Record<string, any>,
+): Promise<{ output: string; error?: Error }> {
+  const { cleanup, originalCwd, originalHome } = applyTmpEnv(ticketKey);
+  try {
+    const output = await captureStdout(() => command.run([], { ticketKey, ...opts } as any));
+    return { output };
+  } catch (err: any) {
+    return { output: '', error: err };
+  } finally {
+    teardownTmpEnv(originalCwd, originalHome, cleanup);
+  }
+}
+
+function checkChatModeAccepted(): void {
+  console.log(chalk.bold('Test 1: --chat-mode flag is accepted'));
+  const { exitCode } = runCli('TEST-1 --from fetch --to fetch --repos test-repo --dry-run --chat-mode');
+  if (exitCode === 0) {
+    pass('--chat-mode accepted; dry-run exited 0');
+  } else {
+    fail(`--chat-mode: dry-run exited ${exitCode}`);
+  }
+}
+
+function checkInteractiveFlagRejected(): void {
+  console.log(chalk.bold('Test 2: --interactive flag is rejected'));
+  const { exitCode, output } = runCli('TEST-2 --from fetch --to fetch --repos test-repo --dry-run --interactive');
+  if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
+    pass('--interactive correctly rejected');
+  } else {
+    fail(`--interactive was accepted (exit ${exitCode}) — old flag still registered`);
+  }
+}
+
+function checkSkipExistingFlagRejected(): void {
+  console.log(chalk.bold('Test 3: --skip-existing flag is rejected'));
+  const { exitCode, output } = runCli('TEST-3 --from fetch --to fetch --repos test-repo --dry-run --skip-existing');
+  if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
+    pass('--skip-existing correctly rejected');
+  } else {
+    fail(`--skip-existing was accepted (exit ${exitCode}) — old flag still registered`);
+  }
+}
+
+function checkForceFlag(): void {
+  console.log(chalk.bold('Test 4: --force accepted; -f rejected (no short form after CLI refactor)'));
+  const { exitCode: exitLong } = runCli('TEST-4 --from fetch --to fetch --repos test-repo --dry-run --force');
+  const { exitCode: exitShort, output: shortOutput } = runCli('TEST-4 --from fetch --to fetch --repos test-repo --dry-run -f');
+  const shortRejected = exitShort !== 0 || shortOutput.toLowerCase().includes('unknown option');
+  if (exitLong === 0 && shortRejected) {
+    pass('--force accepted; -f correctly rejected (short form removed to avoid --format conflict)');
+  } else {
+    fail(`--force exited ${exitLong} (expected 0); -f exited ${exitShort} rejected=${shortRejected} (expected true)`);
+  }
+}
+
+async function checkNoForceSkips(command: IssueCommand): Promise<void> {
+  console.log(chalk.bold('Test 5: No --force → dry-run skips FETCH when artifact exists'));
+  const { output, error } = await runWithTmpEnv(command, 'TEST-5', { from: 'fetch', to: 'fetch', repos: ['test-repo'], dryRun: true });
+  if (error) {
+    fail(`Test 5 threw: ${error.message}`);
+  } else if (output.toLowerCase().includes('skip')) {
+    pass('Without --force, dry-run skips FETCH because artifact exists');
+  } else {
+    fail(`Expected "skip" in dry-run output but got:\n${output}`);
+  }
+}
+
+async function checkForceOverwrites(command: IssueCommand): Promise<void> {
+  console.log(chalk.bold('Test 6: --force → dry-run overwrites even when artifact exists'));
+  const { output, error } = await runWithTmpEnv(command, 'TEST-6', { from: 'fetch', to: 'fetch', repos: ['test-repo'], dryRun: true, force: true });
+  if (error) {
+    fail(`Test 6 threw: ${error.message}`);
+  } else if (output.toLowerCase().includes('overwrite')) {
+    pass('With --force, dry-run shows "overwrite" for FETCH stage');
+  } else {
+    fail(`Expected "overwrite" in dry-run output but got:\n${output}`);
+  }
+}
 
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n🧪 issue API alignment tests\n'));
-
-  const { counts, pass, fail } = createReporter();
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  // Absolute path to dist/main.js so it can be invoked from a temp dir,
-  // avoiding wf.config.ts in the project root which breaks Node.js loading.
-  const distMain = path.join(__dirname, '../../dist/main.js');
-
-  /**
-   * Run `node dist/main.js issue <args>` and return stdout+stderr and exit code.
-   */
-  const runCli = (args: string): { output: string; exitCode: number } => {
-    try {
-      const output = execSync(`node ${distMain} issue ${args}`, {
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        cwd: os.tmpdir(),
-        timeout: 15_000,
-      });
-      return { output, exitCode: 0 };
-    } catch (err: any) {
-      return {
-        output: (err.stdout ?? '') + (err.stderr ?? ''),
-        exitCode: err.status ?? 1,
-      };
-    }
-  };
-
-  /**
-   * Create a temp dir and seed a ticket artifact in the location that
-   * resolveArtifactDir() will look for it: ~/.wf/<basename(tmpRoot)>/jira/.
-   */
-  const makeArtifactFixture = (ticketKey: string): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-'));
-    const homeDir = path.join(tmpRoot, 'home');
-    // resolveArtifactDir resolves to: getWfHomeDir() / basename(baseDir) / platform
-    // When cwd=tmpRoot and repo='test-repo' is not found, baseDir=cwd=tmpRoot.
-    const wfHome = path.join(homeDir, '.wf');
-    const platformDir = path.join(wfHome, path.basename(tmpRoot), 'jira');
-    fs.mkdirSync(platformDir, { recursive: true });
-    fs.writeFileSync(path.join(platformDir, `${ticketKey}.md`), `# ${ticketKey}: Fixture ticket\n`, 'utf-8');
-    return {
-      tmpRoot,
-      homeDir,
-      cleanup: () => {
-        fs.rmSync(tmpRoot, { recursive: true, force: true });
-      },
-    };
-  };
-
-  /**
-   * Capture stdout written during an async fn call.
-   */
-  const captureStdout = async (fn: () => Promise<void>): Promise<string> => {
-    const chunks: string[] = [];
-    const original = process.stdout.write.bind(process.stdout);
-    (process.stdout.write as any) = (chunk: any, ...rest: any[]) => {
-      chunks.push(typeof chunk === 'string' ? chunk : chunk.toString());
-      return original(chunk, ...rest);
-    };
-    try {
-      await fn();
-    } finally {
-      (process.stdout.write as any) = original;
-    }
-    return chunks.join('');
-  };
-
-  // ── CLI flag tests (require `yarn build`) ────────────────────────────────
-
-  console.log(chalk.bold('Test 1: --chat-mode flag is accepted'));
-  {
-    const { exitCode } = runCli('TEST-1 --from fetch --to fetch --repos test-repo --dry-run --chat-mode');
-    if (exitCode === 0) {
-      pass('--chat-mode accepted; dry-run exited 0');
-    } else {
-      fail(`--chat-mode: dry-run exited ${exitCode}`);
-    }
-  }
-
-  console.log(chalk.bold('Test 2: --interactive flag is rejected'));
-  {
-    const { exitCode, output } = runCli('TEST-2 --from fetch --to fetch --repos test-repo --dry-run --interactive');
-    if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
-      pass('--interactive correctly rejected');
-    } else {
-      fail(`--interactive was accepted (exit ${exitCode}) — old flag still registered`);
-    }
-  }
-
-  console.log(chalk.bold('Test 3: --skip-existing flag is rejected'));
-  {
-    const { exitCode, output } = runCli('TEST-3 --from fetch --to fetch --repos test-repo --dry-run --skip-existing');
-    if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
-      pass('--skip-existing correctly rejected');
-    } else {
-      fail(`--skip-existing was accepted (exit ${exitCode}) — old flag still registered`);
-    }
-  }
-
-  console.log(chalk.bold('Test 4: --force accepted; -f rejected (no short form after CLI refactor)'));
-  {
-    const { exitCode: exitLong } = runCli('TEST-4 --from fetch --to fetch --repos test-repo --dry-run --force');
-    const { exitCode: exitShort, output: shortOutput } = runCli(
-      'TEST-4 --from fetch --to fetch --repos test-repo --dry-run -f'
-    );
-    const shortRejected = exitShort !== 0 || shortOutput.toLowerCase().includes('unknown option');
-    if (exitLong === 0 && shortRejected) {
-      pass('--force accepted; -f correctly rejected (short form removed to avoid --format conflict)');
-    } else {
-      fail(`--force exited ${exitLong} (expected 0); -f exited ${exitShort} rejected=${shortRejected} (expected true)`);
-    }
-  }
-
-  // ── Behaviour tests (NestFactory) ────────────────────────────────────────
-
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error', 'warn'],
-  });
+  checkChatModeAccepted();
+  checkInteractiveFlagRejected();
+  checkSkipExistingFlagRejected();
+  checkForceFlag();
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const command = app.get(IssueCommand);
-
-  console.log(chalk.bold('Test 5: No --force → dry-run skips FETCH when artifact exists'));
-  {
-    const { tmpRoot, homeDir, cleanup } = makeArtifactFixture('TEST-5');
-    const originalCwd = process.cwd();
-    const originalHome = process.env.HOME;
-    process.chdir(tmpRoot);
-    process.env.HOME = homeDir;
-    try {
-      const output = await captureStdout(() =>
-        command.run([], {
-          ticketKey: 'TEST-5',
-          from: 'fetch',
-          to: 'fetch',
-          repos: ['test-repo'],
-          dryRun: true,
-          // force undefined → skipExisting = true (idempotent)
-        })
-      );
-      if (output.toLowerCase().includes('skip')) {
-        pass('Without --force, dry-run skips FETCH because artifact exists');
-      } else {
-        fail(`Expected "skip" in dry-run output but got:\n${output}`);
-      }
-    } catch (err: any) {
-      fail(`Test 5 threw: ${err.message}`);
-    } finally {
-      process.chdir(originalCwd);
-      process.env.HOME = originalHome;
-      cleanup();
-    }
-  }
-
-  console.log(chalk.bold('Test 6: --force → dry-run overwrites even when artifact exists'));
-  {
-    const { tmpRoot, homeDir, cleanup } = makeArtifactFixture('TEST-6');
-    const originalCwd = process.cwd();
-    const originalHome = process.env.HOME;
-    process.chdir(tmpRoot);
-    process.env.HOME = homeDir;
-    try {
-      const output = await captureStdout(() =>
-        command.run([], {
-          ticketKey: 'TEST-6',
-          from: 'fetch',
-          to: 'fetch',
-          repos: ['test-repo'],
-          dryRun: true,
-          force: true, // skipExisting = false → should show overwrite
-        })
-      );
-      if (output.toLowerCase().includes('overwrite')) {
-        pass('With --force, dry-run shows "overwrite" for FETCH stage');
-      } else {
-        fail(`Expected "overwrite" in dry-run output but got:\n${output}`);
-      }
-    } catch (err: any) {
-      fail(`Test 6 threw: ${err.message}`);
-    } finally {
-      process.chdir(originalCwd);
-      process.env.HOME = originalHome;
-      cleanup();
-    }
-  }
-
+  await checkNoForceSkips(command);
+  await checkForceOverwrites(command);
   await app.close();
-
-  // ── Summary ───────────────────────────────────────────────────────────────
-
-  console.log(chalk.gray('─'.repeat(60)));
-  console.log(`Results: ${chalk.green(`✓ ${counts.passed} passed`)}   ${chalk.red(`✗ ${counts.failed} failed`)}`);
-  if (counts.failed === 0) {
-    console.log(chalk.bold.green('✓ All tests passed!\n'));
-  }
-  console.log(chalk.gray('─'.repeat(60)));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

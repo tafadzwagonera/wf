@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:create's runtime header and -h Examples section stay in sync with dist/
  *
- * Run: nr test:manual -- test-issue-create-header-catalog-parity
+ * Run: nr test:manual issue-create-header-catalog-parity.smoke.ts
  *
  * Verifies that:
  *   1. `wf issue:create --help`'s Examples: section and `wf issue:create --dry-run`'s
@@ -24,7 +24,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 const CATALOG_PATH = path.join(__dirname, '../../dist/bootstrap/commands-help.catalog.json');
@@ -55,69 +55,66 @@ function examplesSection(output: string): string {
   return sectionLines.join('\n');
 }
 
+function checkSectionsParity(helpExamples: string, headerExamples: string): void {
+  if (helpExamples.length > 0 && headerExamples.length > 0) {
+    pass('Both invocations produced a non-empty Examples: section');
+  } else {
+    fail('One or both Examples: sections were empty', `help=${helpExamples.length} header=${headerExamples.length}`);
+  }
+  if (helpExamples === headerExamples) {
+    pass('The -h and runtime header Examples: sections are byte-identical');
+  } else {
+    fail('Examples: sections diverge under a fresh build', `help:\n${helpExamples}\n---\nheader:\n${headerExamples}`);
+  }
+}
+
+function checkExampleCount(headerExamples: string): void {
+  const commandLineCount = headerExamples
+    .split('\n')
+    .filter(l => l.trimStart().startsWith('wf ') || l.trimStart().startsWith('yarn ')).length;
+  if (commandLineCount === 5) {
+    pass('Header renders all 5 registry examples for issue:create (no cap truncation)');
+  } else {
+    fail('Unexpected example count in header', String(commandLineCount));
+  }
+}
+
+function checkStaleCatalogDetected(originalCatalog: string, headerExamples: string, scratchDir: string): void {
+  const mutatedCatalog = originalCatalog.replace('"wf issue:create ticket.json"', '"wf issue:create ticket.json --stale-marker"');
+  if (mutatedCatalog === originalCatalog) {
+    fail('Could not locate the target example string to mutate in the catalog JSON — test fixture is stale');
+    return;
+  }
+  fs.writeFileSync(CATALOG_PATH, mutatedCatalog, 'utf-8');
+  const staleHelpExamples = examplesSection(runCli(['issue:create', '--help'], scratchDir));
+  if (staleHelpExamples !== headerExamples && staleHelpExamples.includes('--stale-marker')) {
+    pass('A staled dist/ catalog correctly causes -h to diverge from the runtime header (detection works)');
+  } else {
+    fail('Staling the catalog did not produce a detectable divergence', staleHelpExamples.slice(0, 300));
+  }
+}
+
+async function runAllChecks(scratchDir: string, originalCatalog: string): Promise<void> {
+  const helpOutput = runCli(['issue:create', '--help'], scratchDir);
+  const dryRunOutput = runCli(['issue:create', '--dry-run', path.join(scratchDir, 'missing-ticket.json')], scratchDir);
+  const helpExamples = examplesSection(helpOutput);
+  const headerExamples = examplesSection(dryRunOutput);
+  checkSectionsParity(helpExamples, headerExamples);
+  checkExampleCount(headerExamples);
+  checkStaleCatalogDetected(originalCatalog, headerExamples, scratchDir);
+}
+
 async function main(): Promise<void> {
   console.log('\n issue:create header <-> -h catalog parity\n');
-
   const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-create-header-parity-'));
   const originalCatalog = fs.readFileSync(CATALOG_PATH, 'utf-8');
-
   try {
-    const helpOutput = runCli(['issue:create', '--help'], scratchDir);
-    const dryRunOutput = runCli(['issue:create', '--dry-run', path.join(scratchDir, 'missing-ticket.json')], scratchDir);
-
-    const helpExamples = examplesSection(helpOutput);
-    const headerExamples = examplesSection(dryRunOutput);
-
-    if (helpExamples.length > 0 && headerExamples.length > 0) {
-      pass('Both invocations produced a non-empty Examples: section');
-    } else {
-      fail('One or both Examples: sections were empty', `help=${helpExamples.length} header=${headerExamples.length}`);
-    }
-
-    if (helpExamples === headerExamples) {
-      pass('The -h and runtime header Examples: sections are byte-identical');
-    } else {
-      fail('Examples: sections diverge under a fresh build', `help:\n${helpExamples}\n---\nheader:\n${headerExamples}`);
-    }
-
-    const commandLineCount = headerExamples
-      .split('\n')
-      .filter(l => l.trimStart().startsWith('wf ') || l.trimStart().startsWith('yarn ')).length;
-    if (commandLineCount === 5) {
-      pass('Header renders all 5 registry examples for issue:create (no cap truncation)');
-    } else {
-      fail('Unexpected example count in header', String(commandLineCount));
-    }
-
-    // Deliberately stale the catalog and confirm the parity check now fails.
-    const mutatedCatalog = originalCatalog.replace(
-      '"wf issue:create ticket.json"',
-      '"wf issue:create ticket.json --stale-marker"'
-    );
-    if (mutatedCatalog === originalCatalog) {
-      fail('Could not locate the target example string to mutate in the catalog JSON — test fixture is stale');
-    } else {
-      fs.writeFileSync(CATALOG_PATH, mutatedCatalog, 'utf-8');
-      const staleHelpOutput = runCli(['issue:create', '--help'], scratchDir);
-      const staleHelpExamples = examplesSection(staleHelpOutput);
-
-      if (staleHelpExamples !== headerExamples && staleHelpExamples.includes('--stale-marker')) {
-        pass('A staled dist/ catalog correctly causes -h to diverge from the runtime header (detection works)');
-      } else {
-        fail('Staling the catalog did not produce a detectable divergence', staleHelpExamples.slice(0, 300));
-      }
-    }
+    await runAllChecks(scratchDir, originalCatalog);
   } finally {
     fs.writeFileSync(CATALOG_PATH, originalCatalog, 'utf-8');
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

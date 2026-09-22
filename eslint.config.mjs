@@ -83,6 +83,11 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  {
+    files: ['**/*.spec.ts'],
+    rules: {
       'max-lines-per-function': 'off',
       'max-params': 'off',
     },

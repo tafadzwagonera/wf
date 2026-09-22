@@ -1,7 +1,7 @@
 /**
  * Manual Test: issue:generate cwd-inferred artifact resolution without --repos
  *
- * Run: nr test:manual -- test-issue-generate-artifact-resolution
+ * Run: nr test:manual issue-generate-artifact-resolution.smoke.ts
  *
  * Verifies:
  *   1. Bare filename resolves to ~/.wf/<basename(cwd)>/<filename>, not <cwd>/<filename>
@@ -18,7 +18,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
 import { AiService } from '../../src/integrations/ai/ai.service';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 const MOCK_AI_RESPONSE = [
   '# MOCK-1: Test artifact resolution',
   '',
@@ -67,184 +67,218 @@ function cleanup() {
   fs.rmSync(path.join(wfHome, testId), { recursive: true, force: true });
 }
 
+function interceptConsoleMethod(
+  key: 'log' | 'error',
+  append: (...args: string[]) => void,
+): () => void {
+  const original = console[key];
+  console[key] = append;
+  return () => {
+    console[key] = original;
+  };
+}
+
 function captureConsole(): { output: string; errors: string; restore: () => void } {
-  let output = '';
-  let errors = '';
-  const origLog = console.log;
-  const origError = console.error;
-  console.log = (...args: string[]) => {
+  let output = '', errors = '';
+  const restoreLog = interceptConsoleMethod('log', (...args: string[]) => {
     output += args.map(String).join(' ') + '\n';
-  };
-  console.error = (...args: string[]) => {
+  });
+  const restoreError = interceptConsoleMethod('error', (...args: string[]) => {
     errors += args.map(String).join(' ') + '\n';
+  });
+  const restore = () => {
+    restoreLog();
+    restoreError();
   };
+  return { output, errors, restore };
+}
+
+async function setupApp(): Promise<{ command: IssueGenerateCommand; teardown: () => Promise<void> }> {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  const originalExecute = AiService.prototype.execute;
+  (AiService.prototype as any).execute = async () => ({ content: MOCK_AI_RESPONSE });
   return {
-    get output() {
-      return output;
-    },
-    get errors() {
-      return errors;
-    },
-    restore: () => {
-      console.log = origLog;
-      console.error = origError;
+    command: app.get(IssueGenerateCommand),
+    teardown: async () => {
+      AiService.prototype.execute = originalExecute;
+      await app.close();
     },
   };
 }
 
+async function checkBareFilenameResolvesToArtifactDir(command: IssueGenerateCommand): Promise<void> {
+  process.chdir(testRepoDir);
+  const capture = captureConsole();
+  try {
+    await command.run([testFilename], { dryRun: true });
+  } finally {
+    capture.restore();
+  }
+  const expectedArtifactPath = path.join(testArtifactDir, testFilename);
+  if (capture.output.includes(expectedArtifactPath)) {
+    pass('bare filename resolves to artifact dir');
+  } else {
+    fail('bare filename resolves to artifact dir', `output did not contain ${expectedArtifactPath}\n      stdout: ${capture.output.trim()}`);
+  }
+}
+
+async function checkBareFilenameDoesNotResolveToCwd(command: IssueGenerateCommand): Promise<void> {
+  process.chdir(testRepoDir);
+  const capture = captureConsole();
+  try {
+    await command.run([testFilename], { dryRun: true });
+  } finally {
+    capture.restore();
+  }
+  const cwdPath = path.join(testRepoDir, testFilename);
+  if (capture.output.includes(cwdPath)) {
+    fail('bare filename does not resolve to cwd', `output contained cwd path ${cwdPath}`);
+  } else {
+    pass('bare filename does not resolve to cwd');
+  }
+}
+
+async function checkAbsolutePathPassesThrough(command: IssueGenerateCommand): Promise<void> {
+  process.chdir(testRepoDir);
+  const absPath = path.join(testArtifactDir, testFilename);
+  const capture = captureConsole();
+  try {
+    await command.run([absPath], { dryRun: true });
+  } finally {
+    capture.restore();
+  }
+  if (capture.output.includes(absPath)) {
+    pass('absolute path passes through unchanged');
+  } else {
+    fail('absolute path passes through unchanged', `output did not contain ${absPath}`);
+  }
+}
+
+const setupMockExit = (): { isExited: () => boolean; restore: () => void } => {
+  let exitCalled = false;
+  const origExit = process.exit;
+  (process as any).exit = () => {
+    exitCalled = true;
+  };
+  return {
+    isExited: () => exitCalled,
+    restore: () => {
+      (process as any).exit = origExit;
+    },
+  };
+};
+
+async function runMissingFileCommand(
+  command: IssueGenerateCommand,
+): Promise<{ exitCalled: boolean; allOutput: string }> {
+  process.chdir(testRepoDir);
+  const mockExit = setupMockExit();
+  const capture = captureConsole();
+  try {
+    await command.run(['nonexistent-source.md'], { dryRun: true, silent: true });
+  } finally {
+    capture.restore();
+    mockExit.restore();
+  }
+  return { exitCalled: mockExit.isExited(), allOutput: capture.output + capture.errors };
+}
+
+const checkMissingFileErrorOutput = (allOutput: string): void => {
+  const isActionable = allOutput.includes('--repos') || allOutput.includes('could not be resolved');
+  if (isActionable) {
+    pass('missing file error is actionable');
+  } else {
+    fail('missing file error is actionable', `output: ${allOutput.trim()}`);
+  }
+  const cwdPathIncluded = allOutput.includes(path.join(testRepoDir, 'nonexistent-source.md'));
+  if (cwdPathIncluded) {
+    fail('missing file error does not reference cwd path');
+  } else {
+    pass('missing file error does not reference cwd path');
+  }
+};
+
+async function checkMissingFileError(command: IssueGenerateCommand): Promise<void> {
+  const { exitCalled, allOutput } = await runMissingFileCommand(command);
+  if (!exitCalled) {
+    fail('missing file triggers process.exit', 'process.exit was not called');
+    return;
+  }
+  checkMissingFileErrorOutput(allOutput);
+}
+
+async function runExecuteCapture(command: IssueGenerateCommand): Promise<{ output: string; error: Error | null }> {
+  const capture = captureConsole();
+  let error: Error | null = null;
+  try {
+    await command.run([testFilename], { silent: false });
+  } catch (err) {
+    error = err instanceof Error ? err : new Error(String(err));
+  } finally {
+    capture.restore();
+  }
+  return { output: capture.output, error };
+}
+
+const runDryRunCapture = async (command: IssueGenerateCommand): Promise<string> => {
+  process.chdir(testRepoDir);
+  const dryCapture = captureConsole();
+  try {
+    await command.run([testFilename], { dryRun: true });
+  } finally {
+    dryCapture.restore();
+  }
+  return dryCapture.output;
+};
+
+const checkExecError = (execError: Error | null): boolean => {
+  if (execError) {
+    fail('execute path resolves artifact without error', `execute threw: ${execError.message}`);
+    return true;
+  }
+  return false;
+};
+
+const validateResolutionResults = (dryOutput: string, execOutput: string, execError: Error | null): void => {
+  const expectedPath = path.join(testArtifactDir, testFilename);
+  if (checkExecError(execError)) return;
+  if (dryOutput.includes(expectedPath) && execOutput.includes('Fetched')) {
+    pass('dry-run and execute both resolve the artifact successfully');
+  } else {
+    fail(
+      'dry-run and execute both resolve the artifact successfully',
+      `dry-run has path: ${dryOutput.includes(expectedPath)}, execute fetched: ${execOutput.includes('Fetched')}`,
+    );
+  }
+};
+
+async function checkDryRunAndExecuteBothResolve(command: IssueGenerateCommand): Promise<void> {
+  const dryOutput = await runDryRunCapture(command);
+  const { output: execOutput, error: execError } = await runExecuteCapture(command);
+  validateResolutionResults(dryOutput, execOutput, execError);
+}
+
+async function runAllChecks(command: IssueGenerateCommand): Promise<void> {
+  await checkBareFilenameResolvesToArtifactDir(command);
+  await checkBareFilenameDoesNotResolveToCwd(command);
+  await checkAbsolutePathPassesThrough(command);
+  await checkMissingFileError(command);
+  await checkDryRunAndExecuteBothResolve(command);
+}
+
 async function main(): Promise<void> {
   console.log('\ntest-issue-generate-artifact-resolution\n');
-
   setup();
-
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: false,
-  });
-  const command = app.get(IssueGenerateCommand);
-
-  // Stub AI to avoid real API calls — return a canned ticket
-  const originalExecute = AiService.prototype.execute;
-  (AiService.prototype as any).execute = async () => ({ content: MOCK_AI_RESPONSE });
-
+  const { command, teardown } = await setupApp();
   const origCwd = process.cwd();
-
   try {
-    {
-      process.chdir(testRepoDir);
-      const capture = captureConsole();
-      try {
-        await command.run([testFilename], { dryRun: true });
-      } finally {
-        capture.restore();
-      }
-
-      const expectedArtifactPath = path.join(testArtifactDir, testFilename);
-      if (capture.output.includes(expectedArtifactPath)) {
-        pass('bare filename resolves to artifact dir');
-      } else {
-        fail('bare filename resolves to artifact dir', `output did not contain ${expectedArtifactPath}\n      stdout: ${capture.output.trim()}`);
-      }
-    }
-
-    {
-      process.chdir(testRepoDir);
-      const capture = captureConsole();
-      try {
-        await command.run([testFilename], { dryRun: true });
-      } finally {
-        capture.restore();
-      }
-
-      const cwdPath = path.join(testRepoDir, testFilename);
-      if (capture.output.includes(cwdPath)) {
-        fail('bare filename does not resolve to cwd', `output contained cwd path ${cwdPath}`);
-      } else {
-        pass('bare filename does not resolve to cwd');
-      }
-    }
-
-    {
-      process.chdir(testRepoDir);
-      const absPath = path.join(testArtifactDir, testFilename);
-      const capture = captureConsole();
-      try {
-        await command.run([absPath], { dryRun: true });
-      } finally {
-        capture.restore();
-      }
-
-      if (capture.output.includes(absPath)) {
-        pass('absolute path passes through unchanged');
-      } else {
-        fail('absolute path passes through unchanged', `output did not contain ${absPath}`);
-      }
-    }
-
-    {
-      process.chdir(testRepoDir);
-      const missingFile = 'nonexistent-source.md';
-
-      let exitCalled = false;
-      const origExit = process.exit;
-      (process as any).exit = () => {
-        exitCalled = true;
-      };
-
-      const capture = captureConsole();
-      try {
-        await command.run([missingFile], { dryRun: true, silent: true });
-      } finally {
-        capture.restore();
-        (process as any).exit = origExit;
-      }
-
-      if (exitCalled) {
-        const allOutput = capture.output + capture.errors;
-        if (allOutput.includes('--repos') || allOutput.includes('could not be resolved')) {
-          pass('missing file error is actionable');
-        } else {
-          fail('missing file error is actionable', `output: ${allOutput.trim()}`);
-        }
-
-        const cwdPath = path.join(testRepoDir, missingFile);
-        if (allOutput.includes(cwdPath)) {
-          fail('missing file error does not reference cwd path');
-        } else {
-          pass('missing file error does not reference cwd path');
-        }
-      } else {
-        fail('missing file triggers process.exit', 'process.exit was not called');
-      }
-    }
-
-    {
-      process.chdir(testRepoDir);
-
-      const dryCapture = captureConsole();
-      try {
-        await command.run([testFilename], { dryRun: true });
-      } finally {
-        dryCapture.restore();
-      }
-
-      const execCapture = captureConsole();
-      let execError: Error | null = null;
-      try {
-        await command.run([testFilename], { silent: false });
-      } catch (err) {
-        execError = err instanceof Error ? err : new Error(String(err));
-      } finally {
-        execCapture.restore();
-      }
-
-      const expectedPath = path.join(testArtifactDir, testFilename);
-      const dryHasPath = dryCapture.output.includes(expectedPath);
-
-      if (execError) {
-        fail('execute path resolves artifact without error', `execute threw: ${execError.message}`);
-      } else if (dryHasPath) {
-        const execFetched = execCapture.output.includes('Fetched');
-        if (dryHasPath && execFetched) {
-          pass('dry-run and execute both resolve the artifact successfully');
-        } else {
-          fail(
-            'dry-run and execute both resolve the artifact successfully',
-            `dry-run has path: ${dryHasPath}, execute fetched: ${execFetched}`,
-          );
-        }
-      } else {
-        fail('dry-run resolves artifact path', `dry-run output did not contain ${expectedPath}`);
-      }
-    }
+    await runAllChecks(command);
   } finally {
     process.chdir(origCwd);
-    AiService.prototype.execute = originalExecute;
-    await app.close();
+    await teardown();
     cleanup();
   }
-
-  console.log(`\n  ${counts.passed} passed, ${counts.failed} failed\n`);
-  process.exit(counts.failed > 0 ? 1 : 0);
+  summarise(counts);
 }
 
 main().catch(error => {

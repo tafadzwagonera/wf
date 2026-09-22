@@ -1,7 +1,7 @@
 /**
  * Manual Test: --from defaults to plan when --custom-plan is provided
  *
- * Run: nr test:manual -- test-default-from-with-custom-plan
+ * Run: nr test:manual default-from-with-custom-plan.smoke.ts
  *
  * Verifies:
  *   1. --custom-plan without --from defaults to plan (no "--from option is required" error)
@@ -77,136 +77,106 @@ const scaffoldCustomPlan = (tmpDir: string): string => {
   return planFileName;
 };
 
-async function main(): Promise<void> {
+const saveProcessExit = (): { restore: () => void } => {
   const origExit = process.exit;
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
-  const command = app.get(IssueCommand);
+  const restore = () => {
+    process.exit = origExit;
+  };
+  return { restore };
+};
 
-  // -- Test 1: --custom-plan without --from defaults to plan -------------------
-  console.log('\n\uD83E\uDDEA Test 1: --custom-plan without --from defaults to plan\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-plan-default-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    const planFileName = scaffoldCustomPlan(tmpDir);
+const setupTmpDir = (): { tmpDir: string; cleanup: () => void } => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-plan-'));
+  return { tmpDir, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
+};
 
-    const origCwd = process.cwd.bind(process);
-    (process as unknown as { cwd: () => string }).cwd = () => tmpDir;
+const cleanupTest = (origExit: any, restoreHome: () => void, cleanup: () => void): void => {
+  process.exit = origExit;
+  restoreHome();
+  cleanup();
+};
 
-    let exitCode: number | undefined;
-    (process as unknown as { exit: (code: number) => void }).exit = (code: number) => {
-      exitCode = code;
-    };
+const printTestHeader = (num: number, label: string): void => {
+  console.log(`\n🧪 Test ${num}: ${label}\n` + '─'.repeat(60));
+};
 
-    const stderrCapture = captureStderr();
-    const stdoutCapture = captureStdout();
-
-    await command.run([], {
-      customPlan: planFileName,
-      action: 'fix',
-      to: 'plan',
-      dryRun: true,
-      from: undefined,
-    } as any);
-
-    const stderr = stderrCapture.restore();
-    const stdout = stdoutCapture.restore();
-
-    (process as unknown as { cwd: () => string }).cwd = origCwd;
-    (process as unknown as { exit: (code: number) => void }).exit = origExit;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (stderr.includes('--from option is required')) {
-      fail('Should not require --from when --custom-plan is provided', `stderr: ${stderr.slice(0, 300)}`);
-    } else if (stdout.includes('plan') && !stderr.includes('--from option is required')) {
-      pass('--custom-plan without --from bypassed the --from guard (defaults to plan)');
-    } else {
-      fail('Unexpected result', `stderr: ${stderr.slice(0, 300)}\nstdout: ${stdout.slice(0, 300)}`);
-    }
-  }
-
-  // -- Test 2: --custom-plan with explicit --from implement honours the value --
-  console.log('\n\uD83E\uDDEA Test 2: --custom-plan with explicit --from implement honours the value\n' + '\u2500'.repeat(60));
-  {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-plan-explicit-'));
-    const restoreHome = overrideHomeDir(tmpDir);
-    const planFileName = scaffoldCustomPlan(tmpDir);
-
-    const origCwd = process.cwd.bind(process);
-    (process as unknown as { cwd: () => string }).cwd = () => tmpDir;
-
-    let exitCode: number | undefined;
-    (process as unknown as { exit: (code: number) => void }).exit = (code: number) => {
-      exitCode = code;
-    };
-
-    const stderrCapture = captureStderr();
-    const stdoutCapture = captureStdout();
-
-    await command.run([], {
-      customPlan: planFileName,
-      from: 'implement',
-      to: 'implement',
-      dryRun: true,
-    } as unknown as Parameters<typeof command.run>[1]);
-
-    const stderr = stderrCapture.restore();
-    const stdout = stdoutCapture.restore();
-
-    (process as unknown as { cwd: () => string }).cwd = origCwd;
-    (process as unknown as { exit: (code: number) => void }).exit = origExit;
-    restoreHome();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-
-    if (stderr.includes('--from option is required')) {
-      fail('Explicit --from should not trigger the required guard', `stderr: ${stderr.slice(0, 300)}`);
-    } else if (stdout.includes('implement')) {
-      pass('Explicit --from implement is honoured with --custom-plan');
-    } else {
-      pass('Explicit --from implement bypassed the default guard (downstream error expected in smoke test)');
-    }
-  }
-
-  // -- Test 3: ticket key without --from still requires --from -----------------
-  console.log('\n\uD83E\uDDEA Test 3: ticket key without --from still requires --from\n' + '\u2500'.repeat(60));
-  {
-    let exitCode: number | undefined;
-    (process as unknown as { exit: (code: number) => void }).exit = (code: number) => {
-      exitCode = code;
-    };
-
-    const stderrCapture = captureStderr();
-
-    await command.run([], {
-      ticketKey: 'WBP-42',
-      action: 'fix',
-    } as unknown as Parameters<typeof command.run>[1]);
-
-    const stderr = stderrCapture.restore();
-    (process as unknown as { exit: (code: number) => void }).exit = origExit;
-
-    if (exitCode === 1 && stderr.includes('--from option is required')) {
-      pass('Ticket key without --from correctly requires --from');
-    } else {
-      fail(
-        'Expected exit(1) and stderr containing "--from option is required"',
-        `exitCode: ${exitCode}, stderr: ${stderr.slice(0, 300)}`
-      );
-    }
-  }
-
-  // -- Summary ----------------------------------------------------------------
-  await app.close();
+const printResults = (): void => {
   console.log('\n' + '='.repeat(60));
   console.log(`Results: ${counts.passed} passed, ${counts.failed} failed`);
   if (counts.failed === 0) console.log('All tests passed!');
   console.log('='.repeat(60));
+};
 
-  if (counts.failed > 0) {
-    process.exit(1);
+type CommandOutput = { stderr: string; stdout: string };
+
+async function runCommandWithCwd(command: IssueCommand, opts: any, tmpDir: string): Promise<CommandOutput> {
+  const origCwd = process.cwd;
+  process.cwd = () => tmpDir;
+  const stderrCapture = captureStderr();
+  const stdoutCapture = captureStdout();
+  try {
+    await command.run([], opts);
+  } finally {
+    process.cwd = origCwd;
   }
+  return { stderr: stderrCapture.restore(), stdout: stdoutCapture.restore() };
+}
+
+async function testCustomPlanDefaultsToPlan(cmd: IssueCommand, origExit: any): Promise<void> {
+  const { tmpDir, cleanup } = setupTmpDir();
+  const restoreHome = overrideHomeDir(tmpDir);
+  process.exit = (() => {}) as any;
+  const planFileName = scaffoldCustomPlan(tmpDir);
+  try {
+    const { stderr, stdout } = await runCommandWithCwd(cmd, { customPlan: planFileName, action: 'fix' as const, to: 'plan' as const, dryRun: true, from: undefined }, tmpDir);
+    if (stderr.includes('--from option is required')) fail('Should not require --from', stderr.slice(0, 300));
+    else if (stdout.includes('plan')) pass('--custom-plan without --from bypassed guard (defaults to plan)');
+    else fail('Unexpected result', stderr.slice(0, 300));
+  } finally { cleanupTest(origExit, restoreHome, cleanup); }
+}
+
+async function testCustomPlanWithExplicitFrom(cmd: IssueCommand, origExit: any): Promise<void> {
+  const { tmpDir, cleanup } = setupTmpDir();
+  const restoreHome = overrideHomeDir(tmpDir);
+  process.exit = (() => {}) as any;
+  const planFileName = scaffoldCustomPlan(tmpDir);
+  try {
+    const { stderr } = await runCommandWithCwd(cmd, { customPlan: planFileName, from: 'implement' as const, to: 'implement' as const, dryRun: true }, tmpDir);
+    if (stderr.includes('--from option is required')) fail('Explicit --from should not trigger', stderr.slice(0, 300));
+    else pass('Explicit --from implement is honoured with --custom-plan');
+  } finally { cleanupTest(origExit, restoreHome, cleanup); }
+}
+
+async function testTicketKeyRequiresFrom(cmd: IssueCommand, origExit: any): Promise<void> {
+  let exitCode: number | undefined;
+  const updateExit = (code: number) => {
+    exitCode = code;
+  };
+  process.exit = updateExit as any;
+  try {
+    const stderrCapture = captureStderr();
+    await cmd.run([], { ticketKey: 'WBP-42', action: 'fix' });
+    const stderr = stderrCapture.restore();
+    if (exitCode === 1 && stderr.includes('--from option is required')) pass('Ticket key without --from correctly requires --from');
+    else fail('Expected exit(1) with --from required', `exitCode: ${exitCode}`);
+  } finally { process.exit = origExit; }
+}
+
+async function main(): Promise<void> {
+  const origExit = process.exit;
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const command = app.get(IssueCommand);
+
+  printTestHeader(1, '--custom-plan without --from defaults to plan');
+  await testCustomPlanDefaultsToPlan(command, origExit);
+  printTestHeader(2, '--custom-plan with explicit --from implement honours the value');
+  await testCustomPlanWithExplicitFrom(command, origExit);
+  printTestHeader(3, 'ticket key without --from still requires --from');
+  await testTicketKeyRequiresFrom(command, origExit);
+
+  await app.close();
+  printResults();
+  if (counts.failed > 0) process.exit(1);
 }
 
 main().catch(error => {

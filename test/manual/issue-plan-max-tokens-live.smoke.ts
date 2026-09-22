@@ -31,204 +31,166 @@ import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { once } from 'node:events';
-import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 type CapturedRequest = {
   pathname: string;
   body: Record<string, unknown>;
 };
 
+type Paths = {
+  repoDir: string;
+  repoName: string;
+  configPath: string;
+  agentsPath: string;
+  sourcePath: string;
+};
+
+type ScenarioData = {
+  plan: Record<string, unknown>;
+  request: CapturedRequest | undefined;
+};
+
 const { counts, pass, fail } = createReporter();
 
-const startServer = async (): Promise<{
-  server: http.Server;
-  baseUrl: string;
-  capturedRequests: CapturedRequest[];
-}> => {
-  const capturedRequests: CapturedRequest[] = [];
-  const server = http.createServer((req, res) => {
+function buildConfigContent(): string {
+  return [
+    'module.exports = {',
+    '  ai: [',
+    "    { provider: 'openai', model: 'gpt-5.4', default: true, apiKey: 'test-key' },",
+    '  ],',
+    '  stages: {',
+    "    plan: { provider: 'openai', backend: 'standard', model: 'gpt-5.4', maxTokens: 8192 },",
+    '  },',
+    '};',
+    '',
+  ].join('\n');
+}
+
+function buildResponseBody(): Record<string, unknown> {
+  return {
+    choices: [{
+      finish_reason: 'stop',
+      message: { content: JSON.stringify({ action: 'fix', summary: 'Live maxTokens smoke test', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: ['repo'], risks: [] }) },
+    }],
+    usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 },
+  };
+}
+
+function handleServerError(res: http.ServerResponse, error: unknown): void {
+  res.writeHead(500, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+}
+
+function createCaptureServer(capturedRequests: CapturedRequest[]): http.Server {
+  return http.createServer((req, res) => {
     void (async () => {
       const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       const bodyText = Buffer.concat(chunks).toString('utf-8') || '{}';
-      capturedRequests.push({
-        pathname: req.url ?? '',
-        body: JSON.parse(bodyText) as Record<string, unknown>,
-      });
-
-      const responseBody = {
-        choices: [
-          {
-            finish_reason: 'stop',
-            message: {
-              content: JSON.stringify({
-                action: 'fix',
-                summary: 'Live maxTokens smoke test',
-                steps: ['step 1'],
-                estimatedComplexity: 'low',
-                affectedFiles: [],
-                affectedRepositories: ['repo'],
-                risks: [],
-              }),
-            },
-          },
-        ],
-        usage: {
-          prompt_tokens: 12,
-          completion_tokens: 34,
-          total_tokens: 46,
-        },
-      };
-
+      capturedRequests.push({ pathname: req.url ?? '', body: JSON.parse(bodyText) as Record<string, unknown> });
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify(responseBody));
-    })().catch(error => {
-      res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
-    });
+      res.end(JSON.stringify(buildResponseBody()));
+    })().catch(error => handleServerError(res, error));
   });
+}
 
+type StartServerResult = { server: http.Server; baseUrl: string; capturedRequests: CapturedRequest[] };
+
+const startServer = async (): Promise<StartServerResult> => {
+  const capturedRequests: CapturedRequest[] = [];
+  const server = createCaptureServer(capturedRequests);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('Failed to bind local capture server');
-  }
-
-  return {
-    server,
-    baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    capturedRequests,
-  };
+  if (address === null || typeof address === 'string') throw new Error('Failed to bind local capture server');
+  return { server, baseUrl: `http://127.0.0.1:${address.port}/v1`, capturedRequests };
 };
+
+function buildPaths(tempRoot: string): Paths {
+  const repoDir = path.join(tempRoot, 'repo');
+  return { repoDir, repoName: path.basename(repoDir), configPath: path.join(repoDir, 'wf.config.js'), agentsPath: path.join(repoDir, 'AGENTS.md'), sourcePath: path.join(repoDir, 'source.md') };
+}
+
+function setupFixtures(paths: Paths): void {
+  fs.mkdirSync(paths.repoDir, { recursive: true });
+  fs.writeFileSync(paths.configPath, buildConfigContent(), 'utf-8');
+  fs.writeFileSync(paths.sourcePath, ['# Smoke source', '', 'This file forces the live plan stage to call the OpenAI adapter.', ''].join('\n'), 'utf-8');
+  fs.writeFileSync(paths.agentsPath, ['# AGENTS', '', 'Local smoke test context for the OpenAI adapter.', ''].join('\n'), 'utf-8');
+}
+
+function restoreEnvVars(savedBaseUrl: string | undefined, savedApiKey: string | undefined): void {
+  if (savedBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+  else process.env.OPENAI_BASE_URL = savedBaseUrl;
+  if (savedApiKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = savedApiKey;
+}
+
+function applyOpenAiEnv(baseUrl: string): { savedBaseUrl: string | undefined; savedApiKey: string | undefined } {
+  const savedBaseUrl = process.env.OPENAI_BASE_URL;
+  const savedApiKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_BASE_URL = baseUrl;
+  process.env.OPENAI_API_KEY = 'test-key';
+  return { savedBaseUrl, savedApiKey };
+}
+
+async function runScenario(paths: Paths, baseUrl: string, capturedRequests: CapturedRequest[]): Promise<ScenarioData> {
+  process.chdir(paths.repoDir);
+  await initializeWfConfig(paths.repoDir);
+  const { savedBaseUrl, savedApiKey } = applyOpenAiEnv(baseUrl);
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
+  try {
+    const plan = await app.get(AiService).generatePlan('fix', '# Smoke source', { affectedRepositories: [paths.repoName] }) as Record<string, unknown>;
+    return { plan, request: capturedRequests[0] };
+  } finally {
+    await app.close();
+    restoreEnvVars(savedBaseUrl, savedApiKey);
+  }
+}
+
+function checkMaxTokens(request: CapturedRequest): void {
+  if (request.body.max_completion_tokens === 8192) pass('OpenAI request body includes max_completion_tokens: 8192');
+  else fail('OpenAI request body did not include the configured maxCompletionTokens', JSON.stringify(request.body));
+}
+
+function checkModel(request: CapturedRequest): void {
+  if (request.body.model === 'gpt-5.4') pass('OpenAI request body uses the configured stage model');
+  else fail('OpenAI request body used the wrong model', JSON.stringify(request.body));
+}
+
+function checkPlanParsed(plan: Record<string, unknown>): void {
+  if (plan.summary === 'Live maxTokens smoke test') pass('The live plan response was parsed successfully');
+  else fail('The live plan response did not parse as expected', JSON.stringify(plan));
+}
+
+function runChecks(data: ScenarioData): void {
+  if (!data.request) {
+    fail('No OpenAI request was captured', 'The live adapter never reached the local capture server.');
+    return;
+  }
+  checkMaxTokens(data.request);
+  checkModel(data.request);
+  checkPlanParsed(data.plan);
+}
 
 async function main(): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-max-tokens-'));
-  const repoDir = path.join(tempRoot, 'repo');
-  const repoName = path.basename(repoDir);
-  const configPath = path.join(repoDir, 'wf.config.js');
-  const agentsPath = path.join(repoDir, 'AGENTS.md');
-  const sourcePath = path.join(repoDir, 'source.md');
   const { server, baseUrl, capturedRequests } = await startServer();
   const originalCwd = process.cwd();
-  let exitCode = 0;
-
   try {
-    fs.mkdirSync(repoDir, { recursive: true });
-
-    fs.writeFileSync(
-      configPath,
-      [
-        'module.exports = {',
-        '  ai: [',
-        "    { provider: 'openai', model: 'gpt-5.4', default: true, apiKey: 'test-key' },",
-        '  ],',
-        '  stages: {',
-        "    plan: { provider: 'openai', backend: 'standard', model: 'gpt-5.4', maxTokens: 8192 },",
-        '  },',
-        '};',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    fs.writeFileSync(
-      sourcePath,
-      [
-        '# Smoke source',
-        '',
-        'This file forces the live plan stage to call the OpenAI adapter.',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    fs.writeFileSync(
-      agentsPath,
-      [
-        '# AGENTS',
-        '',
-        'Local smoke test context for the OpenAI adapter.',
-        '',
-      ].join('\n'),
-      'utf-8'
-    );
-
-    process.chdir(repoDir);
-    await initializeWfConfig(repoDir);
-
-    const originalOpenAiBaseUrl = process.env.OPENAI_BASE_URL;
-    const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
-    process.env.OPENAI_BASE_URL = baseUrl;
-    process.env.OPENAI_API_KEY = 'test-key';
-
-    const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
-
-    try {
-      const aiService = app.get(AiService);
-      const plan = await aiService.generatePlan('fix', '# Smoke source', {
-        affectedRepositories: [repoName],
-      });
-
-      const request = capturedRequests[0];
-      if (!request) {
-        fail('No OpenAI request was captured', 'The live adapter never reached the local capture server.');
-        exitCode = 1;
-        return;
-      }
-
-      const maxTokensOk = request.body.max_completion_tokens === 8192;
-      const modelOk = request.body.model === 'gpt-5.4';
-      const planOk = plan.summary === 'Live maxTokens smoke test';
-
-      if (maxTokensOk) {
-        pass('OpenAI request body includes max_completion_tokens: 8192');
-      } else {
-        fail('OpenAI request body did not include the configured maxCompletionTokens', JSON.stringify(request.body));
-      }
-
-      if (modelOk) {
-        pass('OpenAI request body uses the configured stage model');
-      } else {
-        fail('OpenAI request body used the wrong model', JSON.stringify(request.body));
-      }
-
-      if (planOk) {
-        pass('The live plan response was parsed successfully');
-      } else {
-        fail('The live plan response did not parse as expected', JSON.stringify(plan));
-      }
-
-      if (!maxTokensOk || !modelOk || !planOk) {
-        exitCode = 1;
-      }
-    } finally {
-      await app.close();
-      if (originalOpenAiBaseUrl === undefined) {
-        delete process.env.OPENAI_BASE_URL;
-      } else {
-        process.env.OPENAI_BASE_URL = originalOpenAiBaseUrl;
-      }
-      if (originalOpenAiApiKey === undefined) {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAiApiKey;
-      }
-    }
+    const paths = buildPaths(tempRoot);
+    setupFixtures(paths);
+    runChecks(await runScenario(paths, baseUrl, capturedRequests));
   } finally {
     process.chdir(originalCwd);
     server.close();
     fs.rmSync(tempRoot, { recursive: true, force: true });
-    process.exit(exitCode);
   }
+  summarise(counts);
 }
 
 main().catch(error => {

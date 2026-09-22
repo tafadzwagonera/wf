@@ -1,7 +1,7 @@
 /**
  * Manual Test: stageAll survives a concurrent process deleting-and-committing a file mid-run
  *
- * Run: nr test:manual -- test-stage-all-concurrent-delete-commit-race
+ * Run: nr test:manual stage-all-concurrent-delete-commit-race.smoke.ts
  *
  * This is the original reported bug: two real, independent processes mutating
  * the same git working tree can race — one process's `git status()` observes
@@ -44,7 +44,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
 import { GitError } from '../../src/shared/errors/app.error';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const ITERATIONS = 25;
 const execFileAsync = promisify(execFile);
@@ -89,71 +89,77 @@ function cleanupRepo(repoDir: string): void {
   }
 }
 
+async function stageAllOrDetectCrash(gitService: GitService, repoDir: string): Promise<boolean> {
+  try {
+    await gitService.stageAll(repoDir);
+    return false;
+  } catch (error) {
+    return !(error instanceof GitError);
+  }
+}
+
+function buildRetryTracker(): { isRetried: () => boolean; intercept: (...args: unknown[]) => void } {
+  let retried = false;
+  return {
+    isRetried: () => retried,
+    intercept: (...args: unknown[]) => {
+      if (String(args[0] ?? '').includes('vanished after git status')) retried = true;
+    },
+  };
+}
+
 async function raceOnce(gitService: GitService): Promise<{ crashed: boolean; retried: boolean }> {
   const repoDir = makeRacingRepo();
   const originalWarn = console.warn;
-  let retried = false;
-  (console.warn as any) = (...args: unknown[]) => {
-    if (String(args[0] ?? '').includes('vanished after git status')) retried = true;
-  };
-
-  let crashed = false;
-
+  const tracker = buildRetryTracker();
+  (console.warn as any) = tracker.intercept;
   try {
     const otherProcess = runOtherProcess(repoDir);
-
-    try {
-      await gitService.stageAll(repoDir);
-    } catch (error) {
-      crashed = !(error instanceof GitError);
-    }
-
+    const crashed = await stageAllOrDetectCrash(gitService, repoDir);
     await otherProcess;
+    return { crashed, retried: tracker.isRetried() };
   } finally {
     console.warn = originalWarn;
     cleanupRepo(repoDir);
   }
+}
 
-  return { crashed, retried };
+async function runRaceIterations(gitService: GitService): Promise<{ crashCount: number; retryObserved: boolean }> {
+  let crashCount = 0;
+  let retryObserved = false;
+  for (let i = 0; i < ITERATIONS; i += 1) {
+    const result = await raceOnce(gitService);
+    if (result.crashed) crashCount += 1;
+    if (result.retried) retryObserved = true;
+  }
+  return { crashCount, retryObserved };
+}
+
+function checkNoUnhandledCrashes(crashCount: number): void {
+  if (crashCount === 0) {
+    pass(`stageAll never rejected with anything other than GitError across ${ITERATIONS} racing iterations`);
+  } else {
+    fail(`stageAll rejected with a non-GitError in ${crashCount}/${ITERATIONS} iterations`);
+  }
+}
+
+function reportRetryObservation(retryObserved: boolean): void {
+  if (retryObserved) {
+    pass('The retry-and-warn path was observed at least once (race landed as intended)');
+  } else {
+    console.log('  ℹ Retry path was not observed this run — the race window was never hit (informational, not a failure)');
+  }
 }
 
 async function main(): Promise<void> {
   console.log('\n stageAll concurrent delete-commit race\n');
-
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const gitService = app.get(GitService);
-
-  let crashCount = 0;
-  let retryObserved = false;
-
-  try {
-    for (let i = 0; i < ITERATIONS; i += 1) {
-      const result = await raceOnce(gitService);
-      if (result.crashed) crashCount += 1;
-      if (result.retried) retryObserved = true;
-    }
-
-    if (crashCount === 0) {
-      pass(`stageAll never rejected with anything other than GitError across ${ITERATIONS} racing iterations`);
-    } else {
-      fail(`stageAll rejected with a non-GitError in ${crashCount}/${ITERATIONS} iterations`);
-    }
-
-    if (retryObserved) {
-      pass('The retry-and-warn path was observed at least once (race landed as intended)');
-    } else {
-      console.log('  ℹ Retry path was not observed this run — the race window was never hit (informational, not a failure)');
-    }
-  } finally {
-    await app.close();
-  }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  const { crashCount, retryObserved } = await runRaceIterations(gitService);
+  checkNoUnhandledCrashes(crashCount);
+  reportRetryObservation(retryObserved);
+  await app.close();
+  summarise(counts);
 }
 
 main().catch(err => {

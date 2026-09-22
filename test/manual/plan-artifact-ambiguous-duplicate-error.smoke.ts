@@ -1,7 +1,7 @@
 /**
  * Manual Test: genuine plan-artifact ambiguity surfaces as a typed error, not a guessed action
  *
- * Run: nr test:manual -- test-plan-artifact-ambiguous-duplicate-error
+ * Run: nr test:manual plan-artifact-ambiguous-duplicate-error.smoke.ts
  *
  * Two manifests share the identical hash and sourceName but differ only by
  * date prefix — a genuine duplicate, not a prefix-collision false positive.
@@ -23,7 +23,7 @@ import {
   writePlanArtifactManifest,
   hashPlanArtifactSources,
 } from '../../src/shared/utils/plan-artifact';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -42,81 +42,78 @@ function runCli(args: string[], cwd: string, wfHome: string): { output: string; 
   }
 }
 
+function createAmbiguousArtifacts(trackerDir: string): void {
+  fs.mkdirSync(trackerDir, { recursive: true });
+  const hash = hashPlanArtifactSources(['test-dup']);
+  const createdAt1 = new Date('2026-08-24T00:00:00.000Z');
+  const createdAt2 = new Date('2026-08-25T00:00:00.000Z');
+  const planPath1 = path.join(trackerDir, buildPlanArtifactFilename({ createdAt: createdAt1, hash, action: 'fix', format: 'json' }));
+  const planPath2 = path.join(trackerDir, buildPlanArtifactFilename({ createdAt: createdAt2, hash, action: 'fix', format: 'json' }));
+  fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Dup plan 1', steps: ['x'], estimatedComplexity: 'low' }));
+  fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Dup plan 2', steps: ['x'], estimatedComplexity: 'low' }));
+  writePlanArtifactManifest(buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt1 }));
+  writePlanArtifactManifest(buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt2 }));
+}
+
+function checkExitsNonZero(exitCode: number, output: string): void {
+  if (exitCode === 0) fail('CLI unexpectedly exited 0', output.slice(0, 500));
+  else pass('CLI exits non-zero on genuine ambiguity');
+}
+
+function checkErrorNamesIdentifier(output: string): void {
+  if (output.includes("Multiple plan artifacts found for 'test-dup'")) {
+    pass('Error message names the ambiguous identifier');
+  } else {
+    fail('Missing "Multiple plan artifacts found" message', output.slice(0, 500));
+  }
+}
+
+function checkErrorHasRemedy(output: string): void {
+  if (output.includes('Remove or regenerate the stale artifact.')) {
+    pass('Error message carries the actionable remedy (not the old unreachable hashed-filename advice)');
+  } else {
+    fail('Missing the new actionable remedy text', output.slice(0, 500));
+  }
+}
+
+function checkNeverFellThrough(output: string): void {
+  if (output.includes('Detected plan artifact')) {
+    fail('Resolution incorrectly proceeded to a resolved artifact', output.slice(0, 500));
+  } else {
+    pass('Resolution never fell through to a guessed/legacy action');
+  }
+}
+
+function checkNoDryRunPreview(output: string): void {
+  if (output.includes('Dry Run')) {
+    fail('Dry-run preview was printed despite the ambiguity', output.slice(0, 500));
+  } else {
+    pass('No dry-run preview section was printed');
+  }
+}
+
+function runScenarioChecks(repoDir: string, wfHomeDir: string): void {
+  const { output, exitCode } = runCli(['issue:implement', 'test-dup', '--dry-run'], repoDir, wfHomeDir);
+  checkExitsNonZero(exitCode, output);
+  checkErrorNamesIdentifier(output);
+  checkErrorHasRemedy(output);
+  checkNeverFellThrough(output);
+  checkNoDryRunPreview(output);
+}
+
 async function main(): Promise<void> {
   console.log('\n plan-artifact ambiguity surfaces as a typed error\n');
-
   const wfHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-home-ambiguous-'));
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-ambiguous-'));
   const trackerDir = path.join(wfHomeDir, path.basename(repoDir), 'jira');
-
   try {
-    fs.mkdirSync(trackerDir, { recursive: true });
-
-    const hash = hashPlanArtifactSources(['test-dup']);
-    const createdAt1 = new Date('2026-08-24T00:00:00.000Z');
-    const createdAt2 = new Date('2026-08-25T00:00:00.000Z');
-
-    const planPath1 = path.join(
-      trackerDir,
-      buildPlanArtifactFilename({ createdAt: createdAt1, hash, action: 'fix', format: 'json' })
-    );
-    const planPath2 = path.join(
-      trackerDir,
-      buildPlanArtifactFilename({ createdAt: createdAt2, hash, action: 'fix', format: 'json' })
-    );
-
-    fs.writeFileSync(planPath1, JSON.stringify({ action: 'fix', summary: 'Dup plan 1', steps: ['x'], estimatedComplexity: 'low' }));
-    fs.writeFileSync(planPath2, JSON.stringify({ action: 'fix', summary: 'Dup plan 2', steps: ['x'], estimatedComplexity: 'low' }));
-
-    writePlanArtifactManifest(
-      buildPlanArtifactManifest({ artifactPath: planPath1, action: 'fix', format: 'json', hash: hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt1 })
-    );
-    writePlanArtifactManifest(
-      buildPlanArtifactManifest({ artifactPath: planPath2, action: 'fix', format: 'json', hash: hash, sourceName: 'test-dup', sourceKind: 'custom', createdAt: createdAt2 })
-    );
-
-    const { output, exitCode } = runCli(['issue:implement', 'test-dup', '--dry-run'], repoDir, wfHomeDir);
-
-    if (exitCode === 0) {
-      fail('CLI unexpectedly exited 0', output.slice(0, 500));
-    } else {
-      pass('CLI exits non-zero on genuine ambiguity');
-    }
-
-    if (output.includes("Multiple plan artifacts found for 'test-dup'")) {
-      pass('Error message names the ambiguous identifier');
-    } else {
-      fail('Missing "Multiple plan artifacts found" message', output.slice(0, 500));
-    }
-
-    if (output.includes('Remove or regenerate the stale artifact.')) {
-      pass('Error message carries the actionable remedy (not the old unreachable hashed-filename advice)');
-    } else {
-      fail('Missing the new actionable remedy text', output.slice(0, 500));
-    }
-
-    if (output.includes('Detected plan artifact')) {
-      fail('Resolution incorrectly proceeded to a resolved artifact', output.slice(0, 500));
-    } else {
-      pass('Resolution never fell through to a guessed/legacy action');
-    }
-
-    if (output.includes('Dry Run')) {
-      fail('Dry-run preview was printed despite the ambiguity', output.slice(0, 500));
-    } else {
-      pass('No dry-run preview section was printed');
-    }
+    createAmbiguousArtifacts(trackerDir);
+    runScenarioChecks(repoDir, wfHomeDir);
   } finally {
     fs.rmSync(wfHomeDir, { recursive: true, force: true });
     fs.rmSync(repoDir, { recursive: true, force: true });
   }
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+  summarise(counts);
 }
 
 main().catch(err => {

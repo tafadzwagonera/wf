@@ -11,7 +11,7 @@
  *      session recorded for the manifest's own identifier wins over the
  *      manifest's own (different) sourceBranch field.
  *
- * Run: nr test:manual -- test-sonar-session-source-branch-priority
+ * Run: nr test:manual sonar-session-source-branch-priority.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -26,124 +26,241 @@ import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
 import { resolveArtifactDir } from '../../src/agents/utils';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: session sourceBranch priority over manifest\n');
+type WfEnvironmentSetup = {
+  repoDir: string;
+  wfHome: string;
+  originalWfHome: string | undefined;
+};
 
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  const sonarStageService = app.get(SonarStageService);
-  const sessionService = app.get(SessionService);
-
-  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-session-priority-'));
-  const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-session-priority-home-'));
+function setupWfEnvironment(
+  prefix: string,
+  homePrefix: string
+): WfEnvironmentSetup {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
   const originalWfHome = process.env.WF_HOME;
   process.env.WF_HOME = wfHome;
+  return { repoDir, wfHome, originalWfHome };
+}
 
+function cleanupWfEnvironment(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+  fs.rmSync(repoDir, { recursive: true, force: true });
+  fs.rmSync(wfHome, { recursive: true, force: true });
+  if (originalWfHome === undefined) delete process.env.WF_HOME;
+  else process.env.WF_HOME = originalWfHome;
+}
+
+function initializeRepoWithBase(repoDir: string): void {
   git(repoDir, ['init', '-q', '-b', 'master']);
   git(repoDir, ['config', 'user.email', 'test@example.com']);
   git(repoDir, ['config', 'user.name', 'Test']);
   fs.writeFileSync(path.join(repoDir, 'a.txt'), 'base\n');
   git(repoDir, ['add', 'a.txt']);
   git(repoDir, ['commit', '-q', '-m', 'base']);
+}
 
+function createDevelopBranch(repoDir: string): void {
   git(repoDir, ['checkout', '-q', '-b', 'develop']);
   fs.appendFileSync(path.join(repoDir, 'a.txt'), 'develop\n');
   git(repoDir, ['commit', '-q', '-am', 'develop work']);
+}
 
+function createReleaseBranch(repoDir: string): void {
   git(repoDir, ['checkout', '-q', 'master']);
   git(repoDir, ['checkout', '-q', '-b', 'release/2026']);
   fs.appendFileSync(path.join(repoDir, 'a.txt'), 'release\n');
   git(repoDir, ['commit', '-q', '-am', 'release work']);
+}
 
+function createFeatureBranch(repoDir: string): void {
   git(repoDir, ['checkout', '-q', '-b', 'feature/WBP-1-thing']);
   fs.appendFileSync(path.join(repoDir, 'a.txt'), 'feature\n');
   git(repoDir, ['commit', '-q', '-am', 'feature work']);
+}
 
+function setupSessionPriorityRepo(repoDir: string): void {
+  initializeRepoWithBase(repoDir);
+  createDevelopBranch(repoDir);
+  createReleaseBranch(repoDir);
+  createFeatureBranch(repoDir);
+}
+
+function validateAndComputeMergeBases(repoDir: string): { expectedReleaseMergeBase: string } {
   const expectedDevelopMergeBase = git(repoDir, ['merge-base', 'develop', 'feature/WBP-1-thing']);
   const expectedReleaseMergeBase = git(repoDir, ['merge-base', 'release/2026', 'feature/WBP-1-thing']);
+  checkTestSetupValid(expectedReleaseMergeBase, expectedDevelopMergeBase);
+  return { expectedReleaseMergeBase };
+}
+
+function checkTestSetupValid(expectedReleaseMergeBase: string, expectedDevelopMergeBase: string): void {
   if (expectedReleaseMergeBase !== expectedDevelopMergeBase) {
     pass('Test setup valid: develop and release/2026 have different merge-bases with the feature branch');
   } else {
     fail('Test setup invalid: develop and release/2026 share a merge-base with the feature branch — cannot distinguish');
   }
+}
 
-  const capturedRefs: string[] = [];
+function mockSonarScanRefs(capturedRefs: string[]): () => void {
   const originalRunSonarScan = sonarScannerModule.runSonarScan;
   (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = async (opts: { scope: { ref?: string } }) => {
     capturedRefs.push(opts.scope.ref ?? '(no ref)');
     return { status: 'clean', steps: [] };
   };
+  return () => {
+    (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;
+  };
+}
 
-  const target = { repoDir, diff: '', title: '', context: '' };
-
-  console.log(chalk.bold.cyan('\nTest 1 (Tier B): a bare ticket key finds the session by ticket key directly'));
-  const ticketSession = await sessionService.save({
+async function setupAndVerifyTierBSession(sessionService: SessionService): Promise<void> {
+  await sessionService.save({
     sessionId: 'session-wbp-1', ticketKey: 'WBP-1', toStage: 'commit', action: 'fix', sourceType: 'ticket',
     customPlanRef: null, sourceBranch: 'release/2026', createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), completedAt: null, stages: {},
-  } as any).then(() => sessionService.findByTicketKey('WBP-1'));
+  } as any);
+  const ticketSession = await sessionService.findByTicketKey('WBP-1');
   if (ticketSession?.sourceBranch === 'release/2026') {
     pass('Session persisted and found by ticket key with sourceBranch: release/2026');
   } else {
     fail('Expected the session to be found with sourceBranch release/2026', JSON.stringify(ticketSession));
   }
+}
 
-  await sonarStageService.scanIfEnabled({ repoDir: target.repoDir, force: true, ticketKey: 'WBP-1', allowPrompt: true, onProgress: () => {} });
+function logTierBTest(): void {
+  console.log(
+    chalk.bold.cyan(
+      '\nTest 1 (Tier B): a bare ticket key finds the session by ticket key directly'
+    )
+  );
+}
 
+function checkTierBResult(capturedRefs: string[], expectedReleaseMergeBase: string): void {
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {
     pass(`Tier B used the session's sourceBranch — real merge-base: ${expectedReleaseMergeBase}`);
   } else {
     fail('Expected the release/2026 merge-base sha', `got: ${capturedRefs.at(-1)}`);
   }
+}
 
-  console.log(chalk.bold.cyan(
-    '\nTest 2 (Tier C): the session recorded for the manifest\'s identifier wins over the manifest\'s own sourceBranch'
-  ));
+async function runScanTierB(sonarStageService: SonarStageService, repoDir: string): Promise<void> {
+  await sonarStageService.scanIfEnabled({
+    repoDir,
+    force: true,
+    ticketKey: 'WBP-1',
+    allowPrompt: true,
+    onProgress: () => {},
+  });
+}
+
+async function runAndCheckTierB(
+  sonarStageService: SonarStageService,
+  sessionService: SessionService,
+  repoDir: string,
+  capturedRefs: string[],
+  expectedReleaseMergeBase: string
+): Promise<void> {
+  logTierBTest();
+  await setupAndVerifyTierBSession(sessionService);
+  await runScanTierB(sonarStageService, repoDir);
+  checkTierBResult(capturedRefs, expectedReleaseMergeBase);
+}
+
+function setupTierCManifest(repoDir: string): void {
   const trackerDir = resolveArtifactDir(repoDir, 'jira');
   fs.mkdirSync(trackerDir, { recursive: true });
   const artifactPath = path.join(trackerDir, '2026-08-25-abc123-feature-plan.json');
-  fs.writeFileSync(
-    artifactPath,
-    JSON.stringify({ action: 'feature', summary: 'x', steps: [], estimatedComplexity: 'low' })
-  );
-  const manifest = buildPlanArtifactManifest({
-    artifactPath, action: 'feature', format: 'json', hash: 'abc123',
-    sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date(),
-  });
+  fs.writeFileSync(artifactPath, JSON.stringify({ action: 'feature', summary: 'x', steps: [], estimatedComplexity: 'low' }));
+  const manifest = buildPlanArtifactManifest({ artifactPath, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-1', sourceKind: 'ticket', createdAt: new Date() });
   // The manifest's own field says 'develop' — the session recorded for WBP-1 says
   // 'release/2026' and must win, since it's the more reliable, orchestrator-written anchor.
-  writePlanArtifactManifest({
-    ...manifest, sourceBranch: 'develop', branchName: 'feature/WBP-1-thing',
-  });
+  writePlanArtifactManifest({ ...manifest, sourceBranch: 'develop', branchName: 'feature/WBP-1-thing' });
+}
 
-  capturedRefs.length = 0;
-  await sonarStageService.scanIfEnabled({
-    repoDir: target.repoDir, force: true, trackerName: 'jira', allowPrompt: true, onProgress: () => {},
-  });
+async function runBothTiers(
+  sonarStageService: SonarStageService,
+  sessionService: SessionService,
+  repoDir: string,
+  expectedReleaseMergeBase: string
+): Promise<void> {
+  const capturedRefs: string[] = [];
+  const restore = mockSonarScanRefs(capturedRefs);
+  await runAndCheckTierB(sonarStageService, sessionService, repoDir, capturedRefs, expectedReleaseMergeBase);
+  await runAndCheckTierC(sonarStageService, repoDir, capturedRefs, expectedReleaseMergeBase);
+  restore();
+}
 
+function logTierCTest(): void {
+  console.log(
+    chalk.bold.cyan(
+      '\nTest 2 (Tier C): the session recorded for the manifest\'s identifier wins over the manifest\'s own sourceBranch'
+    )
+  );
+}
+
+function checkTierCResult(capturedRefs: string[], expectedReleaseMergeBase: string): void {
   if (capturedRefs.at(-1) === expectedReleaseMergeBase) {
     pass(`Tier C preferred the session's sourceBranch over the manifest field — real merge-base: ${expectedReleaseMergeBase}`);
   } else {
     fail('Expected the release/2026 merge-base sha (from the session, not the manifest)', `got: ${capturedRefs.at(-1)}`);
   }
+}
 
-  (sonarScannerModule as unknown as Record<string, unknown>)['runSonarScan'] = originalRunSonarScan;
+async function runScanTierC(sonarStageService: SonarStageService, repoDir: string): Promise<void> {
+  await sonarStageService.scanIfEnabled({
+    repoDir,
+    force: true,
+    trackerName: 'jira',
+    allowPrompt: true,
+    onProgress: () => {},
+  });
+}
 
-  fs.rmSync(repoDir, { recursive: true, force: true });
-  fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+async function runAndCheckTierC(
+  sonarStageService: SonarStageService,
+  repoDir: string,
+  capturedRefs: string[],
+  expectedReleaseMergeBase: string
+): Promise<void> {
+  logTierCTest();
+  setupTierCManifest(repoDir);
+  capturedRefs.length = 0;
+  await runScanTierC(sonarStageService, repoDir);
+  checkTierCResult(capturedRefs, expectedReleaseMergeBase);
+}
 
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
+function computeExpectedMergeBase(repoDir: string): string {
+  return git(repoDir, ['merge-base', 'release/2026', 'feature/WBP-1-thing']);
+}
+
+async function setupAndRunTests(
+  sonarStageService: SonarStageService,
+  sessionService: SessionService,
+  repoDir: string
+): Promise<void> {
+  setupSessionPriorityRepo(repoDir);
+  const expectedReleaseMergeBase = computeExpectedMergeBase(repoDir);
+  const capturedRefs: string[] = [];
+  const restore = mockSonarScanRefs(capturedRefs);
+  await runBothTiers(sonarStageService, sessionService, repoDir, expectedReleaseMergeBase);
+  restore();
+}
+
+async function main(): Promise<void> {
+  console.log('Manual smoke: session sourceBranch priority over manifest\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const sonarStageService = app.get(SonarStageService);
+  const sessionService = app.get(SessionService);
+  const { repoDir, wfHome, originalWfHome } = setupWfEnvironment('sonar-session-priority-', 'sonar-session-priority-home-');
+  await setupAndRunTests(sonarStageService, sessionService, repoDir);
+  cleanupWfEnvironment(repoDir, wfHome, originalWfHome);
   await app.close();
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: session sourceBranch priority over manifest');
+  summarise(counts);
 }
 
 main().catch(error => {

@@ -11,7 +11,7 @@
  * test-sonar-unrecovered-branch-warn-log.ts, which asserts the exact scope and the
  * real on-disk WARN log line instead of just catching whatever error surfaces here.
  *
- * Run: nr test:manual -- test-sonar-gating
+ * Run: nr test:manual sonar-gating.smoke.ts
  */
 
 import * as fs from 'node:fs';
@@ -25,7 +25,9 @@ import { ConfigService } from '@nestjs/config';
 import { runSonarScan } from '../../src/review/sonar-scanner';
 import { ConfigurationError } from '../../src/shared/errors/app.error';
 import chalk from 'chalk';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
+
+const { counts, pass, fail } = createReporter();
 
 function initGitRepoWithStagedFile(dir: string): void {
   execSync('git init -q', { cwd: dir });
@@ -35,100 +37,104 @@ function initGitRepoWithStagedFile(dir: string): void {
   execSync('git add file.txt', { cwd: dir });
 }
 
-async function main(): Promise<void> {
-  console.log('Manual smoke: SonarQube CLI gating\n');
+function createProgressMessages(): { messages: string[]; onProgress: (m: string) => void } {
+  const messages: string[] = [];
+  return { messages, onProgress: (m: string) => messages.push(m) };
+}
 
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['error'],
-  });
-
-  const sonarStageService = app.get(SonarStageService);
-  const configService = app.get(ConfigService);
-
-  const { counts, pass, fail } = createReporter();
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-gate-'));
-  initGitRepoWithStagedFile(tempDir);
-
-  console.log(chalk.bold.cyan('\nTest 1: --sonar flag forces scan when config is undefined and changes are staged'));
-
-  const msgs1: string[] = [];
-  try {
-    await sonarStageService.scanIfEnabled({
-      repoDir: tempDir,
-      force: true,
-      allowPrompt: true,
-      onProgress: (m: string) => msgs1.push(m),
-    });
-    // runSonarScan only calls onProgress for findings, not for a clean result, so a clean
-    // authenticated scan legitimately resolves with zero progress messages and no error.
-    pass(
-      'Scan attempted when --sonar is set, config is undefined, and changes are staged'
-      + (msgs1.length > 0 ? ` (progress: ${JSON.stringify(msgs1)})` : ' (clean scan, no findings)')
-    );
-  } catch (error) {
-    if (error instanceof ConfigurationError) {
-      pass(`Scan attempted but sonar CLI unavailable in this environment: ${error.message}`);
-    } else {
-      fail(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-    }
+function handleScanResult(error: unknown, msgs: string[]): void {
+  if (error instanceof ConfigurationError) {
+    pass(`Scan attempted but sonar CLI unavailable in this environment: ${error.message}`);
+  } else {
+    fail(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
 
-  console.log(chalk.bold.cyan('\nTest 2: stages.review.sonar: false config bypasses scan'));
+function reportScanSuccess(msgs: string[]): void {
+  const progressText = msgs.length > 0 ? ` (progress: ${JSON.stringify(msgs)})` : ' (clean scan, no findings)';
+  pass('Scan attempted when --sonar is set, config is undefined, and changes are staged' + progressText);
+}
 
-  const msgs2: string[] = [];
+async function checkScanAttempted(sonarStageService: SonarStageService, tempDir: string): Promise<void> {
+  console.log(chalk.bold.cyan('\nTest 1: --sonar flag forces scan when config is undefined and changes are staged'));
+  const { messages: msgs1, onProgress } = createProgressMessages();
+  try {
+    await sonarStageService.scanIfEnabled({ repoDir: tempDir, force: true, allowPrompt: true, onProgress });
+    reportScanSuccess(msgs1);
+  } catch (error) {
+    handleScanResult(error, msgs1);
+  }
+}
+
+function mockConfigValue(configService: ConfigService, restore: boolean = false): () => void {
   const originalGet = configService.get.bind(configService);
   (configService as unknown as Record<string, unknown>)['get'] = (key: string, ...rest: unknown[]) => {
     if (key === 'stages.review.sonar') return false;
     return originalGet(key, ...rest);
   };
+  return () => {
+    (configService as unknown as Record<string, unknown>)['get'] = originalGet;
+  };
+}
 
-  await sonarStageService.scanIfEnabled({
-    repoDir: tempDir,
-    allowPrompt: true,
-    onProgress: (m: string) => msgs2.push(m),
-  });
-
-  (configService as unknown as Record<string, unknown>)['get'] = originalGet;
-
+async function checkConfigFalseBypassesScan(
+  sonarStageService: SonarStageService,
+  configService: ConfigService,
+  tempDir: string,
+): Promise<void> {
+  console.log(chalk.bold.cyan('\nTest 2: stages.review.sonar: false config bypasses scan'));
+  const { messages: msgs2, onProgress } = createProgressMessages();
+  const restoreConfig = mockConfigValue(configService);
+  await sonarStageService.scanIfEnabled({ repoDir: tempDir, allowPrompt: true, onProgress });
+  restoreConfig();
   if (msgs2.length === 0) pass('No progress emitted when config sonar is false');
   else fail(`Expected no messages, got: ${JSON.stringify(msgs2)}`);
+}
 
+async function checkConfigUndefinedBypassesScan(sonarStageService: SonarStageService, tempDir: string): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 2b: stages.review.sonar: undefined (default) bypasses scan'));
-
-  const msgs2b: string[] = [];
-  await sonarStageService.scanIfEnabled({
-    repoDir: tempDir,
-    allowPrompt: true,
-    onProgress: (m: string) => msgs2b.push(m),
-  });
-
+  const { messages: msgs2b, onProgress } = createProgressMessages();
+  await sonarStageService.scanIfEnabled({ repoDir: tempDir, allowPrompt: true, onProgress });
   if (msgs2b.length === 0) pass('No progress emitted when config sonar is undefined');
   else fail(`Expected no messages, got: ${JSON.stringify(msgs2b)}`);
+}
 
+function handlePreflightResult(error: unknown): void {
+  if (error instanceof ConfigurationError && error.message.includes('SonarQube CLI not found')) {
+    pass('Preflight ConfigurationError thrown when sonar not on PATH');
+  } else {
+    fail(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function checkPreflightError(tempDir: string): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 3: preflight check when sonar CLI not available'));
-
   const originalPath = process.env.PATH;
   process.env.PATH = '';
   try {
     await runSonarScan({ repoDir: tempDir, scope: { kind: 'staged' } });
     fail('Expected ConfigurationError when sonar is not on PATH');
   } catch (error) {
-    if (error instanceof ConfigurationError && error.message.includes('SonarQube CLI not found')) {
-      pass('Preflight ConfigurationError thrown when sonar not on PATH');
-    } else {
-      fail(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    handlePreflightResult(error);
   } finally {
     process.env.PATH = originalPath;
   }
+}
 
+async function main(): Promise<void> {
+  console.log('Manual smoke: SonarQube CLI gating\n');
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
+  const sonarStageService = app.get(SonarStageService);
+  const configService = app.get(ConfigService);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sonar-gate-'));
+  initGitRepoWithStagedFile(tempDir);
+  await checkScanAttempted(sonarStageService, tempDir);
+  await checkConfigFalseBypassesScan(sonarStageService, configService, tempDir);
+  await checkConfigUndefinedBypassesScan(sonarStageService, tempDir);
+  await checkPreflightError(tempDir);
   fs.rmSync(tempDir, { recursive: true, force: true });
-
-  console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
-  if (counts.failed > 0) process.exit(1);
-  console.log('\nManual smoke test passed: SonarQube CLI gating');
+  summarise(counts);
 }
 
 main().catch(error => {

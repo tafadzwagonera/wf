@@ -4,12 +4,14 @@ import type { AiService } from '../../src/integrations/ai/ai.service';
 import { ChatUIService } from '../../src/integrations/ai/conversation/chat-ui.service';
 import type { ConversationMessage } from '../../src/integrations/ai/conversation/interfaces';
 
-function main(): void {
-  const service = new ChatUIService({
+function buildChatUIService(): ChatUIService {
+  return new ChatUIService({
     getProviderShortName: () => 'AI',
   } as AiService);
+}
 
-  const mockMessage: ConversationMessage = {
+function buildMockMessage(): ConversationMessage {
+  return {
     role: 'assistant',
     content: `Here is the updated plan:
 
@@ -26,6 +28,11 @@ function main(): void {
 Would you like to focus on the selection logic first?`,
     timestamp: new Date(),
   };
+}
+
+function main(): void {
+  const service = buildChatUIService();
+  const mockMessage = buildMockMessage();
 
   console.log(chalk.bold('\n─── Test: text block styling in Claude response ───\n'));
   console.log(chalk.dim('Expected: all non-empty text lines (bullets, numbered lists, plain text) appear in CYAN.\n'));

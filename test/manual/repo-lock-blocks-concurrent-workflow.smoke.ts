@@ -1,7 +1,7 @@
 /**
  * Manual Test: repo lock blocks a second wf workflow while a live process holds it
  *
- * Run: nr test:manual -- test-repo-lock-blocks-concurrent-workflow
+ * Run: nr test:manual repo-lock-blocks-concurrent-workflow.smoke.ts
  *
  * Verifies that:
  *   1. A live, long-running process holding the repo lock causes a second
@@ -22,7 +22,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { execFileSync, spawn, ChildProcess } from 'node:child_process';
-import { createReporter } from './support/reporter';
+import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
 
@@ -59,60 +59,81 @@ function runCli(args: string[], wfHome: string): { stdout: string; stderr: strin
   }
 }
 
-async function main(): Promise<void> {
-  console.log('\n repo lock blocks a concurrent workflow\n');
+function writeLockFile(wfHome: string, repoDir: string, pid: number | undefined): string {
+  const lockPath = lockPathFor(wfHome, repoDir);
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  const lockContents = JSON.stringify({ pid, repoDir: path.resolve(repoDir), startedAt: new Date().toISOString() });
+  fs.writeFileSync(lockPath, lockContents);
+  return lockPath;
+}
 
+function runLockedScenario(
+  repoDir: string, wfHome: string, holder: ChildProcess,
+): { lockPath: string; combined: string; status: number } {
+  const lockPath = writeLockFile(wfHome, repoDir, holder.pid);
+  const result = runCli(['issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoDir], wfHome);
+  return { lockPath, combined: result.stdout + result.stderr, status: result.status };
+}
+
+function checkExitCode(status: number): void {
+  if (status === 0) {
+    fail('Expected a non-zero exit code', String(status));
+  } else {
+    pass('CLI exits non-zero while the lock is held');
+  }
+}
+
+function checkRepoLockError(combined: string): void {
+  if (combined.includes('RepoLockError') && combined.includes('Another wf workflow is already running')) {
+    pass('Failure is a RepoLockError with the expected message');
+  } else {
+    fail('Missing RepoLockError message', combined.slice(0, 400));
+  }
+}
+
+function checkHolderInfo(combined: string, pid: number | undefined, lockPath: string): void {
+  if (combined.includes(`pid ${pid}`) && combined.includes(lockPath)) {
+    pass('Message names the holder pid and lock file path');
+  } else {
+    fail('Message missing holder pid or lock file path', combined.slice(0, 400));
+  }
+}
+
+function checkNoCommit(repoDir: string): void {
+  const log = execFileSync('git', ['log', '--oneline'], { cwd: repoDir, encoding: 'utf-8' });
+  if (log.trim().split('\n').length === 1) {
+    pass('No commit was created while the lock was held');
+  } else {
+    fail('Unexpected commit found', log);
+  }
+}
+
+function cleanupLockTest(holder: ChildProcess | undefined, repoDir: string, wfHome: string): void {
+  if (holder?.pid) process.kill(-holder.pid, 'SIGKILL');
+  fs.rmSync(repoDir, { recursive: true, force: true });
+  fs.rmSync(wfHome, { recursive: true, force: true });
+}
+
+async function runAndClean(): Promise<void> {
   const repoDir = makeScratchRepo();
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-repo-lock-home-'));
   let holder: ChildProcess | undefined;
-
   try {
     holder = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
-    const lockPath = lockPathFor(wfHome, repoDir);
-    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fs.writeFileSync(lockPath, JSON.stringify({
-      pid: holder.pid, repoDir: path.resolve(repoDir), startedAt: new Date().toISOString(),
-    }));
-
-    const result = runCli(['issue:commit', '-k', 'WBP-1', '-m', 'test', '--repos', repoDir], wfHome);
-    const combined = result.stdout + result.stderr;
-
-    if (result.status === 0) {
-      fail('Expected a non-zero exit code', String(result.status));
-    } else {
-      pass('CLI exits non-zero while the lock is held');
-    }
-
-    if (combined.includes('RepoLockError') && combined.includes('Another wf workflow is already running')) {
-      pass('Failure is a RepoLockError with the expected message');
-    } else {
-      fail('Missing RepoLockError message', combined.slice(0, 400));
-    }
-
-    if (combined.includes(`pid ${holder.pid}`) && combined.includes(lockPath)) {
-      pass('Message names the holder pid and lock file path');
-    } else {
-      fail('Message missing holder pid or lock file path', combined.slice(0, 400));
-    }
-
-    const log = execFileSync('git', ['log', '--oneline'], { cwd: repoDir, encoding: 'utf-8' });
-    if (log.trim().split('\n').length === 1) {
-      pass('No commit was created while the lock was held');
-    } else {
-      fail('Unexpected commit found', log);
-    }
+    const { lockPath, combined, status } = runLockedScenario(repoDir, wfHome, holder);
+    checkExitCode(status);
+    checkRepoLockError(combined);
+    checkHolderInfo(combined, holder.pid, lockPath);
+    checkNoCommit(repoDir);
   } finally {
-    if (holder?.pid) process.kill(-holder.pid, 'SIGKILL');
-    fs.rmSync(repoDir, { recursive: true, force: true });
-    fs.rmSync(wfHome, { recursive: true, force: true });
+    cleanupLockTest(holder, repoDir, wfHome);
   }
+}
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${counts.passed} passed   ${counts.failed} failed`);
-  if (counts.failed === 0) console.log('All tests passed!');
-  console.log('='.repeat(60));
-
-  if (counts.failed > 0) process.exit(1);
+async function main(): Promise<void> {
+  console.log('\n repo lock blocks a concurrent workflow\n');
+  await runAndClean();
+  summarise(counts);
 }
 
 main().catch(err => {
