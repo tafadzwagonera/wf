@@ -126,4 +126,22 @@ describe('codeIssueSchema', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('coerces nullable strict-output fields', () => {
+    it('accepts null for optional review metadata', () => {
+      const result = codeReviewSchema.parse({
+        summary: 'ok',
+        issues: [],
+        executionMode: null,
+        callStack: [{ frame: 'reviewCode', children: null }],
+        stateTransition: null,
+        suggestions: [],
+        approved: true,
+      });
+
+      expect(result.executionMode).toBeUndefined();
+      expect(result.callStack?.[0].children).toBeUndefined();
+      expect(result.stateTransition).toBeUndefined();
+    });
+  });
 });

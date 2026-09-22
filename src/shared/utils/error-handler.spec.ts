@@ -71,6 +71,13 @@ describe('ErrorHandler', () => {
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
 
+    it('returns schema configuration guidance for config category', () => {
+      ErrorHandler.handle(new AiProviderError('msg', null, true, 'config'));
+      expect(allOutput()).toContain('invalid response schema');
+      expect(allOutput()).not.toContain('rate limit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
     it('returns git suggestion for GitError', () => {
       ErrorHandler.handle(new GitError('msg'));
       expect(allOutput()).toContain('git repository');

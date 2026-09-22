@@ -60,8 +60,12 @@ const summariseSegment = async (
   }
 };
 
+const boundSummary = (summary: string): string => summary.length <= ESTIMATED_SUMMARY_LENGTH
+  ? summary
+  : `${summary.slice(0, ESTIMATED_SUMMARY_LENGTH - 3)}...`;
+
 const buildSummarisedPatch = (segment: DiffSegment, summary: string): string =>
-  `diff --git a/${segment.file} b/${segment.file} (summarised)\n${summary}`;
+  `diff --git a/${segment.file} b/${segment.file} (summarised)\n${boundSummary(summary)}`;
 
 const buildSummariseFailure = (segment: DiffSegment, error: unknown): SummariseDiffFailure => ({
   file: segment.file,

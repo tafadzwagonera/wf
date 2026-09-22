@@ -1,8 +1,11 @@
 import { z } from 'zod';
 
+export const nullableOptional = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(v => (v === null ? undefined : v), schema.optional());
+
 export const reviewTraceValueChangeSchema = z.object({
-  before: z.unknown().optional(),
-  after: z.unknown().optional(),
+  before: nullableOptional(z.unknown()),
+  after: nullableOptional(z.unknown()),
 });
 
 export type ReviewTraceCallStackNode = {
@@ -12,7 +15,7 @@ export type ReviewTraceCallStackNode = {
 
 export const reviewTraceCallStackNodeSchema: z.ZodType<ReviewTraceCallStackNode> = z.object({
   frame: z.string(),
-  children: z.lazy(() => z.array(reviewTraceCallStackNodeSchema)).optional(),
+  children: nullableOptional(z.lazy(() => z.array(reviewTraceCallStackNodeSchema))),
 });
 
 export type ReviewTraceStateNode = {
@@ -24,15 +27,15 @@ export type ReviewTraceStateNode = {
 
 export const reviewTraceStateNodeSchema: z.ZodType<ReviewTraceStateNode> = z.object({
   frame: z.string(),
-  captured: z.record(z.string(), z.unknown()).optional(),
-  changes: z.record(z.string(), reviewTraceValueChangeSchema).optional(),
-  children: z.lazy(() => z.array(reviewTraceStateNodeSchema)).optional(),
+  captured: nullableOptional(z.record(z.string(), z.unknown())),
+  changes: nullableOptional(z.record(z.string(), reviewTraceValueChangeSchema)),
+  children: nullableOptional(z.lazy(() => z.array(reviewTraceStateNodeSchema))),
 });
 
 export const reviewTraceStateTransitionSchema = z.object({
-  from: z.string().optional(),
-  to: z.string().optional(),
-  steps: z.array(reviewTraceStateNodeSchema).optional(),
+  from: nullableOptional(z.string()),
+  to: nullableOptional(z.string()),
+  steps: nullableOptional(z.array(reviewTraceStateNodeSchema)),
 });
 
 export const diffSegmentSchema = z.object({
@@ -50,9 +53,6 @@ export const formatIssueFileLocation = (issue: { file?: string; line?: number; e
   return issue.file + lineRange;
 };
 
-export const nullableOptional = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess(v => (v === null ? undefined : v), schema.optional());
-
 export const codeIssueSchema = z.object({
   severity: codeIssueSeveritySchema,
   message: z.string(),
@@ -65,7 +65,7 @@ export const codeIssueSchema = z.object({
 
 export const reviewPresentationIssueRowSchema = z.object({
   issue: codeIssueSchema,
-  suggestion: z.string().optional(),
+  suggestion: nullableOptional(z.string()),
 });
 
 export const codeReviewPresentationSchema = z.object({
@@ -83,11 +83,11 @@ export const processedCodeReviewSchema = z.lazy(() =>
 export const codeReviewSchema = z.object({
   summary: z.string(),
   issues: z.array(codeIssueSchema),
-  executionMode: z.enum(['standard', 'agent', 'cli']).optional(),
-  repairStrategy: z.enum(['validation']).optional(),
-  traceProvenance: z.enum(['evidence-based', 'best-effort', 'unavailable']).optional(),
-  callStack: z.array(reviewTraceCallStackNodeSchema).optional(),
-  stateTransition: reviewTraceStateTransitionSchema.optional(),
+  executionMode: nullableOptional(z.enum(['standard', 'agent', 'cli'])),
+  repairStrategy: nullableOptional(z.enum(['validation'])),
+  traceProvenance: nullableOptional(z.enum(['evidence-based', 'best-effort', 'unavailable'])),
+  callStack: nullableOptional(z.array(reviewTraceCallStackNodeSchema)),
+  stateTransition: nullableOptional(reviewTraceStateTransitionSchema),
   suggestions: z.array(z.string()),
   approved: z.boolean(),
 });

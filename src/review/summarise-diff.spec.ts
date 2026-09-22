@@ -388,6 +388,20 @@ describe('summariseDiffBatched', () => {
     expect(result).toContain('- summarised content');
   });
 
+  it('bounds successful summaries to the estimated summary budget', async () => {
+    const largePatch = 'x'.repeat(20_000);
+    const oversizedSummary = 'summary '.repeat(1_000);
+    const segments: DiffSegment[] = [{ file: 'a.ts', patch: largePatch }];
+    const mockBatch = jest.fn().mockResolvedValue(
+      new Map([['a.ts', oversizedSummary]])
+    ) as jest.MockedFunction<BatchSummariseFn>;
+
+    const result = await summariseDiffBatched(segments, 10_000, mockBatch);
+
+    expect(result.length).toBeLessThanOrEqual(10_000);
+    expect(result).toContain('...');
+  });
+
   it('exports ESTIMATED_SUMMARY_LENGTH as 2000', () => {
     expect(ESTIMATED_SUMMARY_LENGTH).toBe(2_000);
   });

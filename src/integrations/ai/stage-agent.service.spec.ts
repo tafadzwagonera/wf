@@ -1394,6 +1394,40 @@ describe('StageAgentService', () => {
       });
     });
 
+    it('surfaces a Codex error event instead of reporting a missing result', async () => {
+      spawnCodex.mockImplementation(makeCodexStream(
+        { type: 'thread.started', thread_id: 'tid-123' },
+        { type: 'error', subtype: 'context_window_exceeded', is_error: true, result: 'context window exceeded' }
+      ));
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(
+        service.generatePlan({
+          action: 'fix',
+          issueContent: 'Test issue',
+        })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('context window exceeded'),
+      });
+    });
+
+    it('classifies provider response-schema rejection as configuration error', async () => {
+      spawnCodex.mockImplementation(makeCodexStream(
+        { type: 'thread.started', thread_id: 'tid-123' },
+        {
+          type: 'error', is_error: true, result: JSON.stringify({
+            error: { code: 'invalid_json_schema', message: 'propertyNames is not permitted' },
+          }),
+        }
+      ));
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(service.generatePlan({ action: 'fix', issueContent: 'Test issue' }))
+        .rejects.toMatchObject({ category: 'config' });
+    });
+
     it('uses the last agent_message text when multiple are emitted', async () => {
       const plan1 = JSON.stringify({
         action: 'fix',
@@ -1465,6 +1499,24 @@ describe('StageAgentService', () => {
       });
 
       expect(result.sessionId).toBeUndefined();
+    });
+
+    it('removes propertyNames from record schemas for strict Codex compatibility', () => {
+      const json = JSON.parse(buildSanitisedJsonSchema({
+        type: 'object',
+        properties: {
+          captured: {
+            type: 'object',
+            propertyNames: { type: 'string' },
+            additionalProperties: {},
+          },
+        },
+        additionalProperties: false,
+      }) ?? '{}');
+
+      expect(json.properties.captured).toEqual({
+        anyOf: [{ type: 'object', additionalProperties: false }, { type: 'null' }],
+      });
     });
   });
 
@@ -2283,6 +2335,19 @@ describe('StageAgentService', () => {
     it('exposes buildSanitisedJsonSchema stripping the $schema key', () => {
       const json = buildSanitisedJsonSchema({ $schema: 'x', type: 'object' });
       expect(json).toBe('{"type":"object"}');
+    });
+
+    it('normalises optional object properties for strict Codex schemas', () => {
+      const json = JSON.parse(buildSanitisedJsonSchema({
+        type: 'object',
+        properties: { children: { type: 'array' } },
+        additionalProperties: false,
+      }) ?? '{}');
+
+      expect(json.required).toEqual(['children']);
+      expect(json.properties.children).toEqual({
+        anyOf: [{ type: 'array' }, { type: 'null' }],
+      });
     });
   });
 

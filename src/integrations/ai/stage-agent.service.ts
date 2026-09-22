@@ -541,6 +541,30 @@ const extractCodexStopReason = (message: CodexCliMessage): string | undefined =>
   return typeof stopReason === 'string' ? stopReason : undefined;
 };
 
+const extractCodexMessageError = (message: CodexCliMessage): string | undefined => {
+  const hasErrorField = message['error'] !== undefined;
+  const hasFailedStatus = message['status'] === 'failed';
+  if (!message.is_error && message.type !== 'error' && message.type !== 'turn.failed' && !hasErrorField && !hasFailedStatus) {
+    return undefined;
+  }
+  if (typeof message.result === 'string' && message.result.trim()) return message.result.trim();
+  if (typeof message.summary === 'string' && message.summary.trim()) return message.summary.trim();
+  if (typeof message['error'] === 'string' && message['error'].trim()) return message['error'].trim();
+  if (message['error'] && typeof message['error'] === 'object') return JSON.stringify(message['error']);
+  return `Codex CLI returned ${message.type}${message.subtype ? ` (${message.subtype})` : ''}.`;
+};
+
+const throwCodexMessageError = (message: CodexCliMessage, stage: AgentStageName): never => {
+  const detail = extractCodexMessageError(message) ?? 'unknown error';
+  const isSchemaConfigurationError = /invalid_json_schema|text\.format\.schema/i.test(detail);
+  let category: 'api' | 'stall' | 'config' = 'api';
+  if (message.subtype === 'timeout' || message.subtype === 'inactivity_timeout') category = 'stall';
+  else if (isSchemaConfigurationError) category = 'config';
+  throw new AiProviderError(`Codex CLI returned an error: ${detail}`, {
+    stage, subtype: message.subtype, response: message,
+  }, true, category);
+};
+
 const updateCodexAgentMessageState = (state: CodexStageResultState, message: CodexCliMessage): void => {
   if (message.type !== 'item.completed') return;
   if (message.item?.type !== 'agent_message' || !message.item.text) return;
@@ -562,9 +586,10 @@ const emitCodexProgressLine = (message: CodexCliMessage, onProgress?: StageProgr
 
 const accumulateCodexStageResult = (
   state: CodexStageResultState,
-  message: CodexCliMessage,
+  message: CodexCliMessage, stage: AgentStageName,
   onProgress?: StageProgressCallback
 ): void => {
+  if (extractCodexMessageError(message)) throwCodexMessageError(message, stage);
   if (message.type === 'thread.started' && message.thread_id) state.sessionId = message.thread_id;
   const stopReason = extractCodexStopReason(message);
   if (stopReason) state.stopReason = stopReason;
@@ -617,7 +642,7 @@ const processCodexStageResult = async (
   };
   const stream = spawnCodex(args, repoDir, fullPrompt, undefined, opts?.timeoutMs, opts?.inactivityTimeoutMs);
   for await (const message of stream) {
-    accumulateCodexStageResult(state, message, opts?.onProgress);
+    accumulateCodexStageResult(state, message, stage, opts?.onProgress);
   }
   return { ...finalizeCodexStageResult(state, stage), costUsd: computeCodexCostUsd(opts?.model, state) };
 };
@@ -889,10 +914,74 @@ const extractAnthropicResultMessage = (
   return result.result;
 };
 
-/** Serialises a JSON-schema object for the CLI `--json-schema` flag, stripping the `$schema` key the CLI rejects. */
+type JsonSchemaObject = Record<string, unknown>;
+
+const isJsonSchemaObject = (value: unknown): value is JsonSchemaObject =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const containsNullSchema = (schema: JsonSchemaObject): boolean =>
+  schema.type === 'null'
+  || (Array.isArray(schema.type) && schema.type.includes('null'))
+  || (Array.isArray(schema.anyOf) && schema.anyOf.some(item => isJsonSchemaObject(item) && containsNullSchema(item)));
+
+const makeSchemaNullable = (schema: unknown): unknown => {
+  if (!isJsonSchemaObject(schema) || containsNullSchema(schema)) return schema;
+  return { anyOf: [schema, { type: 'null' }] };
+};
+
+const normaliseSchemaProperties = (schema: JsonSchemaObject): void => {
+  if (!isJsonSchemaObject(schema.properties)) return;
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties).map(([key, value]) => [key, normaliseStrictJsonSchema(value)])
+  );
+  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+  schema.properties = Object.fromEntries(
+    Object.entries(properties).map(([key, value]) => [key, required.has(key) ? value : makeSchemaNullable(value)])
+  );
+  schema.required = Object.keys(properties);
+};
+
+const normaliseSchemaDefinitions = (schema: JsonSchemaObject): void => {
+  if (!isJsonSchemaObject(schema.$defs)) return;
+  schema.$defs = Object.fromEntries(
+    Object.entries(schema.$defs).map(([key, value]) => [key, normaliseStrictJsonSchema(value)])
+  );
+};
+
+const removeRecordPropertyNames = (schema: JsonSchemaObject): void => {
+  if (!('propertyNames' in schema)) return;
+  delete schema.propertyNames;
+  schema.additionalProperties = false;
+};
+
+const normaliseSchemaChildren = (schema: JsonSchemaObject): void => {
+  for (const key of ['items', 'additionalProperties', 'not']) {
+    if (key in schema) schema[key] = normaliseStrictJsonSchema(schema[key]);
+  }
+  for (const key of ['anyOf', 'allOf', 'oneOf']) {
+    if (Array.isArray(schema[key])) schema[key] = schema[key].map(normaliseStrictJsonSchema);
+  }
+  normaliseSchemaDefinitions(schema);
+  removeRecordPropertyNames(schema);
+};
+
+const normaliseStrictJsonSchema = (schema: unknown): unknown => {
+  if (Array.isArray(schema)) return schema.map(normaliseStrictJsonSchema);
+  if (!isJsonSchemaObject(schema)) return schema;
+
+  const normalised: JsonSchemaObject = { ...schema };
+  normaliseSchemaChildren(normalised);
+  normaliseSchemaProperties(normalised);
+  return normalised;
+};
+
+/** Serialises an OpenAI-compatible JSON schema for the CLI.
+ * Strips `$schema`, makes optional object properties nullable, and removes
+ * provider-incompatible record metadata before strict validation.
+ */
 export const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
   if (!zodSchema || typeof zodSchema !== 'object') return undefined;
-  const sanitised = { ...(zodSchema as Record<string, unknown>) };
+  const sanitised = normaliseStrictJsonSchema(zodSchema) as JsonSchemaObject;
   delete sanitised['$schema'];
   return JSON.stringify(sanitised);
 };

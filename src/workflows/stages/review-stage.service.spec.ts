@@ -529,7 +529,7 @@ describe('ReviewStageService', () => {
     expect(aiService.reviewCode).toHaveBeenCalledWith(expect.stringContaining('diff --git a/file b/file'), expect.any(Array), onProgress);
   });
 
-  it('reports when the diff remains oversized after summarisation', async () => {
+  it('bounds successful summaries so the diff does not remain oversized', async () => {
     const { service, aiService } = await buildService({ agentEnabled: false });
     const onProgress = jest.fn();
     const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
@@ -538,8 +538,8 @@ describe('ReviewStageService', () => {
 
     await service.reviewDiff(diff, { context: 'test context', onProgress });
 
-    expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('Review diff remains oversized after summarisation'));
-    expect(appendSpy).toHaveBeenCalledWith(
+    expect(onProgress).not.toHaveBeenCalledWith(expect.stringContaining('Review diff remains oversized after summarisation'));
+    expect(appendSpy).not.toHaveBeenCalledWith(
       'WARN',
       expect.stringContaining('Review diff remains oversized after summarisation'),
       'review-stage'

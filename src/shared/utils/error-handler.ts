@@ -12,7 +12,7 @@ const AI_PROVIDER_CATEGORY_SUGGESTIONS: Partial<Record<AiProviderErrorCategory, 
   truncation: 'The AI response was cut short. Reduce prompt/context size or increase the token budget where supported.',
   stall: 'The AI agent stalled without producing output. Retry or check agent configuration.',
   'rate-limit': 'The AI provider hit a rate or usage limit. Wait for the limit to reset (the error message shows the reset time when available) and retry. No API-key fallback was attempted.',
-  config: 'The AI SDK rejected the request before sending it. Check the stage\'s model and maxTokens in wf.config.* — retrying will not help until they change.',
+  config: 'The AI provider rejected the request configuration (for example, an invalid response schema). Check the stage model, output schema, and maxTokens in wf.config.*; retrying will not help until the request is corrected.',
 };
 
 const ERROR_CODE_SUGGESTIONS: Record<string, string | null> = {
