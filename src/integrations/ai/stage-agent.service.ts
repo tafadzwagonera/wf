@@ -157,6 +157,7 @@ type CliChatPassOpts = {
   jsonSchema?: string;
   model: string;
   repoDir?: string;
+  responseValidator?: ResponseValidator;
   stage: AgentStageName;
   systemPrompt: string;
   userMessage: string;
@@ -170,6 +171,7 @@ type CliStagePassOpts = {
   passNumber?: number;
   prompt: string;
   repoDir?: string;
+  responseValidator?: ResponseValidator;
   resumeProviderSessionId?: string;
   screenshots?: UiDesignScreenshot[];
   sessionId?: string;
@@ -270,6 +272,7 @@ type ChatTurnParams = {
   jsonSchema?: string;
   modelOverride?: string;
   repoDir?: string;
+  responseValidator?: ResponseValidator;
   session?: AgentChatSession;
   stage: AgentStageName;
   systemPrompt: string;
@@ -289,6 +292,11 @@ type OpenAiStageAgentOptions = {
 
 type AgentChatTurnResult = { content: string; costUsd?: number; session: AgentChatSession };
 type StagePromptResult = { content: string; sessionId?: string; modelUsed?: string };
+
+type ResponseValidator = {
+  label: string;
+  parse: (value: unknown) => unknown;
+};
 
 const resolveStagePromptRepoExample = (repositories?: string[]): string => {
   const firstRepository = repositories?.find(repository => typeof repository === 'string' && repository.trim());
@@ -913,6 +921,19 @@ const resolveStageResponseIssues = (stage: AgentStageName, content: string): str
   }
 };
 
+const resolveResponseIssues = (
+  stage: AgentStageName, content: string, responseValidator?: ResponseValidator
+): string | null => {
+  if (!responseValidator) return resolveStageResponseIssues(stage, content);
+  try {
+    responseValidator.parse(parseJsonResponse(content));
+    return null;
+  } catch (err) {
+    if (isZodErrorLike(err)) return formatZodError(err);
+    return 'Response is not valid JSON';
+  }
+};
+
 const resolveStageZodIssues = (stage: AgentStageName, content: string): string | undefined => {
   const zodSchema = stageZodSchemas[stage];
   if (!zodSchema) return undefined;
@@ -931,10 +952,10 @@ const STAGE_PARSE_ERROR_LABELS: Partial<Record<AgentStageName, string>> = {
 };
 
 const buildStageParseErrorMessage = (
-  stage: AgentStageName, content: string, zodIssues: string | undefined
+  stage: AgentStageName, content: string, zodIssues: string | undefined, label?: string
 ): string => {
-  const label = STAGE_PARSE_ERROR_LABELS[stage] ?? 'resolution plan';
-  const baseMessage = `Failed to parse ${label} from agent response`;
+  const responseLabel = label ?? STAGE_PARSE_ERROR_LABELS[stage] ?? 'resolution plan';
+  const baseMessage = `Failed to parse ${responseLabel} from agent response`;
   return zodIssues ? `${baseMessage}\n${zodIssues}` : baseMessage;
 };
 
@@ -962,6 +983,7 @@ const buildCodexRetryPrompt = (issues: string): string =>
 type CodexPassBase = {
   stage: AgentStageName; model: string; repoDir: string;
   onProgress?: StageProgressCallback; timeoutMs?: number; inactivityTimeoutMs?: number;
+  responseValidator?: ResponseValidator;
   jsonSchema?: string;
 };
 
@@ -971,22 +993,24 @@ const isNonRetryableCodexError = (error: unknown): boolean =>
   isAiProviderErrorLike(error) && NON_RETRYABLE_CODEX_ERROR_CATEGORIES.has(error.category ?? '');
 
 const throwCodexParseError = (
-  stage: AgentStageName, content: string, zodIssues: string, sessionId: string | undefined
+  stage: AgentStageName, content: string, zodIssues: string, sessionId: string | undefined,
+  responseValidator?: ResponseValidator
 ): never => {
   throw new AiProviderError(
-    buildStageParseErrorMessage(stage, content, zodIssues),
+    buildStageParseErrorMessage(stage, content, zodIssues, responseValidator?.label),
     { response: content, sessionId, zodIssues },
     true, 'parse'
   );
 };
 
 const applySchemaRetry = (
-  state: CliRetryState, stage: AgentStageName, outcome: { content: string; issues: string }
+  state: CliRetryState, stage: AgentStageName, outcome: { content: string; issues: string },
+  responseValidator?: ResponseValidator
 ): true => {
   state.schemaMisses++;
   if (state.schemaMisses > MAX_CLI_SCHEMA_MISSES || !state.sessionId) {
     throw new AiProviderError(
-      buildStageParseErrorMessage(stage, outcome.content, outcome.issues),
+      buildStageParseErrorMessage(stage, outcome.content, outcome.issues, responseValidator?.label),
       { response: outcome.content, sessionId: state.sessionId, zodIssues: outcome.issues },
       true, 'parse'
     );
@@ -1582,11 +1606,12 @@ export class StageAgentService {
 
   private async runGenericCliRetryLoop(
     stage: AgentStageName, initialSessionId: string | undefined, validate: boolean,
-    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
+    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>,
+    responseValidator?: ResponseValidator
   ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     const state = makeCliRetryState(initialSessionId);
     try {
-      return await this.executeCliPasses(state, stage, validate, runPass);
+      return await this.executeCliPasses(state, stage, validate, runPass, responseValidator);
     } catch (error) {
       if (state.sessionId && isAiProviderErrorLike(error)) {
         error.details = { ...error.details, sessionId: state.sessionId };
@@ -1597,18 +1622,29 @@ export class StageAgentService {
 
   private async executeCliPasses(
     state: CliRetryState, stage: AgentStageName, validate: boolean,
-    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
+    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>,
+    responseValidator?: ResponseValidator
   ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     while (true) {
-      state.passNumber++;
-      const passResult = await runPass(state.sessionId, state.passNumber);
-      if (passResult.sessionId) state.sessionId = passResult.sessionId;
-      if (passResult.costUsd != null) state.costUsd = (state.costUsd ?? 0) + passResult.costUsd;
-      const outcome = this.tryFinalizeCliPass(passResult, stage, state.passNumber, state.sessionId, validate);
+      const passResult = await this.runAndRecordCliPass(state, runPass);
+      const outcome = this.tryFinalizeCliPass(
+        passResult, stage, state.passNumber, state.sessionId, validate, responseValidator
+      );
       if (outcome.kind === 'completed') return { content: outcome.content, sessionId: outcome.sessionId, costUsd: state.costUsd };
-      if (outcome.kind === 'schema-retry' && applySchemaRetry(state, stage, outcome)) continue;
+      if (outcome.kind === 'schema-retry' && applySchemaRetry(state, stage, outcome, responseValidator)) continue;
       advanceCliRetryState(state, passResult);
     }
+  }
+
+  private async runAndRecordCliPass(
+    state: CliRetryState,
+    runPass: (sessionId: string | undefined, passNumber: number) => Promise<CliPassResult>
+  ): Promise<CliPassResult> {
+    state.passNumber++;
+    const passResult = await runPass(state.sessionId, state.passNumber);
+    if (passResult.sessionId) state.sessionId = passResult.sessionId;
+    if (passResult.costUsd != null) state.costUsd = (state.costUsd ?? 0) + passResult.costUsd;
+    return passResult;
   }
 
   private async runCliRetryLoop(
@@ -1616,24 +1652,30 @@ export class StageAgentService {
   ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
       stage, initialSessionId, Boolean(passOpts.jsonSchema),
-      (sessionId, passNumber) => this.runCliStagePass({ ...passOpts, sessionId, passNumber })
+      (sessionId, passNumber) => this.runCliStagePass({ ...passOpts, sessionId, passNumber }),
+      passOpts.responseValidator
     );
   }
 
   private tryFinalizeCliPass(
-    passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string, validate?: boolean
+    passResult: CliPassResult, stage: AgentStageName, passNumber: number, sessionId?: string, validate?: boolean,
+    responseValidator?: ResponseValidator
   ): CliPassOutcome {
     passResult.schemaExpected = Boolean(validate);
     logCliPassOutcome({ sessionId, passNumber, stalledPasses: 0, lastDiagnostics: [], schemaMisses: 0 }, passResult);
     if (!passResult.result || passResult.source === 'assistant_text') return { kind: 'no-result' };
     this.checkCliMaxTokens(passResult.stopReason, stage);
-    const retryOutcome = this.resolveCliSchemaRetry(passResult, stage, passNumber, sessionId, validate);
-    if (retryOutcome) {
-      return retryOutcome;
-    }
+    const retryOutcome = this.resolveCliSchemaRetry(
+      passResult, stage, passNumber, sessionId, validate, responseValidator
+    );
+    if (retryOutcome) return retryOutcome;
+    this.logCliPassCompletion(passResult, passNumber, sessionId);
+    return { kind: 'completed', content: passResult.result.trim(), sessionId };
+  }
+
+  private logCliPassCompletion(passResult: CliPassResult, passNumber: number, sessionId?: string): void {
     console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Result extracted via ${passResult.source} (pass ${passNumber})`));
     if (sessionId) console.log(chalk.cyan(`  [${CLI_STAGE_LABEL}] Provider session: ${sessionId}`));
-    return { kind: 'completed', content: passResult.result.trim(), sessionId };
   }
 
   private resolveCliSchemaRetry(
@@ -1641,11 +1683,12 @@ export class StageAgentService {
     stage: AgentStageName,
     passNumber: number,
     sessionId: string | undefined,
-    validate: boolean | undefined
+    validate: boolean | undefined,
+    responseValidator?: ResponseValidator
   ): CliPassOutcome | null {
     if (!validate || passResult.source === 'structured_output') return null;
     this.logStructuredOutputMissing(passNumber, passResult.source, sessionId);
-    return this.buildCliSchemaRetryOutcome(stage, passResult.result);
+    return this.buildCliSchemaRetryOutcome(stage, passResult.result, responseValidator);
   }
 
   private logStructuredOutputMissing(
@@ -1659,10 +1702,9 @@ export class StageAgentService {
   }
 
   private buildCliSchemaRetryOutcome(
-    stage: AgentStageName,
-    content = ''
+    stage: AgentStageName, content = '', responseValidator?: ResponseValidator
   ): CliPassOutcome | null {
-    const issues = resolveStageResponseIssues(stage, content);
+    const issues = resolveResponseIssues(stage, content, responseValidator);
     return issues ? { kind: 'schema-retry', content, issues } : null;
   }
 
@@ -1795,27 +1837,43 @@ export class StageAgentService {
     stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
     initialSessionId?: string;
     onProgress?: StageProgressCallback;
+    responseValidator?: ResponseValidator;
     timeoutMs?: number;
     inactivityTimeoutMs?: number;
     jsonSchema?: string;
   }): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
-    const { stage, model, repoDir, onProgress, timeoutMs, inactivityTimeoutMs, jsonSchema } = opts;
-    const passBase: CodexPassBase = { stage, model, repoDir, onProgress, timeoutMs, inactivityTimeoutMs, jsonSchema };
+    const passBase = this.buildCodexPassBase(opts);
     let sessionId = opts.initialSessionId;
     const pass1 = await this.runCodexStagePass({ ...passBase, prompt: opts.initialPrompt, sessionId });
     if (pass1.sessionId) sessionId = pass1.sessionId;
     return this.finishCodexRetryLoop(opts, passBase, sessionId, pass1);
   }
 
+  private buildCodexPassBase(opts: {
+    stage: AgentStageName; model: string; repoDir: string; onProgress?: StageProgressCallback;
+    responseValidator?: ResponseValidator; timeoutMs?: number; inactivityTimeoutMs?: number; jsonSchema?: string;
+  }): CodexPassBase {
+    return {
+      stage: opts.stage, model: opts.model, repoDir: opts.repoDir, onProgress: opts.onProgress,
+      responseValidator: opts.responseValidator, timeoutMs: opts.timeoutMs,
+      inactivityTimeoutMs: opts.inactivityTimeoutMs, jsonSchema: opts.jsonSchema,
+    };
+  }
+
   private async finishCodexRetryLoop(
-    opts: { stage: AgentStageName }, passBase: CodexPassBase, sessionId: string | undefined,
+    opts: { stage: AgentStageName; responseValidator?: ResponseValidator },
+    passBase: CodexPassBase, sessionId: string | undefined,
     pass1: { content: string; sessionId?: string; costUsd?: number },
   ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     if (!STAGE_RESPONSE_SCHEMAS[opts.stage]) return pass1;
-    const issues1 = resolveStageResponseIssues(opts.stage, pass1.content);
+    const issues1 = resolveResponseIssues(opts.stage, pass1.content, opts.responseValidator);
     if (!issues1) return { content: pass1.content, sessionId, costUsd: pass1.costUsd };
-    if (!sessionId) return throwCodexParseError(opts.stage, pass1.content, issues1, sessionId);
-    return this.runCodexSchemaRetry(passBase, opts.stage, issues1, sessionId, pass1.content, pass1.costUsd);
+    if (!sessionId) return throwCodexParseError(
+      opts.stage, pass1.content, issues1, sessionId, opts.responseValidator
+    );
+    return this.runCodexSchemaRetry(
+      passBase, opts.stage, issues1, sessionId, pass1.content, pass1.costUsd, opts.responseValidator
+    );
   }
 
   private async runCodexRetryPass(
@@ -1831,7 +1889,7 @@ export class StageAgentService {
 
   private async runCodexSchemaRetry(
     passBase: CodexPassBase, stage: AgentStageName, issues1: string, sessionId: string,
-    invalidContent: string, pass1CostUsd?: number
+    invalidContent: string, pass1CostUsd?: number, responseValidator?: ResponseValidator
   ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
     console.log(chalk.yellow(`  [${CODEX_STAGE_LABEL}] Pass 1: schema miss — retrying`));
     const pass2 = await this.runCodexRetryPass(passBase, issues1, sessionId, invalidContent);
@@ -1839,9 +1897,9 @@ export class StageAgentService {
     const costUsd = pass1CostUsd == null && pass2.costUsd == null
       ? undefined
       : (pass1CostUsd ?? 0) + (pass2.costUsd ?? 0);
-    const issues2 = resolveStageResponseIssues(stage, pass2.content);
+    const issues2 = resolveResponseIssues(stage, pass2.content, responseValidator);
     if (!issues2) return { content: pass2.content, sessionId: finalSessionId, costUsd };
-    return throwCodexParseError(stage, pass2.content, issues2, finalSessionId);
+    return throwCodexParseError(stage, pass2.content, issues2, finalSessionId, responseValidator);
   }
 
   private async sendCliReviewEpilogue(params: {
@@ -1928,6 +1986,7 @@ export class StageAgentService {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
       model: this.resolveModelForStage(params.stage, params.modelOverride), repoDir: params.repoDir,
       initialSessionId: params.session?.sessionId,
+      responseValidator: params.responseValidator,
       jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
     };
     const result = await this.runCliChatRetryLoop(chatPassOpts, params.stage, params.session?.sessionId);
@@ -1950,14 +2009,14 @@ export class StageAgentService {
 
   private buildCodexCliChatRunOptions(params: ChatTurnParams): {
     stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
-    initialSessionId?: string; timeoutMs: number; inactivityTimeoutMs: number; jsonSchema?: string;
+    initialSessionId?: string; responseValidator?: ResponseValidator;
+    timeoutMs: number; inactivityTimeoutMs: number; jsonSchema?: string;
   } {
     return {
-      stage: params.stage,
-      model: this.resolveModelForStage(params.stage, params.modelOverride),
+      stage: params.stage, model: this.resolveModelForStage(params.stage, params.modelOverride),
       repoDir: params.repoDir ?? process.cwd(),
-      initialPrompt: this.buildCodexChatPrompt(params),
-      initialSessionId: params.session?.sessionId,
+      initialPrompt: this.buildCodexChatPrompt(params), initialSessionId: params.session?.sessionId,
+      responseValidator: params.responseValidator,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
       jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
@@ -1977,7 +2036,8 @@ export class StageAgentService {
   ): Promise<{ content: string; costUsd?: number; sessionId?: string }> {
     return this.runGenericCliRetryLoop(
       stage, initialSessionId, Boolean(passOpts.jsonSchema),
-      (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber })
+      (sessionId, passNumber) => this.runCliChatPass({ ...passOpts, sessionId, passNumber }),
+      passOpts.responseValidator
     );
   }
 

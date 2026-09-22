@@ -114,7 +114,10 @@ export class ReviewStageService {
       options.onProgress?.(`Summarising changes in ${segments.length} file(s): ${files}...`);
       const prompt = this.buildBatchSummarisationPrompt(segments);
       const content = await this.runCliSummarisation(
-        prompt, options.repoDir, batchSummarisationSystemPrompt, batchSummaryJsonSchema,
+        prompt, options.repoDir, batchSummarisationSystemPrompt, batchSummaryJsonSchema, {
+          label: 'batch summary',
+          parse: value => batchSummarySchema.parse(value),
+        },
       );
       return this.parseBatchSummaryResponse(content);
     };
@@ -207,15 +210,13 @@ export class ReviewStageService {
   private async runCliSummarisation(
     prompt: string,
     repoDir: string | undefined,
-    systemPrompt: string,
-    jsonSchema?: string
+    systemPrompt: string, jsonSchema?: string,
+    responseValidator?: { label: string; parse: (value: unknown) => unknown }
   ): Promise<string> {
     const result = await this.stageAgentService.chatTurn({
       stage: 'review',
       userMessage: prompt,
-      systemPrompt,
-      repoDir,
-      jsonSchema,
+      systemPrompt, repoDir, jsonSchema, responseValidator,
     });
     return result.content.trim();
   }

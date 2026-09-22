@@ -608,6 +608,7 @@ describe('ReviewStageService', () => {
     expect(call.systemPrompt).toContain('=== FILE: <path> ===');
     expect(typeof call.jsonSchema).toBe('string');
     expect(call.jsonSchema).toContain('summaries');
+    expect(call.responseValidator).toEqual(expect.objectContaining({ label: 'batch summary' }));
     expect((aiService as any).execute).not.toHaveBeenCalled();
   });
 

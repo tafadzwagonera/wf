@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
+import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
@@ -2186,6 +2187,29 @@ describe('StageAgentService', () => {
       expect(buildCodexCliArgs).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-luna' }));
       expect(spawnCodex).toHaveBeenCalledTimes(1);
       expect(spawnCli).toHaveBeenCalledTimes(0);
+    });
+
+    it('validates a custom review chat schema instead of the code review schema', async () => {
+      const batchSummary = JSON.stringify({ summaries: [{ file: 'stamp.svg', summary: '- asset update' }] });
+      spawnCodex.mockReturnValueOnce(makeStream(
+        { type: 'thread.started', thread_id: 'codex-summary-1' },
+        { type: 'item.completed', item: { type: 'agent_message', text: batchSummary } }
+      ));
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'review', userMessage: 'Summarise the file', systemPrompt: 'Return batch summaries', repoDir: '/tmp/repo',
+        jsonSchema: '{"type":"object","properties":{"summaries":{"type":"array"}}}',
+        responseValidator: {
+          label: 'batch summary',
+          parse: value => batchSummarySchema.parse(value),
+        },
+      });
+
+      expect(JSON.parse(result.content)).toEqual({
+        summaries: [{ file: 'stamp.svg', summary: '- asset update' }],
+      });
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
     });
 
     it('completes a plain chat turn without forwarding a json schema', async () => {
