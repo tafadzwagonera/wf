@@ -100,11 +100,8 @@ export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
 });
 
 export const wfCreateStageConfigSchema = z.object({
-  provider: wfAiProviderNameSchema.optional(),
-  model: z.string().optional(),
-  backend: wfBackendModeSchema.optional(),
   verificationConditions: wfVerificationConditionsConfigSchema.optional(),
-});
+}).strict();
 
 export const logLevelSchema = z.enum(['error', 'warn', 'info', 'debug']);
 
@@ -235,8 +232,5 @@ export const normalizedImplementStageConfigSchema = z.object({
 });
 
 export const normalizedCreateStageConfigSchema = z.object({
-  provider: wfAiProviderNameSchema.optional(),
-  model: z.string().optional(),
-  backend: wfBackendModeSchema.optional(),
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
 });

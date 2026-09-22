@@ -65,7 +65,6 @@ type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : ne
 const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof MODEL_STAGE_NAMES)[number]> = true;
 
 const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
-const IGNORED_CREATE_STAGE_KEYS = ['provider', 'model', 'backend', 'skills'] as const;
 
 export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';
@@ -181,12 +180,8 @@ const aiStageTargetSchema = z.object({
 });
 
 const createStageSchema = z.object({
-  provider: z.enum(providerNames).optional(),
-  model: z.string().min(1).optional(),
-  backend: z.enum(backendModes).optional(),
-  skills: z.array(z.string()).optional(),
   verificationConditions: verificationConditionsSchema.optional(),
-});
+}).strict();
 
 const implementStageSchema = z
   .object({
@@ -779,19 +774,6 @@ const buildNormalizedStageTarget = (
   skills: stageTarget.skills,
 });
 
-const warnOnIgnoredCreateStageSettings = (createStageConfig: WfCreateStageConfig | undefined): void => {
-  if (!createStageConfig) return;
-  const ignoredKeys = IGNORED_CREATE_STAGE_KEYS.filter(key =>
-    Object.hasOwn(createStageConfig as Record<string, unknown>, key)
-  );
-  if (ignoredKeys.length === 0) return;
-  console.warn(
-    `Invalid wf config: stages.create provider/model/backend/skills settings are currently ignored `
-    + `because the create stage has no AI-backed execution path. Remove: ${ignoredKeys.join(', ')}. `
-    + `This check runs whenever wf config is loaded, for any command.`
-  );
-};
-
 /**
  * Validate and normalize an explicit AI stage target against configured providers.
  *
@@ -856,7 +838,6 @@ const normalizeCreateStageConfig = (
   createStageConfig: WfCreateStageConfig | undefined
 ): NormalizedCreateStageConfig | undefined => {
   if (!createStageConfig) return undefined;
-  warnOnIgnoredCreateStageSettings(createStageConfig);
   return { verificationConditions: normalizeVerificationConditionsConfig(createStageConfig.verificationConditions) };
 };
 
@@ -1135,6 +1116,12 @@ const buildNormalizedWfConfig = (input: BuildNormalizedWfConfigInput): Normalize
   ),
 });
 
+const getValidationFieldNames = (issues: z.ZodIssue[]): string[] => issues.flatMap(issue =>
+  issue.code === 'unrecognized_keys'
+    ? issue.keys.map(key => [...issue.path, key].join('.'))
+    : [issue.path.join('.')]
+);
+
 /**
  * Normalize user config into the runtime shape consumed by Nest ConfigService.
  *
@@ -1144,7 +1131,7 @@ const buildNormalizedWfConfig = (input: BuildNormalizedWfConfigInput): Normalize
 export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
   const result = configSchema.safeParse(rawConfig);
   if (!result.success) {
-    const fieldNames = result.error.issues.map(i => i.path.join('.'));
+    const fieldNames = getValidationFieldNames(result.error.issues);
     throw new ValidationError(
       `Invalid wf config: validation failed for: ${formatFieldNames(fieldNames)}`,
       result.error

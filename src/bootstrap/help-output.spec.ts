@@ -99,7 +99,7 @@ describe('getHelpText', () => {
       'Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate.'
     );
     expect(plainHelpText).toContain(
-      '`stages.create` is verification-only and warns when provider, model, backend, or skills are configured.'
+      '`stages.create` is verification-only and rejects provider, model, backend, or skills configuration.'
     );
     expect(helpText).toContain('--dry-run');
   });

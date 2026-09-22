@@ -275,7 +275,7 @@ const assertCreateTicketIsValid = (ticket: UniversalTicket, trackerName: string,
   name: 'issue:create',
   description:
     'Create tickets from standardized input (file or stdin); Jira live runs enforce the ADF safety gate. '
-    + '`stages.create` is verification-only and warns when provider, model, backend, or skills are configured. '
+    + '`stages.create` is verification-only and rejects provider, model, backend, or skills configuration. '
     + 'Internal-only sections (`### Unit Test Scope`, `#### Dependencies`, `### Affected Repositories`, `#### References`) '
     + 'are stripped before posting; `### Risks & Assumptions` is preserved. '
     + 'Both `--dry-run` and live creates run the ADF safety analysis.',

@@ -735,16 +735,8 @@ describe('wf-config-loader', () => {
       });
     });
 
-    it('normalizes create stage without provider for validation-only mode', () => {
+    it('normalizes create stage verification conditions without AI settings', () => {
       const config = normalizeWfConfig({
-        ai: [
-          {
-            provider: 'openai',
-            apiKey: 'openai-key',
-            model: 'gpt-5.4',
-            default: true,
-          },
-        ],
         stages: {
           create: {
             verificationConditions: {
@@ -756,82 +748,55 @@ describe('wf-config-loader', () => {
         },
       });
 
-      expect(config.stages.create).toBeDefined();
-      expect(config.stages.create?.provider).toBeUndefined();
-      expect(config.stages.create?.verificationConditions).toEqual({
-        policyFile: undefined,
-        scripts: {
-          testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
+      expect(config.stages.create).toEqual({
+        verificationConditions: {
+          policyFile: undefined,
+          scripts: {
+            testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
+          },
         },
       });
+      expect((config.ai.stages as Record<string, unknown>).create).toBeUndefined();
     });
 
-    it('normalizes create stage with provider and verificationConditions', () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    it.each([
+      ['provider', 'openai'],
+      ['model', 'gpt-5.4'],
+      ['backend', 'agent'],
+      ['skills', ['writing-plans']],
+    ])('rejects unsupported create stage %s configuration', (key, value) => {
+      const run = () => normalizeWfConfig({ stages: { create: { [key]: value } as never } });
+
+      expect(run).toThrow(ValidationError);
+      expect(run).toThrow(/validation failed for.*stages\.create/i);
+      expect(run).toThrow(new RegExp(key));
+    });
+
+    it('keeps omitted stages.create valid', () => {
       const config = normalizeWfConfig({
-        ai: [
-          {
-            provider: 'openai',
-            apiKey: 'openai-key',
-            model: 'gpt-5.4',
-            default: true,
-          },
-        ],
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+      });
+
+      expect(config.stages.create).toBeUndefined();
+    });
+
+    it('does not warn about ignored create-stage AI settings for valid create config', () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      normalizeWfConfig({
         stages: {
           create: {
-            provider: 'openai',
             verificationConditions: {
               scripts: {
-                format: 'nr test:manual -- test-verify-request-format',
+                testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
               },
             },
           },
         },
       });
 
-      expect(config.stages.create).toBeDefined();
-      expect(config.stages.create?.provider).toBeUndefined();
-      expect(config.stages.create?.backend).toBeUndefined();
-      expect(config.stages.create?.verificationConditions).toEqual({
-        policyFile: undefined,
-        scripts: {
-          format: 'nr test:manual -- test-verify-request-format',
-        },
-      });
-      expect(warnSpy).toHaveBeenCalledWith(
+      expect(warnSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('stages.create provider/model/backend/skills settings are currently ignored')
       );
-    });
-
-    it('normalizes create stage without provider for validation-only mode', () => {
-      const config = normalizeWfConfig({
-        ai: [
-          {
-            provider: 'openai',
-            apiKey: 'openai-key',
-            model: 'gpt-5.4',
-            default: true,
-          },
-        ],
-        stages: {
-          create: {
-            verificationConditions: {
-              scripts: {
-                testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
-              },
-            },
-          },
-        },
-      });
-
-      expect(config.stages.create).toBeDefined();
-      expect(config.stages.create?.provider).toBeUndefined();
-      expect(config.stages.create?.verificationConditions).toEqual({
-        policyFile: undefined,
-        scripts: {
-          testVerifyRequestFormat: 'nr test:manual -- test-verify-request-format',
-        },
-      });
     });
 
     it('fails fast when agent mode is enabled for unsupported providers', () => {

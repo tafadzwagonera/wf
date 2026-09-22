@@ -31,8 +31,11 @@ export const hasProviderUsageIntent = (
  * @returns An array of provider names (may include `undefined` for stages without a provider override).
  */
 export const extractStageProviders = (
-  stages: Record<string, { provider?: WfAiProviderName } | undefined> | undefined,
+  stages: Record<
+    string,
+    { provider?: WfAiProviderName } | { verificationConditions?: unknown } | undefined
+  > | undefined,
 ): (WfAiProviderName | undefined)[] => {
   if (!stages) return [];
-  return Object.values(stages).map(stage => stage?.provider);
+  return Object.values(stages).map(stage => (stage && 'provider' in stage ? stage.provider : undefined));
 };
