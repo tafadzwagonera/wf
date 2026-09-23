@@ -202,10 +202,10 @@ function runScenario(paths: Paths): { result: SpawnResult; invocations: string[]
 }
 
 function checkCommandExitsNonZero(result: SpawnResult, output: string): void {
-  if (result.status !== 0) {
-    pass('command exits non-zero');
-  } else {
+  if (result.status === 0) {
     fail('command should exit non-zero on a repair-pass stall', output);
+  } else {
+    pass('command exits non-zero');
   }
 }
 
@@ -218,7 +218,8 @@ function checkStallDiagnostic(output: string): void {
 }
 
 function checkStallNotMaskedAsParseFailure(output: string): void {
-  if (output.includes('Failed to parse resolution plan from agent response')) {
+  const parseFailureReported = output.includes('Failed to parse resolution plan from agent response');
+  if (parseFailureReported) {
     fail('stall should not be masked as a parse failure', output);
   } else {
     pass('stall is not relabeled as a resolution-plan parse failure');

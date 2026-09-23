@@ -202,10 +202,10 @@ function runScenario(paths: Paths): { result: SpawnResult; invocations: string[]
 }
 
 function checkCommandExitsNonZero(result: SpawnResult, output: string): void {
-  if (result.status !== 0) {
-    pass('command exits non-zero');
-  } else {
+  if (result.status === 0) {
     fail('command should exit non-zero when the repair pass fails', output);
+  } else {
+    pass('command exits non-zero');
   }
 }
 

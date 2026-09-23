@@ -71,11 +71,11 @@ async function runGlobalDefaultChecks(fileLines: string[]): Promise<void> {
 }
 
 function checkOverrideGlobalAbsent(overrideLines: string[]): void {
-  const overrideGlobalAbsent = !overrideLines.some(l => /resolved-provider=anthropic/.test(l));
-  if (overrideGlobalAbsent) {
-    pass('per-stage override: global provider=anthropic does not appear in terminal output');
-  } else {
+  const overrideGlobalPresent = overrideLines.some(l => /resolved-provider=anthropic/.test(l));
+  if (overrideGlobalPresent) {
     fail('per-stage override: global provider leaked into terminal', overrideLines.join(' | '));
+  } else {
+    pass('per-stage override: global provider=anthropic does not appear in terminal output');
   }
 }
 

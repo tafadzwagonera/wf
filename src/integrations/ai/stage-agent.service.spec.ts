@@ -1428,6 +1428,24 @@ describe('StageAgentService', () => {
       });
     });
 
+    it('surfaces the provider message from a Codex error event', async () => {
+      spawnCodex.mockImplementation(makeCodexStream(
+        {
+          type: 'error',
+          is_error: true,
+          message: "The model 'gpt-5.5' may not exist or you may not have access to it",
+        }
+      ));
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(
+        service.generatePlan({ action: 'fix', issueContent: 'Test issue' })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('gpt-5.5'),
+      });
+    });
+
     it('classifies provider response-schema rejection as configuration error', async () => {
       spawnCodex.mockImplementation(makeCodexStream(
         { type: 'thread.started', thread_id: 'tid-123' },
@@ -3379,6 +3397,19 @@ describe('StageAgentService', () => {
         } } as unknown as ConfigService,
       );
       expect(svc.resolveTargetForStage('implement')).toEqual({ provider: 'anthropic', model: 'claude-sonnet-4-6' });
+    });
+
+    it('uses the implement default model before the provider default', () => {
+      const svc = new StageAgentService(
+        { get: (key: string) => {
+          if (key === 'stages.implement.provider') return 'openai';
+          if (key === 'stages.implement.models') return { default: 'gpt-5.6-terra', mechanical: 'gpt-5.6-luna' };
+          if (key === 'ai.providers') return [{ provider: 'openai', model: 'gpt-5.5' }];
+          return undefined;
+        } } as unknown as ConfigService,
+      );
+
+      expect(svc.resolveTargetForStage('implement')).toEqual({ provider: 'openai', model: 'gpt-5.6-terra' });
     });
 
     it('falls back to the provider default model when no stage model is configured', () => {

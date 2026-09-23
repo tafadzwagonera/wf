@@ -545,6 +545,14 @@ const extractCodexStopReason = (message: CodexCliMessage): string | undefined =>
   return typeof stopReason === 'string' ? stopReason : undefined;
 };
 
+const extractCodexErrorField = (error: unknown): string | undefined => {
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (!error || typeof error !== 'object') return undefined;
+  const details = error as Record<string, unknown>;
+  if (typeof details.message === 'string' && details.message.trim()) return details.message.trim();
+  return JSON.stringify(details);
+};
+
 const extractCodexMessageError = (message: CodexCliMessage): string | undefined => {
   const hasErrorField = message['error'] !== undefined;
   const hasFailedStatus = message['status'] === 'failed';
@@ -553,8 +561,9 @@ const extractCodexMessageError = (message: CodexCliMessage): string | undefined 
   }
   if (typeof message.result === 'string' && message.result.trim()) return message.result.trim();
   if (typeof message.summary === 'string' && message.summary.trim()) return message.summary.trim();
-  if (typeof message['error'] === 'string' && message['error'].trim()) return message['error'].trim();
-  if (message['error'] && typeof message['error'] === 'object') return JSON.stringify(message['error']);
+  if (typeof message.message === 'string' && message.message.trim()) return message.message.trim();
+  const errorDetail = extractCodexErrorField(message['error']);
+  if (errorDetail) return errorDetail;
   return `Codex CLI returned ${message.type}${message.subtype ? ` (${message.subtype})` : ''}.`;
 };
 
@@ -1280,6 +1289,10 @@ export class StageAgentService {
   private resolveStageModel(stage: AgentStageName): string {
     const stageModel = this.configService.get<string>(`stages.${stage}.model`);
     if (stageModel) return stageModel;
+    if (stage === 'implement') {
+      const implementModels = this.configService.get<{ default?: string }>('stages.implement.models');
+      if (implementModels?.default) return implementModels.default;
+    }
     const provider = this.resolveStageProvider(stage);
     const fallback = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
     return resolveProviderModel(this.configService, provider, fallback);

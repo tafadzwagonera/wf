@@ -162,15 +162,19 @@ function runScenario(tempRoot: string): ScenarioData {
 }
 
 function checkDistExists(): void {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
+  if (fs.existsSync(distMainPath)) {
+    return;
   }
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
 }
 
 function checkExitsNonZero(result: SpawnResult, output: string): void {
-  if (result.status !== 0) pass('command exits non-zero when Codex reports max_tokens');
-  else fail('issue:plan should fail when Codex reports max_tokens', `output:\n${output}`);
+  if (result.status === 0) {
+    fail('issue:plan should fail when Codex reports max_tokens', `output:\n${output}`);
+  } else {
+    pass('command exits non-zero when Codex reports max_tokens');
+  }
 }
 
 function checkTruncationGuidance(output: string): void {
@@ -180,9 +184,11 @@ function checkTruncationGuidance(output: string): void {
 }
 
 function checkNoArtifactWritten(planPath: string, manifestPath: string, output: string): void {
-  if (!fs.existsSync(planPath) && !fs.existsSync(manifestPath))
+  if (fs.existsSync(planPath) || fs.existsSync(manifestPath)) {
+    fail('Unexpected plan artifact or manifest exists after failure', `planPath: ${planPath}\nmanifestPath: ${manifestPath}\noutput:\n${output}`);
+  } else {
     pass('No custom plan artifact was written from the partial Codex output');
-  else fail('Unexpected plan artifact or manifest exists after failure', `planPath: ${planPath}\nmanifestPath: ${manifestPath}\noutput:\n${output}`);
+  }
 }
 
 function runChecks(data: ScenarioData): void {

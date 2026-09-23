@@ -69,13 +69,13 @@ async function runAnthropicBranch(): Promise<void> {
 function checkOpenaiResolvedLine(openaiLines: string[]): void {
   const openaiMatch = openaiLines.some(l =>
     /ℹ llm\.adapter resolved-provider=openai resolved-model=gpt-5\.5/.test(l));
-  if (!openaiMatch) {
+  if (openaiMatch) {
+    pass('openai agent branch: terminal shows resolved-provider=openai resolved-model=gpt-5.5');
+  } else {
     fail('openai agent branch: terminal missing resolved-provider line', openaiLines.join(' | ') || '(none)');
-    return;
   }
-  pass('openai agent branch: terminal shows resolved-provider=openai resolved-model=gpt-5.5');
-  const anthropicAbsent = !openaiLines.some(l => /resolved-provider=anthropic/.test(l));
-  if (!anthropicAbsent) {
+  const anthropicPresent = openaiLines.some(l => /resolved-provider=anthropic/.test(l));
+  if (anthropicPresent) {
     fail('openai agent branch: anthropic provider leaked into terminal', openaiLines.join(' | '));
   } else {
     pass('openai agent branch: anthropic provider does not appear in terminal output');
