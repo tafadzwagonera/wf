@@ -49,7 +49,11 @@ export class StepSpecFidelityService {
 
   async verifyAll(steps: string[], repoDir: string, baseRef?: string): Promise<StepFidelityFinding[][]> {
     const diff = await this.captureDiff(repoDir, baseRef ?? 'HEAD');
-    return Promise.all(steps.map(stepText => this.run({ stepText, diff })));
+    const results: StepFidelityFinding[][] = [];
+    for (const stepText of steps) {
+      results.push(await this.run({ stepText, diff }));
+    }
+    return results;
   }
 
   async run(params: StepSpecFidelityRunParams): Promise<StepFidelityFinding[]> {

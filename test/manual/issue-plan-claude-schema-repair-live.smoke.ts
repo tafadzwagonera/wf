@@ -253,17 +253,21 @@ function checkSecondPromptRetryWording(prompts: string[]): void {
 }
 
 function checkArtifactSummary(planPath: string): void {
-  if (!fs.existsSync(planPath)) return;
-  const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
-  if (artifact.summary === 'Repaired via resume') {
-    pass('plan artifact reflects the repaired (pass 2) content');
-  } else {
-    fail('plan artifact should reflect repaired content', JSON.stringify(artifact.summary));
+  if (fs.existsSync(planPath)) {
+    const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
+    if (artifact.summary === 'Repaired via resume') {
+      pass('plan artifact reflects the repaired (pass 2) content');
+    } else {
+      fail('plan artifact should reflect repaired content', JSON.stringify(artifact.summary));
+    }
+    return;
   }
+  fail('plan artifact should exist before content is checked', planPath);
 }
 
 function checkBuildExists(): void {
-  if (!fs.existsSync(distMainPath)) {
+  if (fs.existsSync(distMainPath)) return;
+  {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }

@@ -190,13 +190,13 @@ function buildEnv(homeDir: string, binDir: string): NodeJS.ProcessEnv {
 }
 
 function readInvocations(logPath: string): string[][] {
-  if (!fs.existsSync(logPath)) return [];
-  return fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  if (fs.existsSync(logPath)) return fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  return [];
 }
 
 function readPrompts(logPath: string): string[] {
-  if (!fs.existsSync(logPath)) return [];
-  return fs.readFileSync(logPath, 'utf-8').split('\n---\n').filter(Boolean);
+  if (fs.existsSync(logPath)) return fs.readFileSync(logPath, 'utf-8').split('\n---\n').filter(Boolean);
+  return [];
 }
 
 function setupFixtures(paths: Paths): void {
@@ -222,7 +222,8 @@ function runScenario(tempRoot: string): ScenarioData {
 }
 
 function checkDistExists(): void {
-  if (!fs.existsSync(distMainPath)) {
+  if (fs.existsSync(distMainPath)) return;
+  {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
@@ -234,8 +235,11 @@ function checkExitsZero(result: SpawnResult, output: string): void {
 }
 
 function checkArtifactWritten(planPath: string, output: string): void {
-  if (fs.existsSync(planPath)) pass('a plan artifact was written');
-  else fail('expected a plan artifact to be written', `planPath: ${planPath}\noutput:\n${output}`);
+  if (fs.existsSync(planPath)) {
+    pass('a plan artifact was written');
+    return;
+  }
+  fail('expected a plan artifact to be written', `planPath: ${planPath}\noutput:\n${output}`);
 }
 
 function checkInvocationCount(invocations: string[][]): void {
@@ -262,10 +266,13 @@ function checkSecondPromptDiagnostic(secondPrompt: string): void {
 }
 
 function checkArtifactContent(planPath: string, output: string): void {
-  if (!fs.existsSync(planPath)) return;
-  const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
-  if (artifact.summary === 'Repaired plan') pass('plan artifact reflects the repaired (pass 2) content');
-  else fail('plan artifact should reflect repaired content', JSON.stringify(artifact.summary));
+  if (fs.existsSync(planPath)) {
+    const artifact = JSON.parse(fs.readFileSync(planPath, 'utf-8'));
+    if (artifact.summary === 'Repaired plan') pass('plan artifact reflects the repaired (pass 2) content');
+    else fail('plan artifact should reflect repaired content', JSON.stringify(artifact.summary));
+    return;
+  }
+  fail('plan artifact should exist before content is checked', output);
 }
 
 function runChecks(data: ScenarioData): void {

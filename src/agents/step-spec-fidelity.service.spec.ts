@@ -108,6 +108,25 @@ describe('StepSpecFidelityService', () => {
       expect(diffSection(capturedPrompts[0])).toBe(diffSection(capturedPrompts[1]));
     });
 
+    it('runs step checks sequentially', async () => {
+      let activeCalls = 0;
+      let maxActiveCalls = 0;
+      const callOrder: number[] = [];
+      mockAiExecute.mockImplementation(async () => {
+        activeCalls += 1;
+        maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+        callOrder.push(callOrder.length);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        activeCalls -= 1;
+        return { content: '{"findings":[]}' };
+      });
+
+      await service.verifyAll(['Step A', 'Step B', 'Step C'], '/repo');
+
+      expect(maxActiveCalls).toBe(1);
+      expect(callOrder).toEqual([0, 1, 2]);
+    });
+
     it('returns [[], []] without throwing when git diff fails', async () => {
       mockGitService.getDiffFromRef.mockRejectedValueOnce(new Error('not a git repo'));
       const result = await service.verifyAll(['Step A', 'Step B'], '/not-a-repo');

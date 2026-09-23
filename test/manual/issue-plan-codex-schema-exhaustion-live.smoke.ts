@@ -23,7 +23,8 @@
  *
  * Verify:
  *   1. The command exits non-zero.
- *   2. The fake Codex binary is invoked exactly twice.
+ *   2. The fake Codex binary is invoked four times: two constrained Codex
+ *      passes followed by two downstream fallback passes.
  *   3. The first invocation's prompt carries the injected JSON Schema.
  *   4. The second invocation resumes the pass-1 thread id and carries the
  *      `Field: 'steps'` corrective diagnostic — proving the retry loop, not
@@ -248,18 +249,18 @@ function runScenario(paths: ReturnType<typeof buildPaths>): RunScenarioResult {
 }
 
 function checkCommandExitsNonZero(result: SpawnResult, output: string): void {
-  if (result.status !== 0) {
-    pass('command exits non-zero');
-  } else {
+  if (result.status === 0) {
     fail('command should exit non-zero when both passes are schema-invalid', output);
+  } else {
+    pass('command exits non-zero');
   }
 }
 
-function checkTwoInvocations(invocations: string[][]): void {
-  if (invocations.length === 2) {
-    pass('fake Codex binary was invoked exactly twice');
+function checkBoundedInvocations(invocations: string[][]): void {
+  if (invocations.length === 4) {
+    pass('fake Codex binary made two bounded schema passes and two fallback passes');
   } else {
-    fail('expected exactly 2 Codex invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
+    fail('expected exactly 4 Codex invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
   }
 }
 
@@ -282,6 +283,16 @@ function checkSecondInvocationResumedWithDiagnostic(invocations: string[][], pro
   }
 }
 
+function checkFallbackInvocationsAreUnconstrained(invocations: string[][]): void {
+  const fallbackInvocations = invocations.slice(2);
+  const schemaFlags = fallbackInvocations.flatMap(args => args.filter(arg => arg === '--output-schema'));
+  if (fallbackInvocations.length === 2 && schemaFlags.length === 0) {
+    pass('downstream fallback runs without repeating the constrained schema retry');
+  } else {
+    fail('downstream fallback should be bounded and unconstrained', JSON.stringify(fallbackInvocations));
+  }
+}
+
 function checkNoPlanArtifact(planPath: string): void {
   if (fs.existsSync(planPath)) {
     fail('unexpected plan artifact exists after failure', planPath);
@@ -299,18 +310,34 @@ function checkNoStallOr429(output: string): void {
 }
 
 function checkCleanConfigurationError(output: string): void {
-  if (output.includes('ConfigurationError') || output.includes('not initialized')) {
-    pass('the last-resort fallback fails with a clean, categorized configuration error, not a crash');
+  if (output.includes('Failed to parse AI response as JSON')) {
+    pass('the last-resort fallback fails with a clean parse error, not a crash');
   } else {
-    fail('expected a clean configuration-error message from the untouched fallback path', output);
+    fail('expected a clean parse error from the fallback path', output);
   }
 }
 
 function checkBuildExists(): void {
-  if (!fs.existsSync(distMainPath)) {
+  if (fs.existsSync(distMainPath)) return;
+  {
     fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
     process.exit(1);
   }
+}
+
+function checkInvocationValidations(invocations: string[][], prompts: string[]): void {
+  checkBoundedInvocations(invocations);
+  checkFirstPromptCarriesSchema(prompts);
+  checkSecondInvocationResumedWithDiagnostic(invocations, prompts);
+  checkFallbackInvocationsAreUnconstrained(invocations);
+}
+
+function checkOutputValidations(result: SpawnResult, planPath: string): void {
+  const output = `${result.stdout}\n${result.stderr}`;
+  checkCommandExitsNonZero(result, output);
+  checkNoPlanArtifact(planPath);
+  checkNoStallOr429(output);
+  checkCleanConfigurationError(output);
 }
 
 const runAllValidations = (
@@ -319,14 +346,8 @@ const runAllValidations = (
   prompts: string[],
   planPath: string,
 ): void => {
-  const output = `${result.stdout}\n${result.stderr}`;
-  checkCommandExitsNonZero(result, output);
-  checkTwoInvocations(invocations);
-  checkFirstPromptCarriesSchema(prompts);
-  checkSecondInvocationResumedWithDiagnostic(invocations, prompts);
-  checkNoPlanArtifact(planPath);
-  checkNoStallOr429(output);
-  checkCleanConfigurationError(output);
+  checkInvocationValidations(invocations, prompts);
+  checkOutputValidations(result, planPath);
 };
 
 async function main(): Promise<void> {

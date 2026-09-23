@@ -2241,6 +2241,21 @@ describe('StageAgentService', () => {
       expect(spawnCli).toHaveBeenCalledTimes(0);
     });
 
+    it('does not apply the review schema to an unstructured Codex chat turn', async () => {
+      spawnCodex.mockReturnValueOnce(makeStream(
+        { type: 'thread.started', thread_id: 'codex-fidelity-1' },
+        { type: 'item.completed', item: { type: 'agent_message', text: '{"findings":[]}' } }
+      ));
+      const service = new StageAgentService(createCodexReviewConfigService());
+
+      const result = await service.chatTurn({
+        stage: 'review', userMessage: 'Check the plan step', systemPrompt: 'Return fidelity findings', repoDir: '/tmp/repo',
+      });
+
+      expect(result.content).toBe('{"findings":[]}');
+      expect(spawnCodex).toHaveBeenCalledTimes(1);
+    });
+
     it('validates a custom review chat schema instead of the code review schema', async () => {
       const batchSummary = JSON.stringify({ summaries: [{ file: 'stamp.svg', summary: '- asset update' }] });
       spawnCodex.mockReturnValueOnce(makeStream(
@@ -2330,6 +2345,23 @@ describe('StageAgentService', () => {
         prompt: expect.stringContaining('JSON object matching the JSON schema'),
       }));
       expect(JSON.parse(result.content)).toEqual({ summaries: [] });
+    });
+
+    it('does not validate a custom CLI schema against the built-in review schema', async () => {
+      const validReview = JSON.stringify({ summary: 'review', issues: [], suggestions: [], approved: true });
+      spawnCli
+        .mockReturnValueOnce(makeStream({
+          type: 'result', subtype: 'success', result: '{"summaries":[]}', session_id: 'chat-custom-schema',
+        }))
+        .mockReturnValueOnce(makeStream({
+          type: 'result', subtype: 'success', result: validReview, session_id: 'chat-custom-schema',
+        }));
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      await expect(service.chatTurn({
+        stage: 'review', userMessage: 'File: a.ts', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        jsonSchema: '{"type":"object","properties":{"summaries":{"type":"array"}}}',
+      })).rejects.toThrow('Structured output was not returned');
     });
 
     it('exposes buildSanitisedJsonSchema stripping the $schema key', () => {
@@ -3309,25 +3341,25 @@ describe('StageAgentService', () => {
   });
 
   describe('anthropicChatTurn cost plumbing', () => {
+    const createAnthropicAgentConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.review.backend': 'agent',
+            'stages.review.provider': 'anthropic',
+            'stages.review.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
     afterEach(() => {
       jest.restoreAllMocks();
     });
 
     it('exposes costUsd extracted from the Anthropic SDK result message', async () => {
-      const createAnthropicAgentConfigService = (): ConfigService =>
-        ({
-          get: jest.fn((key: string, defaultValue?: unknown) => {
-            const values: Record<string, unknown> = {
-              'stages.review.backend': 'agent',
-              'stages.review.provider': 'anthropic',
-              'stages.review.model': 'claude-sonnet-4-6',
-              'ai.provider': 'anthropic',
-              'ai.model': 'claude-sonnet-4-6',
-            };
-            return key in values ? values[key] : defaultValue;
-          }),
-        }) as unknown as ConfigService;
-
       const service = new StageAgentService(createAnthropicAgentConfigService());
       const fakeSession = Object.assign(
         (async function* () {
@@ -3338,6 +3370,20 @@ describe('StageAgentService', () => {
 
       const result = await (service as any).processAnthropicChatResult(fakeSession);
       expect(result.costUsd).toBe(0.03);
+    });
+
+    it('normalizes Anthropic structured_output into chat content', async () => {
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      const fakeSession = Object.assign(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', is_error: false, structured_output: { findings: [] } };
+        })(),
+        { close: jest.fn() }
+      );
+
+      const result = await (service as any).processAnthropicChatResult(fakeSession);
+
+      expect(result.content).toBe('{"findings":[]}');
     });
   });
 

@@ -84,6 +84,13 @@ type RoundResult = {
   assessmentFailureCause?: string;
 };
 
+type VerificationLoopState = {
+  sessionId?: string;
+  extraPassCount: number;
+  consecutiveFailures: number;
+  lastFailureCause?: string;
+};
+
 export interface PlanStepVerificationRunParams {
   steps: string[];
   planSummary: string;
@@ -165,9 +172,9 @@ export const buildPlanStepVerificationPrompt = (
   round: number,
   stallWindow?: number,
 ): string => {
-  const roundHeader = stallWindow !== undefined
-    ? `Verification round ${round} (stall window: ${stallWindow}): a post-implementation audit found plan steps that are not fully implemented.`
-    : `Verification round ${round}: a post-implementation audit found plan steps that are not fully implemented.`;
+  const roundHeader = stallWindow === undefined
+    ? `Verification round ${round}: a post-implementation audit found plan steps that are not fully implemented.`
+    : `Verification round ${round} (stall window: ${stallWindow}): a post-implementation audit found plan steps that are not fully implemented.`;
   const lines: string[] = [roundHeader, ''];
   for (const p of pending) {
     lines.push(`Step ${p.index} (${p.status}): ${p.missing ?? ''}`);
@@ -195,29 +202,34 @@ export class PlanStepVerificationService {
     }
   }
 
-  // eslint-disable-next-line max-lines-per-function
-  private async runVerificationLoop(
-    params: PlanStepVerificationRunParams,
-  ): Promise<PlanStepVerificationOutcome> {
-    let sessionId: string | undefined = params.sessionId;
-    let extraPassCount = 0, consecutiveFailures = 0, lastFailureCause: string | undefined;
+  private async runVerificationLoop(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
+    let state = this.createVerificationLoopState(params.sessionId);
     const pendingHistory: number[] = [];
     for (let round = 1; ; round += 1) {
-      const result = await this.runOneRound(params, round, sessionId, extraPassCount, pendingHistory);
+      const result = await this.runOneRound(params, round, state.sessionId, state.extraPassCount, pendingHistory);
       if (result.outcome) return result.outcome;
-      if (result.assessmentFailed) {
-        consecutiveFailures += 1;
-        lastFailureCause = result.assessmentFailureCause ?? lastFailureCause;
-      } else {
-        consecutiveFailures = 0;
-        lastFailureCause = undefined;
-      }
+      state = this.resolveNextLoopState(state, result);
       const stalled = this.checkConsecutiveFailureLimit(
-        consecutiveFailures, params, sessionId, extraPassCount, lastFailureCause,
+        state.consecutiveFailures, params, state.sessionId, state.extraPassCount, state.lastFailureCause,
       );
       if (stalled) return stalled;
-      ({ sessionId, extraPassCount } = result);
     }
+  }
+
+  private createVerificationLoopState(sessionId?: string): VerificationLoopState {
+    return { sessionId, extraPassCount: 0, consecutiveFailures: 0 };
+  }
+
+  private resolveNextLoopState(state: VerificationLoopState, result: RoundResult): VerificationLoopState {
+    if (!result.assessmentFailed) {
+      return { sessionId: result.sessionId, extraPassCount: result.extraPassCount, consecutiveFailures: 0 };
+    }
+    return {
+      sessionId: result.sessionId,
+      extraPassCount: result.extraPassCount,
+      consecutiveFailures: state.consecutiveFailures + 1,
+      lastFailureCause: result.assessmentFailureCause ?? state.lastFailureCause,
+    };
   }
 
   private checkConsecutiveFailureLimit(
@@ -294,25 +306,44 @@ export class PlanStepVerificationService {
     return { outcome: { sessionId, summary: undefined, extraPassCount }, extraPassCount };
   }
 
-  // eslint-disable-next-line max-lines-per-function
   private resolveRoundOutcome(
     statusMap: Map<number, StepAssessment>, nowPending: StepAssessment[], round: number,
     params: PlanStepVerificationRunParams,
     sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
   ): PlanStepVerificationOutcome | null {
     if (!nowPending.length) {
-      const counts = countStatuses(statusMap.values());
-      this.logEventAndAppendToLogFile(
-        'INFO',
-        `step-verify.complete rounds=${round} steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']} pending=0`,
-        params.silent,
-      );
-      return { sessionId, summary: { rounds: round, done: counts.done + counts['not-applicable'], pending: 0 }, extraPassCount };
+      return this.resolveCompleteRound(statusMap, round, params, sessionId, extraPassCount);
     }
-    const stalled = params.refreshSteps
-      ? this.recordPendingAndCheckStall(pendingHistory, nowPending.length, params.stallWindow)
-      : round === params.stallWindow;
+    const stalled = this.isRoundStalled(params, round, nowPending.length, pendingHistory);
     if (sessionId && !stalled) return null;
+    return this.resolvePendingRound(statusMap, nowPending, round, params, sessionId, extraPassCount, pendingHistory);
+  }
+
+  private resolveCompleteRound(
+    statusMap: Map<number, StepAssessment>, round: number, params: PlanStepVerificationRunParams,
+    sessionId: string | undefined, extraPassCount: number,
+  ): PlanStepVerificationOutcome {
+    const counts = countStatuses(statusMap.values());
+    this.logEventAndAppendToLogFile(
+      'INFO',
+      `step-verify.complete rounds=${round} steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']} pending=0`,
+      params.silent,
+    );
+    return { sessionId, summary: { rounds: round, done: counts.done + counts['not-applicable'], pending: 0 }, extraPassCount };
+  }
+
+  private isRoundStalled(
+    params: PlanStepVerificationRunParams, round: number, pendingCount: number, pendingHistory: number[],
+  ): boolean {
+    if (!params.refreshSteps) return round === params.stallWindow;
+    return this.recordPendingAndCheckStall(pendingHistory, pendingCount, params.stallWindow);
+  }
+
+  private resolvePendingRound(
+    statusMap: Map<number, StepAssessment>, nowPending: StepAssessment[], round: number,
+    params: PlanStepVerificationRunParams,
+    sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
+  ): PlanStepVerificationOutcome {
     const pending = nowPending.length, reason = sessionId
       ? `step-verify.stalled pending=${pending} window=${JSON.stringify(pendingHistory)}`
       : `step-verify.skipped reason=provider-session-unavailable pending=${pending}`;
