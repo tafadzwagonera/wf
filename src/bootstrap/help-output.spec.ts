@@ -35,6 +35,14 @@ describe('getHelpText', () => {
     expect(helpText).toContain('issue:generate');
   });
 
+  it('wraps top-level command descriptions to the 80-character limit', () => {
+    const helpText = getHelpText(['--help'], catalog);
+    const plainLines = helpText.split('\n').map(stripStyleTags);
+
+    expect(plainLines.every(line => line.length <= 80)).toBe(true);
+    expect(plainLines.some(line => /^ {25}\S/.test(line))).toBe(true);
+  });
+
   it('returns stage-specific help for issue:generate', () => {
     const helpText = getHelpText(['issue:generate', '--help'], catalog);
     const plainHelpText = normalizeWrappedText(helpText);

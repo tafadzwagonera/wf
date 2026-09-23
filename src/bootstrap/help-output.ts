@@ -15,6 +15,8 @@ const CATALOG_PATH = path.join(__dirname, '..', '..', 'dist', 'bootstrap', 'comm
 const HELP_FLAG_PATTERN = /^--help$|^-h$/;
 const OPTION_FLAGS_COLUMN_WIDTH = 28;
 const OPTION_DESCRIPTION_COLUMN = 2 + OPTION_FLAGS_COLUMN_WIDTH + 2;
+const COMMAND_NAME_COLUMN_WIDTH = 21;
+const COMMAND_DESCRIPTION_COLUMN = 2 + COMMAND_NAME_COLUMN_WIDTH + 2;
 
 const loadCatalogFromDisk = (): Record<string, CommandHelpEntry> => {
   if (!fs.existsSync(CATALOG_PATH)) {
@@ -52,9 +54,17 @@ const formatOptionLine = (option: CommandHelpOption): string[] => {
   ];
 };
 
+const formatCommandListLine = (commandName: string, description: string): string[] => {
+  if (commandName.length <= COMMAND_NAME_COLUMN_WIDTH) {
+    return wrapText(description, `  ${commandName.padEnd(COMMAND_NAME_COLUMN_WIDTH)}  `, ' '.repeat(COMMAND_DESCRIPTION_COLUMN));
+  }
+
+  return [`  ${commandName}`, ...wrapText(description, ' '.repeat(COMMAND_DESCRIPTION_COLUMN), ' '.repeat(COMMAND_DESCRIPTION_COLUMN))];
+};
+
 function formatGlobalHelp(commandHelp: Record<string, CommandHelpEntry>): string {
-  const commandLines = Object.entries(commandHelp).map(
-    ([commandName, commandEntry]) => `  ${commandName.padEnd(16)} ${commandEntry.description}`
+  const commandLines = Object.entries(commandHelp).flatMap(
+    ([commandName, commandEntry]) => formatCommandListLine(commandName, commandEntry.description)
   );
 
   return [
