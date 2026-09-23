@@ -48,6 +48,14 @@ describe('classifyAiSdkError', () => {
     expect(classifyAiSdkError(new OpenAI.OpenAIError('bad request shape'))).toBe('config');
   });
 
+  it('returns config for invalid provider JSON schema errors', () => {
+    expect(classifyAiSdkError(new OpenAI.APIError(400, {
+      message: 'Invalid schema for response_format: invalid_json_schema at text.format.schema',
+      code: 'invalid_json_schema',
+      param: 'text.format.schema',
+    }, 'bad request', new Headers()))).toBe('config');
+  });
+
   it('prefers the specific category over config for typed API errors', () => {
     expect(classifyAiSdkError(new Anthropic.AuthenticationError(401, undefined, 'bad key', new Headers()))).toBe('auth');
   });

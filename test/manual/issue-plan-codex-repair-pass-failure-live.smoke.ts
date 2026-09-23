@@ -7,7 +7,7 @@
  * resume` reports "thread not found" — a stale-resume-shaped error, not a
  * schema miss), `runCodexRetryPass`'s try/catch must degrade to pass 1's
  * invalid content, producing a clean `parse`-category error instead of an
- * uncaught crash or an unwanted whole-stage stale-resume restart.
+ * uncaught crash. Any later command-level fallback must remain unconstrained.
  *
  * Config under test:
  *   ai: [
@@ -19,9 +19,9 @@
  *
  * Verify:
  *   1. The command exits non-zero (not a hang, not a raw stack trace).
- *   2. The fake Codex binary is invoked exactly twice.
- *   3. The run does NOT restart the whole plan stage from scratch (no
- *      second `thread.started` message with a fresh thread id).
+ *   2. The first two invocations are the constrained schema pass and its
+ *      resumed repair pass.
+ *   3. Any later fallback invocation omits `--output-schema`.
  *   4. No plan artifact is written.
  *
  * Wire up: fake `codex` script — first invocation emits `thread.started` +
@@ -217,21 +217,18 @@ function checkNoRawStackTrace(output: string): void {
   }
 }
 
-function checkTwoInvocations(invocations: string[][]): void {
-  if (invocations.length === 2) {
-    pass('fake Codex binary was invoked exactly twice');
+function checkSchemaRepairBoundary(invocations: string[][]): void {
+  const [initial, repair, ...fallbacks] = invocations;
+  const initialIsConstrained = initial?.includes('--output-schema') ?? false;
+  const repairIsConstrainedResume = repair?.includes('resume') && repair.includes('--output-schema');
+  if (initialIsConstrained && repairIsConstrainedResume) {
+    pass('initial and resumed repair passes use the constrained schema');
   } else {
-    fail('expected exactly 2 Codex invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
+    fail('expected constrained initial and resumed repair invocations', JSON.stringify(invocations));
   }
-}
-
-function checkNoFullStageRestart(output: string): void {
-  const threadStartedCount = (output.match(/thread\.started/g) ?? []).length;
-  if (threadStartedCount <= 1) {
-    pass('the plan stage did not restart from scratch (no second fresh thread.started)');
-  } else {
-    fail('unexpected second thread.started — stale-resume full-stage restart was triggered', output);
-  }
+  const fallbackIsUnconstrained = fallbacks.every(args => args.filter(arg => arg === '--output-schema').length === 0);
+  if (fallbackIsUnconstrained) pass('later fallback invocations do not repeat the constrained schema retry');
+  else fail('fallback invocations should omit --output-schema', JSON.stringify(fallbacks));
 }
 
 function checkNoPlanArtifact(planPath: string): void {
@@ -243,10 +240,9 @@ function checkNoPlanArtifact(planPath: string): void {
 }
 
 function checkBuildExists(): void {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+  if (fs.existsSync(distMainPath)) return;
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
 }
 
 function runChecks(paths: Paths): void {
@@ -254,8 +250,7 @@ function runChecks(paths: Paths): void {
   const output = `${result.stdout}\n${result.stderr}`;
   checkCommandExitsNonZero(result, output);
   checkNoRawStackTrace(output);
-  checkTwoInvocations(invocations);
-  checkNoFullStageRestart(output);
+  checkSchemaRepairBoundary(invocations);
   checkNoPlanArtifact(paths.planPath);
 }
 

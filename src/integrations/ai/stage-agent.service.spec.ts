@@ -55,7 +55,7 @@ describe('StageAgentService', () => {
     });
   });
 
-  it('configures deterministic OpenAI Agent SDK structured output', async () => {
+  it('normalizes deterministic OpenAI Agent SDK structured output', async () => {
     const service = new StageAgentService(createConfigService());
     const build = (service as unknown as {
       buildOpenAiStageAgent: (options: Record<string, unknown>) => Promise<{
@@ -64,9 +64,25 @@ describe('StageAgentService', () => {
     }).buildOpenAiStageAgent;
     const result = await build.call(service, {
       stage: 'plan', systemPrompt: 'sys', apiKey: 'key',
-      structuredOutput: { name: 'example', schema: { type: 'object' } },
+      structuredOutput: {
+        name: 'example',
+        schema: {
+          $schema: 'schema',
+          type: 'object',
+          properties: { value: { type: 'string' } },
+        },
+      },
     });
-    expect(result.agent.outputType).toEqual({ type: 'json_schema', name: 'example', schema: { type: 'object' }, strict: true });
+    expect(result.agent.outputType).toEqual({
+      type: 'json_schema',
+      name: 'example',
+      schema: {
+        type: 'object',
+        properties: { value: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
+        required: ['value'],
+      },
+      strict: true,
+    });
     expect(result.agent.modelSettings.temperature).toBe(0);
   });
   const createConfigService = (): ConfigService =>
@@ -2223,6 +2239,10 @@ describe('StageAgentService', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('routes OpenAI CLI chat turns through Codex with the configured implement model', async () => {
       spawnCodex.mockReturnValueOnce(makeStream(
         { type: 'thread.started', thread_id: 'codex-chat-1' },
@@ -2239,6 +2259,40 @@ describe('StageAgentService', () => {
       expect(buildCodexCliArgs).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-luna' }));
       expect(spawnCodex).toHaveBeenCalledTimes(1);
       expect(spawnCli).toHaveBeenCalledTimes(0);
+    });
+
+    it('writes a normalized structured-output schema for Codex chat turns', async () => {
+      let writtenSchema: string | undefined;
+      buildCodexCliArgs.mockImplementation(({ outputSchemaPath }: { outputSchemaPath?: string }) => {
+        writtenSchema = outputSchemaPath
+          ? require('node:fs').readFileSync(outputSchemaPath, 'utf8')
+          : undefined;
+        return [];
+      });
+      spawnCodex.mockReturnValueOnce(makeStream(
+        { type: 'thread.started', thread_id: 'codex-structured-1' },
+        { type: 'item.completed', item: { type: 'agent_message', text: '{"value":"ok"}' } }
+      ));
+      const service = new StageAgentService(createCodexImplementConfigService());
+
+      await service.chatTurn({
+        stage: 'implement', userMessage: 'Assess steps', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        structuredOutput: {
+          name: 'example',
+          schema: {
+            $schema: 'schema',
+            type: 'object',
+            properties: { value: { type: 'string' } },
+          },
+        },
+      });
+
+      expect(buildCodexCliArgs).toHaveBeenCalledWith(expect.objectContaining({ outputSchemaPath: expect.any(String) }));
+      expect(JSON.parse(writtenSchema ?? '{}')).toEqual({
+        type: 'object',
+        properties: { value: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
+        required: ['value'],
+      });
     });
 
     it('does not apply the review schema to an unstructured Codex chat turn', async () => {

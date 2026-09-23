@@ -22,8 +22,8 @@
  *   2. CLI output shows the repair pass genuinely stalled (empty Codex
  *      result), NOT the resolution-plan parse-failure message — proving
  *      `isNonRetryableCodexError` let the stall through unmasked.
- *   3. The fake Codex binary is invoked exactly twice (pass 1 schema-invalid,
- *      pass 2 empty).
+ *   3. The first two invocations are the constrained schema pass and its
+ *      resumed empty repair pass; any later fallback omits `--output-schema`.
  *   4. No plan artifact is written.
  *
  * Wire up: fake `codex` script — first invocation emits `thread.started` +
@@ -225,12 +225,18 @@ function checkStallNotMaskedAsParseFailure(output: string): void {
   }
 }
 
-function checkTwoInvocations(invocations: string[][]): void {
-  if (invocations.length === 2) {
-    pass('fake Codex binary was invoked exactly twice');
+function checkSchemaRepairBoundary(invocations: string[][]): void {
+  const [initial, repair, ...fallbacks] = invocations;
+  const initialIsConstrained = initial?.includes('--output-schema') ?? false;
+  const repairIsConstrainedResume = repair?.includes('resume') && repair.includes('--output-schema');
+  if (initialIsConstrained && repairIsConstrainedResume) {
+    pass('initial and resumed repair passes use the constrained schema');
   } else {
-    fail('expected exactly 2 Codex invocations', `got ${invocations.length}: ${JSON.stringify(invocations)}`);
+    fail('expected constrained initial and resumed repair invocations', JSON.stringify(invocations));
   }
+  const fallbackIsUnconstrained = fallbacks.every(args => args.filter(arg => arg === '--output-schema').length === 0);
+  if (fallbackIsUnconstrained) pass('later fallback invocations do not repeat the constrained schema retry');
+  else fail('fallback invocations should omit --output-schema', JSON.stringify(fallbacks));
 }
 
 function checkNoPlanArtifact(planPath: string): void {
@@ -242,10 +248,9 @@ function checkNoPlanArtifact(planPath: string): void {
 }
 
 function checkBuildExists(): void {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+  if (fs.existsSync(distMainPath)) return;
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
 }
 
 function runChecks(paths: Paths): void {
@@ -254,7 +259,7 @@ function runChecks(paths: Paths): void {
   checkCommandExitsNonZero(result, output);
   checkStallDiagnostic(output);
   checkStallNotMaskedAsParseFailure(output);
-  checkTwoInvocations(invocations);
+  checkSchemaRepairBoundary(invocations);
   checkNoPlanArtifact(paths.planPath);
 }
 

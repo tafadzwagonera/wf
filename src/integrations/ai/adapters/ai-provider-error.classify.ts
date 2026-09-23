@@ -28,11 +28,19 @@ export const classifyAiSdkError = (error: unknown): AiProviderErrorCategory | un
 
   if (error instanceof Error && /\btimed?\s*out\b/i.test(error.message)) return 'timeout';
 
+  if (isInvalidJsonSchemaError(error)) return 'config';
+
   // Client-side SDK errors are thrown before any request leaves the process, so the
   // request parameters themselves are invalid. Retrying cannot help.
   if (isClientSideSdkError(error)) return 'config';
 
   return undefined;
+};
+
+const isInvalidJsonSchemaError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  const details = typeof error === 'object' ? JSON.stringify(error) : '';
+  return /invalid_json_schema|text\.format\.schema/i.test(`${error.message} ${details}`);
 };
 
 /**

@@ -95,9 +95,8 @@ const buildInlineInputHandlerLines = (logPath: string, shape: string): string[] 
   'process.stdin.on(\'end\', () => {',
   `  fs.appendFileSync(${logPath}.replace(/\\.log$/, '.prompts.log'), input + '\\n---\\n');`,
   '  const isResume = args.includes(\'resume\');',
-  '  if (!isResume) {',
-  `    console.log(JSON.stringify({ type: 'thread.started', thread_id: 'tid-2' }));`,
-  '  }',
+  `  const initialThreadMessage = isResume ? undefined : JSON.stringify({ type: 'thread.started', thread_id: 'tid-2' });`,
+  '  if (initialThreadMessage) console.log(initialThreadMessage);',
   `  console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ${shape} } }));`,
   '});',
 ];

@@ -10,6 +10,7 @@ import { LoggerService } from '../../../shared/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
 import { classifyAiSdkError } from './ai-provider-error.classify';
+import { normalizeOpenAiJsonSchema } from '../schema/openai-json-schema';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
@@ -50,10 +51,12 @@ const buildResponseFormat = (
   structuredOutput: StructuredOutput | undefined,
 ): Pick<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, 'response_format'> => {
   if (!structuredOutput) return {};
+  const schema = normalizeOpenAiJsonSchema(structuredOutput.schema);
+  if (!schema) return {};
   return {
     response_format: {
       type: 'json_schema',
-      json_schema: { name: structuredOutput.name, strict: true, schema: structuredOutput.schema },
+      json_schema: { name: structuredOutput.name, strict: true, schema },
     },
   };
 };
@@ -116,14 +119,22 @@ const buildMessageHistory = (
 };
 
 /**
- * Extracts the HTTP status from an unknown error object, if present.
+ * Extracts provider diagnostic details from an unknown OpenAI error, if present.
  * @param error - The caught error value.
- * @returns An object with an optional `status` number field.
+ * @returns Provider status, response fields, and request ID when available.
  */
-const getApiErrorDetails = (error: unknown): { status?: number } =>
-  typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
-    ? { status: error.status }
-    : {};
+const getApiErrorDetails = (error: unknown): Record<string, unknown> => {
+  if (typeof error !== 'object' || error === null) return {};
+  const source = error as Record<string, unknown>;
+  const details: Record<string, unknown> = {};
+  for (const key of ['status', 'code', 'param', 'type', 'error']) {
+    if (source[key] !== undefined) details[key] = source[key];
+  }
+  const requestId = source.request_id
+    ?? (source.headers instanceof Headers ? source.headers.get('x-request-id') : undefined);
+  if (requestId !== undefined && requestId !== null) details.request_id = requestId;
+  return details;
+};
 
 const buildOpenAiUserContent = (
   prompt: string, screenshots: UiDesignScreenshot[] | undefined,

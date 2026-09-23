@@ -85,6 +85,8 @@ import {
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
 import { estimateLlmCostUsd } from './llm-cost';
+import { buildSanitisedJsonSchema, normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './schema/openai-json-schema';
+export { buildSanitisedJsonSchema } from './schema/openai-json-schema';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
@@ -487,9 +489,11 @@ const buildAgentOutputFormat = (opts: Pick<AnthropicStageOpts, 'structuredOutput
 
 const buildOpenAiStructuredSettings = (structuredOutput: AIRequest['structuredOutput']) => {
   if (!structuredOutput) return {};
+  const schema = normalizeOpenAiJsonSchema(structuredOutput.schema);
+  if (!schema) return {};
   const outputType = {
     type: 'json_schema' as const, name: structuredOutput.name, strict: true as const,
-    schema: structuredOutput.schema as JsonSchemaDefinition['schema'],
+    schema: schema as JsonSchemaDefinition['schema'],
   } satisfies JsonSchemaDefinition;
   return { outputType: outputType as unknown as 'text', modelSettings: { temperature: 0 } };
 };
@@ -929,78 +933,6 @@ const extractAnthropicResultMessage = (
     throw new AiProviderError(`Claude Agent SDK failed (${result.subtype}): ${errorSummary}`);
   }
   return extractAnthropicResultContent(result);
-};
-
-type JsonSchemaObject = Record<string, unknown>;
-
-const isJsonSchemaObject = (value: unknown): value is JsonSchemaObject =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const containsNullSchema = (schema: JsonSchemaObject): boolean =>
-  schema.type === 'null'
-  || (Array.isArray(schema.type) && schema.type.includes('null'))
-  || (Array.isArray(schema.anyOf) && schema.anyOf.some(item => isJsonSchemaObject(item) && containsNullSchema(item)));
-
-const makeSchemaNullable = (schema: unknown): unknown => {
-  if (!isJsonSchemaObject(schema) || containsNullSchema(schema)) return schema;
-  return { anyOf: [schema, { type: 'null' }] };
-};
-
-const normaliseSchemaProperties = (schema: JsonSchemaObject): void => {
-  if (!isJsonSchemaObject(schema.properties)) return;
-  const properties = Object.fromEntries(
-    Object.entries(schema.properties).map(([key, value]) => [key, normaliseStrictJsonSchema(value)])
-  );
-  const required = new Set(Array.isArray(schema.required) ? schema.required : []);
-  schema.properties = Object.fromEntries(
-    Object.entries(properties).map(([key, value]) => [key, required.has(key) ? value : makeSchemaNullable(value)])
-  );
-  schema.required = Object.keys(properties);
-};
-
-const normaliseSchemaDefinitions = (schema: JsonSchemaObject): void => {
-  if (!isJsonSchemaObject(schema.$defs)) return;
-  schema.$defs = Object.fromEntries(
-    Object.entries(schema.$defs).map(([key, value]) => [key, normaliseStrictJsonSchema(value)])
-  );
-};
-
-const removeRecordPropertyNames = (schema: JsonSchemaObject): void => {
-  if (!('propertyNames' in schema)) return;
-  delete schema.propertyNames;
-  schema.additionalProperties = false;
-};
-
-const normaliseSchemaChildren = (schema: JsonSchemaObject): void => {
-  for (const key of ['items', 'additionalProperties', 'not']) {
-    if (key in schema) schema[key] = normaliseStrictJsonSchema(schema[key]);
-  }
-  for (const key of ['anyOf', 'allOf', 'oneOf']) {
-    if (Array.isArray(schema[key])) schema[key] = schema[key].map(normaliseStrictJsonSchema);
-  }
-  normaliseSchemaDefinitions(schema);
-  removeRecordPropertyNames(schema);
-};
-
-const normaliseStrictJsonSchema = (schema: unknown): unknown => {
-  if (Array.isArray(schema)) return schema.map(normaliseStrictJsonSchema);
-  if (!isJsonSchemaObject(schema)) return schema;
-
-  const normalised: JsonSchemaObject = { ...schema };
-  normaliseSchemaChildren(normalised);
-  normaliseSchemaProperties(normalised);
-  return normalised;
-};
-
-/** Serialises an OpenAI-compatible JSON schema for the CLI.
- * Strips `$schema`, makes optional object properties nullable, and removes
- * provider-incompatible record metadata before strict validation.
- */
-export const buildSanitisedJsonSchema = (zodSchema: unknown): string | undefined => {
-  if (!zodSchema || typeof zodSchema !== 'object') return undefined;
-  const sanitised = normaliseStrictJsonSchema(zodSchema) as JsonSchemaObject;
-  delete sanitised['$schema'];
-  return JSON.stringify(sanitised);
 };
 
 const STAGE_RESPONSE_SCHEMAS: Partial<Record<AgentStageName, string>> = {
@@ -2116,11 +2048,7 @@ export class StageAgentService {
     };
   }
 
-  private buildCodexCliChatRunOptions(params: ChatTurnParams): {
-    stage: AgentStageName; model: string; repoDir: string; initialPrompt: string;
-    initialSessionId?: string; responseValidator?: ResponseValidator;
-    timeoutMs: number; inactivityTimeoutMs: number; jsonSchema?: string;
-  } {
+  private buildCodexCliChatRunOptions(params: ChatTurnParams) {
     return {
       stage: params.stage, model: this.resolveModelForStage(params.stage, params.modelOverride),
       repoDir: params.repoDir ?? process.cwd(),
@@ -2128,7 +2056,9 @@ export class StageAgentService {
       responseValidator: params.responseValidator,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
-      jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
+      jsonSchema: params.structuredOutput
+        ? serializeOpenAiJsonSchema(params.structuredOutput.schema)
+        : params.jsonSchema,
     };
   }
 

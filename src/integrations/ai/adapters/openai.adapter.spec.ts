@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
 import { LoggerService } from '../../../shared/logger/logger.service';
+import { AiProviderError } from '../../../shared/utils/errors';
 import { OpenAIAdapter } from './openai.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 
@@ -377,6 +378,63 @@ describe('OpenAIAdapter', () => {
     });
     expect(mockCreate.mock.calls[0][0].response_format).toEqual({
       type: 'json_schema', json_schema: { name: 'example', schema: { type: 'object' }, strict: true },
+    });
+  });
+
+  it('normalizes the schema sent in response_format', async () => {
+    const adapter = createAdapter();
+    const mockCreate = jest.fn().mockResolvedValue({
+      choices: [{ message: { content: '{"value":"ok"}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    (adapter as unknown as { client: OpenAI }).client = {
+      chat: { completions: { create: mockCreate } },
+    } as unknown as OpenAI;
+
+    await adapter.execute({
+      prompt: 'hello',
+      structuredOutput: {
+        name: 'example',
+        schema: { $schema: 'schema', type: 'object', properties: { value: { type: 'string' } } },
+      },
+    });
+
+    expect(mockCreate.mock.calls[0][0].response_format.json_schema.schema).toEqual({
+      type: 'object', properties: { value: { anyOf: [{ type: 'string' }, { type: 'null' }] } }, required: ['value'],
+    });
+  });
+
+  it('preserves invalid-schema provider details on OpenAI API errors', async () => {
+    const adapter = createAdapter();
+    const providerError = {
+      message: 'Invalid schema for response_format',
+      code: 'invalid_json_schema',
+      param: 'text.format.schema',
+      type: 'invalid_request_error',
+    };
+    const mockCreate = jest.fn().mockRejectedValue(new OpenAI.APIError(
+      400,
+      providerError,
+      'bad request',
+      new Headers({ 'x-request-id': 'request-123' }),
+    ));
+    (adapter as unknown as { client: OpenAI }).client = {
+      chat: { completions: { create: mockCreate } },
+    } as unknown as OpenAI;
+
+    await expect(adapter.execute({
+      prompt: 'hello',
+      structuredOutput: { name: 'example', schema: { type: 'object' } },
+    })).rejects.toMatchObject<Partial<AiProviderError>>({
+      category: 'config',
+      details: {
+        status: 400,
+        code: 'invalid_json_schema',
+        param: 'text.format.schema',
+        type: 'invalid_request_error',
+        error: providerError,
+        request_id: 'request-123',
+      },
     });
   });
 
