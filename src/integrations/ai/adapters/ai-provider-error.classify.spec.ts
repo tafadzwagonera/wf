@@ -146,3 +146,12 @@ describe('isUnavailableModelError', () => {
     expect(isUnavailableModelError(null)).toBe(false);
   });
 });
+
+describe('AiProviderError', () => {
+  it('config-category error with recoverable:false has correct properties and is not a model-unavailable error', () => {
+    const error = new AiProviderError('schema error', {}, false, 'config');
+    expect(error.recoverable).toBe(false);
+    expect(error.category).toBe('config');
+    expect(isUnavailableModelError(error)).toBe(false);
+  });
+});

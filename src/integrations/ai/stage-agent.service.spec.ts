@@ -85,6 +85,59 @@ describe('StageAgentService', () => {
     });
     expect(result.agent.modelSettings.temperature).toBe(0);
   });
+
+  it('throws config error when OpenAI Agent SDK receives array-root schema', async () => {
+    const service = new StageAgentService(createConfigService());
+    const build = (service as unknown as {
+      buildOpenAiStageAgent: (options: Record<string, unknown>) => Promise<void>;
+    }).buildOpenAiStageAgent;
+
+    await expect(
+      build.call(service, {
+        stage: 'plan',
+        systemPrompt: 'sys',
+        apiKey: 'key',
+        structuredOutput: { name: 'example', schema: [] as unknown as Record<string, unknown> },
+      })
+    ).rejects.toMatchObject({ category: 'config' });
+  });
+
+  it('normalizes structuredOutput schema in Codex stage by stripping $schema', () => {
+    const service = new StageAgentService(createCodexConfigService());
+    const resolveCodexStageJsonSchema = (service as unknown as {
+      resolveCodexStageJsonSchema: (params: Record<string, unknown>) => string | undefined;
+    }).resolveCodexStageJsonSchema;
+
+    const result = resolveCodexStageJsonSchema.call(service, {
+      stage: 'plan',
+      structuredOutput: {
+        name: 'example',
+        schema: { $schema: 'schema', type: 'object', properties: { x: { type: 'string' } } },
+      },
+    });
+
+    expect(result).toBeDefined();
+    expect(JSON.parse(result as string)).toEqual({
+      type: 'object',
+      properties: { x: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
+      required: ['x'],
+    });
+  });
+
+  it('throws config error when Codex stage receives array-root schema', () => {
+    const service = new StageAgentService(createCodexConfigService());
+    const resolveCodexStageJsonSchema = (service as unknown as {
+      resolveCodexStageJsonSchema: (params: Record<string, unknown>) => string | undefined;
+    }).resolveCodexStageJsonSchema;
+
+    expect(() =>
+      resolveCodexStageJsonSchema.call(service, {
+        stage: 'plan',
+        structuredOutput: { schema: [] as unknown as Record<string, unknown> },
+      })
+    ).toThrow(expect.objectContaining({ category: 'config' }));
+  });
+
   const createConfigService = (): ConfigService =>
     ({
       get: jest.fn((key: string, defaultValue?: unknown) => {

@@ -490,7 +490,7 @@ const buildAgentOutputFormat = (opts: Pick<AnthropicStageOpts, 'structuredOutput
 const buildOpenAiStructuredSettings = (structuredOutput: AIRequest['structuredOutput']) => {
   if (!structuredOutput) return {};
   const schema = normalizeOpenAiJsonSchema(structuredOutput.schema);
-  if (!schema) return {};
+  if (!schema) throw new AiProviderError(`Structured output schema for '${structuredOutput.name}' cannot be normalized — schema root must be a JSON Schema object.`, { name: structuredOutput.name }, false, 'config');
   const outputType = {
     type: 'json_schema' as const, name: structuredOutput.name, strict: true as const,
     schema: schema as JsonSchemaDefinition['schema'],
@@ -1825,6 +1825,13 @@ export class StageAgentService {
     return `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}${schemaSection}${screenshotPaths}`;
   }
 
+  private resolveCodexStageJsonSchema(params: StagePromptParams): string | undefined {
+    if (!params.structuredOutput) return params.jsonSchema ?? this.resolveStageJsonSchema(params.stage);
+    const serialized = serializeOpenAiJsonSchema(params.structuredOutput.schema);
+    if (!serialized) throw new AiProviderError(`Structured output schema for '${params.structuredOutput.name}' cannot be normalized — schema root must be a JSON Schema object.`, { name: params.structuredOutput.name }, false, 'config');
+    return serialized;
+  }
+
   private async runCodexCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertCodexCliAvailable();
     const model = this.resolveModelForStage(params.stage, params.modelOverride);
@@ -1834,7 +1841,7 @@ export class StageAgentService {
       initialSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
       timeoutMs: this.resolveStageTimeoutMs(params.stage),
       inactivityTimeoutMs: this.resolveStageInactivityTimeoutMs(params.stage),
-      jsonSchema: params.jsonSchema ?? this.resolveStageJsonSchema(params.stage),
+      jsonSchema: this.resolveCodexStageJsonSchema(params),
     });
   }
 

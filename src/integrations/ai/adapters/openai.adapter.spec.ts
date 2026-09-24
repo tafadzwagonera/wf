@@ -450,6 +450,19 @@ describe('OpenAIAdapter', () => {
     expect(mockCreate.mock.calls[0][0].response_format).toBeUndefined();
   });
 
+  describe('structured-output', () => {
+    it('throws config error for array-root schema', async () => {
+      const adapter = createAdapter();
+
+      await expect(adapter.execute({
+        prompt: 'hello',
+        structuredOutput: { name: 'example', schema: [] as unknown as Record<string, unknown> },
+      })).rejects.toMatchObject<Partial<AiProviderError>>({
+        category: 'config',
+      });
+    });
+  });
+
   describe('onModuleInit', () => {
     it('loads global and project config from AGENTS.md paths', async () => {
       const adapter = createAdapter();

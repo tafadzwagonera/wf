@@ -88,4 +88,31 @@ describe('OpenAI JSON schema normalization', () => {
   it('serializes the normalized schema', () => {
     expect(serializeOpenAiJsonSchema({ $schema: 'schema', type: 'object' })).toBe('{"type":"object"}');
   });
+
+  it('recurses into allOf members and not child', () => {
+    const normalized = normalizeOpenAiJsonSchema({
+      allOf: [
+        { $schema: 'draft', type: 'object', properties: { x: { type: 'string' } } },
+      ],
+      not: { $schema: 'draft', type: 'object' },
+    });
+    expect((normalized?.allOf as Array<Record<string, unknown>>)[0]).toEqual({
+      type: 'object',
+      properties: { x: { anyOf: [{ type: 'string' }, { type: 'null' }] } },
+      required: ['x'],
+    });
+    expect(normalized?.not).toEqual({ type: 'object' });
+  });
+
+  it('recurses into additionalProperties when it is a schema object', () => {
+    const normalized = normalizeOpenAiJsonSchema({
+      type: 'object',
+      additionalProperties: { $schema: 'draft', type: 'string' },
+    });
+    expect(normalized?.additionalProperties).toEqual({ type: 'string' });
+  });
+
+  it('returns undefined for a numeric primitive root', () => {
+    expect(normalizeOpenAiJsonSchema(42)).toBeUndefined();
+  });
 });

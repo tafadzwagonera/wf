@@ -52,7 +52,7 @@ const buildResponseFormat = (
 ): Pick<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, 'response_format'> => {
   if (!structuredOutput) return {};
   const schema = normalizeOpenAiJsonSchema(structuredOutput.schema);
-  if (!schema) return {};
+  if (!schema) throw new AiProviderError(`Structured output schema for '${structuredOutput.name}' cannot be normalized — schema root must be a JSON Schema object.`, { name: structuredOutput.name }, false, 'config');
   return {
     response_format: {
       type: 'json_schema',
