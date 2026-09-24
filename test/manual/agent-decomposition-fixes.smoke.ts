@@ -209,8 +209,8 @@ function testSlugifySpecialChars(): void {
 }
 
 function testResolveRepoBasePathUndefined(): void {
-  const result = resolveRepoBasePath(undefined);
-  if (result === process.cwd()) pass('resolveRepoBasePath(undefined) returns cwd');
+  const result = resolveRepoBasePath();
+  if (result === process.cwd()) pass('resolveRepoBasePath() returns cwd');
   else fail('resolveRepoBasePath(undefined) did not return cwd', `got: ${result}`);
 }
 

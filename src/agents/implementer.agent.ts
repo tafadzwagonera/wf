@@ -66,7 +66,7 @@ type CheckoutFeatureBranchParams = {
 
 const DEFAULT_STALL_WINDOW = 3;
 
-const DEFAULT_PREFIX_MAPPING: Record<ResolutionAction, string> = {
+const defaultPrefixMapping: Record<ResolutionAction, string> = {
   feature: 'feature',
   fix: 'bugfix',
   investigate: 'chore',
@@ -317,9 +317,17 @@ export class ImplementerAgent {
   private async enrichStepsWithFidelityErrors(
     steps: string[], repoDir: string, baseRef?: string,
   ): Promise<string[]> {
-    const findingsPerStep = await this.stepSpecFidelity.verifyAll(steps, repoDir, baseRef);
+    const result = await this.stepSpecFidelity.verifyAll(steps, repoDir, baseRef);
+    for (const failure of result.failures) {
+      const detail = failure.stepIndex === undefined ? '' : ` step=${failure.stepIndex}`;
+      appendToLogFile(
+        'WARN',
+        `step-fidelity.degraded category=${failure.category}${detail} cause=${failure.cause}`,
+        'step-verification',
+      );
+    }
     return steps.map((stepText, i) => {
-      const errors = findingsPerStep[i].filter((f: StepFidelityFinding) => f.severity === 'error');
+      const errors = result.findingsPerStep[i].filter((f: StepFidelityFinding) => f.severity === 'error');
       if (!errors.length) return stepText;
       const block = errors.map((f: StepFidelityFinding) => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
       return `${stepText}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`;
@@ -1499,7 +1507,7 @@ export class ImplementerAgent {
   private resolveBranchPrefix(action: ResolutionAction): string {
     const mapping = this.configService.get<Record<ResolutionAction, string>>(
       'git.branchPrefixMapping',
-      DEFAULT_PREFIX_MAPPING
+      defaultPrefixMapping
     );
     return mapping[action] || 'feature';
   }

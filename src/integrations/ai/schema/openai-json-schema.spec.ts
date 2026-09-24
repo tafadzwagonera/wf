@@ -1,4 +1,5 @@
 import { normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './openai-json-schema';
+import { stepFidelityResponseJsonSchema } from '../../../shared/schemas/step-spec-fidelity.schema';
 
 describe('OpenAI JSON schema normalization', () => {
   it('returns undefined for absent and non-object schemas', () => {
@@ -114,5 +115,21 @@ describe('OpenAI JSON schema normalization', () => {
 
   it('returns undefined for a numeric primitive root', () => {
     expect(normalizeOpenAiJsonSchema(42)).toBeUndefined();
+  });
+
+  it('preserves stepFidelityResponseJsonSchema structure after normalization', () => {
+    const normalized = normalizeOpenAiJsonSchema(stepFidelityResponseJsonSchema);
+    expect(normalized?.type).toBe('object');
+    expect(normalized?.required as string[]).toContain('findings');
+    const findingsProp = (normalized?.properties as Record<string, unknown>)
+      ?.findings as Record<string, unknown>;
+    expect(findingsProp).toBeDefined();
+    const items = findingsProp?.items as Record<string, unknown>;
+    expect(items?.type).toBe('object');
+    expect(items?.additionalProperties).toBe(false);
+    expect(items?.required as string[]).toEqual(
+      expect.arrayContaining(['severity', 'claim', 'deviation']),
+    );
+    expect(serializeOpenAiJsonSchema(stepFidelityResponseJsonSchema)).toBeDefined();
   });
 });

@@ -3,6 +3,7 @@ import { StepSpecFidelityService, buildSpecFidelityPrompt } from './step-spec-fi
 import type { StepSpecFidelityRunParams } from './step-spec-fidelity.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
+import { stepFidelityResponseJsonSchema } from '../shared/schemas/step-spec-fidelity.schema';
 
 const MOCK_DIFF = 'diff --git a/src/foo.ts b/src/foo.ts\n+const x = 1;';
 
@@ -27,110 +28,112 @@ describe('StepSpecFidelityService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   describe('run()', () => {
-    afterEach(() => jest.restoreAllMocks());
-
-    it('returns [] and does not call AI when diff is empty', async () => {
-      const params: StepSpecFidelityRunParams = { stepText: 'Add regex /\\.ts$/', diff: '   ' };
-      const result = await service.run(params);
-      expect(result).toEqual([]);
+    it('returns empty findings with no failure when diff is whitespace only', async () => {
+      const result = await service.run({ stepText: 'step', diff: '   ' });
+      expect(result).toEqual({ findings: [] });
       expect(mockAiExecute).not.toHaveBeenCalled();
     });
 
-    it('returns [] when AI response has no findings', async () => {
+    it('calls aiService.execute with stage implement and structured output schema', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      const result = await service.run({ stepText: 'Step A', diff: '+code' });
-      expect(result).toEqual([]);
-    });
-
-    it('returns an error finding when AI reports a concrete mismatch', async () => {
-      mockAiExecute.mockResolvedValue({
-        content: '{"findings":[{"severity":"error","claim":"/\\\\.ts$/","deviation":"diff uses /\\\\.js$/"}]}',
-      });
-      const result = await service.run({ stepText: 'Step A', diff: '+code' });
-      expect(result).toEqual([{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }]);
-    });
-
-    it('returns a warning finding when AI cannot confirm a claim from the diff', async () => {
-      mockAiExecute.mockResolvedValue({
-        content: '{"findings":[{"severity":"warning","claim":"returns null when totalSamples < 3","deviation":"diff is silent"}]}',
-      });
-      const result = await service.run({ stepText: 'Step A', diff: '+code' });
-      expect(result[0].severity).toBe('warning');
-    });
-
-    it('returns [] without throwing when AI returns invalid JSON', async () => {
-      mockAiExecute.mockResolvedValue({ content: 'not json at all' });
-      await expect(service.run({ stepText: 'Step A', diff: '+code' })).resolves.toEqual([]);
-    });
-
-    it('returns [] without throwing when AI returns JSON that fails schema validation', async () => {
-      mockAiExecute.mockResolvedValue({ content: '{"findings":[{"severity":"critical","claim":"x","deviation":"y"}]}' });
-      await expect(service.run({ stepText: 'Step A', diff: '+code' })).resolves.toEqual([]);
-    });
-
-    it('returns [] without throwing when AI execute rejects', async () => {
-      mockAiExecute.mockRejectedValue(new Error('network error'));
-      await expect(service.run({ stepText: 'Step A', diff: '+code' })).resolves.toEqual([]);
-    });
-
-    it('calls AI execute with stage "review" and maxTokens 2048', async () => {
-      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      await service.run({ stepText: 'Step A', diff: '+code' });
+      await service.run({ stepText: 'step', diff: MOCK_DIFF });
       expect(mockAiExecute).toHaveBeenCalledWith(
-        expect.objectContaining({ stage: 'review', maxTokens: 2048 }),
+        expect.objectContaining({
+          stage: 'implement',
+          structuredOutput: { name: 'step_spec_fidelity', schema: stepFidelityResponseJsonSchema },
+        }),
       );
+    });
+
+    it('returns findings on a valid response with no failure', async () => {
+      mockAiExecute.mockResolvedValue({
+        content: '{"findings":[{"severity":"error","claim":"uses X","deviation":"diff shows Y"}]}',
+      });
+      const result = await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      expect(result.findings).toEqual([{ severity: 'error', claim: 'uses X', deviation: 'diff shows Y' }]);
+      expect(result.failure).toBeUndefined();
+    });
+
+    it('returns a response failure when the AI response is not parseable JSON', async () => {
+      mockAiExecute.mockResolvedValue({ content: 'not-json' });
+      const result = await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      expect(result.findings).toEqual([]);
+      expect(result.failure?.category).toBe('response');
+      expect(typeof result.failure?.cause).toBe('string');
+    });
+
+    it('returns a response failure when a finding is missing a required property', async () => {
+      mockAiExecute.mockResolvedValue({
+        content: '{"findings":[{"severity":"error","claim":"x"}]}',
+      });
+      const result = await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      expect(result.findings).toEqual([]);
+      expect(result.failure?.category).toBe('response');
+    });
+
+    it('returns a provider failure when aiService.execute rejects', async () => {
+      mockAiExecute.mockRejectedValue(new Error('rate-limit'));
+      const result = await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      expect(result.findings).toEqual([]);
+      expect(result.failure?.category).toBe('provider');
+      expect(result.failure?.cause).toContain('rate-limit');
     });
   });
 
   describe('verifyAll()', () => {
-    afterEach(() => jest.restoreAllMocks());
-
-    it('returns one findings array per step', async () => {
+    it('returns findingsPerStep with one entry per step and no failures on success', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      const result = await service.verifyAll(['Step A', 'Step B'], '/repo');
-      expect(result).toHaveLength(2);
+      const result = await service.verifyAll(['step-a', 'step-b'], '/repo');
+      expect(result.findingsPerStep).toHaveLength(2);
+      expect(result.failures).toEqual([]);
     });
 
     it('calls getDiffFromRef exactly once regardless of step count', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      await service.verifyAll(['Step A', 'Step B', 'Step C'], '/repo');
+      await service.verifyAll(['a', 'b', 'c'], '/repo');
       expect(mockGitService.getDiffFromRef).toHaveBeenCalledTimes(1);
     });
 
-    it('passes the same diff string to every run() call', async () => {
-      const capturedPrompts: string[] = [];
-      mockAiExecute.mockImplementation(({ prompt }: { prompt: string }) => {
-        capturedPrompts.push(prompt);
-        return Promise.resolve({ content: '{"findings":[]}' });
-      });
-      await service.verifyAll(['Step A', 'Step B'], '/repo');
-      const diffSection = (p: string) => p.split('## Changed files diff')[1]?.split('## Your task')[0] ?? '';
-      expect(diffSection(capturedPrompts[0])).toBe(diffSection(capturedPrompts[1]));
+    it('collects a provider failure with stepIndex when one step rejects', async () => {
+      mockAiExecute
+        .mockResolvedValueOnce({ content: '{"findings":[]}' })
+        .mockRejectedValueOnce(new Error('provider-error'));
+      const result = await service.verifyAll(['step-a', 'step-b'], '/repo');
+      expect(result.findingsPerStep).toHaveLength(2);
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0].category).toBe('provider');
+      expect(result.failures[0].stepIndex).toBe(1);
     });
 
-    it('runs step checks sequentially', async () => {
-      let activeCalls = 0;
-      let maxActiveCalls = 0;
-      const callOrder: number[] = [];
-      mockAiExecute.mockImplementation(async () => {
-        activeCalls += 1;
-        maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
-        callOrder.push(callOrder.length);
-        await new Promise(resolve => setTimeout(resolve, 5));
-        activeCalls -= 1;
-        return { content: '{"findings":[]}' };
-      });
-
-      await service.verifyAll(['Step A', 'Step B', 'Step C'], '/repo');
-
-      expect(maxActiveCalls).toBe(1);
-      expect(callOrder).toEqual([0, 1, 2]);
+    it('returns a diff failure and makes no AI calls when getDiffFromRef throws', async () => {
+      mockGitService.getDiffFromRef.mockRejectedValue(new Error('git-error'));
+      const result = await service.verifyAll(['step-a'], '/repo');
+      expect(mockAiExecute).not.toHaveBeenCalled();
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0].category).toBe('diff');
+      expect(result.findingsPerStep).toHaveLength(1);
+      expect(result.findingsPerStep[0]).toEqual([]);
     });
 
-    it('returns [[], []] without throwing when git diff fails', async () => {
-      mockGitService.getDiffFromRef.mockRejectedValueOnce(new Error('not a git repo'));
-      const result = await service.verifyAll(['Step A', 'Step B'], '/not-a-repo');
-      expect(result).toEqual([[], []]);
+    it('returns empty findingsPerStep and no failures for zero input steps', async () => {
+      const result = await service.verifyAll([], '/repo');
+      expect(result.findingsPerStep).toEqual([]);
+      expect(result.failures).toEqual([]);
+      expect(mockAiExecute).not.toHaveBeenCalled();
+    });
+
+    it('executes steps sequentially with at most one active AI call', async () => {
+      let active = 0;
+      let maxActive = 0;
+      mockAiExecute.mockImplementation(() => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        return Promise.resolve({ content: '{"findings":[]}' }).finally(() => {
+          active--;
+        });
+      });
+      await service.verifyAll(['a', 'b', 'c'], '/repo');
+      expect(maxActive).toBe(1);
     });
   });
 
@@ -150,6 +153,24 @@ describe('StepSpecFidelityService', () => {
     it('includes the JSON output shape instruction', () => {
       const prompt = buildSpecFidelityPrompt('step', 'diff');
       expect(prompt).toContain('{"findings":[');
+    });
+  });
+
+  describe('stepFidelityResponseJsonSchema', () => {
+    it('has an object root with additionalProperties false and required findings', () => {
+      expect((stepFidelityResponseJsonSchema as Record<string, unknown>).type).toBe('object');
+      expect((stepFidelityResponseJsonSchema as Record<string, unknown>).additionalProperties).toBe(false);
+      expect((stepFidelityResponseJsonSchema as Record<string, unknown>).required).toContain('findings');
+    });
+
+    it('has finding items with all three properties required and no propertyNames keyword', () => {
+      const props = (stepFidelityResponseJsonSchema as Record<string, unknown>)
+        .properties as Record<string, unknown>;
+      const items = (props.findings as Record<string, unknown>).items as Record<string, unknown>;
+      expect(items.type).toBe('object');
+      expect(items.additionalProperties).toBe(false);
+      expect(items.required as string[]).toEqual(expect.arrayContaining(['severity', 'claim', 'deviation']));
+      expect(items).not.toHaveProperty('propertyNames');
     });
   });
 });

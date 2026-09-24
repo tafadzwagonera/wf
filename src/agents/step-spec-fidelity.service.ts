@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
-import { stepFidelityResponseSchema } from '../shared/schemas/step-spec-fidelity.schema';
-import type { StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
+import {
+  stepFidelityResponseSchema,
+  stepFidelityResponseJsonSchema,
+} from '../shared/schemas/step-spec-fidelity.schema';
+import type {
+  StepFidelityFinding,
+  StepFidelityFailure,
+  StepFidelityVerificationResult,
+} from '../shared/types/step-spec-fidelity.types';
 
 const MAX_FIDELITY_DIFF_CHARS = 60_000;
 
@@ -11,7 +18,9 @@ export interface StepSpecFidelityRunParams {
   diff: string;
 }
 
-const FIDELITY_TASK_INSTRUCTIONS = [
+type RunResult = { findings: StepFidelityFinding[]; failure?: StepFidelityFailure };
+
+const fidelityTaskInstructions = [
   'Extract every LITERAL, CONCRETE claim the plan step makes — claims that can be proven or',
   'disproven by reading the diff alone:',
   String.raw`  - Regular expression patterns (e.g. /\.(vue|tsx|jsx)$/)`,
@@ -38,7 +47,7 @@ const FIDELITY_TASK_INSTRUCTIONS = [
 ].join('\n');
 
 export const buildSpecFidelityPrompt = (stepText: string, diff: string): string =>
-  `## Plan step\n\n${stepText}\n\n## Changed files diff\n\n${diff}\n\n## Your task\n\n${FIDELITY_TASK_INSTRUCTIONS}`;
+  `## Plan step\n\n${stepText}\n\n## Changed files diff\n\n${diff}\n\n## Your task\n\n${fidelityTaskInstructions}`;
 
 @Injectable()
 export class StepSpecFidelityService {
@@ -47,33 +56,59 @@ export class StepSpecFidelityService {
     private readonly gitService: GitService,
   ) {}
 
-  async verifyAll(steps: string[], repoDir: string, baseRef?: string): Promise<StepFidelityFinding[][]> {
-    const diff = await this.captureDiff(repoDir, baseRef ?? 'HEAD');
-    const results: StepFidelityFinding[][] = [];
-    for (const stepText of steps) {
-      results.push(await this.run({ stepText, diff }));
+  async verifyAll(steps: string[], repoDir: string, baseRef?: string): Promise<StepFidelityVerificationResult> {
+    const result = { findingsPerStep: steps.map(() => []), failures: [] as StepFidelityFailure[] };
+    let diff: string;
+    try {
+      diff = await this.captureDiff(repoDir, baseRef ?? 'HEAD');
+    } catch (err) {
+      const c = this.extractCause(err);
+      result.failures.push({ category: 'diff', cause: c });
+      return result;
     }
-    return results;
+    await this.processSteps(steps, diff, result);
+    return result;
   }
 
-  async run(params: StepSpecFidelityRunParams): Promise<StepFidelityFinding[]> {
-    if (!params.diff.trim()) return [];
-    try {
-      const prompt = buildSpecFidelityPrompt(params.stepText, params.diff);
-      const response = await this.aiService.execute({ prompt, maxTokens: 2048, stage: 'review' });
-      const parsed = stepFidelityResponseSchema.parse(parseJsonResponse(response.content));
-      return parsed.findings;
-    } catch {
-      return [];
+  private async processSteps(steps: string[], diff: string, result: StepFidelityVerificationResult): Promise<void> {
+    for (let i = 0; i < steps.length; i++) {
+      const r = await this.run({ stepText: steps[i], diff });
+      result.findingsPerStep[i] = r.findings;
+      if (r.failure) {
+        result.failures.push({ ...r.failure, stepIndex: i });
+      }
     }
+  }
+
+  async run(params: StepSpecFidelityRunParams): Promise<RunResult> {
+    if (!params.diff.trim()) return { findings: [] };
+    try {
+      const res = await this.aiService.execute({
+        prompt: buildSpecFidelityPrompt(params.stepText, params.diff),
+        maxTokens: 2048,
+        stage: 'implement',
+        structuredOutput: { name: 'step_spec_fidelity', schema: stepFidelityResponseJsonSchema },
+      });
+      return this.parseAndReturn(res.content);
+    } catch (e) {
+      return { findings: [], failure: { category: 'provider', cause: this.extractCause(e) } };
+    }
+  }
+
+  private parseAndReturn(content: string): RunResult {
+    try {
+      return { findings: stepFidelityResponseSchema.parse(parseJsonResponse(content)).findings };
+    } catch (e) {
+      return { findings: [], failure: { category: 'response', cause: this.extractCause(e) } };
+    }
+  }
+
+  private extractCause(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
   }
 
   private async captureDiff(repoDir: string, baseRef: string): Promise<string> {
-    try {
-      const diff = await this.gitService.getDiffFromRef(baseRef, repoDir);
-      return diff.slice(0, MAX_FIDELITY_DIFF_CHARS);
-    } catch {
-      return '';
-    }
+    const diff = await this.gitService.getDiffFromRef(baseRef, repoDir);
+    return diff.slice(0, MAX_FIDELITY_DIFF_CHARS);
   }
 }
