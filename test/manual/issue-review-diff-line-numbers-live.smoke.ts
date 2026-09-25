@@ -169,10 +169,9 @@ function runScenario(tempRoot: string): ScenarioData {
 }
 
 function checkDistExists(): void {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+  if (fs.existsSync(distMainPath)) return;
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
 }
 
 function checkExitsZero(result: SpawnResult, output: string): void {
@@ -181,25 +180,28 @@ function checkExitsZero(result: SpawnResult, output: string): void {
 }
 
 function checkLineNumber(outputPath: string, output: string): void {
-  if (!fs.existsSync(outputPath)) {
-    fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
+  if (fs.existsSync(outputPath)) {
+    const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+    const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
+    const issue = Array.isArray(issues) ? issues[0] : undefined;
+    if (issue?.line === 3) pass('review issue line number survives post-processing (line 3, the real added line)');
+    else fail('review issue line should survive as 3', JSON.stringify(saved));
     return;
   }
-  const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-  const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
-  const issue = Array.isArray(issues) ? issues[0] : undefined;
-  if (issue?.line === 3) pass('review issue line number survives post-processing (line 3, the real added line)');
-  else fail('review issue line should survive as 3', JSON.stringify(saved));
+  fail('expected a saved review output file', `outputPath: ${outputPath}\noutput:\n${output}`);
 }
 
 function checkFilePath(outputPath: string): void {
-  if (!fs.existsSync(outputPath)) return;
-  const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
-  const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
-  const issue = Array.isArray(issues) ? issues[0] : undefined;
-  if (typeof issue?.file === 'string' && issue.file.replace(/^[ab]\//, '') === 'src.ts')
-    pass('review issue file path matches the diff destination path');
-  else fail('review issue file should match src.ts', JSON.stringify(issue));
+  if (fs.existsSync(outputPath)) {
+    const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+    const issues = Array.isArray(saved) ? saved[0]?.review?.issues : saved?.review?.issues ?? saved?.issues;
+    const issue = Array.isArray(issues) ? issues[0] : undefined;
+    if (typeof issue?.file === 'string' && issue.file.replace(/^[ab]\//, '') === 'src.ts')
+      pass('review issue file path matches the diff destination path');
+    else fail('review issue file should match src.ts', JSON.stringify(issue));
+  } else {
+    fail('expected a saved review output file', outputPath);
+  }
 }
 
 function runChecks(data: ScenarioData): void {

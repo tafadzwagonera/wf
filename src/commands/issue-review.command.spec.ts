@@ -51,10 +51,8 @@ jest.mock('../agents/utils', () => {
   };
 });
 
-// Unmocked, this runs the repo's real verify commands — including `yarn test`, which
-// re-enters this suite and forks recursively until the host runs out of memory.
 jest.mock('../shared/utils/run-pre-review-verification', () => ({
-  runPreReviewVerification: jest.fn().mockResolvedValue(''),
+  runPreReviewVerification: jest.fn().mockResolvedValue({ status: 'not-run', source: 'none', checks: [] }),
 }));
 
 jest.mock('../config/wf-config-loader', () => ({
@@ -1827,6 +1825,30 @@ describe('IssueReviewCommand', () => {
 
       expect(result).not.toContain('cp');
       expect(result).toContain('real');
+    });
+
+    it('persists equivalent verification details in Markdown, JSON, and YAML output', async () => {
+      const { command } = await buildCommand();
+      const targets = [{
+        title: 'Target', context: 'context', diff: 'diff', review: mockReview,
+        verification: {
+          status: 'failed', source: 'reviewed-diff', repositoryHead: 'abc123', packageManager: 'yarn',
+          dependencyInstall: { command: 'yarn install --frozen-lockfile', status: 'passed', durationMs: 12 },
+          checks: [{ command: 'yarn run lint', status: 'failed', durationMs: 34, exitCode: 1, output: 'lint failed' }],
+          reason: 'Verification check failed',
+        },
+      }];
+
+      const markdown = (command as any).formatReviewOutput(targets, 'md');
+      const json = (command as any).formatReviewOutput(targets, 'json');
+      const yaml = (command as any).formatReviewOutput(targets, 'yaml');
+
+      for (const output of [markdown, json, yaml]) {
+        expect(output).toContain('reviewed-diff');
+        expect(output).toContain('abc123');
+        expect(output).toContain('yarn run lint');
+      }
+      expect(markdown.indexOf('## Verification')).toBeLessThan(markdown.indexOf('SUMMARY:'));
     });
   });
 });

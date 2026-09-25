@@ -168,6 +168,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue:review --ticket-key WBP-2971 --skip-verification',
       },
       {
+        comment: 'Save the review and structured verification results as JSON',
+        command: 'wf issue:review --ticket-key WBP-2971 --format json --output review.json',
+      },
+      {
         comment:
           'Resume a provider-backed review session; CLI review sends a human-readable epilogue after parsing the JSON review',
         command: 'wf issue:review --ticket-key WBP-2971 --session-id {UUID} -r service-bookingv3',

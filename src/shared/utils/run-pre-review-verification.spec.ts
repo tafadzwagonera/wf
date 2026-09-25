@@ -1,345 +1,96 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
-jest.mock('node:child_process', () => ({ execSync: jest.fn() }));
-jest.mock('./post-pull-install', () => ({
-  runPostPullDependencyInstall: jest.fn().mockResolvedValue(undefined),
+jest.mock('node:child_process', () => ({ spawnSync: jest.fn() }));
+jest.mock('./verification-snapshot', () => ({
+  cleanStaleVerificationWorktrees: jest.fn(),
+  createVerificationSnapshot: jest.fn(),
 }));
+jest.mock('./install-dependencies', () => ({ runDependencyInstallForVerification: jest.fn() }));
+jest.mock('../logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
-import { execSync } from 'node:child_process';
-import { runPostPullDependencyInstall } from './post-pull-install';
-import {
-  runPreReviewVerification,
-  cleanStaleVerificationWorktrees,
-  getVerificationWorktreePath,
-} from './run-pre-review-verification';
+import { runPreReviewVerification } from './run-pre-review-verification';
+import { createVerificationSnapshot } from './verification-snapshot';
+import { runDependencyInstallForVerification } from './install-dependencies';
+import { appendToLogFile } from '../logger/log-file-writer';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
-const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
-const mockInstall = runPostPullDependencyInstall as jest.MockedFunction<typeof runPostPullDependencyInstall>;
-
-const worktreeDir = (repoDir: string): string => getVerificationWorktreePath(repoDir);
-
-const stubWorktreeLifecycle = (repoDir: string): void => {
-  const wtPath = worktreeDir(repoDir);
-  mockExecSync.mockImplementation((cmd: string) => {
-    if (cmd.includes('worktree add')) {
-      fs.mkdirSync(wtPath, { recursive: true });
-      return Buffer.from('');
-    }
-    if (cmd.includes('worktree list')) {
-      return '';
-    }
-    if (cmd.includes('worktree remove')) {
-      fs.rmSync(wtPath, { recursive: true, force: true });
-      return Buffer.from('');
-    }
-    if (cmd.includes('worktree prune')) {
-      return Buffer.from('');
-    }
-    return Buffer.from('');
-  });
-};
-
-const stubWorktreeWithPackageJson = (repoDir: string, scripts: Record<string, string>): void => {
-  const wtPath = worktreeDir(repoDir);
-  mockExecSync.mockImplementation((cmd: string) => {
-    if (cmd.includes('worktree add')) {
-      fs.mkdirSync(wtPath, { recursive: true });
-      fs.writeFileSync(path.join(wtPath, 'package.json'), JSON.stringify({ scripts }));
-      return Buffer.from('');
-    }
-    if (cmd.includes('worktree list')) {
-      return '';
-    }
-    if (cmd.includes('worktree remove')) {
-      fs.rmSync(wtPath, { recursive: true, force: true });
-      return Buffer.from('');
-    }
-    if (cmd.includes('worktree prune')) {
-      return Buffer.from('');
-    }
-    return Buffer.from('');
-  });
-};
+const mockSpawnSync = spawnSync as jest.MockedFunction<typeof spawnSync>;
+const mockSnapshot = createVerificationSnapshot as jest.MockedFunction<typeof createVerificationSnapshot>;
+const mockInstall
+  = runDependencyInstallForVerification as jest.MockedFunction<typeof runDependencyInstallForVerification>;
+const mockAppendToLogFile = appendToLogFile as jest.MockedFunction<typeof appendToLogFile>;
 
 describe('runPreReviewVerification', () => {
-  let tmpDir: string;
+  let repoDir: string;
+  let worktreePath: string;
+  let cleanup: jest.Mock;
 
   beforeEach(() => {
-    tmpDir = createManagedTempDir('pre-verify');
-    mockInstall.mockResolvedValue(undefined);
-    mockExecSync.mockReturnValue(Buffer.from(''));
+    jest.clearAllMocks();
+    repoDir = createManagedTempDir('pre-review-verification');
+    worktreePath = createManagedTempDir('pre-review-worktree');
+    cleanup = jest.fn().mockReturnValue([]);
+    fs.writeFileSync(`${worktreePath}/package.json`, JSON.stringify({ scripts: { lint: 'eslint .' } }));
+    mockSnapshot.mockReturnValue({ worktreePath, repositoryHead: 'abc123', cleanup });
+    mockInstall.mockReturnValue({ packageManager: 'yarn', result: {
+      command: 'yarn install --frozen-lockfile', status: 'passed', durationMs: 4,
+    } });
+    mockSpawnSync.mockReturnValue({ status: 0, signal: null, stdout: '', stderr: '' } as ReturnType<typeof spawnSync>);
   });
 
   afterEach(() => {
-    const wtPath = worktreeDir(tmpDir);
-    fs.rmSync(wtPath, { recursive: true, force: true });
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    jest.clearAllMocks();
+    fs.rmSync(repoDir, { recursive: true, force: true });
+    fs.rmSync(worktreePath, { recursive: true, force: true });
+    jest.restoreAllMocks();
   });
 
-  it('returns empty string immediately when skipVerification is true', async () => {
-    const result = await runPreReviewVerification(tmpDir, { silent: true, skipVerification: true });
-    expect(result).toBe('');
-    expect(mockExecSync).not.toHaveBeenCalled();
+  it('returns not-run without creating a snapshot when skipped', async () => {
+    const result = await runPreReviewVerification(repoDir, { diff: 'diff', skipVerification: true });
+    expect(result).toMatchObject({ status: 'not-run', reason: expect.stringContaining('--skip-verification') });
+    expect(mockSnapshot).not.toHaveBeenCalled();
   });
 
-  it('returns empty string when worktree has no package.json', async () => {
-    stubWorktreeLifecycle(tmpDir);
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-    expect(result).toBe('');
+  it('returns snapshot materialization failures as not-run', async () => {
+    mockSnapshot.mockReturnValue({ status: 'not-run', reason: 'patch rejected' });
+    const result = await runPreReviewVerification(repoDir, { diff: 'diff' });
+    expect(result).toMatchObject({ status: 'not-run', reason: 'patch rejected' });
+    expect(mockInstall).not.toHaveBeenCalled();
   });
 
-  it('returns empty string when package.json has no standard verification scripts', async () => {
-    stubWorktreeWithPackageJson(tmpDir, { build: 'tsc' });
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-    expect(result).toBe('');
+  it('stops checks when dependency installation cannot run', async () => {
+    mockInstall.mockReturnValue({ packageManager: 'yarn', result: {
+      command: 'yarn install --frozen-lockfile', status: 'not-run', durationMs: 3, reason: 'yarn missing',
+    } });
+    const result = await runPreReviewVerification(repoDir, { diff: 'diff' });
+    expect(result.status).toBe('not-run');
+    expect(mockSpawnSync).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
-  it('creates a worktree, runs verification, then removes the worktree', async () => {
-    stubWorktreeWithPackageJson(tmpDir, { lint: 'eslint .' });
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-
-    expect(result).toMatch(/^Pre-review verification:/);
-    expect(result).toContain('lint');
-
-    const worktreeAddCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree add')
-    );
-    const worktreeRemoveCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree remove')
-    );
-    expect(worktreeAddCalls).toHaveLength(1);
-    expect(worktreeRemoveCalls).toHaveLength(1);
+  it('runs allowlisted checks in order and returns passed', async () => {
+    fs.writeFileSync(`${worktreePath}/package.json`, JSON.stringify({ scripts: { lint: 'eslint .', typecheck: 'tsc', test: 'jest', build: 'nest build' } }));
+    const result = await runPreReviewVerification(repoDir, { diff: 'reviewed diff' });
+    expect(result.status).toBe('passed');
+    expect(result.checks.map(check => check.command)).toEqual(['yarn run lint', 'yarn run typecheck', 'yarn run test']);
+    expect(mockSpawnSync).toHaveBeenNthCalledWith(1, 'yarn', ['run', 'lint'], expect.objectContaining({ cwd: worktreePath, timeout: expect.any(Number) }));
   });
 
-  it('runs verification commands inside the worktree, not the original repoDir', async () => {
-    const wtPath = worktreeDir(tmpDir);
-    stubWorktreeWithPackageJson(tmpDir, { lint: 'eslint .' });
-
-    await runPreReviewVerification(tmpDir, { silent: true });
-
-    const verifyCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('run lint')
-    );
-    expect(verifyCalls).toHaveLength(1);
-    const [, opts] = verifyCalls[0] as [string, { cwd?: string }];
-    expect(opts.cwd).toBe(wtPath);
+  it('returns failed and short-circuits after a failed check', async () => {
+    fs.writeFileSync(`${worktreePath}/package.json`, JSON.stringify({ scripts: { lint: 'eslint .', typecheck: 'tsc' } }));
+    mockSpawnSync.mockReturnValue({ status: 2, signal: null, stdout: '', stderr: 'lint error' } as ReturnType<typeof spawnSync>);
+    const result = await runPreReviewVerification(repoDir, { diff: 'diff' });
+    expect(result.status).toBe('failed');
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0]).toMatchObject({ status: 'failed', exitCode: 2, output: 'lint error' });
   });
 
-  it('symlinks node_modules from repoDir into the worktree when it exists', async () => {
-    fs.mkdirSync(path.join(tmpDir, 'node_modules'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'marker.txt'), 'present');
-
-    const wtPath = worktreeDir(tmpDir);
-    let capturedTarget: string | null = null;
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('worktree add')) {
-        fs.mkdirSync(wtPath, { recursive: true });
-        fs.writeFileSync(path.join(wtPath, 'package.json'), JSON.stringify({ scripts: { lint: 'eslint .' } }));
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree list')) return '';
-      if (cmd.includes('worktree remove')) {
-        const linked = path.join(wtPath, 'node_modules');
-        if (fs.lstatSync(linked).isSymbolicLink()) capturedTarget = fs.realpathSync(linked);
-        fs.rmSync(wtPath, { recursive: true, force: true });
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree prune')) return Buffer.from('');
-      return Buffer.from('');
-    });
-
-    await runPreReviewVerification(tmpDir, { silent: true });
-
-    expect(capturedTarget).toBe(fs.realpathSync(path.join(tmpDir, 'node_modules')));
-  });
-
-  it('does not attempt a symlink when repoDir has no node_modules', async () => {
-    stubWorktreeWithPackageJson(tmpDir, { lint: 'eslint .' });
-    const wtPath = worktreeDir(tmpDir);
-
-    await expect(runPreReviewVerification(tmpDir, { silent: true })).resolves.not.toThrow();
-    expect(fs.existsSync(path.join(wtPath, 'node_modules'))).toBe(false);
-  });
-
-  it('marks a failed command with ✗', async () => {
-    const wtPath = worktreeDir(tmpDir);
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('worktree add')) {
-        fs.mkdirSync(wtPath, { recursive: true });
-        fs.writeFileSync(path.join(wtPath, 'package.json'), JSON.stringify({ scripts: { lint: 'eslint .' } }));
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree list')) return '';
-      if (cmd.includes('worktree remove')) {
-        fs.rmSync(wtPath, { recursive: true, force: true });
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree prune')) return Buffer.from('');
-      throw new Error('command failed');
-    });
-
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-
-    expect(result).toContain('✗');
-    expect(result).not.toContain('✓');
-  });
-
-  it('marks a passing command with ✓', async () => {
-    stubWorktreeWithPackageJson(tmpDir, { lint: 'eslint .' });
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-
-    expect(result).toContain('✓');
-    expect(result).not.toContain('✗');
-  });
-
-  it('calls runPostPullDependencyInstall with the worktree path', async () => {
-    const wtPath = worktreeDir(tmpDir);
-    stubWorktreeWithPackageJson(tmpDir, { lint: 'eslint .' });
-
-    await runPreReviewVerification(tmpDir, { silent: true });
-
-    expect(mockInstall).toHaveBeenCalledWith(wtPath, true);
-  });
-
-  it('only runs lint, typecheck, and test scripts — ignores other scripts', async () => {
-    stubWorktreeWithPackageJson(tmpDir, { build: 'tsc', start: 'node .', lint: 'eslint .' });
-
-    await runPreReviewVerification(tmpDir, { silent: true });
-
-    const verifyCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes(' run ')
-    );
-    expect(verifyCalls).toHaveLength(1);
-    expect(verifyCalls[0][0]).toContain('lint');
-  });
-
-  it('removes the worktree even when verification throws', async () => {
-    const wtPath = worktreeDir(tmpDir);
-    mockInstall.mockRejectedValue(new Error('install boom'));
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('worktree add')) {
-        fs.mkdirSync(wtPath, { recursive: true });
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree list')) return '';
-      if (cmd.includes('worktree remove')) {
-        fs.rmSync(wtPath, { recursive: true, force: true });
-        return Buffer.from('');
-      }
-      if (cmd.includes('worktree prune')) return Buffer.from('');
-      return Buffer.from('');
-    });
-
-    await expect(runPreReviewVerification(tmpDir, { silent: true })).rejects.toThrow('install boom');
-
-    const removeCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree remove')
-    );
-    expect(removeCalls).toHaveLength(1);
-  });
-
-  it('returns empty string gracefully when worktree creation fails', async () => {
-    mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes('worktree list')) return '';
-      if (cmd.includes('worktree add')) throw new Error('worktree add failed');
-      return Buffer.from('');
-    });
-
-    const result = await runPreReviewVerification(tmpDir, { silent: true });
-    expect(result).toBe('');
-  });
-});
-
-describe('cleanStaleVerificationWorktrees', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = createManagedTempDir('stale-wt');
-    mockExecSync.mockReturnValue(Buffer.from(''));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-    jest.clearAllMocks();
-  });
-
-  it('removes a worktree whose owning pid is no longer running', () => {
-    const deadPid = 999999;
-    const stalePath = path.join(os.tmpdir(), `wf-verify-abc123-${deadPid}`);
-    mockExecSync.mockImplementation(((cmd: string) => {
-      if (cmd.includes('worktree list')) return `worktree /main\nworktree ${stalePath}\n`;
-      return '';
-    }) as typeof execSync);
-
-    cleanStaleVerificationWorktrees(tmpDir);
-
-    const removeCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree remove')
-    );
-    expect(removeCalls).toHaveLength(1);
-    expect(removeCalls[0][0]).toContain(stalePath);
-  });
-
-  it('does not remove a worktree whose owning pid is still running', () => {
-    const livePath = path.join(os.tmpdir(), `wf-verify-abc123-${process.pid}`);
-    fs.mkdirSync(livePath, { recursive: true });
-    mockExecSync.mockImplementation(((cmd: string) => {
-      if (cmd.includes('worktree list')) return `worktree /main\nworktree ${livePath}\n`;
-      return '';
-    }) as typeof execSync);
-
-    try {
-      cleanStaleVerificationWorktrees(tmpDir);
-
-      const removeCalls = mockExecSync.mock.calls.filter(
-        ([cmd]) => cmd.includes('worktree remove')
-      );
-      expect(removeCalls).toHaveLength(0);
-    } finally {
-      fs.rmSync(livePath, { recursive: true, force: true });
-    }
-  });
-
-  it('removes a worktree with a malformed name lacking a pid suffix', () => {
-    const stalePath = path.join(os.tmpdir(), 'wf-verify-abc123');
-    mockExecSync.mockImplementation(((cmd: string) => {
-      if (cmd.includes('worktree list')) return `worktree /main\nworktree ${stalePath}\n`;
-      return '';
-    }) as typeof execSync);
-
-    cleanStaleVerificationWorktrees(tmpDir);
-
-    const removeCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree remove')
-    );
-    expect(removeCalls).toHaveLength(1);
-    expect(removeCalls[0][0]).toContain(stalePath);
-  });
-
-  it('does not remove worktrees that do not match the prefix', () => {
-    mockExecSync.mockImplementation(((cmd: string) => {
-      if (cmd.includes('worktree list')) return 'worktree /main\nworktree /some/other/worktree\n';
-      return '';
-    }) as typeof execSync);
-
-    cleanStaleVerificationWorktrees(tmpDir);
-
-    const removeCalls = mockExecSync.mock.calls.filter(
-      ([cmd]) => cmd.includes('worktree remove')
-    );
-    expect(removeCalls).toHaveLength(0);
-  });
-
-  it('does nothing when git worktree list fails', () => {
-    mockExecSync.mockImplementation(((cmd: string) => {
-      if (cmd.includes('worktree list')) throw new Error('not a git repo');
-      return '';
-    }) as typeof execSync);
-
-    expect(() => cleanStaleVerificationWorktrees(tmpDir)).not.toThrow();
+  it('logs each completed check and cleanup failures without replacing the primary result', async () => {
+    cleanup.mockReturnValue(['unable to prune']);
+    mockSpawnSync.mockReturnValue({ status: 1, signal: null, stdout: '', stderr: 'bad' } as ReturnType<typeof spawnSync>);
+    const result = await runPreReviewVerification(repoDir, { diff: 'diff' });
+    expect(result.status).toBe('failed');
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', expect.stringContaining('review-verification.check-completed'), 'review-verification');
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', expect.stringContaining('review-verification.cleanup-failed'), 'review-verification');
   });
 });

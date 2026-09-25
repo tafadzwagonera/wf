@@ -1,5 +1,5 @@
-import { execSync } from 'child_process';
-import { installDependencies } from './install-dependencies';
+import { execSync, spawnSync } from 'child_process';
+import { installDependencies, runDependencyInstallForVerification } from './install-dependencies';
 import { detectPackageManager } from './detect-repo-conventions';
 
 jest.mock('child_process', () => ({
@@ -14,13 +14,18 @@ jest.mock('child_process', () => ({
 jest.mock('./detect-repo-conventions');
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockSpawnSync = spawnSync as jest.MockedFunction<typeof spawnSync>;
 const mockDetectPackageManager = detectPackageManager as jest.MockedFunction<typeof detectPackageManager>;
 
 const REPO_DIR = '/fake/repo';
 
 describe('installDependencies', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   afterEach(() => {
-    jest.resetAllMocks();
+    jest.restoreAllMocks();
   });
 
   it('returns a warning instead of throwing when the package manager is not on PATH', async () => {
@@ -83,5 +88,76 @@ describe('installDependencies', () => {
 
     const installCallOptions = mockExecSync.mock.calls[1][1];
     expect(installCallOptions).not.toHaveProperty('timeout');
+  });
+});
+
+describe('runDependencyInstallForVerification', () => {
+  const options = { timeoutMs: 1234, maxOutputBytes: 8 };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDetectPackageManager.mockReturnValue('yarn');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('runs yarn with executable arguments and bounded command options', () => {
+    mockSpawnSync
+      .mockReturnValueOnce({ status: 0, signal: null, stdout: '1.0.0', stderr: '' } as ReturnType<typeof spawnSync>)
+      .mockReturnValueOnce({ status: 0, signal: null, stdout: 'installed', stderr: '' } as ReturnType<typeof spawnSync>);
+
+    const result = runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(result).toMatchObject({ packageManager: 'yarn', result: { status: 'passed' } });
+    expect(mockSpawnSync).toHaveBeenNthCalledWith(1, 'yarn', ['--version'], expect.objectContaining({ cwd: REPO_DIR, timeout: 1234, maxBuffer: 8 }));
+    expect(mockSpawnSync).toHaveBeenNthCalledWith(2, 'yarn', ['install', '--frozen-lockfile'], expect.objectContaining({ cwd: REPO_DIR }));
+  });
+
+  it.each([
+    ['bun' as const, ['install']],
+    ['pnpm' as const, ['install', '--frozen-lockfile']],
+    ['yarn' as const, ['install', '--frozen-lockfile']],
+    ['npm' as const, ['ci']],
+  ])('uses the expected %s install arguments', (packageManager, expectedArguments) => {
+    mockDetectPackageManager.mockReturnValue(packageManager);
+    mockSpawnSync.mockReturnValue({ status: 0, signal: null, stdout: '', stderr: '' } as ReturnType<typeof spawnSync>);
+
+    runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(mockSpawnSync).toHaveBeenNthCalledWith(2, packageManager, expectedArguments, expect.any(Object));
+  });
+
+  it('returns not-run without installing when the package manager is unavailable', () => {
+    mockSpawnSync.mockReturnValue({ status: null, signal: null, stdout: '', stderr: 'not found', error: new Error('ENOENT') } as ReturnType<typeof spawnSync>);
+
+    const result = runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(result.result).toMatchObject({ status: 'not-run', reason: 'ENOENT', output: 'not foun' });
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a timed out installation as not-run', () => {
+    mockSpawnSync
+      .mockReturnValueOnce({ status: 0, signal: null, stdout: '', stderr: '' } as ReturnType<typeof spawnSync>)
+      .mockReturnValueOnce({
+        status: null, signal: 'SIGTERM', stdout: '', stderr: '',
+        error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
+      } as unknown as ReturnType<typeof spawnSync>);
+
+    const result = runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(result.result).toMatchObject({ status: 'not-run', signal: 'SIGTERM', reason: 'Dependency install timed out' });
+  });
+
+  it('truncates combined install diagnostics and preserves a nonzero exit code', () => {
+    mockSpawnSync
+      .mockReturnValueOnce({ status: 0, signal: null, stdout: '', stderr: '' } as ReturnType<typeof spawnSync>)
+      .mockReturnValueOnce({ status: 2, signal: null, stdout: 'abcdefgh', stderr: 'ijklmnop' } as ReturnType<typeof spawnSync>);
+
+    const result = runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(result.result).toMatchObject({ status: 'not-run', exitCode: 2, output: 'abcdefgh', reason: 'Dependency install failed' });
   });
 });

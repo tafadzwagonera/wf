@@ -150,10 +150,9 @@ function buildEnv(paths: Paths): NodeJS.ProcessEnv {
 }
 
 function checkDistExists(): void {
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+  if (fs.existsSync(distMainPath)) return;
+  fail('dist/main.js must exist before running this smoke test', 'Run `yarn build` first.');
+  process.exit(1);
 }
 
 function checkNestedOutput(paths: Paths, env: NodeJS.ProcessEnv): void {
@@ -168,8 +167,8 @@ function checkNestedOutput(paths: Paths, env: NodeJS.ProcessEnv): void {
   const content = fs.existsSync(artifactPath) ? fs.readFileSync(artifactPath, 'utf-8') : '';
   if (content.includes(REVIEW_SUMMARY)) pass('written file contains the fake review summary');
   else fail('written file should contain the fake review summary', content.slice(0, 500));
-  if (!fs.existsSync(cwdNestedPath)) pass('<repo>/reports/review.md does not exist');
-  else fail('<repo>/reports/review.md should not exist', cwdNestedPath);
+  if (fs.existsSync(cwdNestedPath)) fail('<repo>/reports/review.md should not exist', cwdNestedPath);
+  else pass('<repo>/reports/review.md does not exist');
 }
 
 function checkFlatOutput(paths: Paths, env: NodeJS.ProcessEnv): void {

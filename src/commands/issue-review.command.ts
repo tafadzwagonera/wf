@@ -47,6 +47,7 @@ import {
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
+import type { ReviewVerification, VerificationCommandResult } from '../shared/utils/review-verification.types';
 
 interface IssueReviewOptions {
   format?: OutputFormat;
@@ -80,10 +81,12 @@ interface ReviewTarget {
   repoDir?: string;
   adapterName?: string;
   commentRef?: string;
+  repoCount?: number;
 }
 
 interface ReviewedTarget extends ReviewTarget {
   review: CodeReview;
+  verification: ReviewVerification;
 }
 
 interface DiscoveredPullRequestTarget {
@@ -174,7 +177,7 @@ const loadCriteriaFromFile = (filePath: string, baseDir: string, repos?: string[
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. In multi-repo runs, the review artifact is written to `<ticket>-<repo-basename>-review.md` — one file per repository — so each repo\'s cached result is stored independently; the first repository\'s cached review is never served to subsequent repositories in the same run. '
     + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. '
-    + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and a verification summary; for PR-backed reviews the verification pipeline (lint, typecheck, test) runs live in a disposable git worktree, leaving the target repository untouched. Use `--skip-verification` to bypass it. '
+    + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and structured verification results; for eligible PR and single-repository reviews, lint, typecheck, and test run live in an invocation-scoped disposable git worktree after the exact reviewed diff is applied, leaving the target repository untouched. Verification records passed, failed, or not-run status and are persisted beside the review in Markdown, JSON, and YAML output. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors; Codex CLI schema/configuration rejections preserve the provider detail and are not reported as rate-limit failures. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`. Findings are reported and review continues; a clean scan is confirmed too, both on the console and in the persisted log, so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. '
     + 'Use `--sonar-only` to run only the SonarQube scan for local repositories; it skips AI review, verification, Figma, comments, and chat, prints findings directly, exits 0 for clean or finding-bearing scans, and propagates scan/setup failures through the normal error handler. '
@@ -512,7 +515,7 @@ export class IssueReviewCommand extends CommandRunner {
       title: 'Current repository changes (' + this.formatRepoScope(repoDirs) + ')',
       diff,
       context: this.buildRepoContext(repoDirs, 'current repository changes'),
-      repoDir: repoDirs[0],
+      repoDir: repoDirs[0], repoCount: repoDirs.length,
     };
   }
 
@@ -530,6 +533,7 @@ export class IssueReviewCommand extends CommandRunner {
       repoDir: this.resolveLocalRepoDirForReview(repoInputs),
       adapterName: this.resolveAdapterNameForPullRequestUrl(source),
       commentRef: source,
+      repoCount: 1,
     };
   }
 
@@ -642,6 +646,7 @@ export class IssueReviewCommand extends CommandRunner {
       targets.push({
         title: pr.title, diff, context: ticketCtx + '\n\n' + pr.context,
         repoDir: pr.repoDir, adapterName: pr.adapterName, commentRef: pr.commentRef,
+        repoCount: pr.repoDir ? 1 : 0,
       });
     } catch (error: any) {
       console.log(chalk.yellow('⚠ Skipping ' + pr.title + ': ' + error.message));
@@ -665,7 +670,7 @@ export class IssueReviewCommand extends CommandRunner {
     return [{
       title: 'Local repository changes (' + this.formatRepoScope(repoDirs) + ')',
       diff, context: ticketCtx + '\n\n' + this.buildRepoContext(repoDirs, 'repositories under review'),
-      repoDir: repoDirs[0],
+      repoDir: repoDirs[0], repoCount: repoDirs.length,
     }];
   }
 
@@ -694,7 +699,9 @@ export class IssueReviewCommand extends CommandRunner {
       try {
         const review = await this.reviewSingleTarget(target, extraCriteria, options);
         if (!review) continue;
-        reviewed.push({ ...target, review });
+        const verification = (review as CodeReview & { verification?: ReviewVerification }).verification
+          ?? { status: 'not-run', source: 'none', checks: [], reason: 'Verification result was unavailable.' };
+        reviewed.push({ ...target, review, verification });
         if (!options?.silent) this.displayReview(review, target.title);
         if (options?.comment) await this.postReviewComment(target, review);
       } catch (error) {
@@ -713,16 +720,17 @@ export class IssueReviewCommand extends CommandRunner {
     const commentPolicyResult = await this.commentPolicyStageService.scanIfEnabled(
       { diff: target.diff, force: options?.commentPolicy });
 
-    const context = await buildPreReviewContext(target, {
+    const preReview = await buildPreReviewContext(target, {
       ticketKey: options?.ticketKey,
       silent: options?.silent,
       skipVerification: options?.skipVerification,
     });
-    const diffOptions = this.buildReviewDiffOptions(target, context, extraCriteria, options, onProgress, {
+    const diffOptions = this.buildReviewDiffOptions(target, preReview.context, extraCriteria, options, onProgress, {
       sonarResult, figmaResult, commentPolicyEnabled: commentPolicyResult !== undefined,
     });
     const { review } = await this.reviewStageService.reviewDiff(target.diff, diffOptions);
-    return mergeCommentPolicyIssues(review, commentPolicyResult);
+    const reviewed = mergeCommentPolicyIssues(review, commentPolicyResult);
+    return Object.assign(reviewed, { verification: preReview.verification });
   }
 
   private buildReviewDiffOptions(
@@ -1736,6 +1744,9 @@ export class IssueReviewCommand extends CommandRunner {
 
       text += `TARGET: ${target.title}\n`;
       text += `Context: ${target.context}\n\n`;
+      text += this.formatVerificationText(target.verification ?? {
+        status: 'not-run', source: 'none', checks: [], reason: 'Verification result was unavailable.',
+      });
       text += this.formatReviewBlockText(target.review);
     }
 
@@ -1777,6 +1788,25 @@ export class IssueReviewCommand extends CommandRunner {
       this.formatBlockSuggestions(presentation.unmatchedSuggestions, presentation.issueRows.length),
       'APPROVAL STATUS: ' + verdict,
     ].filter(Boolean).join('\n') + '\n';
+  }
+
+  private formatVerificationText(verification: ReviewVerification): string {
+    const lines = ['## Verification', `Status: ${verification.status}`, `Source: ${verification.source}`];
+    if (verification.repositoryHead) lines.push(`Repository HEAD: ${verification.repositoryHead}`);
+    if (verification.packageManager) lines.push(`Package manager: ${verification.packageManager}`);
+    if (verification.dependencyInstall) lines.push(this.formatVerificationCommand('Dependency install', verification.dependencyInstall));
+    for (const check of verification.checks) lines.push(this.formatVerificationCommand('Check', check));
+    if (verification.reason) lines.push(`Reason: ${verification.reason}`);
+    return lines.join('\n') + '\n\n';
+  }
+
+  private formatVerificationCommand(label: string, result: VerificationCommandResult): string {
+    const details = [`${label}: ${result.command} (${result.status}, ${result.durationMs}ms)`];
+    if (result.exitCode !== undefined) details.push(`exit ${result.exitCode}`);
+    if (result.signal) details.push(`signal ${result.signal}`);
+    if (result.reason) details.push(result.reason);
+    if (result.output) details.push(result.output);
+    return details.join('; ');
   }
 
   private formatBlockIssues(rows: ReturnType<typeof buildCodeReviewPresentation>['issueRows']): string {
