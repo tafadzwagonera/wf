@@ -69,3 +69,52 @@ export const serializeOpenAiJsonSchema = (schema: unknown): string | undefined =
 
 /** Preserves the legacy CLI helper name while using the shared normalization implementation. */
 export const buildSanitisedJsonSchema = serializeOpenAiJsonSchema;
+
+export interface OpenAiStructuredOutputDenormalization {
+  value: unknown;
+  strippedPaths: string[];
+}
+
+const shouldStripNull = (propertySchema: unknown, required: Set<unknown>, key: string): boolean =>
+  !required.has(key) && isJsonSchemaObject(propertySchema) && !containsNullSchema(propertySchema);
+
+const resolveObjectSchemaParts = (
+  schema: JsonSchemaObject
+): { properties: JsonSchemaObject; required: Set<unknown> } => ({
+  properties: isJsonSchemaObject(schema.properties) ? schema.properties : {},
+  required: new Set(Array.isArray(schema.required) ? schema.required : []),
+});
+
+const denormalizeObjectValue = (
+  value: Record<string, unknown>, schema: JsonSchemaObject, path: string, strippedPaths: string[]
+): Record<string, unknown> => {
+  const { properties, required } = resolveObjectSchemaParts(schema);
+  const entries = Object.entries(value).map(([key, child]): [string, unknown] | null => {
+    const childPath = path ? `${path}.${key}` : key;
+    if (child === null && shouldStripNull(properties[key], required, key)) {
+      strippedPaths.push(childPath);
+      return null;
+    }
+    return [key, denormalizeValue(child, properties[key], childPath, strippedPaths)];
+  });
+  return Object.fromEntries(entries.filter((entry): entry is [string, unknown] => entry !== null));
+};
+
+const denormalizeValue = (value: unknown, schema: unknown, path: string, strippedPaths: string[]): unknown => {
+  if (!isJsonSchemaObject(schema)) return value;
+  if (Array.isArray(value)) {
+    if (!isJsonSchemaObject(schema.items)) return value;
+    return value.map((item, index) => denormalizeValue(item, schema.items, `${path}[${index}]`, strippedPaths));
+  }
+  if (!isJsonSchemaObject(value) || !isJsonSchemaObject(schema.properties)) return value;
+  return denormalizeObjectValue(value, schema, path, strippedPaths);
+};
+
+/** Strips normalization-injected nulls from an OpenAI structured-output value using the caller's original schema. */
+export const denormalizeOpenAiStructuredOutput = (
+  value: unknown, schema: unknown
+): OpenAiStructuredOutputDenormalization => {
+  const strippedPaths: string[] = [];
+  const denormalized = isJsonSchemaObject(schema) ? denormalizeValue(value, schema, '', strippedPaths) : value;
+  return { value: denormalized, strippedPaths };
+};

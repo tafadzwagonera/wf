@@ -99,12 +99,12 @@ function test6(): void {
   const issueCommandSource = require('fs').readFileSync(
     require('path').join(__dirname, '..', '..', 'src', 'commands', 'issue.command.ts'), 'utf-8'
   ) as string;
-  const noThrowingGate = !issueCommandSource.includes('assertEnforcedVerificationsPassed')
-    && !issueCommandSource.includes('logVerificationSummary');
-  if (noThrowingGate) {
-    pass('No verification gate or duplicate summary in issue command');
-  } else {
+  const hasThrowingGate = issueCommandSource.includes('assertEnforcedVerificationsPassed')
+    || issueCommandSource.includes('logVerificationSummary');
+  if (hasThrowingGate) {
     fail('assertEnforcedVerificationsPassed or logVerificationSummary still present');
+  } else {
+    pass('No verification gate or duplicate summary in issue command');
   }
 }
 

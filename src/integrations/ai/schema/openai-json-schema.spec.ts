@@ -1,4 +1,5 @@
-import { normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './openai-json-schema';
+import { denormalizeOpenAiStructuredOutput, normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './openai-json-schema';
+import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../../../shared/schemas/step-verification.schema';
 import { stepFidelityResponseJsonSchema } from '../../../shared/schemas/step-spec-fidelity.schema';
 
 describe('OpenAI JSON schema normalization', () => {
@@ -132,4 +133,112 @@ describe('OpenAI JSON schema normalization', () => {
     );
     expect(serializeOpenAiJsonSchema(stepFidelityResponseJsonSchema)).toBeDefined();
   });
+});
+
+describe('OpenAI structured output denormalization', () => {
+  it('strips null from an optional non-nullable property and reports its path', () => {
+    const schema = { type: 'object', required: ['a'], properties: { a: { type: 'string' }, b: { type: 'string' } } };
+    expect(denormalizeOpenAiStructuredOutput({ a: 'x', b: null }, schema))
+      .toEqual({ value: { a: 'x' }, strippedPaths: ['b'] });
+  });
+
+  it('preserves null on properties listed in the original required array', () => {
+    const schema = { type: 'object', required: ['a'], properties: { a: { type: 'string' } } };
+    expect(denormalizeOpenAiStructuredOutput({ a: null }, schema))
+      .toEqual({ value: { a: null }, strippedPaths: [] });
+  });
+
+  it('preserves null when the original property schema already allows null', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        union: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+        typed: { type: ['string', 'null'] },
+      },
+    };
+    expect(denormalizeOpenAiStructuredOutput({ union: null, typed: null }, schema))
+      .toEqual({ value: { union: null, typed: null }, strippedPaths: [] });
+  });
+
+  it('recurses through array items and nested objects with indexed paths', () => {
+    const schema = {
+      type: 'object',
+      required: ['rows'],
+      properties: {
+        rows: {
+          type: 'array',
+          items: { type: 'object', required: ['id'], properties: { id: { type: 'integer' }, note: { type: 'string' } } },
+        },
+      },
+    };
+    expect(denormalizeOpenAiStructuredOutput({ rows: [{ id: 1, note: null }, { id: 2, note: 'kept' }] }, schema))
+      .toEqual({ value: { rows: [{ id: 1 }, { id: 2, note: 'kept' }] }, strippedPaths: ['rows[0].note'] });
+  });
+
+  it('leaves keys not declared in the original properties untouched', () => {
+    const schema = { type: 'object', properties: { a: { type: 'string' } } };
+    expect(denormalizeOpenAiStructuredOutput({ extra: null }, schema))
+      .toEqual({ value: { extra: null }, strippedPaths: [] });
+  });
+
+  it('does not descend into anyOf or oneOf branches', () => {
+    const schema = {
+      type: 'object',
+      required: ['choice'],
+      properties: { choice: { anyOf: [{ type: 'object', properties: { opt: { type: 'string' } } }, { type: 'string' }] } },
+    };
+    expect(denormalizeOpenAiStructuredOutput({ choice: { opt: null } }, schema))
+      .toEqual({ value: { choice: { opt: null } }, strippedPaths: [] });
+  });
+
+  it('leaves allOf-composed and additionalProperties dictionary schemas untouched', () => {
+    const composed = { allOf: [{ type: 'object', properties: { a: { type: 'string' } } }] };
+    const dictionary = { type: 'object', additionalProperties: { type: 'string' } };
+    expect(denormalizeOpenAiStructuredOutput({ a: null }, composed))
+      .toEqual({ value: { a: null }, strippedPaths: [] });
+    expect(denormalizeOpenAiStructuredOutput({ key: null }, dictionary))
+      .toEqual({ value: { key: null }, strippedPaths: [] });
+  });
+
+  it('does not mutate the caller-owned value', () => {
+    const value = { a: 'x', b: null };
+    const original = structuredClone(value);
+    denormalizeOpenAiStructuredOutput(value, { type: 'object', properties: { a: { type: 'string' }, b: { type: 'string' } } });
+    expect(value).toEqual(original);
+  });
+
+  it('returns the value unchanged for non-object schemas and non-object values', () => {
+    expect(denormalizeOpenAiStructuredOutput({ a: null }, undefined))
+      .toEqual({ value: { a: null }, strippedPaths: [] });
+    expect(denormalizeOpenAiStructuredOutput('raw', { type: 'object' }))
+      .toEqual({ value: 'raw', strippedPaths: [] });
+  });
+
+  it('round-trips stepAssessmentResponseJsonSchema so a normalized-schema OpenAI response passes the caller Zod schema', () => {
+    expect(normalizeOpenAiJsonSchema(stepAssessmentResponseJsonSchema)).toBeDefined();
+    const openAiPayload = {
+      statuses: [
+        { index: 0, status: 'done', missing: null },
+        { index: 1, status: 'partially-done', missing: 'tests absent' },
+      ],
+    };
+    const { value, strippedPaths } = denormalizeOpenAiStructuredOutput(openAiPayload, stepAssessmentResponseJsonSchema);
+    expect(strippedPaths).toEqual(['statuses[0].missing']);
+    const parsed = stepAssessmentResponseSchema.parse(value);
+    expect(parsed.statuses[0].missing).toBeUndefined();
+    expect(parsed.statuses[1].missing).toBe('tests absent');
+  });
+
+  it.each(['partially-done', 'not-done'])(
+    'surfaces the superRefine failure when %s arrives with a null missing field',
+    status => {
+      const { value } = denormalizeOpenAiStructuredOutput(
+        { statuses: [{ index: 0, status, missing: null }] },
+        stepAssessmentResponseJsonSchema,
+      );
+      const result = stepAssessmentResponseSchema.safeParse(value);
+      expect(result.success).toBe(false);
+      expect(JSON.stringify(result.error?.issues)).toContain(`'missing' is required when status is '${status}'`);
+    },
+  );
 });

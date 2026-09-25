@@ -220,11 +220,11 @@ async function checkCleanup(
   expectedFilePath: string
 ): Promise<void> {
   await sessionService.deleteBySessionId(sessionId);
-  const cleanedUp = !fs.existsSync(expectedFilePath);
-  if (cleanedUp) {
-    pass('Cleanup: session file deleted');
-  } else {
+  const fileStillExists = fs.existsSync(expectedFilePath);
+  if (fileStillExists) {
     fail('Cleanup: session file still exists');
+  } else {
+    pass('Cleanup: session file deleted');
   }
 }
 

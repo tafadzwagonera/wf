@@ -4,6 +4,8 @@ import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
 import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import { AiProviderError } from '../../shared/utils/errors';
+import { stepAssessmentResponseJsonSchema } from '../../shared/schemas/step-verification.schema';
+import { stepFidelityResponseJsonSchema } from '../../shared/schemas/step-spec-fidelity.schema';
 
 jest.mock('../../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
@@ -2068,6 +2070,159 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         expect.stringContaining('cost=n/a'),
         'llm-adapter',
       );
+    });
+  });
+
+  describe('structured output denormalization', () => {
+    const structuredOutput = { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema };
+    const payloadWithNull = { statuses: [{ index: 0, status: 'done', missing: null }] };
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('strips normalization nulls from openai adapter responses', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({ content: JSON.stringify(payloadWithNull), provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
+
+      expect(JSON.parse(response.content)).toEqual({ statuses: [{ index: 0, status: 'done' }] });
+    });
+
+    it('strips normalization nulls from fenced codex stage-agent responses', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const mockStageAgent = {
+        isEnabledForStage: jest.fn().mockReturnValue(true),
+        resolveTargetForStage: jest.fn().mockReturnValue({ provider: 'openai', model: 'gpt-5.4-codex' }),
+        chatTurn: jest.fn().mockResolvedValue({
+          content: '```json\n' + JSON.stringify(payloadWithNull) + '\n```', session: {}, costUsd: 0.05,
+        }),
+      };
+      (service as unknown as { stageAgentService: typeof mockStageAgent }).stageAgentService = mockStageAgent;
+
+      const response = await service.execute({ prompt: 'assess', stage: 'implement', structuredOutput });
+
+      expect(JSON.parse(response.content)).toEqual({ statuses: [{ index: 0, status: 'done' }] });
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('leaves anthropic responses untouched', async () => {
+      const adapter = createAdapter();
+      const content = JSON.stringify(payloadWithNull);
+      adapter.execute.mockResolvedValue({ content, provider: 'anthropic', model: 'claude-sonnet-4-6' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'anthropic', model: 'claude-sonnet-4-6', structuredOutput });
+
+      expect(response.content).toBe(content);
+    });
+
+    it('leaves responses untouched when no structured output was requested', async () => {
+      const adapter = createAdapter();
+      const content = JSON.stringify(payloadWithNull);
+      adapter.execute.mockResolvedValue({ content, provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4' });
+
+      expect(response.content).toBe(content);
+    });
+
+    it('returns unparseable structured-output content unchanged without throwing', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({ content: 'not json at all', provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
+
+      expect(response.content).toBe('not json at all');
+    });
+
+    it('preserves the exact content when no nulls are stripped', async () => {
+      const adapter = createAdapter();
+      const content = '```json\n{"statuses":[{"index":0,"status":"done","missing":"note"}]}\n```';
+      adapter.execute.mockResolvedValue({ content, provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
+
+      expect(response.content).toBe(content);
+    });
+
+    it('leaves null on required fields intact for openai responses', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({
+        content: JSON.stringify({ statuses: [{ index: null, status: 'done' }] }), provider: 'openai', model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
+
+      expect(JSON.parse(response.content)).toEqual({ statuses: [{ index: null, status: 'done' }] });
+    });
+
+    it('denormalizes the response served by the model-fallback retry', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({ content: JSON.stringify(payloadWithNull), provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'invalid-model', structuredOutput });
+
+      expect(JSON.parse(response.content)).toEqual({ statuses: [{ index: 0, status: 'done' }] });
+    });
+
+    it('logs stripped paths to the llm-adapter log file', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({ content: JSON.stringify(payloadWithNull), provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
+
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO',
+        expect.stringContaining('ai.structured-output.denormalize stage=unknown stripped=statuses[0].missing'),
+        'llm-adapter',
+      );
+    });
+
+    it('includes the real stage name in the log entry when stage is known', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const mockStageAgent = {
+        isEnabledForStage: jest.fn().mockReturnValue(true),
+        resolveTargetForStage: jest.fn().mockReturnValue({ provider: 'openai', model: 'gpt-5.4-codex' }),
+        chatTurn: jest.fn().mockResolvedValue({
+          content: JSON.stringify(payloadWithNull), session: {}, costUsd: 0.05,
+        }),
+      };
+      (service as unknown as { stageAgentService: typeof mockStageAgent }).stageAgentService = mockStageAgent;
+
+      await service.execute({ prompt: 'assess', stage: 'implement', structuredOutput });
+
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO',
+        expect.stringContaining('ai.structured-output.denormalize stage=implement stripped=statuses[0].missing'),
+        'llm-adapter',
+      );
+    });
+
+    it('returns openai responses with all required fields byte-identical', async () => {
+      const fidelityStructuredOutput = { name: 'step_fidelity', schema: stepFidelityResponseJsonSchema };
+      const content = JSON.stringify({ findings: [{ severity: 'error', claim: 'c', deviation: 'd' }] });
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValue({ content, provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const response = await service.execute({ prompt: 'check', provider: 'openai', model: 'gpt-5.4', structuredOutput: fidelityStructuredOutput });
+
+      expect(response.content).toBe(content);
     });
   });
 

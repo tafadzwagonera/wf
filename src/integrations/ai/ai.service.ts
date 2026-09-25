@@ -5,6 +5,7 @@ import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/error
 import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import { denormalizeOpenAiStructuredOutput } from './schema/openai-json-schema';
 import { resolveProviderModel } from './adapters/shared-routing';
 import { isUnavailableModelError } from './adapters/ai-provider-error.classify';
 import { LLM_ADAPTER } from './llm-adapter.interface';
@@ -1021,12 +1022,26 @@ export class AiService {
     const routed = await this.tryStageBackendExecute(request);
     if (routed) {
       this.logResolvedAdapterTarget(routed);
-      return routed;
+      return this.applyStructuredOutputDenormalization(request, routed);
     }
     const target = this.resolveAiTarget(request.stage, request.provider, request.model);
     const response = await this.adapter.execute({ ...request, ...target });
     this.logResolvedAdapterTarget(response);
-    return response;
+    return this.applyStructuredOutputDenormalization(request, response);
+  }
+
+  private applyStructuredOutputDenormalization(request: AIRequest, response: AIResponse): AIResponse {
+    if (!request.structuredOutput || response.provider !== 'openai') return response;
+    let parsed: unknown;
+    try {
+      parsed = parseJsonResponse<unknown>(response.content);
+    } catch {
+      return response;
+    }
+    const { value, strippedPaths } = denormalizeOpenAiStructuredOutput(parsed, request.structuredOutput.schema);
+    if (strippedPaths.length === 0) return response;
+    appendToLogFile('INFO', `ai.structured-output.denormalize stage=${request.stage ?? 'unknown'} stripped=${strippedPaths.join(',')}`, 'llm-adapter');
+    return { ...response, content: JSON.stringify(value) };
   }
 
   private isStageAgentRequest(request: AIRequest): boolean {

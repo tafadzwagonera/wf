@@ -58,11 +58,11 @@ async function captureConsoleLogs(fn: () => Promise<void>): Promise<string[]> {
 }
 
 function checkExecuteNoPlaceholders(executeLines: string[]): void {
-  const lacksPlaceholders = !executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
-  if (lacksPlaceholders) {
-    pass('execute() terminal output contains no literal placeholder strings');
-  } else {
+  const hasPlaceholders = executeLines.some(l => l.includes('{provider}') || l.includes('{model}'));
+  if (hasPlaceholders) {
     fail('execute() terminal output contains literal placeholder strings', executeLines.join(' | '));
+  } else {
+    pass('execute() terminal output contains no literal placeholder strings');
   }
 }
 

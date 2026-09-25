@@ -61,12 +61,12 @@ async function captureConsoleLogs(fn: () => Promise<void>): Promise<string[]> {
 }
 
 function checkGlobalProviderAbsent(terminalLines: string[]): void {
-  const globalProviderAbsent = !terminalLines.some(l => /resolved-provider=anthropic/.test(l));
+  const globalProviderPresent = terminalLines.some(l => /resolved-provider=anthropic/.test(l));
   const leakedLines = terminalLines.filter(l => /resolved-provider/.test(l)).join(' | ');
-  if (globalProviderAbsent) {
-    pass('global default provider=anthropic does not leak into terminal line');
-  } else {
+  if (globalProviderPresent) {
     fail('global provider leaked into terminal line', leakedLines);
+  } else {
+    pass('global default provider=anthropic does not leak into terminal line');
   }
 }
 
@@ -89,11 +89,11 @@ function checkFileLines(fileLines: string[]): void {
   } else {
     fail('log file entry missing expected stage provider/model or cost', fileLines.join(' | ') || '(none)');
   }
-  const fileGlobalProviderAbsent = !fileLines.some(l => /resolved-provider=anthropic/.test(l));
-  if (fileGlobalProviderAbsent) {
-    pass('log file entry does not contain global provider=anthropic');
-  } else {
+  const fileGlobalProviderPresent = fileLines.some(l => /resolved-provider=anthropic/.test(l));
+  if (fileGlobalProviderPresent) {
     fail('global provider leaked into log file entry', fileLines.join(' | '));
+  } else {
+    pass('log file entry does not contain global provider=anthropic');
   }
 }
 
