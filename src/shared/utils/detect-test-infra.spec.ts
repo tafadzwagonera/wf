@@ -295,8 +295,76 @@ describe('formatTestInfraPromptSection', () => {
     expect(output).toContain('Allowed verification command forms');
     expect(output).toContain('node -e "..."');
     expect(output).toContain('sh -c "..." / bash -c "..."');
-    expect(output).toContain('yarn test -- ...');
-    expect(output).toContain('yarn build -- ...');
+    expect(output).toContain('npm test -- ...');
+    expect(output).toContain('npm build -- ...');
+  });
+
+  it('uses npm separator in allowlist block when packageManager is npm explicitly', () => {
+    const output = formatTestInfraPromptSection(
+      {
+        ecosystems: [
+          {
+            ecosystem: 'node',
+            nodeVersionMajor: 22,
+            hasNodeTest: true,
+            frameworks: ['jest'],
+            scripts: { test: 'jest', build: 'nest build' },
+            allScriptNames: ['test', 'build'],
+          },
+        ],
+        primary: 'node',
+      },
+      'npm',
+    );
+
+    expect(output).toContain('npm test -- ...');
+    expect(output).toContain('npm build -- ...');
+    expect(output).not.toContain('yarn');
+  });
+
+  it('omits -- separator in allowlist block when packageManager is yarn', () => {
+    const output = formatTestInfraPromptSection(
+      {
+        ecosystems: [
+          {
+            ecosystem: 'node',
+            nodeVersionMajor: 22,
+            hasNodeTest: true,
+            frameworks: ['jest'],
+            scripts: { test: 'jest' },
+            allScriptNames: ['test'],
+          },
+        ],
+        primary: 'node',
+      },
+      'yarn',
+    );
+
+    expect(output).toContain('yarn test ...');
+    expect(output).not.toContain('yarn test -- ...');
+    expect(output).toContain('"yarn test pricing/pricing.spec.ts"');
+  });
+
+  it('omits -- separator in allowlist block when packageManager is pnpm', () => {
+    const output = formatTestInfraPromptSection(
+      {
+        ecosystems: [
+          {
+            ecosystem: 'node',
+            nodeVersionMajor: 22,
+            hasNodeTest: true,
+            frameworks: ['jest'],
+            scripts: { test: 'jest' },
+            allScriptNames: ['test'],
+          },
+        ],
+        primary: 'node',
+      },
+      'pnpm',
+    );
+
+    expect(output).toContain('pnpm test ...');
+    expect(output).not.toContain('pnpm test -- ...');
   });
 
   it('includes shell-safety guidance for inline node commands', () => {

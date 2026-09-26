@@ -23,6 +23,8 @@ import { postProcessCodeReview } from '../../review/code-review-post-processing'
 import { resolveSkills } from '../../skills';
 import {
   formatRepoConventionsPromptSection,
+  packageManagerScriptArgSeparator,
+  type PackageManager,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
 import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
@@ -626,11 +628,16 @@ ${planFileListingInstructions}`;
  * Build the JSON output schema example for the plan prompt.
  * @param action Plan action type
  * @param repoExample Example repository name
+ * @param packageManager Package manager controlling the separator in the run example — defaults to 'npm'
  * @returns Output schema string
  */
-const buildPlanOutputSchema = (action: ResolutionAction, repoExample: string): string => {
+const buildPlanOutputSchema = (
+  action: ResolutionAction,
+  repoExample: string,
+  packageManager: PackageManager = 'npm',
+): string => {
   return `Return ONLY a valid JSON object. Reference:
-{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"${packageManager} test:manual${packageManagerScriptArgSeparator(packageManager)}test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
@@ -673,20 +680,20 @@ const extractSkillNames = (context: Record<string, unknown> | undefined): string
  * @returns Complete prompt string
  */
 const buildPlanPromptBody = (
-  action: ResolutionAction,
-  issueContent: string,
+  action: ResolutionAction, issueContent: string,
   context: Record<string, unknown> | undefined,
   repoExample: string, discoveryBlock: string,
   hasNodeTestInfra: boolean
-): string =>
-  assemblePlanPrompt(
+): string => {
+  const packageManager: PackageManager = (context?.conventions as { packageManager?: PackageManager } | undefined)?.packageManager ?? 'npm';
+  return assemblePlanPrompt(
     buildPlanPreamble(action, issueContent, context),
     discoveryBlock,
-    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext) : '', buildPlanTestConventionsBlock(!!context?.testInfra)],
+    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext, packageManager) : '', buildPlanTestConventionsBlock(!!context?.testInfra)],
     buildPlanVerificationBlock(hasNodeTestInfra),
-    buildPlanOutputSchema(action, repoExample),
-    buildPlanSkillSection(extractSkillNames(context))
-  );
+    buildPlanOutputSchema(action, repoExample, packageManager),
+    buildPlanSkillSection(extractSkillNames(context)));
+};
 
 /**
  * Detect whether the context describes a Node.js test ecosystem.

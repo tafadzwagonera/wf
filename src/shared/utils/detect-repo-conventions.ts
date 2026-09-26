@@ -8,6 +8,9 @@ export type { RepoLanguage, RepoConventionsContext } from '../types/detection.ty
 
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm';
 
+export const packageManagerScriptArgSeparator = (pm: PackageManager): string =>
+  pm === 'npm' ? ' -- ' : ' ';
+
 /**
  * Read the packageManager field declared in package.json, if any.
  *

@@ -27,6 +27,8 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
+const lacks = (text: string, fragment: string): boolean => !text.includes(fragment);
+
 const check = (message: string, condition: boolean, detail?: string): void => {
   if (condition) {
     pass(message);
@@ -83,11 +85,8 @@ function buildVitestEcosystem() {
 
 function checkVitestPromptRendering(): void {
   const output = formatTestInfraPromptSection(buildVitestEcosystem() as any);
-  check(
-    'renders vi.restoreAllMocks (not jest.restoreAllMocks) for Vitest',
-    output.includes('vi.restoreAllMocks()') && !output.includes('jest.restoreAllMocks()'),
-    `prompt contains: ${output.includes('vi.restoreAllMocks()') ? 'vi.restoreAllMocks' : 'MISSING vi.restoreAllMocks'}; ${output.includes('jest.restoreAllMocks()') ? 'UNEXPECTED jest.restoreAllMocks' : 'no jest.restoreAllMocks (correct)'}`
-  );
+  check('renders vi.restoreAllMocks() for Vitest', output.includes('vi.restoreAllMocks()'), 'vi.restoreAllMocks() missing from prompt');
+  check('jest.restoreAllMocks() absent for Vitest', lacks(output, 'jest.restoreAllMocks()'), 'unexpected jest.restoreAllMocks() in prompt');
 }
 
 function checkDiSetupTestingModule(): void {
@@ -145,8 +144,8 @@ function checkPromptRenderingJest(): void {
 function checkPromptRenderingFactory(): void {
   const output = formatTestInfraPromptSection(buildJestEcosystem('factory-function', null, false) as any);
   check('renders factory-function DI line with assumption guidance', output.includes('factory helpers') && output.includes('State which factory'), 'missing factory-function prompt text');
-  check('omits mockCleanup when null', !output.includes('Mock isolation'), 'mockCleanup rendered when it should be absent');
-  check('omits errorHandlerExits when false', !output.includes('Error handler'), 'errorHandlerExits rendered when it should be absent');
+  check('mockCleanup section absent when null', lacks(output, 'Mock isolation'), 'mockCleanup rendered when it should be absent');
+  check('errorHandlerExits section absent when false', lacks(output, 'Error handler'), 'errorHandlerExits rendered when it should be absent');
 }
 
 function runMockCleanupChecks(): void {

@@ -326,7 +326,7 @@ describe('AiService', () => {
         '"affectedRepositories":["repo-a"],',
         '"newRepositories":[],',
         '"risks":["Renaming may break downstream consumers"],',
-        '"verification":{"targeted":[{"id":"manual-review","run":"yarn test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
+        '"verification":{"targeted":[{"id":"manual-review","run":"npm test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
       ].join('');
 
       expect(adapter.execute).toHaveBeenCalledWith(
@@ -370,6 +370,38 @@ describe('AiService', () => {
             'Prefer re-running generators over manually patching'
           ),
         })
+      );
+    });
+
+    it('uses pnpm and omits -- in JSON schema example when conventions has packageManager pnpm', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Fix it',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: ['repo-a'],
+        }),
+        provider: 'openai',
+        model: 'gpt-5.4',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generatePlan('fix', '# WBP-456', {
+        affectedRepositories: ['repo-a'],
+        conventions: {
+          language: 'typescript', namingPattern: 'kebab-case', importStyle: 'esm',
+          folderStructure: [], keyDependencies: [], errorHandlingPaths: [], gitHooks: [],
+          packageManager: 'pnpm',
+        } as any,
+      });
+
+      expect(adapter.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('"run":"pnpm test:manual test-auth-guard"'),
+        }),
       );
     });
 

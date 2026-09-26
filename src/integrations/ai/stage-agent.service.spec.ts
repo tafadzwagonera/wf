@@ -3952,4 +3952,72 @@ describe('StageAgentService', () => {
       });
     });
   });
+
+  describe('plan JSON schema example package manager interpolation', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('uses npm separator (--) in JSON schema example when conventions.packageManager is npm', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Fix it',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          risks: [],
+        }),
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Fix a backend timeout',
+        conventions: {
+          language: 'typescript', namingPattern: 'kebab-case', importStyle: 'esm',
+          folderStructure: [], keyDependencies: [], errorHandlingPaths: [], gitHooks: [],
+          packageManager: 'npm',
+        } as any,
+      });
+
+      expect(mockRunStagePrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('"run":"npm test:manual -- test-auth-guard"'),
+        }),
+      );
+    });
+
+    it('omits -- in JSON schema example when conventions.packageManager is yarn', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Fix it',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          risks: [],
+        }),
+      });
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      await service.generatePlan({
+        action: 'fix',
+        issueContent: 'Fix a backend timeout',
+        conventions: {
+          language: 'typescript', namingPattern: 'kebab-case', importStyle: 'esm',
+          folderStructure: [], keyDependencies: [], errorHandlingPaths: [], gitHooks: [],
+          packageManager: 'yarn',
+        } as any,
+      });
+
+      expect(mockRunStagePrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('"run":"yarn test:manual test-auth-guard"'),
+        }),
+      );
+    });
+  });
 });

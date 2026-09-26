@@ -4,6 +4,7 @@ import {
   detectPackageManager,
   detectRepoConventions,
   formatRepoConventionsPromptSection,
+  packageManagerScriptArgSeparator,
   RepoConventionsContext,
 } from './detect-repo-conventions';
 
@@ -1398,5 +1399,27 @@ describe('detectRepoConventions — designSystem.classConventions', () => {
     const ctx = detectRepoConventions(REPO_DIR);
     const conv = ctx.designSystem?.classConventions.find(c => c.element === 'h1');
     expect(conv?.confidence).toBe('low');
+  });
+});
+
+describe('packageManagerScriptArgSeparator', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns " -- " for npm', () => {
+    expect(packageManagerScriptArgSeparator('npm')).toBe(' -- ');
+  });
+
+  it('returns " " for yarn', () => {
+    expect(packageManagerScriptArgSeparator('yarn')).toBe(' ');
+  });
+
+  it('returns " " for pnpm', () => {
+    expect(packageManagerScriptArgSeparator('pnpm')).toBe(' ');
+  });
+
+  it('returns " " for bun', () => {
+    expect(packageManagerScriptArgSeparator('bun')).toBe(' ');
   });
 });

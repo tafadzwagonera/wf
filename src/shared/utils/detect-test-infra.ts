@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildSkipDirs, walkDir } from './walk-dir';
+import { packageManagerScriptArgSeparator, type PackageManager } from './detect-repo-conventions';
 import type {
   DiSetupPattern,
   NodeFramework,
@@ -404,8 +405,8 @@ const formatEcosystemLines = (eco: EcosystemInfra): string[] => {
   }
 };
 
-const NODE_VERIFICATION_RULES: string[] = [
-  '- Prefer existing scripts with a filter (e.g., "yarn test -- pricing/pricing.spec.ts") over bare "yarn test".',
+const buildNodeVerificationRules = (packageManager: PackageManager): string[] => [
+  `- Prefer existing scripts with a filter (e.g., "${packageManager} test${packageManagerScriptArgSeparator(packageManager)}pricing/pricing.spec.ts") over bare "${packageManager} test".`,
   "- When no matching script exists, prefer inline: node -e \"const assert = require('node:assert'); ...\"",
   '- Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer single-quoted JS strings or properly escaped backticks — never rely on unescaped template literals inside double-quoted shell strings.',
 ];
@@ -415,25 +416,27 @@ const TERRAFORM_VERIFICATION_RULES: string[] = [
   '- Prefer targeted: "terraform plan -target=module.foo" over bare "terraform plan".',
 ];
 
-const formatAllowedCommandForms = (eco: NodeInfra): string[] => [
+const formatAllowedCommandForms = (eco: NodeInfra, packageManager: PackageManager): string[] => [
   '',
   'Allowed verification command forms (exhaustive — do NOT use unlisted commands):',
   '- node -e "..."',
   '- sh -c "..." / bash -c "..."',
-  ...Object.entries(eco.scripts).map(([name, cmd]) => `- yarn ${name} -- ... (runs: "${cmd}")`),
+  ...Object.entries(eco.scripts).map(
+    ([name, cmd]) => `- ${packageManager} ${name}${packageManagerScriptArgSeparator(packageManager)}... (runs: "${cmd}")`,
+  ),
 ];
 
-const formatVerificationRules = (ctx: TestInfraContext): string[] => {
+const formatVerificationRules = (ctx: TestInfraContext, packageManager: PackageManager): string[] => {
   const nodeEco = ctx.ecosystems.find((e): e is NodeInfra => e.ecosystem === 'node');
   const tfEco = ctx.ecosystems.find((e): e is TerraformInfra => e.ecosystem === 'terraform');
   return [
     'Rules for verification commands:',
     '- Reference ONLY the scripts and binaries listed above. Do not invent scripts.',
     '- Each command must verify a specific side effect of THIS plan — not run a generic suite.',
-    ...(nodeEco ? NODE_VERIFICATION_RULES : []),
+    ...(nodeEco ? buildNodeVerificationRules(packageManager) : []),
     ...(tfEco ? TERRAFORM_VERIFICATION_RULES : []),
     '- Every command must be copy-paste-runnable from the repo root.',
-    ...(nodeEco ? formatAllowedCommandForms(nodeEco) : []),
+    ...(nodeEco ? formatAllowedCommandForms(nodeEco, packageManager) : []),
   ];
 };
 
@@ -443,13 +446,13 @@ const formatVerificationRules = (ctx: TestInfraContext): string[] => {
  * @param ctx - Test infrastructure context from `detectTestInfra()`
  * @returns Multi-line string for injection into AI prompts
  */
-const formatTestInfraPromptSection = (ctx: TestInfraContext): string => {
+const formatTestInfraPromptSection = (ctx: TestInfraContext, packageManager: PackageManager = 'npm'): string => {
   if (ctx.ecosystems.length === 0) return 'No test infrastructure detected — use only POSIX shell commands.';
   return [
     'Available test infrastructure in this repository:',
     `Ecosystems detected: ${ctx.ecosystems.map(e => e.ecosystem).join(', ')} (primary: ${ctx.primary})`,
     ...ctx.ecosystems.flatMap(formatEcosystemLines),
-    ...formatVerificationRules(ctx),
+    ...formatVerificationRules(ctx, packageManager),
   ].join('\n');
 };
 
