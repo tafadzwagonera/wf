@@ -3984,7 +3984,7 @@ describe('StageAgentService', () => {
 
       expect(mockRunStagePrompt).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('"run":"npm test:manual -- test-auth-guard"'),
+          prompt: expect.stringContaining('"run":"npm run test:manual -- test-auth-guard"'),
         }),
       );
     });

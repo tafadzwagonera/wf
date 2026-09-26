@@ -1,5 +1,6 @@
 import { createPlanQualityError, validatePlanQuality } from './plan-quality';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
+import { formatRunnerInvocation } from './verification-commands';
 
 describe('validatePlanQuality', () => {
   const repoName = 'wf';
@@ -30,6 +31,18 @@ describe('validatePlanQuality', () => {
         },
       },
     ],
+  };
+
+  const createTestInfraWithoutScripts = (): TestInfraContext => {
+    const nodeInfra = mockTestInfra.ecosystems.find(
+      (ecosystem): ecosystem is NodeInfra => ecosystem.ecosystem === 'node'
+    );
+    if (!nodeInfra) throw new Error('Expected node test infrastructure');
+
+    return {
+      ...mockTestInfra,
+      ecosystems: [{ ...nodeInfra, scripts: {}, allScriptNames: [] }],
+    };
   };
 
   it('returns no violations for an executable plan', () => {
@@ -133,6 +146,87 @@ describe('validatePlanQuality', () => {
     ]);
   });
 
+  it.each(['npm', 'yarn', 'pnpm', 'bun'] as const)(
+    'accepts commands formatted for %s through validation', packageManager => {
+      const result = validatePlanQuality({
+        plan: {
+          verification: {
+            targeted: [{
+              id: 'runner-command',
+              run: formatRunnerInvocation(packageManager, 'test:manual', 'x'),
+              policy: 'enforced',
+            }],
+          },
+        },
+        testInfra: mockTestInfra,
+      });
+
+      expect(result).toEqual([]);
+    }
+  );
+
+  it.each([
+    ['npm', 'npm run test -- ...'],
+    ['yarn', 'yarn test ...'],
+    ['pnpm', 'pnpm run test ...'],
+    ['bun', 'bun run test ...'],
+  ] as const)('includes %s-specific repair forms in allowlist violations', (packageManager, expectedForm) => {
+    const result = validatePlanQuality({
+      plan: {
+        verification: {
+          targeted: [{ id: 'bad-runner-command', run: 'invalid command', policy: 'enforced' }],
+        },
+      },
+      testInfra: mockTestInfra,
+      packageManager,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        ruleId: 'verification-allowlist',
+        message: expect.stringContaining(expectedForm),
+      }),
+    ]);
+  });
+
+  it('lists allowed script names when no package manager is available for repair guidance', () => {
+    const result = validatePlanQuality({
+      plan: { verification: { targeted: [{ id: 'bad-command', run: 'invalid command', policy: 'enforced' }] } },
+      testInfra: mockTestInfra,
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({ message: expect.stringContaining('Allowed scripts: test, test:manual, lint.') }),
+    ]);
+  });
+
+  it('falls back to the inline node form when no scripts are detected', () => {
+    const result = validatePlanQuality({
+      plan: { verification: { targeted: [{ id: 'empty-scripts', run: 'invalid command', policy: 'enforced' }] } },
+      testInfra: createTestInfraWithoutScripts(),
+      packageManager: 'yarn',
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        message: 'Verification command must match the detected allowlist: invalid command Allowed forms: node -e "...".',
+      }),
+    ]);
+  });
+
+  it('uses the inline-form guidance without a package manager when no scripts are detected', () => {
+    const result = validatePlanQuality({
+      plan: { verification: { targeted: [{ id: 'empty-scripts', run: 'invalid command', policy: 'enforced' }] } },
+      testInfra: createTestInfraWithoutScripts(),
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        message: 'Verification command must match the detected allowlist: invalid command Allowed inline form: node -e "...".',
+      }),
+    ]);
+  });
+
   it('accepts allowlisted verification commands after normalizing a redundant repo-local cd prefix', () => {
     const result = validatePlanQuality({
       plan: {
@@ -145,7 +239,7 @@ describe('validatePlanQuality', () => {
           targeted: [
             {
               id: 'repo-local-command',
-              run: 'cd wf && yarn test:manual -- test-issue-plan-validation',
+              run: 'cd wf && npm run test:manual -- test-issue-plan-validation',
               policy: 'enforced',
             },
           ],

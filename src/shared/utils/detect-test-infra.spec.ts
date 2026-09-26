@@ -1,4 +1,5 @@
 import { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection } from './detect-test-infra';
+import { parseRunnerInvocation } from './verification-commands';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -295,8 +296,8 @@ describe('formatTestInfraPromptSection', () => {
     expect(output).toContain('Allowed verification command forms');
     expect(output).toContain('node -e "..."');
     expect(output).toContain('sh -c "..." / bash -c "..."');
-    expect(output).toContain('npm test -- ...');
-    expect(output).toContain('npm build -- ...');
+    expect(output).toContain('npm run test -- ...');
+    expect(output).toContain('npm run build -- ...');
   });
 
   it('uses npm separator in allowlist block when packageManager is npm explicitly', () => {
@@ -317,8 +318,8 @@ describe('formatTestInfraPromptSection', () => {
       'npm',
     );
 
-    expect(output).toContain('npm test -- ...');
-    expect(output).toContain('npm build -- ...');
+    expect(output).toContain('npm run test -- ...');
+    expect(output).toContain('npm run build -- ...');
     expect(output).not.toContain('yarn');
   });
 
@@ -363,8 +364,22 @@ describe('formatTestInfraPromptSection', () => {
       'pnpm',
     );
 
-    expect(output).toContain('pnpm test ...');
-    expect(output).not.toContain('pnpm test -- ...');
+    expect(output).toContain('pnpm run test ...');
+    expect(output).not.toContain('pnpm run test -- ...');
+  });
+
+  it('emits allowlist commands that parse to declared scripts', () => {
+    const output = formatTestInfraPromptSection({
+      ecosystems: [{
+        ecosystem: 'node', nodeVersionMajor: 22, hasNodeTest: true, frameworks: ['jest'],
+        scripts: { test: 'jest', 'test:manual': 'ts-node run-manual-test.ts' },
+        allScriptNames: ['test', 'test:manual'],
+      }],
+      primary: 'node',
+    }, 'pnpm');
+    const commands = [...output.matchAll(/^- (.+?) \(runs:/gm)].map(match => match[1]);
+
+    expect(commands.map(command => parseRunnerInvocation(command)?.script)).toEqual(['test', 'test:manual']);
   });
 
   it('includes shell-safety guidance for inline node commands', () => {

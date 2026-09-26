@@ -1102,7 +1102,10 @@ describe('IssuePlanCommand', () => {
     exitSpy.mockRestore();
   });
 
-  it('allows enforced verification referencing an existing package.json script', async () => {
+  it.each([
+    ['pnpm run test:manual test-auth-redirect'],
+    ['bun run test:manual test-auth-redirect'],
+  ])('allows enforced verification referencing an existing script through %s', async run => {
     const { command, fetchStageService, planStageService } = await buildCommand();
 
     const repoDir = createManagedTempDir('plan-infra');
@@ -1140,7 +1143,7 @@ describe('IssuePlanCommand', () => {
           targeted: [
             {
               id: 'existing-script',
-              run: 'yarn test:manual -- test-auth-redirect',
+              run,
               policy: 'enforced',
             },
           ],

@@ -13,6 +13,7 @@ import {
 } from '../../shared/utils/plan-artifact';
 import { AiProviderError, PlanArtifactNotFoundError, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
+import { detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -29,6 +30,11 @@ jest.mock('../../shared/utils/detect-test-infra', () => ({
   detectTestInfra: jest.fn(),
 }));
 
+jest.mock('../../shared/utils/detect-repo-conventions', () => {
+  const actual = jest.requireActual('../../shared/utils/detect-repo-conventions');
+  return { ...actual, detectRepoConventions: jest.fn(), detectPackageManager: jest.fn() };
+});
+
 jest.mock('../../shared/utils/extract-figma-links', () => ({
   searchFigmaLinksForTicket: jest.fn().mockResolvedValue([]),
   extractFigmaLinks: jest.fn().mockReturnValue([]),
@@ -37,6 +43,7 @@ jest.mock('../../shared/utils/extract-figma-links', () => ({
 
 describe('PlanStageService', () => {
   const mockDetectTestInfra = detectTestInfra as jest.MockedFunction<typeof detectTestInfra>;
+  const mockDetectRepoConventions = detectRepoConventions as jest.MockedFunction<typeof detectRepoConventions>;
   const mockPlan = {
     action: 'fix',
     summary: 'Update auth redirect handling',
@@ -89,9 +96,7 @@ describe('PlanStageService', () => {
     };
   };
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
+  afterEach(() => jest.restoreAllMocks());
 
   beforeEach(() => {
     mockDetectTestInfra.mockReturnValue({
@@ -117,6 +122,7 @@ describe('PlanStageService', () => {
         },
       ],
     });
+    mockDetectRepoConventions.mockReturnValue({ packageManager: 'yarn' } as any);
   });
 
   it('generates a plan using extracted ticket summary and affected repositories', async () => {
@@ -147,6 +153,55 @@ describe('PlanStageService', () => {
           ]),
         }),
       })
+    );
+  });
+
+  it('derives conventions from repoDir before generating a plan', async () => {
+    const { service, aiService } = await buildService();
+
+    await service.generatePlan('Ticket body', { action: 'fix', repoDir: '/tmp/yarn-repo' });
+
+    expect(mockDetectRepoConventions).toHaveBeenCalledWith('/tmp/yarn-repo');
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix',
+      'Ticket body',
+      expect.objectContaining({ conventions: expect.objectContaining({ packageManager: 'yarn' }) })
+    );
+  });
+
+  it('preserves repoDir when createPlanArtifact starts plan generation', async () => {
+    const { service, aiService } = await buildService();
+    const repoDir = createManagedTempDir('plan-repo-dir');
+    const ticketPath = path.join(repoDir, 'WBP-REPO-DIR.md');
+    fs.writeFileSync(ticketPath, '# WBP-REPO-DIR: Preserve repo directory');
+    const generatePlanSpy = jest.spyOn(service, 'generatePlan');
+
+    await service.createPlanArtifact(
+      { ticketKey: 'WBP-REPO-DIR', content: '# WBP-REPO-DIR: Preserve repo directory', path: ticketPath },
+      { action: 'fix', repoDir }
+    );
+
+    expect(generatePlanSpy).toHaveBeenCalledWith(
+      '# WBP-REPO-DIR: Preserve repo directory',
+      expect.objectContaining({ repoDir })
+    );
+    expect(aiService.generatePlan).toHaveBeenCalled();
+  });
+
+  it('keeps explicitly supplied conventions instead of deriving replacements', async () => {
+    const { service, aiService } = await buildService();
+    const mockConventions = { packageManager: 'bun' } as any;
+    mockDetectRepoConventions.mockClear();
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix', repoDir: '/tmp/bun-repo', conventions: mockConventions,
+    });
+
+    expect(mockDetectRepoConventions).not.toHaveBeenCalled();
+    expect(aiService.generatePlan).toHaveBeenCalledWith(
+      'fix',
+      'Ticket body',
+      expect.objectContaining({ conventions: mockConventions })
     );
   });
 
@@ -536,6 +591,28 @@ describe('PlanStageService', () => {
       'Ticket body',
       expect.objectContaining({
         planQualityFeedback: expect.arrayContaining([expect.stringContaining('[rename-target-required]')]),
+      })
+    );
+  });
+
+  it('includes detected yarn runner forms in verification retry feedback', async () => {
+    const { service, aiService } = await buildService();
+    (aiService.generatePlan as jest.Mock)
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        affectedRepositories: ['repo-a'],
+        verification: { targeted: [{ id: 'invalid', run: 'yarn unknown', policy: 'enforced' }] },
+      })
+      .mockResolvedValueOnce({ ...mockPlan, affectedRepositories: ['repo-a'] });
+
+    await service.generatePlan('Ticket body', { action: 'fix', repoDir: '/tmp/yarn-repo' });
+
+    expect(aiService.generatePlan).toHaveBeenNthCalledWith(
+      2,
+      'fix',
+      'Ticket body',
+      expect.objectContaining({
+        planQualityFeedback: expect.arrayContaining([expect.stringContaining('yarn test ...')]),
       })
     );
   });

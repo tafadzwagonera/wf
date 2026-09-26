@@ -65,10 +65,10 @@ import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-inf
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
   formatRepoConventionsPromptSection,
-  packageManagerScriptArgSeparator,
   type PackageManager,
   type RepoConventionsContext,
 } from '../../shared/utils/detect-repo-conventions';
+import { formatRunnerInvocation } from '../../shared/utils/verification-commands';
 import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
 import {
   formatPlanCorrelationPromptSection,
@@ -391,7 +391,7 @@ ${planFileListingInstructions}`;
 
 const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
 Return ONLY a valid JSON object. Reference:
-{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"${opts.packageManager} test:manual${packageManagerScriptArgSeparator(opts.packageManager)}test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(opts.packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
 

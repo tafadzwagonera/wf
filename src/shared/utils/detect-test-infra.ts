@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildSkipDirs, walkDir } from './walk-dir';
-import { packageManagerScriptArgSeparator, type PackageManager } from './detect-repo-conventions';
+import type { PackageManager } from './detect-repo-conventions';
+import { formatRunnerInvocation } from './verification-commands';
 import type {
   DiSetupPattern,
   NodeFramework,
@@ -406,7 +407,7 @@ const formatEcosystemLines = (eco: EcosystemInfra): string[] => {
 };
 
 const buildNodeVerificationRules = (packageManager: PackageManager): string[] => [
-  `- Prefer existing scripts with a filter (e.g., "${packageManager} test${packageManagerScriptArgSeparator(packageManager)}pricing/pricing.spec.ts") over bare "${packageManager} test".`,
+  `- Prefer existing scripts with a filter (e.g., "${formatRunnerInvocation(packageManager, 'test', 'pricing/pricing.spec.ts')}") over bare "${formatRunnerInvocation(packageManager, 'test')}".`,
   "- When no matching script exists, prefer inline: node -e \"const assert = require('node:assert'); ...\"",
   '- Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer single-quoted JS strings or properly escaped backticks — never rely on unescaped template literals inside double-quoted shell strings.',
 ];
@@ -422,7 +423,7 @@ const formatAllowedCommandForms = (eco: NodeInfra, packageManager: PackageManage
   '- node -e "..."',
   '- sh -c "..." / bash -c "..."',
   ...Object.entries(eco.scripts).map(
-    ([name, cmd]) => `- ${packageManager} ${name}${packageManagerScriptArgSeparator(packageManager)}... (runs: "${cmd}")`,
+    ([name, cmd]) => `- ${formatRunnerInvocation(packageManager, name, '...')} (runs: "${cmd}")`,
   ),
 ];
 

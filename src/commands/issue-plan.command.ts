@@ -29,7 +29,8 @@ import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/types/detection.types';
 import { validatePlanQuality } from '../shared/utils/plan-quality';
-import { detectRepoConventions } from '../shared/utils/detect-repo-conventions';
+import { detectRepoConventions, type PackageManager } from '../shared/utils/detect-repo-conventions';
+import { parseRunnerInvocation } from '../shared/utils/verification-commands';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
 import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
 import { detectReuseCandidates } from '../shared/utils/detect-reuse-candidates';
@@ -157,8 +158,7 @@ const escapesSelectedRepo = (command: string, selectedRepoDir: string): boolean 
  * @returns Script name when the command uses a package manager runner, undefined otherwise
  */
 const extractScriptName = (command: string): string | undefined => {
-  const match = new RegExp(/^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+(\S+)/).exec(command);
-  return match?.[1];
+  return parseRunnerInvocation(command)?.script;
 };
 
 @Injectable()
@@ -170,6 +170,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'Use --force to fetch and recreate artifacts. '
     + 'Repo-scoped planning inspects prior plan artifacts anywhere under ~/.wf/<repo>/**/* and correlates them by keyword similarity so planning prompts can reuse earlier implementation context. '
     + 'Planning prompts include detected repository test conventions and ecosystem-specific verification guidance so generated steps match local test patterns and only reference allowed command forms. '
+    + 'Node verification commands use the detected package manager: npm uses `npm run <script> -- <args>`, yarn uses `yarn <script> <args>`, pnpm uses `pnpm run <script> <args>`, and bun uses `bun run <script> <args>`; the same syntax is used by validation and retry guidance. '
     + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices, responsive grid-cols breakpoint tiers mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
     + 'Existing components and composables whose names share significant vocabulary with the ticket are surfaced in the plan prompt as reuse candidates so the planner can reference them before creating new files; repos that place UI files outside `app/components` or `app/composables` receive no candidates. '
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
@@ -501,7 +502,7 @@ export class IssuePlanCommand extends CommandRunner {
       resumeProviderSessionId: options?.sessionId, uiDesignScreenshots,
     });
     const figmaLinks = await this.resolveFigmaLinks(content, options, discovery);
-    this.validateAndEnrich(plan, baseDir, options);
+    this.validateAndEnrich(plan, baseDir, options, discovery.conventions.packageManager);
     return { plan, figmaLinks, uiDesignScreenshots };
   }
 
@@ -514,9 +515,11 @@ export class IssuePlanCommand extends CommandRunner {
     return resolvePostParseFigmaLinks(content, options.figmaLinks ?? [], figmaResolveOpts);
   }
 
-  private validateAndEnrich(plan: any, baseDir: string, options: IssuePlanOptions): void {
+  private validateAndEnrich(
+    plan: any, baseDir: string, options: IssuePlanOptions, packageManager: PackageManager
+  ): void {
     const expectedRepos = this.resolveExpectedRepositories(baseDir, options?.repos);
-    this.validateGeneratedPlan(plan, baseDir, expectedRepos, detectTestInfra(baseDir));
+    this.validateGeneratedPlan(plan, baseDir, expectedRepos, detectTestInfra(baseDir), packageManager);
     this.planStageService.enrichPlanWithDirectoryConfigs(plan, baseDir);
   }
 
@@ -838,7 +841,7 @@ export class IssuePlanCommand extends CommandRunner {
    */
   private validateGeneratedPlan(
     plan: RepoAwarePlan, selectedRepoDir: string,
-    expectedRepositories: string[], testInfra?: TestInfraContext
+    expectedRepositories: string[], testInfra?: TestInfraContext, packageManager?: PackageManager
   ): void {
     const repos = plan.affectedRepositories ?? [];
     const affected = normalizeFileEntries(plan.affectedFiles ?? []);
@@ -850,7 +853,7 @@ export class IssuePlanCommand extends CommandRunner {
     this.normalizeVerificationCommands(plan, selectedRepoDir);
     this.validateVerificationEcosystems(plan, testInfra);
     this.validateVerificationSemantics(plan, selectedRepoDir);
-    this.validatePlanQualityRules(plan, repos, testInfra);
+    this.validatePlanQualityRules(plan, repos, testInfra, packageManager);
   }
 
   private validatePlanMetadata(
@@ -987,8 +990,12 @@ export class IssuePlanCommand extends CommandRunner {
     }
   }
 
-  private validatePlanQualityRules(plan: RepoAwarePlan, repos: string[], testInfra?: TestInfraContext): void {
-    const violations = validatePlanQuality({ plan: plan as any, affectedRepositories: repos, testInfra });
+  private validatePlanQualityRules(
+    plan: RepoAwarePlan, repos: string[], testInfra?: TestInfraContext, packageManager?: PackageManager
+  ): void {
+    const violations = validatePlanQuality({
+      plan: plan as any, affectedRepositories: repos, testInfra, packageManager,
+    });
     if (violations.length === 0) return;
 
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);

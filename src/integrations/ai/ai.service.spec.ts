@@ -326,7 +326,7 @@ describe('AiService', () => {
         '"affectedRepositories":["repo-a"],',
         '"newRepositories":[],',
         '"risks":["Renaming may break downstream consumers"],',
-        '"verification":{"targeted":[{"id":"manual-review","run":"npm test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
+        '"verification":{"targeted":[{"id":"manual-review","run":"npm run test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
       ].join('');
 
       expect(adapter.execute).toHaveBeenCalledWith(
@@ -400,7 +400,7 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('"run":"pnpm test:manual test-auth-guard"'),
+          prompt: expect.stringContaining('"run":"pnpm run test:manual test-auth-guard"'),
         }),
       );
     });

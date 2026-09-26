@@ -21,6 +21,7 @@ import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '
 import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
+import { detectPackageManager, detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
 import { validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext,
   PriorPlanContext,
@@ -208,14 +209,20 @@ export class PlanStageService {
     return options.figma === true || this.configService.get<boolean>('stages.plan.figma') === true;
   }
 
+  private buildPlanGenerationOptions(ticket: TicketArtifact, options: PlannerOptions, figmaLinks: string[]) {
+    return {
+      action: options.action, ticketKey: ticket.ticketKey,
+      affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
+      figmaLinks, uiDesignScreenshots: options.uiDesignScreenshots, repoDir: options.repoDir,
+    };
+  }
+
   private async executePlanGeneration(ticket: TicketArtifact, options: PlannerOptions) {
     const figmaEnabled = this.isFigmaEnabled(options);
     const autoLinks = figmaEnabled ? extractFigmaLinks(ticket.content) : [];
-    const { plan, sessionId } = await this.generatePlan(ticket.content, {
-      action: options.action, ticketKey: ticket.ticketKey,
-      affectedRepositories: options.affectedRepositories, onProgress: options.onProgress,
-      figmaLinks: autoLinks, uiDesignScreenshots: options.uiDesignScreenshots,
-    });
+    const { plan, sessionId } = await this.generatePlan(
+      ticket.content, this.buildPlanGenerationOptions(ticket, options, autoLinks)
+    );
     const figmaLinks = figmaEnabled
       ? await resolvePostParseFigmaLinks(
           ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
@@ -294,12 +301,23 @@ export class PlanStageService {
     return resolved;
   }
 
-  private async validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): Promise<void> {
-    const testInfra = detectTestInfra(this.resolveRepoDirOrThrow(repoDir));
+  private async getLoadedPlanViolations(
+    plan: ResolutionPlan, repoDir: string
+  ): Promise<ReturnType<typeof validatePlanQuality>> {
+    const testInfra = detectTestInfra(repoDir);
     const skillRules = await this.resolveSkillRulesForPlan();
-    const violations = validatePlanQuality({
-      plan, affectedRepositories: plan.affectedRepositories, testInfra, skillRules,
+    return validatePlanQuality({
+      plan,
+      affectedRepositories: plan.affectedRepositories,
+      testInfra,
+      skillRules,
+      packageManager: detectPackageManager(repoDir),
     });
+  }
+
+  private async validateLoadedPlan(plan: ResolutionPlan, repoDir?: string): Promise<void> {
+    const resolvedRepoDir = this.resolveRepoDirOrThrow(repoDir);
+    const violations = await this.getLoadedPlanViolations(plan, resolvedRepoDir);
     if (violations.length === 0) return;
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
     const bullets = formatted.map(v => '      ' + v).join('\n');
@@ -368,13 +386,15 @@ export class PlanStageService {
   private async buildPlanContext(
     ticketContent: string, options: GeneratePlanOptions
   ): Promise<PlanGenerationContext> {
-    const testInfra = detectTestInfra(options.repoDir ?? process.cwd());
+    const repoDir = options.repoDir ?? process.cwd();
+    const testInfra = detectTestInfra(repoDir);
+    const conventions = options.conventions ?? detectRepoConventions(repoDir);
     const skillIds = this.configService.get<string[]>('stages.plan.skills') ?? [];
     const skills = skillIds.length
       ? await resolveSkills(skillIds, { interactive: this.isInteractiveSession(), stage: 'plan' })
       : [];
     const skillRules = collectQualityRules(skills);
-    return { ticketContent, options, testInfra, skillIds, skillRules };
+    return { ticketContent, options: { ...options, repoDir, conventions }, testInfra, skillIds, skillRules };
   }
 
   private validatePlanViolations(plan: ResolutionPlan, ctx: PlanGenerationContext): string[] {
@@ -383,6 +403,7 @@ export class PlanStageService {
       affectedRepositories: ctx.options.affectedRepositories,
       testInfra: ctx.testInfra,
       skillRules: ctx.skillRules,
+      packageManager: ctx.options.conventions?.packageManager,
     });
     return violations.map(v => `[${v.ruleId}] ${v.message}`);
   }

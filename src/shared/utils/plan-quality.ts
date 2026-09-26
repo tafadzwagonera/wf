@@ -2,6 +2,8 @@ import type { ResolutionPlan } from '../types/ai.types';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
 import { ValidationError } from '../errors/app.error';
 import type { SkillQualityRule } from '../../skills/skill.types';
+import type { PackageManager } from './detect-repo-conventions';
+import { formatRunnerInvocation, parseRunnerInvocation } from './verification-commands';
 
 export interface PlanQualityViolation {
   ruleId: string;
@@ -13,9 +15,9 @@ interface ValidatePlanQualityParams {
   affectedRepositories?: string[];
   testInfra?: TestInfraContext;
   skillRules?: SkillQualityRule[];
+  packageManager?: PackageManager;
 }
 
-const PACKAGE_MANAGER_COMMAND_PATTERN = /^(?:yarn|npm run|pnpm|pnpm run|npx|nr)\s+([^\s]+)/;
 const RENAME_STEP_PATTERN = /\b(rename|move|refactor)\b/i;
 const INLINE_COMMAND_PATTERN = /^(node -e|sh -c|bash -c)\s/;
 const PYTHON_COMMAND_PATTERN = /^(pytest|python -m pytest)\b/;
@@ -88,8 +90,8 @@ const isNodeVerificationAllowed = (command: string, nodeInfra: NodeInfra | undef
     return true;
   }
 
-  const scriptMatch = PACKAGE_MANAGER_COMMAND_PATTERN.exec(command);
-  if (!scriptMatch) {
+  const invocation = parseRunnerInvocation(command);
+  if (!invocation) {
     return false;
   }
 
@@ -97,8 +99,22 @@ const isNodeVerificationAllowed = (command: string, nodeInfra: NodeInfra | undef
     return false;
   }
 
-  const [, scriptName] = scriptMatch;
-  return nodeInfra.allScriptNames.includes(scriptName);
+  return nodeInfra.allScriptNames.includes(invocation.script);
+};
+
+const formatVerificationAllowlistGuidance = (
+  nodeInfra: NodeInfra | undefined, packageManager?: PackageManager
+): string => {
+  if (!nodeInfra) return '';
+
+  const scriptNames = Object.keys(nodeInfra.scripts).slice(0, 5);
+  if (packageManager) {
+    const forms = scriptNames.map(script => formatRunnerInvocation(packageManager, script, '...'));
+    return ` Allowed forms: ${[...forms, 'node -e "..."'].join(', ')}.`;
+  }
+
+  const scriptList = scriptNames.length > 0 ? ` Allowed scripts: ${scriptNames.join(', ')}.` : '';
+  return `${scriptList} Allowed inline form: node -e "...".`;
 };
 
 // eslint-disable-next-line max-lines-per-function
@@ -228,10 +244,12 @@ const detectInlineAllowlistDrift = (
 const detectVerificationViolations = (
   verification: ResolutionPlan['verification'] | undefined,
   testInfra?: TestInfraContext,
-  affectedRepositories?: string[]
+  affectedRepositories?: string[],
+  packageManager?: PackageManager
 ): PlanQualityViolation[] => {
   const checks = verification?.targeted ?? [];
   const violations: PlanQualityViolation[] = [];
+  const nodeInfra = testInfra?.ecosystems.find((ecosystem): ecosystem is NodeInfra => ecosystem.ecosystem === 'node');
 
   for (const check of checks) {
     if (!check.run) {
@@ -243,7 +261,10 @@ const detectVerificationViolations = (
     }
 
     violations.push(
-      createViolation('verification-allowlist', `Verification command must match the detected allowlist: ${check.run}`)
+      createViolation(
+        'verification-allowlist',
+        `Verification command must match the detected allowlist: ${check.run}${formatVerificationAllowlistGuidance(nodeInfra, packageManager)}`
+      )
     );
   }
 
@@ -318,21 +339,24 @@ const uniqueViolations = (violations: PlanQualityViolation[]): PlanQualityViolat
   });
 };
 
+const detectSkillViolations = (params: ValidatePlanQualityParams): PlanQualityViolation[] =>
+  (params.skillRules ?? []).flatMap(rule =>
+    rule.validate(params.plan).map(message => ({ ruleId: rule.ruleId, message }))
+  );
+
 const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViolation[] => {
   const steps = Array.isArray(params.plan.steps)
     ? params.plan.steps.filter((step): step is string => true)
     : [];
 
-  const skillViolations: PlanQualityViolation[] = (params.skillRules ?? []).flatMap(rule =>
-    rule.validate(params.plan).map(message => ({ ruleId: rule.ruleId, message }))
-  );
-
   return uniqueViolations([
     ...detectRenameViolations(steps),
-    ...detectVerificationViolations(params.plan.verification, params.testInfra, params.affectedRepositories),
+    ...detectVerificationViolations(
+      params.plan.verification, params.testInfra, params.affectedRepositories, params.packageManager
+    ),
     ...detectInlineAllowlistDrift(params.plan.verification, params.plan.affectedFiles, params.affectedRepositories),
     ...detectTestConventionViolations(steps, params.testInfra),
-    ...skillViolations,
+    ...detectSkillViolations(params),
   ]);
 };
 
