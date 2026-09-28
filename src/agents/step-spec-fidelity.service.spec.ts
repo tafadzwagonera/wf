@@ -83,14 +83,14 @@ describe('StepSpecFidelityService', () => {
   describe('verifyAll()', () => {
     it('returns findingsPerStep with one entry per step and no failures on success', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      const result = await service.verifyAll(['step-a', 'step-b'], '/repo');
-      expect(result.findingsPerStep).toHaveLength(2);
+      const result = await service.verifyAll([{ index: 2, text: 'step-a' }, { index: 7, text: 'step-b' }], '/repo');
+      expect([...result.findingsPerStep.keys()]).toEqual([2, 7]);
       expect(result.failures).toEqual([]);
     });
 
     it('calls getDiffFromRef exactly once regardless of step count', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
-      await service.verifyAll(['a', 'b', 'c'], '/repo');
+      await service.verifyAll([{ index: 0, text: 'a' }, { index: 1, text: 'b' }, { index: 2, text: 'c' }], '/repo');
       expect(mockGitService.getDiffFromRef).toHaveBeenCalledTimes(1);
     });
 
@@ -98,26 +98,26 @@ describe('StepSpecFidelityService', () => {
       mockAiExecute
         .mockResolvedValueOnce({ content: '{"findings":[]}' })
         .mockRejectedValueOnce(new Error('provider-error'));
-      const result = await service.verifyAll(['step-a', 'step-b'], '/repo');
-      expect(result.findingsPerStep).toHaveLength(2);
+      const result = await service.verifyAll([{ index: 2, text: 'step-a' }, { index: 7, text: 'step-b' }], '/repo');
+      expect(result.findingsPerStep.size).toBe(2);
       expect(result.failures).toHaveLength(1);
       expect(result.failures[0].category).toBe('provider');
-      expect(result.failures[0].stepIndex).toBe(1);
+      expect(result.failures[0].stepIndex).toBe(7);
     });
 
     it('returns a diff failure and makes no AI calls when getDiffFromRef throws', async () => {
       mockGitService.getDiffFromRef.mockRejectedValue(new Error('git-error'));
-      const result = await service.verifyAll(['step-a'], '/repo');
+      const result = await service.verifyAll([{ index: 2, text: 'step-a' }], '/repo');
       expect(mockAiExecute).not.toHaveBeenCalled();
       expect(result.failures).toHaveLength(1);
       expect(result.failures[0].category).toBe('diff');
-      expect(result.findingsPerStep).toHaveLength(1);
-      expect(result.findingsPerStep[0]).toEqual([]);
+      expect(result.findingsPerStep.size).toBe(1);
+      expect(result.findingsPerStep.get(2)).toEqual([]);
     });
 
     it('returns empty findingsPerStep and no failures for zero input steps', async () => {
       const result = await service.verifyAll([], '/repo');
-      expect(result.findingsPerStep).toEqual([]);
+      expect(result.findingsPerStep).toEqual(new Map());
       expect(result.failures).toEqual([]);
       expect(mockAiExecute).not.toHaveBeenCalled();
     });
@@ -132,7 +132,7 @@ describe('StepSpecFidelityService', () => {
           active--;
         });
       });
-      await service.verifyAll(['a', 'b', 'c'], '/repo');
+      await service.verifyAll([{ index: 0, text: 'a' }, { index: 1, text: 'b' }, { index: 2, text: 'c' }], '/repo');
       expect(maxActive).toBe(1);
     });
   });

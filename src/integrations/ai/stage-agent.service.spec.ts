@@ -4,6 +4,7 @@ import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema,
 import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
+import * as logFileWriter from '../../shared/logger/log-file-writer';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
@@ -2680,6 +2681,7 @@ describe('StageAgentService', () => {
         .mockResolvedValueOnce({ content: 'fresh result', sessionId: 'new-sid' });
       (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
       const result = await (service as unknown as {
         runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
@@ -2688,8 +2690,13 @@ describe('StageAgentService', () => {
       expect(result.content).toBe('fresh result');
       expect(mockDispatch).toHaveBeenCalledTimes(2);
       expect(mockDispatch.mock.calls[1][0].resumeProviderSessionId).toBeUndefined();
-      const warnCalls = logSpy.mock.calls.filter(call => String(call[0]).toLowerCase().includes('stale'));
+      const warnCalls = logSpy.mock.calls.filter(call => String(call[0]).includes('issue.session.resume-fallback'));
       expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN',
+        expect.stringContaining('issue.session.resume-fallback stage=plan provider=anthropic backend=agent'),
+        'stage-agent'
+      );
     });
 
     it('retries fresh when Claude CLI backend throws a stale-resume error', async () => {
@@ -2755,11 +2762,21 @@ describe('StageAgentService', () => {
       (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = mockDispatch;
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await expect(
-        (service as unknown as {
-          runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
-        }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' })
-      ).rejects.toBeInstanceOf(ExecutionError);
+      const error = await (async () => {
+        try {
+          await (service as unknown as {
+            runStagePrompt: (params: StagePromptParams) => Promise<{ content: string; sessionId?: string }>;
+          }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' });
+        } catch (caught) {
+          return caught;
+        }
+        throw new Error('Expected resume fallback to fail');
+      })();
+      expect(error).toBeInstanceOf(ExecutionError);
+      expect((error as ExecutionError).details).toEqual(expect.objectContaining({
+        originalError: 'session_id not found',
+        retryError: 'invalid session ID on retry',
+      }));
       expect(mockDispatch).toHaveBeenCalledTimes(2);
     });
 

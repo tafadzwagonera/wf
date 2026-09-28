@@ -7,6 +7,7 @@ describe('stepStatusSchema', () => {
   it('accepts partially-done', () => expect(stepStatusSchema.parse('partially-done')).toBe('partially-done'));
   it('accepts not-done', () => expect(stepStatusSchema.parse('not-done')).toBe('not-done'));
   it('accepts not-applicable', () => expect(stepStatusSchema.parse('not-applicable')).toBe('not-applicable'));
+  it('accepts unverifiable', () => expect(stepStatusSchema.parse('unverifiable')).toBe('unverifiable'));
   it('rejects an unknown status', () => expect(() => stepStatusSchema.parse('skipped')).toThrow());
 });
 
@@ -16,8 +17,10 @@ describe('stepAssessmentSchema', () => {
   it('accepts not-applicable without missing', () => expect(stepAssessmentSchema.parse({ index: 1, status: 'not-applicable' })).toMatchObject({ status: 'not-applicable' }));
   it('accepts partially-done with missing', () => expect(stepAssessmentSchema.parse({ index: 0, status: 'partially-done', missing: 'detail' })).toMatchObject({ status: 'partially-done', missing: 'detail' }));
   it('accepts not-done with missing', () => expect(stepAssessmentSchema.parse({ index: 0, status: 'not-done', missing: 'detail' })).toMatchObject({ status: 'not-done', missing: 'detail' }));
+  it('accepts unverifiable with missing', () => expect(stepAssessmentSchema.parse({ index: 0, status: 'unverifiable', missing: 'temporal ordering is absent from a diff' })).toMatchObject({ status: 'unverifiable' }));
   it('rejects partially-done without missing', () => expect(() => stepAssessmentSchema.parse({ index: 0, status: 'partially-done' })).toThrow());
   it('rejects not-done without missing', () => expect(() => stepAssessmentSchema.parse({ index: 0, status: 'not-done' })).toThrow());
+  it('rejects unverifiable without missing', () => expect(() => stepAssessmentSchema.parse({ index: 0, status: 'unverifiable' })).toThrow());
   it('rejects a negative index', () => expect(() => stepAssessmentSchema.parse({ index: -1, status: 'done' })).toThrow());
   it('rejects a float index', () => expect(() => stepAssessmentSchema.parse({ index: 0.5, status: 'done' })).toThrow());
 });
@@ -31,7 +34,7 @@ describe('stepAssessmentResponseSchema', () => {
   it('rejects a missing statuses array', () => expect(() => stepAssessmentResponseSchema.parse({})).toThrow());
   it('describes the required response envelope and status values', () => {
     expect(stepAssessmentResponseJsonSchema.required).toEqual(['statuses']);
-    expect(stepAssessmentResponseJsonSchema.properties.statuses.items.properties.status.enum).toEqual(['done', 'partially-done', 'not-done', 'not-applicable']);
+    expect(stepAssessmentResponseJsonSchema.properties.statuses.items.properties.status.enum).toEqual(['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable']);
   });
 });
 

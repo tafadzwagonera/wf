@@ -12,6 +12,6 @@ export interface StepFidelityFailure {
 }
 
 export interface StepFidelityVerificationResult {
-  findingsPerStep: StepFidelityFinding[][];
+  findingsPerStep: Map<number, StepFidelityFinding[]>;
   failures: StepFidelityFailure[];
 }

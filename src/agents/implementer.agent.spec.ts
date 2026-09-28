@@ -588,7 +588,7 @@ describe('ImplementerAgent', () => {
             provide: StepSpecFidelityService,
             useValue: {
               run: jest.fn().mockResolvedValue([]),
-              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: [[]], failures: [] }),
+              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: new Map([[0, []]]), failures: [] }),
             },
           },
           { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
@@ -691,7 +691,7 @@ describe('ImplementerAgent', () => {
             provide: StepSpecFidelityService,
             useValue: {
               run: jest.fn().mockResolvedValue([]),
-              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: [[]], failures: [] }),
+              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: new Map([[0, []]]), failures: [] }),
             },
           },
           { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
@@ -2433,7 +2433,7 @@ describe('ImplementerAgent', () => {
             provide: StepSpecFidelityService,
             useValue: {
               run: jest.fn().mockResolvedValue([]),
-              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: [[]], failures: [] }),
+              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: new Map([[0, []]]), failures: [] }),
             },
           },
           { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },
@@ -2854,7 +2854,7 @@ describe('ImplementerAgent', () => {
       );
 
       expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
-        expect.arrayContaining(['Update source file']),
+        [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         expect.any(String),
       );
@@ -2885,7 +2885,7 @@ describe('ImplementerAgent', () => {
     it('passes a refreshSteps callback to PlanStepVerificationService when fidelity is active', async () => {
       setupWithChanges();
       stepSpecFidelityService.verifyAll.mockResolvedValue({
-        findingsPerStep: [[{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }]],
+        findingsPerStep: new Map([[0, [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }]]]),
         failures: [],
       });
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
@@ -2933,7 +2933,7 @@ describe('ImplementerAgent', () => {
       );
 
       expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
-        expect.arrayContaining(['Update source file']),
+        [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         undefined,
       );
@@ -2942,7 +2942,7 @@ describe('ImplementerAgent', () => {
     it('refreshSteps callback always returns a string array, never null, across repeated calls', async () => {
       setupWithChanges();
       stepSpecFidelityService.verifyAll.mockResolvedValue({
-        findingsPerStep: [[{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }]],
+        findingsPerStep: new Map([[0, [{ severity: 'error', claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' }]]]),
         failures: [],
       });
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
@@ -2957,22 +2957,56 @@ describe('ImplementerAgent', () => {
 
       const { refreshSteps } = (planStepVerificationService.run).mock.calls[0][0];
 
-      const result1 = await refreshSteps();
-      const result2 = await refreshSteps();
-      const result3 = await refreshSteps();
+      const result1 = await refreshSteps([0]);
+      const result2 = await refreshSteps([0]);
+      const result3 = await refreshSteps([0]);
 
-      expect(Array.isArray(result1)).toBe(true);
-      expect(Array.isArray(result2)).toBe(true);
-      expect(Array.isArray(result3)).toBe(true);
+      expect(result1).toBeInstanceOf(Map);
+      expect(result2).toBeInstanceOf(Map);
+      expect(result3).toBeInstanceOf(Map);
       expect(result1).not.toBeNull();
       expect(result2).not.toBeNull();
       expect(result3).not.toBeNull();
     });
 
+    it('does not suppress duplicate findings returned within one refresh', async () => {
+      setupWithChanges();
+      const finding = { severity: 'error' as const, claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' };
+      stepSpecFidelityService.verifyAll.mockResolvedValue({
+        findingsPerStep: new Map([[0, [finding, finding]]]), failures: [],
+      });
+      let refreshed: Map<number, string> | undefined;
+      let getSuppressed: (() => number) | undefined;
+      planStepVerificationService.run.mockImplementation(async (params: {
+        refreshSteps: (indices: number[]) => Promise<Map<number, string>>;
+        getSuppressed: () => number;
+      }) => {
+        refreshed = await params.refreshSteps([0]);
+        getSuppressed = params.getSuppressed;
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+      const suppressedLogCount = (appendToLogFile as jest.Mock).mock.calls
+        .filter(([, message]) => String(message).includes('step-fidelity.suppressed')).length;
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Add regex /\\.ts$/'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(refreshed?.get(0)).toContain('[SPEC FIDELITY ERRORS');
+      expect(getSuppressed?.()).toBe(0);
+      expect((appendToLogFile as jest.Mock).mock.calls
+        .filter(([, message]) => String(message).includes('step-fidelity.suppressed'))).toHaveLength(suppressedLogCount);
+    });
+
     it('returns original steps unchanged when verifyAll result contains failures', async () => {
       setupWithChanges();
       stepSpecFidelityService.verifyAll.mockResolvedValue({
-        findingsPerStep: [[]],
+        findingsPerStep: new Map([[0, []]]),
         failures: [{ category: 'provider', stepIndex: 0, cause: 'timeout' }],
       });
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
@@ -2993,7 +3027,7 @@ describe('ImplementerAgent', () => {
     it('logs a step-fidelity.degraded event for each failure without throwing', async () => {
       setupWithChanges();
       stepSpecFidelityService.verifyAll.mockResolvedValue({
-        findingsPerStep: [[]],
+        findingsPerStep: new Map([[0, []]]),
         failures: [{ category: 'provider', stepIndex: 0, cause: 'timeout' }],
       });
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
@@ -3096,7 +3130,7 @@ describe('ImplementerAgent', () => {
             provide: StepSpecFidelityService,
             useValue: {
               run: jest.fn().mockResolvedValue([]),
-              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: [[]], failures: [] }),
+              verifyAll: jest.fn().mockResolvedValue({ findingsPerStep: new Map([[0, []]]), failures: [] }),
             },
           },
           { provide: FigmaStageService, useValue: { resolveIfEnabled: jest.fn().mockResolvedValue(undefined) } },

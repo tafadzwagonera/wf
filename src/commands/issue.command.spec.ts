@@ -71,6 +71,10 @@ jest.mock('inquirer', () => ({
   },
 }));
 
+jest.mock('../shared/utils/provider-session-prompt', () => ({
+  selectProviderSession: jest.fn(),
+}));
+
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CommandMeta } from 'nest-commander/src/constants';
@@ -91,6 +95,7 @@ import inquirer from 'inquirer';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 import { initializeWfConfig } from '../config/wf-config-loader';
+import { selectProviderSession } from '../shared/utils/provider-session-prompt';
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -105,7 +110,14 @@ const mockSessionService = {
   inferNextStage: jest.fn().mockReturnValue('fetch'),
   validateForStage: jest
     .fn()
-    .mockReturnValue({ canResume: false, resumableProviderSessionId: null, priorSummary: null, warnings: [] }),
+    .mockReturnValue({
+      canResume: false,
+      providerSessionCandidate: null,
+      resumableProviderSessionId: null,
+      priorSummary: null,
+      warnings: [],
+    }),
+  getLatestCompatibleProviderSession: jest.fn().mockReturnValue(null),
   isExpired: jest.fn().mockReturnValue(false),
   getSessionDir: jest.fn().mockReturnValue('/tmp/sessions'),
 };
@@ -157,10 +169,15 @@ const resetMockSessionService = (): void => {
   mockSessionService.validateForStage.mockReset();
   mockSessionService.validateForStage.mockReturnValue({
     canResume: false,
+    providerSessionCandidate: null,
     resumableProviderSessionId: null,
     priorSummary: null,
     warnings: [],
   });
+  mockSessionService.getLatestCompatibleProviderSession.mockReset();
+  mockSessionService.getLatestCompatibleProviderSession.mockReturnValue(null);
+
+  (selectProviderSession as jest.Mock).mockReset();
   mockSessionService.isExpired.mockReset();
   mockSessionService.isExpired.mockReturnValue(false);
   mockSessionService.getSessionDir.mockReset();
@@ -263,6 +280,84 @@ describe('IssueCommand', () => {
     };
 
     expect(metadata.name).toBe('issue');
+  });
+
+  it('uses the selected latest provider session immediately before a resumable implement stage', async () => {
+    const command = await buildCommand();
+    const mockCandidate = {
+      stage: 'plan',
+      provider: 'anthropic',
+      backend: 'agent',
+      providerSessionId: 'plan-session',
+      recordedAt: '2026-09-28T10:00:00.000Z',
+    };
+    (command as any).configService.get = jest.fn((key: string, defaultValue?: string) => {
+      if (key === 'stages.implement.provider') return 'anthropic';
+      if (key === 'stages.implement.backend') return 'cli';
+      return defaultValue;
+    });
+    mockSessionService.validateForStage.mockReturnValue({
+      canResume: true,
+      providerSessionCandidate: mockCandidate,
+      resumableProviderSessionId: 'plan-session',
+      priorSummary: 'Plan summary',
+      warnings: [],
+    });
+    (selectProviderSession as jest.Mock).mockResolvedValue({
+      kind: 'latest', stage: 'plan', providerSessionId: 'plan-session',
+    });
+
+    const result = await (command as any).prepareStageSession(createMockSessionState(), 'implement');
+
+    expect(selectProviderSession).toHaveBeenCalledWith({
+      candidate: mockCandidate,
+      fingerprint: { provider: 'anthropic', backend: 'cli' },
+      interactive: false,
+    });
+    expect(result.sessionContext).toEqual({
+      resumeProviderSessionId: 'plan-session',
+      priorStageSummary: 'Plan summary',
+    });
+  });
+
+  it('keeps an explicit new review selection from falling back to the implement session', async () => {
+    const command = await buildCommand();
+    (command as any).configService.get = jest.fn((key: string, defaultValue?: string) => {
+      if (key === 'stages.review.provider') return 'anthropic';
+      if (key === 'stages.review.backend') return 'cli';
+      return defaultValue;
+    });
+    mockSessionService.validateForStage.mockReturnValue({
+      canResume: true,
+      providerSessionCandidate: {
+        stage: 'implement', provider: 'anthropic', backend: 'cli',
+        providerSessionId: 'old-session', recordedAt: '2026-09-28T10:00:00.000Z',
+      },
+      resumableProviderSessionId: 'old-session',
+      priorSummary: null,
+      warnings: [],
+    });
+    (selectProviderSession as jest.Mock).mockResolvedValue({ kind: 'new' });
+
+    const result = await (command as any).prepareReviewSession(createMockSessionState(), 'implement-session');
+
+    expect(result.sessionContext.resumeProviderSessionId).toBeUndefined();
+  });
+
+  it('starts unsupported provider backends fresh without invoking the session selector', async () => {
+    const command = await buildCommand();
+    mockSessionService.validateForStage.mockReturnValue({
+      canResume: false,
+      providerSessionCandidate: null,
+      resumableProviderSessionId: null,
+      priorSummary: 'Plan summary',
+      warnings: [],
+    });
+
+    const result = await (command as any).prepareStageSession(createMockSessionState(), 'implement');
+
+    expect(selectProviderSession).not.toHaveBeenCalled();
+    expect(result.sessionContext).toEqual({ priorStageSummary: 'Plan summary' });
   });
 
   it('rejects plan-token + --custom-plan together', async () => {
@@ -1136,7 +1231,7 @@ describe('IssueCommand', () => {
     expect(mockOrchestrator.fetcher.loadFromDisk).toHaveBeenCalledWith('WBP-4', 'jira', mockCwd, undefined);
   });
 
-  it('prompts for provider session ID when resolving custom plan token in interactive session', async () => {
+  it('defers provider session selection until a resumable stage runs for a custom plan token', async () => {
     const hash = hashPlanArtifactSources(['WBP-5']);
     const customDir = path.join(getWfHomeDir(), 'consumer-app');
     const planFilename = `2026-06-30-${hash}-fix-plan.json`;
@@ -1202,7 +1297,6 @@ describe('IssueCommand', () => {
     }).compile();
     const command = module.get(IssueCommand);
 
-    const sessionId = 'sess-abc123';
     jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
     jest
       .spyOn(require('fs'), 'existsSync')
@@ -1233,23 +1327,21 @@ describe('IssueCommand', () => {
       return '';
     });
 
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: sessionId });
     setInteractiveSession();
 
     await command.run([planFilename], { from: 'implement', to: 'implement' });
 
     expect(mockSessionService.save.mock.calls[0][0]).toEqual(expect.objectContaining({ sourceType: 'custom' }));
-    expect(inquirer.prompt).toHaveBeenCalled();
-    // recordStageStart must be called before recordProviderSessionId so the stage record exists
+    expect(inquirer.prompt).not.toHaveBeenCalled();
     expect(mockSessionService.recordStageStart).toHaveBeenCalledWith(
       expect.any(Object),
       'plan',
       expect.objectContaining({ provider: expect.any(String), backend: expect.any(String) }),
       expect.any(String),
     );
-    // expect.any(Object) — sessionState is created before the custom token block
-    // updates ticketKey, so its ticketKey holds the filename, not the resolved sourceName.
-    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(expect.any(Object), 'plan', sessionId);
+    expect(mockSessionService.recordProviderSessionId).not.toHaveBeenCalledWith(
+      expect.any(Object), 'plan', expect.any(String)
+    );
     expect(mockSessionService.recordStageComplete).toHaveBeenCalledWith(expect.any(Object), 'plan', 'Test plan');
   });
 
@@ -1460,9 +1552,21 @@ describe('IssueCommand', () => {
     // Configure validateForStage to return a resumable session ID for the implement stage
     mockSessionService.validateForStage.mockReturnValue({
       canResume: true,
+      providerSessionCandidate: {
+        stage: 'plan', provider: 'anthropic', backend: 'agent',
+        providerSessionId: 'sess-plan-123', recordedAt: '2026-09-28T10:00:00.000Z',
+      },
       resumableProviderSessionId: 'sess-plan-123',
       priorSummary: 'Plan summary from prior stage',
       warnings: [],
+    });
+    (command as any).configService.get = jest.fn((key: string, defaultValue?: string) => {
+      if (key === 'stages.implement.provider') return 'anthropic';
+      if (key === 'stages.implement.backend') return 'cli';
+      return defaultValue;
+    });
+    (selectProviderSession as jest.Mock).mockResolvedValue({
+      kind: 'latest', stage: 'plan', providerSessionId: 'sess-plan-123',
     });
 
     await command.run([planFilename], { from: 'implement', to: 'implement' });
@@ -1731,7 +1835,7 @@ describe('IssueCommand', () => {
     expect(mockSessionService.recordStageComplete).not.toHaveBeenCalled();
   });
 
-  it('prompts for provider session ID when plan is from cache', async () => {
+  it('does not prompt for a provider session while a cached plan has no following AI stage', async () => {
     const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-20.md');
     const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-20-fix-plan.json');
 
@@ -1813,20 +1917,15 @@ describe('IssueCommand', () => {
       throw new Error('process.exit called');
     });
 
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-cache-123' });
     setInteractiveSession();
 
     await command.run(['WBP-20'], { from: 'plan', to: 'plan', action: 'fix' });
 
-    expect(inquirer.prompt).toHaveBeenCalled();
-    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
-      expect.any(Object),
-      'plan',
-      'sess-cache-123',
-    );
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(mockSessionService.recordProviderSessionId).not.toHaveBeenCalled();
   });
 
-  it('prompts for provider session ID when plan stage is skipped', async () => {
+  it('does not prompt while loading a skipped plan before an unsupported stage', async () => {
     const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-21.md');
     const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-21-fix-plan.json');
 
@@ -1909,20 +2008,17 @@ describe('IssueCommand', () => {
       throw new Error('process.exit called');
     });
 
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-skip-456' });
     setInteractiveSession();
 
     await command.run(['WBP-21'], { from: 'implement', to: 'implement' });
 
-    expect(inquirer.prompt).toHaveBeenCalled();
-    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
-      expect.any(Object),
-      'plan',
-      'sess-skip-456',
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    expect(mockSessionService.recordProviderSessionId).not.toHaveBeenCalledWith(
+      expect.any(Object), 'plan', expect.any(String)
     );
   });
 
-  it('records provider session ID into an existing wf session when plan is from cache', async () => {
+  it('preserves an existing wf session without recording a provider ID when a cached plan ends the run', async () => {
     const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-22.md');
     const planPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-22-fix-plan.json');
     const existingSession = {
@@ -2014,16 +2110,11 @@ describe('IssueCommand', () => {
       throw new Error('process.exit called');
     });
 
-    (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ providerSessionId: 'sess-resume-789' });
     setInteractiveSession();
 
     await command.run([], { from: 'plan', to: 'plan', action: 'fix', sessionId: 'existing-uuid' });
 
-    expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'existing-uuid' }),
-      'plan',
-      'sess-resume-789',
-    );
+    expect(mockSessionService.recordProviderSessionId).not.toHaveBeenCalled();
   });
 
   it('skips provider session ID prompt in non-interactive session when plan is from cache', async () => {

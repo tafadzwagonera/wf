@@ -11,6 +11,8 @@ import type {
   StepFidelityVerificationResult,
 } from '../shared/types/step-spec-fidelity.types';
 
+export type AssessableStep = { index: number; text: string };
+
 const MAX_FIDELITY_DIFF_CHARS = 60_000;
 
 export interface StepSpecFidelityRunParams {
@@ -56,26 +58,35 @@ export class StepSpecFidelityService {
     private readonly gitService: GitService,
   ) {}
 
-  async verifyAll(steps: string[], repoDir: string, baseRef?: string): Promise<StepFidelityVerificationResult> {
-    const result = { findingsPerStep: steps.map(() => []), failures: [] as StepFidelityFailure[] };
+  async verifyAll(steps: AssessableStep[], repoDir: string, baseRef?: string): Promise<StepFidelityVerificationResult> {
+    const result = this.createVerificationResult(steps);
     let diff: string;
     try {
       diff = await this.captureDiff(repoDir, baseRef ?? 'HEAD');
     } catch (err) {
-      const c = this.extractCause(err);
-      result.failures.push({ category: 'diff', cause: c });
+      this.addDiffFailure(result, err);
       return result;
     }
     await this.processSteps(steps, diff, result);
     return result;
   }
 
-  private async processSteps(steps: string[], diff: string, result: StepFidelityVerificationResult): Promise<void> {
-    for (let i = 0; i < steps.length; i++) {
-      const r = await this.run({ stepText: steps[i], diff });
-      result.findingsPerStep[i] = r.findings;
+  private addDiffFailure(result: StepFidelityVerificationResult, error: unknown): void {
+    result.failures.push({ category: 'diff', cause: this.extractCause(error) });
+  }
+
+  private createVerificationResult(steps: AssessableStep[]): StepFidelityVerificationResult {
+    return { findingsPerStep: new Map(steps.map(step => [step.index, []])), failures: [] };
+  }
+
+  private async processSteps(
+    steps: AssessableStep[], diff: string, result: StepFidelityVerificationResult,
+  ): Promise<void> {
+    for (const step of steps) {
+      const r = await this.run({ stepText: step.text, diff });
+      result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
-        result.failures.push({ ...r.failure, stepIndex: i });
+        result.failures.push({ ...r.failure, stepIndex: step.index });
       }
     }
   }

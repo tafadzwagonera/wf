@@ -903,17 +903,13 @@ const drainAnthropicSession = async (
   throw new AiProviderError('Claude Agent SDK finished without returning a result.');
 };
 
-const STALE_RESUME_PATTERNS = [
-  /session[_ ]?id.*(?:not found|invalid|expired|does not exist)/i,
-  /(?:invalid|unknown|expired|stale).*session/i,
-  /resume.*(?:fail|invalid|not found)/i,
-  /(?:conversation|thread).*(?:not found|invalid|expired)/i,
-  /no conversation found/i,
-];
+const RESUME_SESSION_REFERENCE_PATTERN = /\b(?:session(?:[_ ]?id)?|conversation|thread)\b/i;
+const RESUME_SESSION_INVALID_PATTERN = /\b(?:invalid|unknown|expired|stale|missing|not found|does not exist)\b/i;
 
 const isStaleResumeError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return STALE_RESUME_PATTERNS.some(pattern => pattern.test(message));
+  return (RESUME_SESSION_REFERENCE_PATTERN.test(message) && RESUME_SESSION_INVALID_PATTERN.test(message))
+    || /\bno\s+(?:conversation|thread|session)\s+found\b/i.test(message);
 };
 
 type AnthropicResultMessage = {
@@ -1354,9 +1350,7 @@ export class StageAgentService {
       return await this.dispatchToBackend(params);
     } catch (error) {
       if (!params.resumeProviderSessionId || !isStaleResumeError(error)) throw error;
-      console.log(chalk.yellow(
-        `  [stage-agent] Resume session ${params.resumeProviderSessionId} appears stale — retrying fresh.`
-      ));
+      this.logResumeFallback(params.stage, error);
       return this.retryStagePromptFresh(params, error);
     }
   }
@@ -1396,13 +1390,19 @@ export class StageAgentService {
     try {
       return await this.dispatchToBackend({ ...params, resumeProviderSessionId: undefined });
     } catch (retryError) {
-      throw isStaleResumeError(retryError)
-        ? new ExecutionError(this.buildStaleResumeFallbackErrorMessage(params.stage, retryError), {
-            stage: params.stage,
-            originalError: this.extractErrorMessage(originalError),
-          })
-        : retryError;
+      throw new ExecutionError(this.buildStaleResumeFallbackErrorMessage(params.stage, retryError), {
+        stage: params.stage,
+        originalError: this.extractErrorMessage(originalError),
+        retryError: this.extractErrorMessage(retryError),
+      });
     }
+  }
+
+  private logResumeFallback(stage: AgentStageName, error: unknown): void {
+    const cause = this.extractErrorMessage(error).replaceAll(/\s+/g, ' ').slice(0, 300);
+    const message = `issue.session.resume-fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} cause=${cause}`;
+    console.log(chalk.yellow(`  [stage-agent] ${message}`));
+    appendToLogFile('WARN', message, 'stage-agent');
   }
 
   private buildStaleResumeFallbackErrorMessage(stage: AgentStageName, error: unknown): string {

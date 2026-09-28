@@ -10,12 +10,13 @@ import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
+import type { AssessableStep } from './step-spec-fidelity.service';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
 
 const countStatuses = (statuses: Iterable<StepAssessment>): Record<StepAssessment['status'], number> => {
-  const counts = { done: 0, 'not-applicable': 0, 'partially-done': 0, 'not-done': 0 };
+  const counts = { done: 0, 'not-applicable': 0, 'partially-done': 0, 'not-done': 0, unverifiable: 0 };
   for (const status of statuses) counts[status.status]++;
   return counts;
 };
@@ -40,6 +41,8 @@ const STEP_ASSESSOR_RULES = [
   '- partially-done: started but incomplete (requires missing field)',
   '- not-done: not implemented at all (requires missing field)',
   '- not-applicable: step requires no code change or cannot be proven by a diff (e.g. run-the-tests steps, confirm-existing-behavior steps) — use instead of not-done for such steps',
+  '- unverifiable: the evidence cannot in principle prove or disprove a temporal/process claim, an investigation step, or a named file absent from the evidence (requires missing field)',
+  '- Paths under another repository prefix are outside this assessment; judge only the current repository portion and use unverifiable only when that portion cannot be judged.',
   '',
   'Index each step ONLY by its [Plan step N] tag. A step\'s own text may contain other numbers '
   + '(e.g. an internal "Step N (RED)/(GREEN)" label) — those are part of that step\'s content, not separate steps to assess.',
@@ -52,13 +55,15 @@ const VERIFICATION_PROMPT_FOOTER = [
   '',
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
   'After all edits are complete, run each verification command exactly as written.',
+  'If a flagged claim cannot be implemented exactly as written, say why in the final message.',
   'Do not output any text or plan before making your first tool call.',
 ];
 
-const findDuplicateOrOutOfRange = (statuses: StepAssessment[], stepCount: number): string | undefined => {
+const findDuplicateOrUnexpected = (statuses: StepAssessment[], expectedIndices: number[]): string | undefined => {
   const seen = new Set<number>();
+  const expected = new Set(expectedIndices);
   for (const s of statuses) {
-    if (s.index < 0 || s.index >= stepCount) return `index ${s.index} out of range 0..${stepCount - 1}`;
+    if (!expected.has(s.index)) return `unexpected index ${s.index}`;
     if (seen.has(s.index)) return `duplicate index ${s.index}`;
     seen.add(s.index);
   }
@@ -82,6 +87,15 @@ type RoundResult = {
   extraPassCount: number;
   assessmentFailed?: boolean;
   assessmentFailureCause?: string;
+  pendingIndices?: number[];
+};
+
+type UntrackedRetentionParams = {
+  section: string;
+  index: number;
+  remaining: number;
+  retainedUntracked: string[];
+  truncatedPaths: string[];
 };
 
 type VerificationLoopState = {
@@ -114,13 +128,14 @@ export interface PlanStepVerificationRunParams {
   runFixRound: (prompt: string, sessionId: string) => Promise<{ sessionId?: string; passCount?: number }>;
   /**
    * Called at the start of each assessment round to refresh the step list with
-   * current spec-fidelity errors. When set, stall is detected by a rolling
+   * current spec-fidelity errors for only the supplied pending indices. When set, stall is detected by a rolling
    * pending-count history: the loop exits as stalled when the most-recent
    * pending count is no lower than the oldest count in the `stallWindow`-wide
    * window (i.e. no net improvement over the window). Must return a non-empty
-   * string array — never null.
+   * index-to-text map — never null.
    */
-  refreshSteps?: () => Promise<string[]>;
+  refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
+  getSuppressed?: () => number;
 }
 
 export interface PlanStepVerificationOutcome {
@@ -131,10 +146,10 @@ export interface PlanStepVerificationOutcome {
 
 export const validateStepAssessments = (
   statuses: StepAssessment[],
-  stepCount: number,
+  expectedIndices: number[],
 ): Map<number, StepAssessment> | string => {
-  if (statuses.length !== stepCount) return `expected ${stepCount} assessments, got ${statuses.length}`;
-  const error = findDuplicateOrOutOfRange(statuses, stepCount);
+  if (statuses.length !== expectedIndices.length) return `expected ${expectedIndices.length} assessments, got ${statuses.length}`;
+  const error = findDuplicateOrUnexpected(statuses, expectedIndices);
   if (error !== undefined) return error;
   const map = new Map<number, StepAssessment>();
   for (const s of statuses) map.set(s.index, s);
@@ -148,37 +163,42 @@ export const validateStepAssessments = (
  * differently-spelled paths for the same file and can wrongly conclude the step's file was
  * never touched. Stripping the `repoDir` basename prefix here aligns both sides.
  */
-export const stripRepoNamePrefix = (steps: string[], repoDir: string): string[] => {
+export const stripRepoNamePrefix = (steps: AssessableStep[], repoDir: string): AssessableStep[] => {
   const repoName = path.basename(repoDir);
   if (!repoName) return steps;
   const prefix = `${repoName}/`;
-  return steps.map(step => step.split(prefix).join(''));
+  return steps.map(step => ({ ...step, text: step.text.split(prefix).join('') }));
 };
 
 export const buildStepAssessorPrompt = (
-  steps: string[],
+  steps: AssessableStep[],
   diff: string,
   untrackedSections: string[],
   truncated: boolean,
 ): string => {
-  const numbered = steps.map((s, i) => `[Plan step ${i}]\n${s}`).join('\n\n');
+  const numbered = steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
   const evidence = buildEvidenceText(diff, untrackedSections, truncated);
   const body = ['', '## Changed files diff', evidence, ''].join('\n');
   return [...STEP_ASSESSOR_PREAMBLE, numbered, body, ...STEP_ASSESSOR_RULES].join('\n');
 };
 
-export const buildPlanStepVerificationPrompt = (
-  pending: StepAssessment[],
-  round: number,
-  stallWindow?: number,
-): string => {
+type FixPromptArgs = {
+  pending: StepAssessment[];
+  round: number;
+  stallWindow?: number;
+  stepTexts: Map<number, string>;
+};
+
+export const buildPlanStepVerificationPrompt = (args: FixPromptArgs): string => {
+  const { pending, round, stallWindow, stepTexts } = args;
   const roundHeader = stallWindow === undefined
     ? `Verification round ${round}: a post-implementation audit found plan steps that are not fully implemented.`
     : `Verification round ${round} (stall window: ${stallWindow}): a post-implementation audit found plan steps that are not fully implemented.`;
   const lines: string[] = [roundHeader, ''];
   for (const p of pending) {
-    lines.push(`Step ${p.index} (${p.status}): ${p.missing ?? ''}`);
-    if (p.missing) lines.push(`Missing: ${p.missing}`);
+    lines.push(`Step ${p.index} (${p.status})`);
+    lines.push(stepTexts.get(p.index) ?? '[Enriched step text unavailable]');
+    lines.push(`Missing: ${p.missing ?? 'No missing reason supplied'}`);
   }
   return [...lines, ...VERIFICATION_PROMPT_FOOTER].join('\n');
 };
@@ -204,20 +224,38 @@ export class PlanStepVerificationService {
 
   private async runVerificationLoop(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
     let state = this.createVerificationLoopState(params.sessionId);
-    const pendingHistory: number[] = [];
+    const verificationState = this.createAssessmentState(params.steps);
     for (let round = 1; ; round += 1) {
-      const result = await this.runOneRound(params, round, state.sessionId, state.extraPassCount, pendingHistory);
-      if (result.outcome) return result.outcome;
-      state = this.resolveNextLoopState(state, result);
-      const stalled = this.checkConsecutiveFailureLimit(
-        state.consecutiveFailures, params, state.sessionId, state.extraPassCount, state.lastFailureCause,
+      const result = await this.runOneRound(
+        params, round, state.sessionId, state.extraPassCount, verificationState.pendingHistory,
+        verificationState.settled, verificationState.pendingIndices,
       );
+      if (result.outcome) return result.outcome;
+      verificationState.pendingIndices = result.pendingIndices ?? verificationState.pendingIndices;
+      state = this.resolveNextLoopState(state, result);
+      const stalled = this.checkFailureLimit(state, params);
       if (stalled) return stalled;
     }
   }
 
   private createVerificationLoopState(sessionId?: string): VerificationLoopState {
     return { sessionId, extraPassCount: 0, consecutiveFailures: 0 };
+  }
+
+  private createAssessmentState(steps: string[]): {
+    pendingHistory: number[];
+    pendingIndices: number[];
+    settled: Map<number, StepAssessment>;
+  } {
+    return { pendingHistory: [], pendingIndices: steps.map((_, index) => index), settled: new Map() };
+  }
+
+  private checkFailureLimit(
+    state: VerificationLoopState, params: PlanStepVerificationRunParams,
+  ): PlanStepVerificationOutcome | null {
+    return this.checkConsecutiveFailureLimit(
+      state.consecutiveFailures, params, state.sessionId, state.extraPassCount, state.lastFailureCause,
+    );
   }
 
   private resolveNextLoopState(state: VerificationLoopState, result: RoundResult): VerificationLoopState {
@@ -245,33 +283,74 @@ export class PlanStepVerificationService {
   private async runOneRound(
     params: PlanStepVerificationRunParams,
     round: number, sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
+    settled: Map<number, StepAssessment>, pendingIndices: number[],
   ): Promise<RoundResult> {
-    const activeSteps = params.refreshSteps ? await params.refreshSteps() : params.steps;
-    return this.executeRound(params, round, sessionId, extraPassCount, activeSteps, pendingHistory);
+    const refreshed = params.refreshSteps ? await params.refreshSteps(pendingIndices) : undefined;
+    const activeStepTexts = this.selectPendingStepTexts(pendingIndices, refreshed, params.steps);
+    return this.executeRound(params, round, sessionId, extraPassCount, activeStepTexts, pendingHistory, settled);
+  }
+
+  private selectPendingStepTexts(
+    pendingIndices: number[], refreshed: Map<number, string> | undefined, steps: string[],
+  ): Map<number, string> {
+    return new Map(pendingIndices.map(index => [index, refreshed?.get(index) ?? steps[index]]));
   }
 
   private async executeRound(
-    params: PlanStepVerificationRunParams,
-    round: number, sessionId: string | undefined, extraPassCount: number, activeSteps: string[],
-    pendingHistory: number[],
+    params: PlanStepVerificationRunParams, round: number, sessionId: string | undefined,
+    extraPassCount: number, activeStepTexts: Map<number, string>,
+    pendingHistory: number[], settled: Map<number, StepAssessment>,
   ): Promise<RoundResult> {
     this.logRoundStart(params, round);
-    const { steps: statusMap, failureCause } = await this.assessSteps({ ...params, steps: activeSteps });
-    if (!statusMap) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount, failureCause);
-    const nowPending = this.findPendingAssessments(statusMap);
-    const outcome = this.resolveRoundOutcome(
-      statusMap, nowPending, round, params, sessionId, extraPassCount, pendingHistory,
-    );
+    const activeSteps = [...activeStepTexts].map(([index, text]) => ({ index, text }));
+    const { steps: roundResults, failureCause } = await this.assessSteps(params, activeSteps);
+    if (!roundResults) return this.handleAssessmentFailure(round, params, sessionId, extraPassCount, failureCause);
+    this.settleTerminalAssessments(roundResults, settled);
+    const { statusMap, pending } = this.mergeAndLogAssessments(roundResults, settled, params.silent);
+    const outcome = this.resolveRound(statusMap, pending, round, params, sessionId, extraPassCount, pendingHistory);
     if (outcome || !sessionId) return this.finalizeRound(outcome, sessionId, extraPassCount);
-    return this.runFixRound(params, nowPending, round, sessionId, extraPassCount);
+    return this.runFixRound(params, pending, round, sessionId, extraPassCount, activeStepTexts);
+  }
+
+  private mergeAndLogAssessments(
+    roundResults: Map<number, StepAssessment>, settled: Map<number, StepAssessment>, silent?: boolean,
+  ): { statusMap: Map<number, StepAssessment>; pending: StepAssessment[] } {
+    const statusMap = new Map([...settled, ...roundResults]);
+    const pending = this.findPendingAssessments(statusMap);
+    this.logPendingStatuses(statusMap, silent);
+    return { statusMap, pending };
+  }
+
+  private resolveRound(
+    statusMap: Map<number, StepAssessment>, pending: StepAssessment[], round: number,
+    params: PlanStepVerificationRunParams,
+    sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
+  ): PlanStepVerificationOutcome | null {
+    return this.resolveRoundOutcome(
+      statusMap, pending, round, params, sessionId, extraPassCount, pendingHistory,
+    );
+  }
+
+  private settleTerminalAssessments(
+    assessments: Map<number, StepAssessment>, settled: Map<number, StepAssessment>,
+  ): void {
+    for (const assessment of assessments.values()) {
+      if (assessment.status === 'done' || assessment.status === 'not-applicable' || assessment.status === 'unverifiable') {
+        settled.set(assessment.index, assessment);
+      }
+    }
   }
 
   private async runFixRound(
     params: PlanStepVerificationRunParams, pending: StepAssessment[], round: number,
-    sessionId: string, extraPassCount: number,
+    sessionId: string, extraPassCount: number, stepTexts: Map<number, string>,
   ): Promise<RoundResult> {
-    const fix = await params.runFixRound(this.buildFixPrompt(pending, round, params), sessionId);
-    return { sessionId: fix.sessionId, extraPassCount: extraPassCount + (fix.passCount ?? 0) };
+    const fix = await params.runFixRound(this.buildFixPrompt(pending, round, params, stepTexts), sessionId);
+    return {
+      sessionId: fix.sessionId,
+      extraPassCount: extraPassCount + (fix.passCount ?? 0),
+      pendingIndices: pending.map(step => step.index),
+    };
   }
 
   private findPendingAssessments(statusMap: Map<number, StepAssessment>): StepAssessment[] {
@@ -283,8 +362,15 @@ export class PlanStepVerificationService {
     this.logEventAndAppendToLogFile('INFO', `step-verify.round.start round=${roundLabel} stallWindow=${params.stallWindow}`, params.silent);
   }
 
-  private buildFixPrompt(nowPending: StepAssessment[], round: number, params: PlanStepVerificationRunParams): string {
-    return buildPlanStepVerificationPrompt(nowPending, round, params.refreshSteps ? undefined : params.stallWindow);
+  private buildFixPrompt(
+    nowPending: StepAssessment[], round: number, params: PlanStepVerificationRunParams, stepTexts: Map<number, string>,
+  ): string {
+    return buildPlanStepVerificationPrompt({
+      pending: nowPending,
+      round,
+      stallWindow: params.refreshSteps ? undefined : params.stallWindow,
+      stepTexts,
+    });
   }
 
   private finalizeRound(
@@ -326,10 +412,10 @@ export class PlanStepVerificationService {
     const counts = countStatuses(statusMap.values());
     this.logEventAndAppendToLogFile(
       'INFO',
-      `step-verify.complete rounds=${round} steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']} pending=0`,
+      `step-verify.complete rounds=${round} steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} unverifiable=${counts.unverifiable} partially-done=${counts['partially-done']} not-done=${counts['not-done']} pending=0`,
       params.silent,
     );
-    return { sessionId, summary: { rounds: round, done: counts.done + counts['not-applicable'], pending: 0 }, extraPassCount };
+    return { sessionId, summary: { rounds: round, done: counts.done + counts['not-applicable'], pending: 0, unverifiable: counts.unverifiable, suppressed: params.getSuppressed?.() ?? 0 }, extraPassCount };
   }
 
   private isRoundStalled(
@@ -349,7 +435,8 @@ export class PlanStepVerificationService {
       : `step-verify.skipped reason=provider-session-unavailable pending=${pending}`;
     this.logEventAndAppendToLogFile('WARN', reason, params.silent);
     this.logMissedSteps(nowPending, params.silent);
-    return { sessionId, summary: { rounds: round, done: statusMap.size - pending, pending }, extraPassCount };
+    const counts = countStatuses(statusMap.values());
+    return { sessionId, summary: { rounds: round, done: counts.done + counts['not-applicable'], pending, unverifiable: counts.unverifiable, suppressed: params.getSuppressed?.() ?? 0 }, extraPassCount };
   }
 
   private recordPendingAndCheckStall(history: number[], pendingCount: number, window: number): boolean {
@@ -366,14 +453,14 @@ export class PlanStepVerificationService {
   }
 
   private async assessSteps(
-    params: PlanStepVerificationRunParams,
+    params: PlanStepVerificationRunParams, steps: AssessableStep[],
   ): Promise<{ steps: Map<number, StepAssessment> | undefined; failureCause?: string }> {
     let failureCause: string | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.attemptAssessment(params, c => {
+      const result = await this.attemptAssessment(params, steps, c => {
         failureCause = c;
       });
-      if (result) return { steps: this.logPendingStatuses(result, params.silent) };
+      if (result) return { steps: result };
     }
     appendToLogFile('ERROR', 'step-verify.assess.invalid', 'step-verification');
     return { steps: undefined, failureCause };
@@ -388,10 +475,10 @@ export class PlanStepVerificationService {
   }
 
   private async attemptAssessment(
-    params: PlanStepVerificationRunParams,
+    params: PlanStepVerificationRunParams, steps: AssessableStep[],
     onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
-    const result = await this.runSingleAssessmentAttempt(params)
+    const result = await this.runSingleAssessmentAttempt(params, steps)
       .catch(error => this.handleAssessmentAttemptError(error, onFailureCause));
     if (typeof result === 'string') {
       onFailureCause?.(`validation-error: ${result}`);
@@ -402,16 +489,16 @@ export class PlanStepVerificationService {
   }
 
   private async runSingleAssessmentAttempt(
-    params: PlanStepVerificationRunParams,
+    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
   ): Promise<Map<number, StepAssessment> | string> {
     const { diff, untrackedSections, truncated } = await this.captureEvidence(params);
-    const steps = stripRepoNamePrefix(params.steps, params.repoDir);
+    const steps = stripRepoNamePrefix(activeSteps, params.repoDir);
     const prompt = buildStepAssessorPrompt(steps, diff, untrackedSections, truncated);
-    return this.assessWithPrompt(prompt, params.steps.length);
+    return this.assessWithPrompt(prompt, activeSteps.map(step => step.index));
   }
 
   private async assessWithPrompt(
-    prompt: string, stepCount: number,
+    prompt: string, expectedIndices: number[],
   ): Promise<Map<number, StepAssessment> | string> {
     const response = await this.aiService.execute({
       prompt,
@@ -422,7 +509,7 @@ export class PlanStepVerificationService {
       structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
     });
     const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
-    const result = validateStepAssessments(validated.statuses, stepCount);
+    const result = validateStepAssessments(validated.statuses, expectedIndices);
     return this.logInvalidAssessmentBody(result, response.content);
   }
 
@@ -442,7 +529,7 @@ export class PlanStepVerificationService {
   ): void {
     this.logEventAndAppendToLogFile(
       'INFO',
-      `step-verify.assessed steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} partially-done=${counts['partially-done']} not-done=${counts['not-done']}`,
+      `step-verify.assessed steps=${statusMap.size} done=${counts.done} not-applicable=${counts['not-applicable']} unverifiable=${counts.unverifiable} partially-done=${counts['partially-done']} not-done=${counts['not-done']}`,
       silent,
     );
   }
@@ -469,8 +556,41 @@ export class PlanStepVerificationService {
     if (combined.length <= MAX_ASSESSOR_EVIDENCE_CHARS) {
       return { diff: rawDiff, untrackedSections, truncated: false };
     }
-    this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated original=${combined.length}`, params.silent);
-    return { diff: combined.slice(0, MAX_ASSESSOR_EVIDENCE_CHARS), untrackedSections: [], truncated: true };
+    const { retainedUntracked, remaining, truncatedUntracked } = this.prioritizeUntrackedEvidence(untrackedSections);
+    this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated original=${combined.length}${truncatedUntracked}`, params.silent);
+    return { diff: rawDiff.slice(0, Math.max(0, remaining)), untrackedSections: retainedUntracked, truncated: true };
+  }
+
+  private prioritizeUntrackedEvidence(untrackedSections: string[]): {
+    retainedUntracked: string[];
+    remaining: number;
+    truncatedUntracked: string;
+  } {
+    let remaining = MAX_ASSESSOR_EVIDENCE_CHARS;
+    const retainedUntracked: string[] = [];
+    const truncatedPaths: string[] = [];
+    for (const [index, section] of untrackedSections.entries()) {
+      remaining = this.retainUntrackedSection({ section, index, remaining, retainedUntracked, truncatedPaths });
+    }
+    const truncatedUntracked = truncatedPaths.length ? ` untracked-truncated=${truncatedPaths.join(',')}` : '';
+    return { retainedUntracked, remaining, truncatedUntracked };
+  }
+
+  private retainUntrackedSection(params: UntrackedRetentionParams): number {
+    const { section, index, remaining, retainedUntracked, truncatedPaths } = params;
+    const path = this.untrackedSectionPath(section, index);
+    if (remaining <= 0) {
+      truncatedPaths.push(path);
+      return remaining;
+    }
+    if (section.length > remaining) truncatedPaths.push(path);
+    const retained = section.slice(0, remaining);
+    retainedUntracked.push(retained);
+    return remaining - retained.length;
+  }
+
+  private untrackedSectionPath(section: string, index: number): string {
+    return /^### ([^\n]+)/.exec(section)?.[1] ?? `section-${index}`;
   }
 
   private async getDiff(repoDir: string, baseRef: string): Promise<string> {

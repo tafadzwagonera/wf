@@ -8,6 +8,7 @@ import type {
   SessionState,
   StageConfigFingerprint,
   StageRecord,
+  ProviderSessionCandidate,
   SessionValidationResult,
 } from '../types/session.types';
 import { getWfSessionDir } from '../utils/wf-paths';
@@ -27,7 +28,7 @@ const RESUMABLE_COMBINATIONS = new Set([
  * @param fingerprint - Provider and backend pair to evaluate
  * @returns True when the backend can resume from a prior session ID
  */
-const isResumableBackend = (fingerprint: StageConfigFingerprint): boolean =>
+export const isResumableBackend = (fingerprint: StageConfigFingerprint): boolean =>
   RESUMABLE_COMBINATIONS.has(`${fingerprint.provider}/${fingerprint.backend}`);
 
 type ResumeWarningContext = {
@@ -277,10 +278,31 @@ export class SessionService {
   ): SessionValidationResult {
     const warnings = this.collectConfigDriftWarnings(session, resolveStageFingerprint);
     const priorSummary = this.findPriorSummary(session, nextStage);
-    const resumableProviderSessionId = this.resolveResumableProviderSessionId(
+    const providerSessionCandidate = this.resolveCompatibleProviderSession(
       session, nextStage, currentFingerprint, warnings
     );
-    return { canResume: Boolean(resumableProviderSessionId), resumableProviderSessionId, priorSummary, warnings };
+    return this.createSessionValidationResult(providerSessionCandidate, priorSummary, warnings);
+  }
+
+  private createSessionValidationResult(
+    providerSessionCandidate: ProviderSessionCandidate | null, priorSummary: string | null, warnings: string[]
+  ): SessionValidationResult {
+    const resumableProviderSessionId = providerSessionCandidate?.providerSessionId ?? null;
+    return {
+      canResume: Boolean(resumableProviderSessionId),
+      providerSessionCandidate,
+      resumableProviderSessionId,
+      priorSummary,
+      warnings,
+    };
+  }
+
+  getLatestCompatibleProviderSession(
+    session: SessionState,
+    nextStage: string,
+    currentFingerprint: StageConfigFingerprint
+  ): ProviderSessionCandidate | null {
+    return this.resolveCompatibleProviderSession(session, nextStage, currentFingerprint, []);
   }
 
   isExpired(state: SessionState): boolean {
@@ -442,30 +464,42 @@ export class SessionService {
     return null;
   }
 
-  private resolveResumableProviderSessionId(
+  private resolveCompatibleProviderSession(
     session: SessionState,
     nextStage: string,
     currentFingerprint: StageConfigFingerprint,
     warnings: string[]
-  ): string | null {
+  ): ProviderSessionCandidate | null {
     return this.resolveInterruptedStageResume(
       session.stages[nextStage], currentFingerprint, nextStage, warnings
     ) ?? this.resolvePriorStageResume(session, nextStage, currentFingerprint, warnings);
   }
 
   private resolveInterruptedStageResume(
-    existingRecord: StageRecord | undefined,
-    currentFingerprint: StageConfigFingerprint,
-    nextStage: string,
-    warnings: string[]
-  ): string | null {
+    existingRecord: StageRecord | undefined, currentFingerprint: StageConfigFingerprint,
+    nextStage: string, warnings: string[]
+  ): ProviderSessionCandidate | null {
     if (!existingRecord || existingRecord.completedAt) {
-      if (existingRecord?.completedAt) this.pushCompletedStageWarning(nextStage, existingRecord.completedAt, warnings);
+      this.pushCompletedStageWarningWhenComplete(nextStage, existingRecord, warnings);
       return null;
     }
-    if (this.canResumeStageRecord(existingRecord, currentFingerprint)) return existingRecord.providerSessionId;
-    this.pushInterruptedStageWarnings(existingRecord, currentFingerprint, nextStage, warnings);
+    if (this.canResumeStageRecord(existingRecord, currentFingerprint)) {
+      return this.createProviderSessionCandidate(nextStage, existingRecord);
+    }
+    this.pushInterruptedResumeWarnings(existingRecord, currentFingerprint, nextStage, warnings);
     return null;
+  }
+
+  private pushInterruptedResumeWarnings(
+    record: StageRecord, fingerprint: StageConfigFingerprint, stage: string, warnings: string[]
+  ): void {
+    this.pushInterruptedStageWarnings(record, fingerprint, stage, warnings);
+  }
+
+  private pushCompletedStageWarningWhenComplete(
+    stage: string, record: StageRecord | undefined, warnings: string[]
+  ): void {
+    if (record?.completedAt) this.pushCompletedStageWarning(stage, record.completedAt, warnings);
   }
 
   private resolvePriorStageResume(
@@ -473,11 +507,13 @@ export class SessionService {
     nextStage: string,
     currentFingerprint: StageConfigFingerprint,
     warnings: string[]
-  ): string | null {
+  ): ProviderSessionCandidate | null {
     const priorStage = this.findMostRecentCompletedPriorStage(session, nextStage);
     if (!priorStage) return null;
     const { stageName, record } = priorStage;
-    if (this.canResumeStageRecord(record, currentFingerprint)) return record.providerSessionId;
+    if (this.canResumeStageRecord(record, currentFingerprint)) {
+      return this.createProviderSessionCandidate(stageName, record);
+    }
     this.pushPriorStageWarnings(record, currentFingerprint, nextStage, stageName, warnings);
     return null;
   }
@@ -504,6 +540,19 @@ export class SessionService {
       && isResumableBackend(record.config)
       && isResumableBackend(fingerprint)
     );
+  }
+
+  private createProviderSessionCandidate(stage: string, record: StageRecord): ProviderSessionCandidate {
+    if (!record.providerSessionId) {
+      throw new Error(`Cannot create provider session candidate without an ID for stage ${stage}`);
+    }
+    return {
+      stage,
+      provider: record.config.provider,
+      backend: record.config.backend,
+      providerSessionId: record.providerSessionId,
+      recordedAt: record.startedAt,
+    };
   }
 
   private fingerprintsDiffer(

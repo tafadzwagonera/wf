@@ -42,13 +42,14 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
-import { SessionService } from '../shared/session/session.service';
+import { isResumableBackend, SessionService } from '../shared/session/session.service';
 import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
-import type { SessionState, StageConfigFingerprint } from '../shared/types/session.types';
+import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } from '../shared/types/session.types';
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import { resolveProviderModel } from '../integrations/ai/adapters/shared-routing';
 import * as crypto from 'node:crypto';
 import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
+import { selectProviderSession, type ProviderSessionSelection } from '../shared/utils/provider-session-prompt';
 
 const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
@@ -130,6 +131,7 @@ interface ResolvedWorkflowContext {
 }
 
 interface StageSessionResult {
+  providerSessionSelection?: ProviderSessionSelection;
   sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string };
   sessionState: SessionState | undefined;
 }
@@ -671,7 +673,6 @@ export class IssueCommand extends CommandRunner {
     const loaded = await this.agents.planner.loadFromDisk(
       ticketArtifact.path, action, ctx.options?.silent, ctx.repoBaseDir
     );
-    sessionState = await this.promptAndRecordSkippedPlanSession(loaded, sessionState);
     return { planArtifact: loaded, sessionState };
   }
 
@@ -686,16 +687,6 @@ export class IssueCommand extends CommandRunner {
         sessionState, 'plan', planArtifact?.plan?.summary ?? null
       );
     }
-    return sessionState;
-  }
-
-  private async promptAndRecordSkippedPlanSession(
-    planArtifact: PlanArtifact, sessionState: SessionState | undefined
-  ): Promise<SessionState | undefined> {
-    const id = await this.promptProviderSessionId();
-    if (!id) return sessionState;
-    planArtifact.sessionId = id;
-    sessionState &&= await this.sessionService.recordProviderSessionId(sessionState, 'plan', id);
     return sessionState;
   }
 
@@ -1131,10 +1122,7 @@ export class IssueCommand extends CommandRunner {
     resolvedAction: ResolutionAction,
     plan: PlanArtifact['plan']
   ): Promise<PlanArtifact> {
-    const planArtifact: PlanArtifact = { plan, action: resolvedAction, path: artifactPath };
-    const providerSessionId = await this.promptProviderSessionId();
-    if (providerSessionId) planArtifact.sessionId = providerSessionId;
-    return planArtifact;
+    return { plan, action: resolvedAction, path: artifactPath };
   }
 
   private async resolveCustomPlanToken(
@@ -1232,8 +1220,7 @@ export class IssueCommand extends CommandRunner {
   }
 
   /**
-   * Execute the plan stage: generate a plan, prompt for provider session ID
-   * on cache hit, and offer interactive chat when the plan is fresh.
+   * Execute the plan stage: generate a plan and offer interactive chat when the plan is fresh.
    */
   private async executePlanStage(
     ticketArtifact: TicketArtifact, action: ResolutionAction,
@@ -1242,7 +1229,6 @@ export class IssueCommand extends CommandRunner {
     sessionState &&= await this.recordStageStart(sessionState, 'plan');
 
     const planArtifact = await this.generatePlanArtifact(ticketArtifact, action, ctx);
-    await this.promptCachedPlanSession(planArtifact);
     await this.offerPlanChat(ticketArtifact, planArtifact, ctx);
 
     return { planArtifact, sessionState };
@@ -1273,12 +1259,6 @@ export class IssueCommand extends CommandRunner {
     return resolveUiDesignScreenshots(
       Array.isArray(rawScreenshots) ? rawScreenshots : [], ctx.repoBaseDir, identifier
     );
-  }
-
-  private async promptCachedPlanSession(planArtifact: PlanArtifact): Promise<void> {
-    if (!planArtifact.fromCache) return;
-    const id = await this.promptProviderSessionId();
-    if (id) planArtifact.sessionId = id;
   }
 
   private async offerPlanChat(
@@ -1349,19 +1329,35 @@ export class IssueCommand extends CommandRunner {
   ): Promise<StageSessionResult> {
     if (!sessionState) return { sessionContext: {}, sessionState };
 
+    const fingerprint = this.resolveStageFingerprint(stage);
     const validation = this.sessionService.validateForStage(
-      sessionState, stage, this.resolveStageFingerprint(stage), s => this.resolveStageFingerprint(s)
+      sessionState, stage, fingerprint, s => this.resolveStageFingerprint(s)
     );
     for (const w of validation.warnings) console.log(chalk.yellow(`  ⚠ ${w}`));
 
+    const providerSessionSelection = await this.selectStageProviderSession(
+      fingerprint, validation.providerSessionCandidate
+    );
     const started = await this.recordStageStart(sessionState, stage);
     return {
-      sessionContext: {
-        resumeProviderSessionId: validation.resumableProviderSessionId ?? undefined,
-        priorStageSummary: validation.priorSummary ?? undefined,
-      },
+      providerSessionSelection,
+      sessionContext: this.createStageSessionContext(providerSessionSelection, validation.priorSummary),
       sessionState: started,
     };
+  }
+
+  private createStageSessionContext(
+    selection: ProviderSessionSelection, priorStageSummary: string | null
+  ): StageSessionResult['sessionContext'] {
+    const resumeProviderSessionId = selection.kind === 'new' ? undefined : selection.providerSessionId;
+    return { resumeProviderSessionId, priorStageSummary: priorStageSummary ?? undefined };
+  }
+
+  private async selectStageProviderSession(
+    fingerprint: StageConfigFingerprint, candidate: ProviderSessionCandidate | null
+  ): Promise<ProviderSessionSelection> {
+    if (!isResumableBackend(fingerprint)) return { kind: 'new' };
+    return selectProviderSession({ candidate, fingerprint, interactive: this.isInteractiveSession() });
   }
 
   private printStageHeader(isMultiRepo: boolean, silent: boolean | undefined, title: string): void {
@@ -1632,8 +1628,11 @@ export class IssueCommand extends CommandRunner {
     sessionState: SessionState | undefined, implementSessionId: string | undefined
   ): Promise<StageSessionResult> {
     const prepared = await this.prepareStageSession(sessionState, 'review');
-    const resumeId = prepared.sessionContext.resumeProviderSessionId ?? implementSessionId ?? undefined;
+    const resumeId = prepared.providerSessionSelection?.kind === 'new'
+      ? undefined
+      : prepared.sessionContext.resumeProviderSessionId ?? implementSessionId ?? undefined;
     return {
+      providerSessionSelection: prepared.providerSessionSelection,
       sessionContext: { ...prepared.sessionContext, resumeProviderSessionId: resumeId },
       sessionState: prepared.sessionState,
     };
@@ -1975,30 +1974,5 @@ export class IssueCommand extends CommandRunner {
 
   private isInteractiveSession(): boolean {
     return Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  }
-
-  /**
-   * Prompt the user for a provider session ID from a prior conversation.
-   * Gated on TTY only — no silent guard — because this is the only path to
-   * capture the provider session ID when the plan was not freshly generated.
-   * Safe to call in any context; returns `undefined` without prompting when
-   * no TTY is available.
-   *
-   * @returns The entered session ID, or `undefined` if blank or non-interactive.
-   */
-  private async promptProviderSessionId(): Promise<string | undefined> {
-    if (!this.isInteractiveSession()) {
-      return undefined;
-    }
-    const { providerSessionId } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'providerSessionId',
-        message: 'Provider session ID from issue:plan (leave blank to skip):',
-        prefix: ' ',
-        default: '',
-      },
-    ]);
-    return providerSessionId || undefined;
   }
 }

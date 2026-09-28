@@ -31,9 +31,9 @@ import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install'
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { PlanStepVerificationService, type PlanStepVerificationRunParams } from './plan-step-verification.service';
-import { StepSpecFidelityService } from './step-spec-fidelity.service';
-import type { StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
+import { PlanStepVerificationService, stripRepoNamePrefix, type PlanStepVerificationRunParams } from './plan-step-verification.service';
+import { StepSpecFidelityService, type AssessableStep } from './step-spec-fidelity.service';
+import type { StepFidelityFailure, StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
@@ -75,6 +75,19 @@ const defaultPrefixMapping: Record<ResolutionAction, string> = {
 const REPO_RELATIVE_PATH_PATTERN = /\b(?:src|test|lib|app)\//i;
 
 type PlanStepVerificationSkipReason = 'disabled' | 'no-changes' | 'no-assessed-steps' | 'new-repo' | 'commit-policy-allows-direct-commit';
+
+type VerificationRunParamsArgs = {
+  ticket: TicketArtifact;
+  scopedPlan: PlanArtifact;
+  options: ImplementerOptions;
+  resolved: FileResolution;
+  assessedSteps: string[];
+  sessionId: string;
+  stallWindow: number;
+  baseline: { sha: string; branch: string } | null;
+  refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
+  getSuppressed?: () => number;
+};
 
 @Injectable()
 export class ImplementerAgent {
@@ -241,18 +254,24 @@ export class ImplementerAgent {
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     const skipReason = this.resolvePlanStepVerificationSkipReason(cfg, result, assessedSteps, options, policy);
     if (skipReason) return (this.planStepVerification.logSkip(skipReason, options.silent), result);
+    const fidelityRefresher = this.createFidelityRefresher(assessedSteps, options, baseline);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
       stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW),
-      refreshSteps: this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha),
+      refreshSteps: fidelityRefresher.refresh, getSuppressed: fidelityRefresher.getSuppressed,
     });
     this.logVerificationHeading();
-    const outcome = await this.planStepVerification.run(params);
-    return this.mergeVerificationOutcome(result, outcome);
+    return this.mergeVerificationOutcome(result, await this.planStepVerification.run(params));
   }
 
   private logVerificationHeading(): void {
     console.log(chalk.bold('\n  Plan-step fidelity verification'));
+  }
+
+  private createFidelityRefresher(
+    assessedSteps: string[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
+  ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
+    return this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha);
   }
 
   private mergeVerificationOutcome(
@@ -293,14 +312,9 @@ export class ImplementerAgent {
     return null;
   }
 
-  private buildVerificationRunParams(args: {
-    ticket: TicketArtifact; scopedPlan: PlanArtifact;
-    options: ImplementerOptions; resolved: FileResolution;
-    assessedSteps: string[]; sessionId: string; stallWindow: number;
-    baseline: { sha: string; branch: string } | null;
-    refreshSteps?: () => Promise<string[]>;
-  }): PlanStepVerificationRunParams {
-    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, stallWindow, refreshSteps } = args;
+  private buildVerificationRunParams(args: VerificationRunParamsArgs): PlanStepVerificationRunParams {
+    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, stallWindow, refreshSteps, getSuppressed }
+      = args;
     return {
       steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
@@ -311,33 +325,71 @@ export class ImplementerAgent {
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
       refreshSteps,
+      getSuppressed,
     };
   }
 
   private async enrichStepsWithFidelityErrors(
-    steps: string[], repoDir: string, baseRef?: string,
-  ): Promise<string[]> {
-    const result = await this.stepSpecFidelity.verifyAll(steps, repoDir, baseRef);
-    for (const failure of result.failures) {
+    steps: AssessableStep[], repoDir: string, baseRef: string | undefined, raised: Map<string, number>,
+    onSuppressed: () => void,
+  ): Promise<Map<number, string>> {
+    const strippedSteps = stripRepoNamePrefix(steps, repoDir);
+    const result = await this.stepSpecFidelity.verifyAll(strippedSteps, repoDir, baseRef);
+    this.logFidelityFailures(result.failures);
+    return new Map(strippedSteps.map(step => {
+      const findings = result.findingsPerStep.get(step.index) ?? [];
+      const errors = findings.filter((f: StepFidelityFinding) => f.severity === 'error');
+      const blocking = this.filterBlockingFidelityErrors(step.index, errors, raised, onSuppressed);
+      if (!blocking.length) return [step.index, step.text];
+      const block = blocking.map(f => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
+      return [step.index, `${step.text}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`];
+    }));
+  }
+
+  private logFidelityFailures(failures: StepFidelityFailure[]): void {
+    for (const failure of failures) {
       const detail = failure.stepIndex === undefined ? '' : ` step=${failure.stepIndex}`;
-      appendToLogFile(
-        'WARN',
-        `step-fidelity.degraded category=${failure.category}${detail} cause=${failure.cause}`,
-        'step-verification',
-      );
+      appendToLogFile('WARN', `step-fidelity.degraded category=${failure.category}${detail} cause=${failure.cause}`, 'step-verification');
     }
-    return steps.map((stepText, i) => {
-      const errors = result.findingsPerStep[i].filter((f: StepFidelityFinding) => f.severity === 'error');
-      if (!errors.length) return stepText;
-      const block = errors.map((f: StepFidelityFinding) => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
-      return `${stepText}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`;
+  }
+
+  private filterBlockingFidelityErrors(
+    stepIndex: number, errors: StepFidelityFinding[], raised: Map<string, number>, onSuppressed: () => void,
+  ): StepFidelityFinding[] {
+    const seen = new Set<string>();
+    return errors.filter(finding => {
+      const key = this.fidelityFindingKey(stepIndex, finding.claim);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      const sightings = (raised.get(key) ?? 0) + 1;
+      raised.set(key, sightings);
+      if (sightings < 2) return true;
+      appendToLogFile('WARN', `step-fidelity.suppressed step=${stepIndex} claim="${finding.claim}"`, 'step-verification');
+      onSuppressed();
+      return false;
     });
+  }
+
+  private fidelityFindingKey(stepIndex: number, claim: string): string {
+    return `${stepIndex}:${claim.trim().toLowerCase().replaceAll(/\s+/g, ' ')}`;
   }
 
   private buildFidelityRefresher(
     originalSteps: string[], repoDir: string, baseRef?: string,
-  ): () => Promise<string[]> {
-    return () => this.enrichStepsWithFidelityErrors(originalSteps, repoDir, baseRef).catch(() => originalSteps);
+  ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
+    const raised = new Map<string, number>();
+    let suppressed = 0;
+    return {
+      refresh: (indices = originalSteps.map((_, index) => index)) => {
+        const steps = indices.map(index => ({ index, text: originalSteps[index] }));
+        const incrementSuppressed = (): void => {
+          suppressed += 1;
+        };
+        return this.enrichStepsWithFidelityErrors(steps, repoDir, baseRef, raised, incrementSuppressed)
+          .catch(() => new Map(steps.map(step => [step.index, step.text])));
+      },
+      getSuppressed: () => suppressed,
+    };
   }
 
   private async runVerificationFixRound(

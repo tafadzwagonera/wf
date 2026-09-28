@@ -424,6 +424,51 @@ describe('SessionService', () => {
   describe('validateForStage', () => {
     const defaultResolveFingerprint = (_stage: string): StageConfigFingerprint => mockFingerprint;
 
+    describe('getLatestCompatibleProviderSession', () => {
+      it('prefers an interrupted compatible stage record over completed prior stages', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude');
+        session = await service.recordProviderSessionId(session, 'plan', 'plan-session');
+        session = await service.recordStageComplete(session, 'plan', 'Plan complete');
+        session = await service.recordStageStart(session, 'implement', mockFingerprint, 'claude');
+        session = await service.recordProviderSessionId(session, 'implement', 'implement-session');
+
+        const candidate = service.getLatestCompatibleProviderSession(session, 'implement', mockFingerprint);
+
+        expect(candidate).toEqual({
+          stage: 'implement', provider: 'anthropic', backend: 'agent',
+          providerSessionId: 'implement-session', recordedAt: session.stages.implement.startedAt,
+        });
+      });
+
+      it('falls back to the most recent completed compatible prior stage', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude');
+        session = await service.recordProviderSessionId(session, 'plan', 'plan-session');
+        session = await service.recordStageComplete(session, 'plan', 'Plan complete');
+        session = await service.recordStageStart(session, 'implement', mockFingerprint, 'claude');
+        session = await service.recordProviderSessionId(session, 'implement', 'implement-session');
+        session = await service.recordStageComplete(session, 'implement', null);
+
+        const candidate = service.getLatestCompatibleProviderSession(session, 'review', mockFingerprint);
+
+        expect(candidate).toEqual(expect.objectContaining({
+          stage: 'implement', providerSessionId: 'implement-session',
+        }));
+      });
+
+      it('returns null for incompatible records, missing IDs, and an empty session', async () => {
+        const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+        let incompatible = createMockSessionState();
+        incompatible = await service.recordStageStart(incompatible, 'plan', openaiAgentFingerprint, 'gpt');
+        incompatible = await service.recordProviderSessionId(incompatible, 'plan', 'thread-1');
+        incompatible = await service.recordStageComplete(incompatible, 'plan', 'Plan complete');
+
+        expect(service.getLatestCompatibleProviderSession(incompatible, 'implement', mockFingerprint)).toBeNull();
+        expect(service.getLatestCompatibleProviderSession(createMockSessionState(), 'implement', mockFingerprint)).toBeNull();
+      });
+    });
+
     it('returns canResume with same provider across stages', async () => {
       let session = createMockSessionState();
       session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');

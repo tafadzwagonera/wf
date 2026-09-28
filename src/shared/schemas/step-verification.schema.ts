@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const stepStatusSchema = z.enum(['done', 'partially-done', 'not-done', 'not-applicable']);
+export const stepStatusSchema = z.enum(['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable']);
 
 export const stepAssessmentSchema = z
   .object({
@@ -9,7 +9,7 @@ export const stepAssessmentSchema = z
     missing: z.string().optional(),
   })
   .superRefine((v, ctx) => {
-    if ((v.status === 'partially-done' || v.status === 'not-done') && !v.missing) {
+    if ((v.status === 'partially-done' || v.status === 'not-done' || v.status === 'unverifiable') && !v.missing) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `'missing' is required when status is '${v.status}'`,
@@ -35,7 +35,7 @@ export const stepAssessmentResponseJsonSchema = {
         required: ['index', 'status'],
         properties: {
           index: { type: 'integer', minimum: 0 },
-          status: { type: 'string', enum: ['done', 'partially-done', 'not-done', 'not-applicable'] },
+          status: { type: 'string', enum: ['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable'] },
           missing: { type: 'string' },
         },
       },

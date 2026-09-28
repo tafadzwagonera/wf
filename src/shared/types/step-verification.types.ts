@@ -13,4 +13,6 @@ export type StepVerificationSummary = {
   rounds: number;
   done: number;
   pending: number;
+  unverifiable: number;
+  suppressed: number;
 };
