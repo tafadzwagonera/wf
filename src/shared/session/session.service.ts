@@ -502,33 +502,17 @@ export class SessionService {
     if (record?.completedAt) this.pushCompletedStageWarning(stage, record.completedAt, warnings);
   }
 
-  private resolvePriorStageResume(
-    session: SessionState,
-    nextStage: string,
-    currentFingerprint: StageConfigFingerprint,
-    warnings: string[]
-  ): ProviderSessionCandidate | null {
-    const priorStage = this.findMostRecentCompletedPriorStage(session, nextStage);
-    if (!priorStage) return null;
-    const { stageName, record } = priorStage;
-    if (this.canResumeStageRecord(record, currentFingerprint)) {
-      return this.createProviderSessionCandidate(stageName, record);
-    }
-    this.pushPriorStageWarnings(record, currentFingerprint, nextStage, stageName, warnings);
-    return null;
-  }
-
-  private findMostRecentCompletedPriorStage(
-    session: SessionState,
-    nextStage: string
-  ): { stageName: string; record: StageRecord } | null {
+  private resolvePriorStageResume(session: SessionState, nextStage: string,
+    currentFingerprint: StageConfigFingerprint, warnings: string[]): ProviderSessionCandidate | null {
     const nextIndex = STAGE_ORDER.indexOf(nextStage);
-    if (nextIndex <= 0) return null;
-
     for (let i = nextIndex - 1; i >= 0; i--) {
       const stageName = STAGE_ORDER[i];
       const record = session.stages[stageName];
-      if (record?.completedAt) return { stageName, record };
+      if (!record?.completedAt) continue;
+      if (this.canResumeStageRecord(record, currentFingerprint)) {
+        return this.createProviderSessionCandidate(stageName, record);
+      }
+      this.pushPriorStageWarnings(record, currentFingerprint, nextStage, stageName, warnings);
     }
     return null;
   }

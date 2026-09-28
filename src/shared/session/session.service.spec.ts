@@ -457,6 +457,21 @@ describe('SessionService', () => {
         }));
       });
 
+      it('skips a newer incompatible completed stage to find an older compatible session', async () => {
+        const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude');
+        session = await service.recordProviderSessionId(session, 'plan', 'plan-session');
+        session = await service.recordStageComplete(session, 'plan', 'Plan complete');
+        session = await service.recordStageStart(session, 'implement', openaiAgentFingerprint, 'gpt');
+        session = await service.recordProviderSessionId(session, 'implement', 'implement-session');
+        session = await service.recordStageComplete(session, 'implement', 'Implement complete');
+
+        expect(service.getLatestCompatibleProviderSession(session, 'review', mockFingerprint)).toEqual(
+          expect.objectContaining({ stage: 'plan', providerSessionId: 'plan-session' })
+        );
+      });
+
       it('returns null for incompatible records, missing IDs, and an empty session', async () => {
         const openaiAgentFingerprint: StageConfigFingerprint = { provider: 'openai', backend: 'agent' };
         let incompatible = createMockSessionState();
@@ -644,8 +659,8 @@ describe('SessionService', () => {
       session = await service.recordStageComplete(session, 'plan', 'Plan done');
       const planStage = session.stages.plan;
       expect(planStage).toBeDefined();
-      if (!planStage) throw new Error('Expected plan stage record to exist');
-      session.stages.plan = { ...planStage, providerSessionId: 'fake-id' };
+      if (planStage) session.stages.plan = { ...planStage, providerSessionId: 'fake-id' };
+      else throw new Error('Expected plan stage record to exist');
 
       const result = service.validateForStage(session, 'implement', googleFingerprint, _s => googleFingerprint);
 

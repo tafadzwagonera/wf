@@ -11,85 +11,20 @@ import {
   writePlanArtifactManifest,
 } from '../../src/shared/utils/plan-artifact';
 
-const distPromptPath = path.join(__dirname, '../../dist/shared/utils/provider-session-prompt.js');
+const distMainPath = path.join(__dirname, '../../dist/main.js');
 const { counts, pass, fail } = createReporter();
 
 async function main(): Promise<void> {
   assertCompiledArtifacts();
-  const selection = await selectLatestRecordedSession();
-  assertLatestSelection(selection);
-  await assertInteractiveSelections();
   runCompiledIssueFallbackScenario();
+  runPriorCompatibleSessionScenario();
   summarise(counts);
 }
 
 const assertCompiledArtifacts = (): void => {
-  if (fs.existsSync(path.join(__dirname, '../../dist/main.js')) && fs.existsSync(distPromptPath)) return;
-  throw new Error('dist/main.js and the compiled provider-session prompt must exist. Run `yarn build` first.');
+  if (fs.existsSync(distMainPath)) return;
+  throw new Error('dist/main.js must exist. Run `yarn build` first.');
 };
-
-const selectLatestRecordedSession = async (): Promise<Record<string, unknown>> => {
-  const { selectProviderSession } = require(distPromptPath) as {
-    selectProviderSession: (options: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  };
-  const candidate = {
-    stage: 'plan', provider: 'anthropic', backend: 'cli',
-    providerSessionId: 'recorded-session', recordedAt: '2026-09-28T10:00:00.000Z',
-  };
-  return selectProviderSession({
-    candidate,
-    fingerprint: { provider: 'anthropic', backend: 'cli' },
-    interactive: false,
-  });
-};
-
-const assertLatestSelection = (selection: Record<string, unknown>): void => {
-  try {
-    assert.deepStrictEqual(selection, {
-      kind: 'latest', stage: 'plan', providerSessionId: 'recorded-session',
-    });
-    pass('Compiled provider-session selector reuses the latest compatible session non-interactively');
-  } catch (error) {
-    fail('Compiled provider-session selector did not reuse the latest compatible session', String(error));
-  }
-};
-
-const assertInteractiveSelections = async (): Promise<void> => {
-  const inquirer = require('inquirer') as { prompt: (questions: unknown[]) => Promise<Record<string, string>> };
-  const originalPrompt = inquirer.prompt;
-  inquirer.prompt = createInteractivePrompt();
-  try {
-    await runInteractiveSelections();
-    pass('Compiled provider-session selector supports latest, provided, and new interactive choices');
-  } catch (error) {
-    fail('Compiled provider-session selector interactive choices failed', String(error));
-  } finally {
-    inquirer.prompt = originalPrompt;
-  }
-};
-
-const createInteractivePrompt = (): (() => Promise<Record<string, string>>) => {
-  const responses = [{ selected: 'latest' }, { selected: 'provided' }, { providerSessionId: ' supplied-session ' }, { selected: 'new' }];
-  return async () => responses.shift() ?? {};
-};
-
-const runInteractiveSelections = async (): Promise<void> => {
-  const { selectProviderSession } = require(distPromptPath) as {
-    selectProviderSession: (options: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  };
-  const options = { candidate: promptCandidate(), fingerprint: { provider: 'anthropic', backend: 'cli' }, interactive: true };
-  const latest = await selectProviderSession(options);
-  const provided = await selectProviderSession(options);
-  const fresh = await selectProviderSession(options);
-  assert.deepStrictEqual(latest, { kind: 'latest', stage: 'plan', providerSessionId: 'recorded-session' });
-  assert.deepStrictEqual(provided, { kind: 'provided', providerSessionId: 'supplied-session' });
-  assert.deepStrictEqual(fresh, { kind: 'new' });
-};
-
-const promptCandidate = () => ({
-  stage: 'plan', provider: 'anthropic' as const, backend: 'cli' as const,
-  providerSessionId: 'recorded-session', recordedAt: '2026-09-28T10:00:00.000Z',
-});
 
 const runCompiledIssueFallbackScenario = (): void => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-session-resume-'));
@@ -97,11 +32,27 @@ const runCompiledIssueFallbackScenario = (): void => {
     const paths = createScenarioPaths(tempRoot);
     setupScenario(paths);
     const result = spawnSync(process.execPath, [
-      path.join(__dirname, '../../dist/main.js'), 'issue', '--session-id', 'wf-session',
+      distMainPath, 'issue', '--session-id', 'wf-session',
       '--ticket-key', 'RESUME-1', '--from', 'review', '--to', 'review', '--silent',
     ], { cwd: paths.repoDir, encoding: 'utf8', env: scenarioEnv(paths) });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     assertScenarioResult(result.status, output, paths);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+};
+
+const runPriorCompatibleSessionScenario = (): void => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-session-compatible-'));
+  try {
+    const paths = createScenarioPaths(tempRoot);
+    setupScenario(paths);
+    setupPriorCompatibleSession(paths);
+    const result = spawnSync(process.execPath, [
+      distMainPath, 'issue', '--session-id', 'wf-session',
+      '--ticket-key', 'RESUME-1', '--from', 'review', '--to', 'review', '--silent',
+    ], { cwd: paths.repoDir, encoding: 'utf8', env: scenarioEnv(paths) });
+    assertPriorCompatibleSessionResult(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`, paths);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -148,6 +99,23 @@ const setupSessionState = (paths: ScenarioPaths): void => {
   }));
 };
 
+const setupPriorCompatibleSession = (paths: ScenarioPaths): void => {
+  fs.writeFileSync(paths.statePath, JSON.stringify({
+    sessionId: 'wf-session', ticketKey: 'RESUME-1', toStage: 'review', action: 'fix', sourceType: 'ticket',
+    customPlanRef: null, sourceBranch: 'main', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null,
+    stages: {
+      plan: createCompletedStage('anthropic', 'cli', 'plan-session'),
+      implement: createCompletedStage('openai', 'agent', 'implement-session'),
+    },
+  }));
+  writeCompatibleClaude(paths);
+};
+
+const createCompletedStage = (provider: string, backend: string, providerSessionId: string) => ({
+  config: { provider, backend }, model: 'test-model', modelsUsed: [], providerSessionId,
+  summary: null, startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+});
+
 const setupFakeClaude = (paths: ScenarioPaths): void => {
   const reviewResult = JSON.stringify({
     summary: 'ok', issues: [], executionMode: 'cli', repairStrategy: null, traceProvenance: 'best-effort',
@@ -157,6 +125,16 @@ const setupFakeClaude = (paths: ScenarioPaths): void => {
   const executable = path.join(paths.binDir, 'claude');
   fs.writeFileSync(executable, script);
   fs.chmodSync(executable, 0o755);
+};
+
+const writeCompatibleClaude = (paths: ScenarioPaths): void => {
+  const reviewResult = JSON.stringify({
+    summary: 'ok', issues: [], executionMode: 'cli', repairStrategy: null, traceProvenance: 'best-effort',
+    callStack: null, stateTransition: null, suggestions: [], approved: true,
+  });
+  const script = `#!/usr/bin/env node\nconst fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};fs.appendFileSync(p,JSON.stringify(a)+'\\n');if(a.includes('--json-schema')&&(!a.includes('--resume')||!a.includes('plan-session'))){console.error('expected plan session');process.exit(1)}console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${reviewResult},session_id:'compatible-session'}));`;
+  fs.writeFileSync(path.join(paths.binDir, 'claude'), script);
+  fs.chmodSync(path.join(paths.binDir, 'claude'), 0o755);
 };
 
 const setupGitRepository = (repoDir: string): void => {
@@ -186,6 +164,21 @@ const assertScenarioResult = (status: number | null, output: string, paths: Scen
   }
 };
 
+const assertPriorCompatibleSessionResult = (status: number | null, output: string, paths: ScenarioPaths): void => {
+  try {
+    const invocations = readInvocations(paths.invocationPath).filter(args => args.includes('--json-schema'));
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    assert.strictEqual(status, 0, output);
+    assert.strictEqual(invocations.length, 1, JSON.stringify(invocations));
+    assert.ok(invocations[0].includes('plan-session'));
+    assert.strictEqual(invocations[0].includes('implement-session'), false);
+    assert.strictEqual(state.stages.review.providerSessionId, 'compatible-session');
+    pass('Compiled wf issue resumes the older compatible session after an incompatible completed stage');
+  } catch (error) {
+    fail('Compiled wf issue did not select the older compatible session', String(error));
+  }
+};
+
 const assertFallbackAssertions = (status: number | null, output: string, paths: ScenarioPaths): void => {
   const invocations = readInvocations(paths.invocationPath);
   const stageInvocations = invocations.filter((args: string[]) => args.includes('--json-schema'));
@@ -194,7 +187,7 @@ const assertFallbackAssertions = (status: number | null, output: string, paths: 
   assert.strictEqual(status, 0, output);
   assert.strictEqual(stageInvocations.length, 2, JSON.stringify(invocations));
   assert.ok(stageInvocations[0].includes('--resume'));
-  assert.ok(!stageInvocations[1].includes('--resume'));
+  assert.strictEqual(stageInvocations[1].includes('--resume'), false);
   assert.ok(output.includes('issue.session.resume-fallback'));
   assert.ok(fs.readFileSync(logPath, 'utf8').includes('issue.session.resume-fallback'));
   assert.strictEqual(state.sessionId, 'wf-session');
@@ -202,8 +195,10 @@ const assertFallbackAssertions = (status: number | null, output: string, paths: 
 };
 
 const readInvocations = (invocationPath: string): string[][] => {
-  if (!fs.existsSync(invocationPath)) return [];
-  return fs.readFileSync(invocationPath, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  if (fs.existsSync(invocationPath)) {
+    return fs.readFileSync(invocationPath, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  }
+  return [];
 };
 
 main().catch(error => {
