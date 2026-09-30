@@ -243,7 +243,7 @@ describe('resolveModelRouting', () => {
     });
 
     expect(result.model).toBe('claude-opus-4-6');
-    expect(result.logMessage).toContain('claude-opus-4-6');
+    expect(result.logMessage).toBe('[test-adapter] Model routing: auto — mechanical: low complexity task (5 files)');
   });
 
   it('models.mechanical takes precedence over singleModel', () => {
@@ -262,7 +262,7 @@ describe('resolveModelRouting', () => {
     });
 
     expect(result.model).toBe('claude-haiku-custom');
-    expect(result.logMessage).toContain('claude-haiku-custom');
+    expect(result.logMessage).toBe('[test-adapter] Model routing: auto — mechanical: low complexity task (5 files)');
   });
 
   it('uses hardcoded default when no config is set', () => {
@@ -281,7 +281,7 @@ describe('resolveModelRouting', () => {
     });
 
     expect(result.model).toBe(defaultMechanicalModel);
-    expect(result.logMessage).toContain(defaultMechanicalModel);
+    expect(result.logMessage).toBe('[test-adapter] Model routing: auto — mechanical: low complexity task (5 files)');
   });
 
   it('routing default forces default model and skips mechanical detection', () => {
