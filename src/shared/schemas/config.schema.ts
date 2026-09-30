@@ -76,9 +76,12 @@ export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
   maxPlanStepsForDefault: z.number().int().min(1).optional(),
 });
 
+export const wfStepVerificationModeSchema = z.enum(['push', 'pull']);
+
 export const wfPlanStepVerificationConfigSchema = z.object({
   enabled: z.boolean().optional(),
   stallWindow: z.number().int().min(1).optional(),
+  mode: wfStepVerificationModeSchema.optional(),
 });
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({

@@ -46,6 +46,24 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
       wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { stallWindow: 0 } }),
     ).toThrow();
   });
+
+  it('accepts planStepVerification with mode: pull', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'pull' } }),
+    ).not.toThrow();
+  });
+
+  it('accepts planStepVerification with mode: push', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'push' } }),
+    ).not.toThrow();
+  });
+
+  it('rejects planStepVerification with an unknown mode', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'poll' } }),
+    ).toThrow();
+  });
 });
 
 describe('wfImplementStageConfigSchema modelRoutingThresholds', () => {
@@ -82,6 +100,16 @@ describe('normalizedImplementStageConfigSchema planStepVerification', () => {
         provider: 'anthropic',
         backend: 'agent',
         planStepVerification: { enabled: true, stallWindow: 3 },
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts the planStepVerification mode key', () => {
+    expect(() =>
+      normalizedImplementStageConfigSchema.parse({
+        provider: 'anthropic',
+        backend: 'agent',
+        planStepVerification: { enabled: true, stallWindow: 3, mode: 'pull' },
       }),
     ).not.toThrow();
   });
