@@ -299,7 +299,7 @@ const spawnChild = (params: SpawnChildParams): { child: ReturnType<typeof spawn>
   const exitRecord: CliExitRecord = { exited: false, code: null, signal: null };
   const child = spawn('claude', params.args, {
     cwd: params.cwd,
-    env: params.env ? { ...process.env, ...params.env } : process.env,
+    env: { ...process.env, ...params.env, WF_MANAGED_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });

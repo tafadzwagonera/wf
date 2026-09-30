@@ -576,7 +576,8 @@ const throwCodexMessageError = (message: CodexCliMessage, stage: AgentStageName)
   const detail = extractCodexMessageError(message) ?? 'unknown error';
   const isSchemaConfigurationError = /invalid_json_schema|text\.format\.schema/i.test(detail);
   let category: 'api' | 'stall' | 'config' = 'api';
-  if (message.subtype === 'timeout' || message.subtype === 'inactivity_timeout') category = 'stall';
+  const stallSubtypes = ['timeout', 'inactivity_timeout', 'no_progress'];
+  if (stallSubtypes.includes(message.subtype ?? '')) category = 'stall';
   else if (isSchemaConfigurationError) category = 'config';
   throw new AiProviderError(`Codex CLI returned an error: ${detail}`, {
     stage, subtype: message.subtype, response: message,

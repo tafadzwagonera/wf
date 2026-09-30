@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "${WF_MANAGED_SESSION:-}" = "1" ]; then exit 0; fi
+
 # Detect package manager from lockfile
 if [ -f bun.lockb ] || [ -f bun.lock ]; then
   runner="bun run"

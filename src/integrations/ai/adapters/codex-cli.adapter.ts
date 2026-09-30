@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import { AiProviderError } from '../../../shared/utils/errors';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -180,6 +181,22 @@ const applyCodexVerificationOutcome = (
   activityState.verificationOutcomes.push({ id: script.id, command, policy: script.policy, status });
 };
 
+/**
+ * A terminal error from the codex runner (timeout, inactivity_timeout, no_progress) ends
+ * the message stream with no further activity — silently continuing here would let the
+ * implement stage report success on a killed, incomplete run.
+ */
+const describeTerminalCodexMessage = (message: CodexCliMessage): string => {
+  const subtypeSuffix = message.subtype ? ` (${message.subtype})` : '';
+  return `Codex CLI returned ${message.type}${subtypeSuffix}.`;
+};
+
+const throwOnTerminalCodexError = (message: CodexCliMessage): void => {
+  if (!message.is_error) return;
+  const detail = message.result ?? describeTerminalCodexMessage(message);
+  throw new AiProviderError(`Codex CLI returned an error: ${detail}`, { subtype: message.subtype }, true, 'stall');
+};
+
 const processCodexMessage = (
   message: CodexCliMessage, ctx: StreamContext,
 ): { sessionId?: string; wrote: boolean } => {
@@ -196,20 +213,26 @@ const processCodexMessage = (
   return { sessionId, wrote };
 };
 
+const applyCodexMessage = (
+  message: CodexCliMessage, ctx: StreamContext, state: { sessionId: string | undefined; wrote: boolean },
+): void => {
+  throwOnTerminalCodexError(message);
+  const result = processCodexMessage(message, ctx);
+  if (result.sessionId) state.sessionId = result.sessionId;
+  if (result.wrote) state.wrote = true;
+};
+
 const processCodexStream = async (
   ctx: StreamContext,
   initialSessionId: string | undefined,
 ): Promise<{ sessionId: string | undefined; wrote: boolean }> => {
-  let sessionId = initialSessionId;
-  let wrote = false;
+  const state = { sessionId: initialSessionId, wrote: false };
   for await (const message of spawnCodex(
     ctx.cliArgs, ctx.repoDir, ctx.implementPrompt, undefined, ctx.timeoutMs, ctx.inactivityTimeoutMs,
   )) {
-    const result = processCodexMessage(message, ctx);
-    if (result.sessionId) sessionId = result.sessionId;
-    if (result.wrote) wrote = true;
+    applyCodexMessage(message, ctx, state);
   }
-  return { sessionId, wrote };
+  return state;
 };
 
 const resolveCodexModelRouting = (

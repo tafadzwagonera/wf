@@ -3,7 +3,7 @@ import { Readable, Writable } from 'stream';
 import {
   assertCodexCliAvailable, buildCodexCliArgs, buildCodexStdinPrompt, buildInactivityTimeoutMessage,
   buildTimeoutMessage, extractCodexErrorMessages, getCodexCliVersion, parseCodexCliVersion,
-  resetCodexCliVersionCache, spawnCodex,
+  resetCodexCliVersionCache, spawnCodex, type CodexCliMessage,
 } from './codex-cli-runner';
 import { execSync, spawn } from 'child_process';
 
@@ -364,6 +364,42 @@ describe('codex-cli-runner', () => {
       );
     });
 
+    it('marks the child env as a wf-managed session so interactive-only hooks can skip', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test');
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'codex',
+        expect.any(Array),
+        expect.objectContaining({ env: expect.objectContaining({ WF_MANAGED_SESSION: '1' }) })
+      );
+    });
+
+    it('keeps the wf-managed session marker when caller env overrides are supplied', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test', { CODEX_HOME: '/custom' });
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'codex',
+        expect.any(Array),
+        expect.objectContaining({
+          env: expect.objectContaining({ WF_MANAGED_SESSION: '1', CODEX_HOME: '/custom' }),
+        })
+      );
+    });
+
     it('kills the whole process group so verification subprocesses cannot outlive the run', async () => {
       const child = createMockCodexProcess();
       mockSpawn.mockReturnValue(child as never);
@@ -375,6 +411,60 @@ describe('codex-cli-runner', () => {
       }
 
       expect(mockProcessKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+    });
+
+    const agentMessageLine = (): string =>
+      `${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'no edits' } })}\n`;
+    const commandCompletedLine = (): string =>
+      `${JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'true', exit_code: 0 } })}\n`;
+
+    it('aborts as stalled after ten consecutive agent messages with no command activity', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test', undefined, 2000);
+      for (let i = 0; i < 10; i++) child.stdout.push(agentMessageLine());
+      const messages: CodexCliMessage[] = [];
+      for await (const msg of gen) messages.push(msg);
+
+      expect(messages.at(-1)).toMatchObject({ type: 'error', subtype: 'no_progress', is_error: true });
+      expect(mockProcessKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+    });
+
+    it('does not abort when command activity interleaves the agent messages', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test', undefined, 2000);
+      for (let i = 0; i < 9; i++) child.stdout.push(agentMessageLine());
+      child.stdout.push(commandCompletedLine());
+      for (let i = 0; i < 9; i++) child.stdout.push(agentMessageLine());
+      child.stdout.push(null);
+      const messages: CodexCliMessage[] = [];
+      for await (const msg of gen) messages.push(msg);
+
+      expect(messages.some(m => m.subtype === 'no_progress')).toBe(false);
+      expect(messages).toHaveLength(19);
+    });
+
+    it('lets the inactivity timeout fire while only agent messages arrive', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test', undefined, 0, 120);
+      let pushes = 0;
+      const pump = setInterval(() => {
+        if (!child.killed && pushes < 20) {
+          child.stdout.push(agentMessageLine());
+          pushes++;
+        }
+      }, 50);
+      const messages: CodexCliMessage[] = [];
+      for await (const msg of gen) messages.push(msg);
+      clearInterval(pump);
+
+      expect(messages.at(-1)).toMatchObject({ type: 'error', subtype: 'inactivity_timeout' });
+      expect(messages.length).toBeLessThan(6);
     });
   });
 });

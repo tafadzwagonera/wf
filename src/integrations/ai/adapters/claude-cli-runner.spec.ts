@@ -427,6 +427,23 @@ describe('claude-cli-runner', () => {
       );
     });
 
+    it('marks the child env as a wf-managed session so interactive-only hooks can skip', async () => {
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 5000);
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'claude',
+        expect.any(Array),
+        expect.objectContaining({ env: expect.objectContaining({ WF_MANAGED_SESSION: '1' }) })
+      );
+    });
+
     it('kills the whole process group so verification subprocesses cannot outlive the run', async () => {
       const child = createMockChildProcess();
       mockSpawn.mockReturnValue(child as any);

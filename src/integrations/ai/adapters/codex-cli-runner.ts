@@ -189,22 +189,56 @@ interface KillState {
   timedOut: boolean;
   inactivityTimedOut: boolean;
   inactivityHandle: ReturnType<typeof setTimeout> | undefined;
+  noProgress: boolean;
+  consecutiveAgentMessages: number;
 }
 
 interface KillController {
   kill: () => void;
   timedOut: () => boolean;
   inactivityTimedOut: () => boolean;
-  resetInactivity: () => void;
+  noProgress: () => boolean;
+  observeMessage: (message: CodexCliMessage) => void;
   timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 }
+
+export const MAX_CONSECUTIVE_AGENT_MESSAGES = 10;
+
+const workItemTypes = new Set(['command_execution', 'file_change', 'mcp_tool_call', 'web_search']);
+
+const isAgentTextMessage = (message: CodexCliMessage): boolean =>
+  message.type === 'item.completed' && message.item?.type === 'agent_message';
+
+const isWorkMessage = (message: CodexCliMessage): boolean => workItemTypes.has(message.item?.type ?? '');
+
+/**
+ * Guards against the two ways a codex child can spin without progressing: a text-only
+ * loop (repeated agent messages with no command or file activity) trips the consecutive
+ * counter and kills the child, and because agent text never resets the inactivity timer,
+ * a slow-drip text loop dies at the inactivity timeout instead of the 15-minute wall clock.
+ * Codex CLI has no stop-hook block cap or max-turns of its own — unlike Claude Code, which
+ * self-terminates with `stop_hook_prevented` — so this is the only backstop.
+ */
+const makeObserveMessage = (
+  state: KillState, resetInactivity: () => void, kill: () => void,
+): ((message: CodexCliMessage) => void) => message => {
+  if (isAgentTextMessage(message)) {
+    state.consecutiveAgentMessages += 1;
+    if (state.consecutiveAgentMessages < MAX_CONSECUTIVE_AGENT_MESSAGES) return;
+    state.noProgress = true;
+    kill();
+    return;
+  }
+  if (isWorkMessage(message)) state.consecutiveAgentMessages = 0;
+  resetInactivity();
+};
 
 const spawnCodexProcess = (
   args: string[], cwd: string, env?: Record<string, string>, prompt?: string,
 ): ChildProcess => {
   const child = spawn('codex', args, {
     cwd,
-    env: env ? { ...process.env, ...env } : process.env,
+    env: { ...process.env, ...env, WF_MANAGED_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });
@@ -272,13 +306,16 @@ const buildTimers = (
 const buildKillController = (proc: ChildProcess, timeoutMs: number, inactivityTimeoutMs: number): KillController => {
   const state: KillState = {
     killed: false, exited: false, timedOut: false, inactivityTimedOut: false, inactivityHandle: undefined,
+    noProgress: false, consecutiveAgentMessages: 0,
   };
   const kill = makeKillFn(proc, state);
   const { timeoutHandle, resetInactivity } = buildTimers(state, timeoutMs, inactivityTimeoutMs, kill);
   return {
-    kill, timeoutHandle, resetInactivity,
+    kill, timeoutHandle,
+    observeMessage: makeObserveMessage(state, resetInactivity, kill),
     timedOut: () => state.timedOut,
     inactivityTimedOut: () => state.inactivityTimedOut,
+    noProgress: () => state.noProgress,
   };
 };
 
@@ -301,6 +338,14 @@ export const buildInactivityTimeoutMessage = (inactivityTimeoutMs: number): Code
   subtype: 'inactivity_timeout',
   is_error: true,
   result: `Codex CLI timed out after ${Math.round(inactivityTimeoutMs / 1000)}s of inactivity.`,
+});
+
+export const buildNoProgressMessage = (count: number): CodexCliMessage => ({
+  type: 'error',
+  subtype: 'no_progress',
+  is_error: true,
+  result: `Codex CLI emitted ${count} consecutive agent messages without running a command or editing files; `
+    + 'aborted as stalled.',
 });
 
 const attachStderrCollector = (proc: ChildProcess): BoundedStderr => {
@@ -330,13 +375,13 @@ const buildCodexSession = (child: ChildProcess, timeoutMs: number, inactivityTim
 async function* readCodexLines(
   rl: ReturnType<typeof createInterface>,
   yieldedRef: [boolean],
-  resetInactivity: () => void,
+  observeMessage: (message: CodexCliMessage) => void,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   for await (const line of rl) {
     const message = parseNdjsonLine(line) as CodexCliMessage | null;
     if (message) {
       yieldedRef[0] = true;
-      resetInactivity();
+      observeMessage(message);
       yield message;
     }
   }
@@ -361,15 +406,16 @@ async function* runCodexStream(
   session: CodexSession, disposeSigint: () => void,
 ): AsyncGenerator<CodexCliMessage, void, undefined> {
   try {
-    yield* readCodexLines(session.rl, session.yieldedRef, session.ctrl.resetInactivity);
+    yield* readCodexLines(session.rl, session.yieldedRef, session.ctrl.observeMessage);
   } finally {
     cleanupCodexSession(disposeSigint, session.ctrl, session.rl);
   }
 }
 
-const resolveTimeoutMessage = (
+const resolveTerminationMessage = (
   ctrl: KillController, timeoutMs: number, inactivityTimeoutMs: number,
 ): CodexCliMessage | undefined => {
+  if (ctrl.noProgress()) return buildNoProgressMessage(MAX_CONSECUTIVE_AGENT_MESSAGES);
   if (ctrl.timedOut()) return buildTimeoutMessage(timeoutMs);
   if (ctrl.inactivityTimedOut()) return buildInactivityTimeoutMessage(inactivityTimeoutMs);
   return undefined;
@@ -382,9 +428,9 @@ export async function* spawnCodex(
   const child = spawnCodexProcess(args, cwd, env, prompt);
   const session = buildCodexSession(child, timeoutMs, inactivityTimeoutMs);
   yield* runCodexStream(session, installCodexSigintHandler(child, session.rl));
-  const timeoutMsg = resolveTimeoutMessage(session.ctrl, timeoutMs, inactivityTimeoutMs);
-  if (timeoutMsg) {
-    yield timeoutMsg;
+  const terminationMsg = resolveTerminationMessage(session.ctrl, timeoutMs, inactivityTimeoutMs);
+  if (terminationMsg) {
+    yield terminationMsg;
     return;
   }
   collectCodexResult(session.yieldedRef[0], session.stderrCollector);

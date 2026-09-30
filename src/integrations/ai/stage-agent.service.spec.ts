@@ -1516,6 +1516,18 @@ describe('StageAgentService', () => {
         .rejects.toMatchObject({ category: 'config' });
     });
 
+    it('classifies a no-progress abort as a stall error', async () => {
+      spawnCodex.mockImplementation(makeCodexStream(
+        { type: 'thread.started', thread_id: 'tid-123' },
+        { type: 'error', subtype: 'no_progress', is_error: true, result: 'aborted as stalled' }
+      ));
+
+      const service = new StageAgentService(createCodexConfigService());
+
+      await expect(service.generatePlan({ action: 'fix', issueContent: 'Test issue' }))
+        .rejects.toMatchObject({ category: 'stall' });
+    });
+
     it('uses the last agent_message text when multiple are emitted', async () => {
       const plan1 = JSON.stringify({
         action: 'fix',

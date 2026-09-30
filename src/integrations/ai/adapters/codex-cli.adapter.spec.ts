@@ -109,6 +109,23 @@ describe('CodexCliAdapter', () => {
     expect(result.sessionId).toBe('thread-abc');
   });
 
+  it('throws when the codex stream ends with a terminal error message', async () => {
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'thread.started', thread_id: 'thread-abc' };
+        yield {
+          type: 'error', subtype: 'no_progress', is_error: true,
+          result: 'Codex CLI emitted 10 consecutive agent messages without running a command or editing files; aborted as stalled.',
+        };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await expect(adapter.generateAndVerify(createBaseParams())).rejects.toMatchObject({
+      message: expect.stringContaining('aborted as stalled'),
+    });
+  });
+
   it('logs command start and completion events', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     mockSpawnCodex.mockReturnValue(
