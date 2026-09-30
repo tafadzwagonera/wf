@@ -1,15 +1,15 @@
 /**
  * Manual test runner entry point.
  *
- * Usage: nr test:manual -- <test-file-name>
- * Example: nr test:manual -- issue-review.smoke
+ * Usage: nr test:manual {testFileNameWithoutTsExtension}
+ * Example: nr test:manual bar.smoke
  *
- * Resolves the test file from test/manual/<name>.ts.
+ * Resolves the test file from test/manual/{testFileNameWithoutTsExtension}.ts.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { createRequire } from 'module';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { createRequire } from 'node:module';
 
 const moduleRequire = createRequire(__filename);
 const { ExecutionError } = moduleRequire('./src/shared/errors/app.error');
@@ -45,8 +45,8 @@ export const runManualTest = async (): Promise<void> => {
   const testName = process.argv[2];
 
   if (!testName) {
-    console.error('Usage: nr test:manual -- <test-file-name>');
-    console.error('Example: nr test:manual -- issue-review.smoke');
+    console.error('Usage: nr test:manual {testFileNameWithoutTsExtension}');
+    console.error('Example: nr test:manual bar.smoke');
     process.exit(1);
   }
 
