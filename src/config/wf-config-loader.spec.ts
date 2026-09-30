@@ -1275,23 +1275,50 @@ describe('wf-config-loader', () => {
       ).toThrow(ValidationError);
     });
 
-    it('accepts and normalizes planStepVerification.mode verbatim', () => {
+    it('accepts and normalizes planStepVerification mode and assessor target', () => {
       const normalized = normalizeWfConfig({
-        ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
-        stages: { implement: { provider: 'anthropic', planStepVerification: { mode: 'pull' } } },
+        ai: [
+          { provider: 'anthropic', apiKey: 'key', model: 'claude-3', default: true },
+          { provider: 'openai', apiKey: 'key', model: 'gpt-5.6-terra' },
+        ],
+        stages: {
+          implement: {
+            provider: 'anthropic',
+            planStepVerification: { mode: 'pull', provider: 'openai', model: 'gpt-5.6-terra' },
+          },
+        },
       });
-      expect(normalized.stages?.implement?.planStepVerification).toEqual({ mode: 'pull' });
+      expect(normalized.stages?.implement?.planStepVerification).toEqual({
+        mode: 'pull', provider: 'openai', model: 'gpt-5.6-terra',
+      });
     });
 
-    it('rejects an invalid planStepVerification.mode', () => {
-      expect(() =>
-        normalizeWfConfig({
-          ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
-          stages: {
-            implement: { provider: 'anthropic', planStepVerification: { mode: 'poll' } as never },
-          },
-        }),
-      ).toThrow(ValidationError);
+    it('rejects invalid verification modes and providers without models', () => {
+      expect(() => normalizeWfConfig({
+        ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+        stages: { implement: { provider: 'anthropic', planStepVerification: { mode: 'poll' } as never } },
+      })).toThrow(ValidationError);
+      expect(() => normalizeWfConfig({
+        ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+        stages: { implement: { provider: 'anthropic', planStepVerification: { provider: 'openai' } as never } },
+      })).toThrow(ValidationError);
+    });
+
+    it('rejects google and deepseek pull providers but permits them in push mode', () => {
+      const ai = [
+        { provider: 'anthropic' as const, apiKey: 'key', model: 'claude-3', default: true },
+        { provider: 'google' as const, apiKey: 'key', model: 'gemini-2.5-pro' },
+        { provider: 'deepseek' as const, apiKey: 'key', model: 'deepseek-chat' },
+      ];
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'google', planStepVerification: { mode: 'pull' } } },
+      })).toThrow(ValidationError);
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { mode: 'pull', provider: 'deepseek', model: 'deepseek-chat' } } },
+      })).toThrow(ValidationError);
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { mode: 'push', provider: 'google', model: 'gemini-2.5-pro' } } },
+      })).not.toThrow();
     });
   });
 

@@ -3,14 +3,17 @@ import {
   PlanStepVerificationService,
   buildStepAssessorPrompt,
   buildPlanStepVerificationPrompt,
-  validateStepAssessments,
+  collectPushEvidence,
   stripRepoNamePrefix,
 } from './plan-step-verification.service';
+import { PullStepAssessorService } from './pull-step-assessor.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 import { stepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
+
+type ExecCallback = (error: Error | null, result?: { stdout: string }) => void;
 
 jest.mock('node:child_process', () => ({
   exec: jest.fn(),
@@ -30,71 +33,113 @@ jest.mock('../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
 
-describe('validateStepAssessments', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('returns a Map for valid full coverage', () => {
-    const result = validateStepAssessments(
-      [{ index: 0, status: 'done' }, { index: 1, status: 'not-done', missing: 'x' }],
-      [0, 1],
-    );
-    expect(result instanceof Map).toBe(true);
-  });
-
-  it('returns an error string for duplicate index', () => {
-    const result = validateStepAssessments(
-      [{ index: 0, status: 'done' }, { index: 0, status: 'not-done', missing: 'x' }],
-      [0, 1],
-    );
-    expect(typeof result).toBe('string');
-  });
-
-  it('returns an error string for out-of-range index', () => {
-    const result = validateStepAssessments([{ index: 5, status: 'done' }], [0, 1]);
-    expect(typeof result).toBe('string');
-  });
-
-  it('returns an error string when coverage is incomplete', () => {
-    const result = validateStepAssessments([{ index: 0, status: 'done' }], [0, 1]);
-    expect(typeof result).toBe('string');
-  });
-
-  it('maps index to assessment for valid input', () => {
-    const result = validateStepAssessments([{ index: 0, status: 'done' }], [0]) as Map<number, StepAssessment>;
-    expect(result.get(0)?.status).toBe('done');
-  });
-
-  it('accepts exact non-contiguous requested indices', () => {
-    const result = validateStepAssessments(
-      [{ index: 2, status: 'done' }, { index: 7, status: 'not-done', missing: 'implementation' }],
-      [2, 7],
-    ) as Map<number, StepAssessment>;
-    expect([...result.keys()]).toEqual([2, 7]);
-  });
-});
-
 describe('buildStepAssessorPrompt', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('numbers steps from 0', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }, { index: 1, text: 'Step B' }], 'diff text', [], false);
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }, { index: 1, text: 'Step B' }], {
+      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
+    });
     expect(prompt).toContain('[Plan step 0]');
     expect(prompt).toContain('[Plan step 1]');
   });
 
   it('includes not-applicable rule', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'diff', [], false);
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
+      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
+    });
     expect(prompt).toContain('not-applicable');
   });
 
-  it('includes truncation note when capped', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'diff', [], true);
-    expect(prompt).toContain('truncated');
+  it('renders complete names and warns about omitted hunks', () => {
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
+      nameStatus: 'M\tsrc/a.ts\nM\tsrc/b.ts',
+      fileDiffSections: ['### src/a.ts\ndiff a'],
+      untrackedSections: [],
+      omittedPaths: ['src/b.ts'],
+      truncatedUntrackedPaths: [],
+    });
+    expect(prompt).toContain('Changed files (complete list)');
+    expect(prompt).toContain('Changed but their hunks were omitted');
+    expect(prompt).toContain('src/b.ts');
+    expect(prompt).toMatch(/not-done:.*changed-files list/);
+    expect(prompt).toMatch(/unverifiable: ONLY/);
+  });
+});
+
+describe('collectPushEvidence', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('keeps the full changed-file list while omitting hunk sections over budget', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    const paths = Array.from({ length: 9 }, (_, index) => `src/${index}.ts`);
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      const key = args.join(' ');
+      if (key === 'diff --name-status HEAD') {
+        callback(null, { stdout: paths.map(filePath => `M\t${filePath}`).join('\n') });
+        return;
+      }
+      callback(null, { stdout: 'x'.repeat(20_000) });
+    });
+
+    const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] });
+
+    expect(evidence.nameStatus).toContain('src/8.ts');
+    expect(evidence.omittedPaths).toContain('src/8.ts');
   });
 
-  it('omits truncation note when not capped', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'diff', [], false);
-    expect(prompt).not.toContain('truncated');
+  it('prioritizes files named in plan steps and throws git failures', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      const key = args.join(' ');
+      if (key === 'diff --name-status HEAD') {
+        callback(null, { stdout: Array.from({ length: 9 }, (_, index) => `M\tsrc/${index}.ts`).join('\n') });
+        return;
+      }
+      callback(null, { stdout: 'x'.repeat(20_000) });
+    });
+
+    const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: ['Edit src/8.ts'] });
+
+    expect(evidence.fileDiffSections[0]).toContain('src/8.ts');
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, callback: ExecCallback) => callback(new Error('ENOBUFS')));
+    await expect(collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] })).rejects.toThrow('ENOBUFS');
+  });
+
+  it('caps rendered tracked and untracked sections and marks truncation', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      callback(null, { stdout: args.includes('--name-status') ? 'M\tsrc/a.ts' : 'x'.repeat(20_000) });
+    });
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [], untrackedSections: [`### src/new.ts\n${'u'.repeat(20_000)}`],
+    });
+    expect(evidence.untrackedSections[0]).toHaveLength(8_000);
+    expect(evidence.untrackedSections[0]).toContain('[truncated]');
+    expect(evidence.fileDiffSections[0]).toHaveLength(8_000);
+    expect(evidence.fileDiffSections[0]).toContain('[truncated]');
+  });
+
+  it('uses rename destinations and retains untracked evidence before hunks', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      callback(null, { stdout: args.includes('--name-status') ? 'R100\tsrc/old.ts\tsrc/new.ts' : 'rename diff' });
+    });
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [],
+      untrackedSections: Array.from({ length: 8 }, (_, index) => `### src/new-${index}.ts\n${'u'.repeat(8_000)}`),
+    });
+    expect(evidence.untrackedSections).toHaveLength(8);
+    expect(evidence.omittedPaths).toContain('src/new.ts');
+  });
+
+  it('diffs the destination path for rename entries', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      callback(null, { stdout: args.includes('--name-status') ? 'R100\tsrc/old.ts\tsrc/new.ts' : 'rename diff' });
+    });
+    const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] });
+    expect(evidence.fileDiffSections[0]).toContain('### src/new.ts');
   });
 });
 
@@ -160,6 +205,7 @@ describe('PlanStepVerificationService', () => {
   let module: TestingModule;
   let mockAiExecute: jest.Mock;
   let mockGitGetStatus: jest.Mock;
+  let mockPullAssess: jest.Mock;
 
   const makeModule = async (): Promise<TestingModule> =>
     Test.createTestingModule({
@@ -168,6 +214,7 @@ describe('PlanStepVerificationService', () => {
         { provide: AiService, useValue: { execute: mockAiExecute } },
         { provide: GitService, useValue: { getStatus: mockGitGetStatus } },
         { provide: CliPresenter, useValue: { progress: jest.fn() } },
+        { provide: PullStepAssessorService, useValue: { assess: mockPullAssess } },
       ],
     }).compile();
 
@@ -185,6 +232,12 @@ describe('PlanStepVerificationService', () => {
   beforeEach(async () => {
     mockAiExecute = jest.fn();
     mockGitGetStatus = jest.fn().mockResolvedValue({ not_added: [] });
+    mockPullAssess = jest.fn();
+    (jest.requireMock('node:child_process').execFile as jest.Mock).mockImplementation(
+      (_cmd: string, _args: string[], _opts: unknown, callback: (error: null, result: { stdout: string }) => void) => {
+        callback(null, { stdout: '' });
+      },
+    );
     module = await makeModule();
     service = module.get(PlanStepVerificationService);
   });
@@ -200,6 +253,64 @@ describe('PlanStepVerificationService', () => {
 
     expect(outcome.summary?.pending).toBe(0);
     expect(outcome.summary?.rounds).toBe(1);
+  });
+
+  it('delegates pull mode without building push evidence', async () => {
+    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+
+    const outcome = await service.run(makeRunParams({ mode: 'pull', repoDir: '/repos/shop', steps: ['Edit shop/src/a.ts'] }));
+
+    expect(outcome.summary).toMatchObject({ pending: 0, rounds: 1 });
+    expect(mockAiExecute).not.toHaveBeenCalled();
+    expect(mockGitGetStatus).not.toHaveBeenCalled();
+    expect(mockPullAssess).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{ index: 0, text: 'Edit src/a.ts' }], repoDir: '/repos/shop', baseRef: 'HEAD',
+    }));
+  });
+
+  it('reconciles missing, duplicate, and unexpected pull assessments without consuming a retry', async () => {
+    mockPullAssess
+      .mockResolvedValueOnce([
+        { index: 0, status: 'done' },
+        { index: 0, status: 'not-done', missing: 'duplicate result' }, { index: 9, status: 'done' },
+      ])
+      .mockResolvedValueOnce([{ index: 1, status: 'done' }]);
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+
+    const outcome = await service.run(makeRunParams({ mode: 'pull', steps: ['Step A', 'Step B'] }));
+
+    expect(outcome.summary?.pending).toBe(0);
+    expect(mockPullAssess).toHaveBeenCalledTimes(2);
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', 'step-verify.assess.partial missing-index=1', 'step-verification',
+    );
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', 'step-verify.assess.partial dropped-index=0', 'step-verification',
+    );
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', 'step-verify.assess.partial dropped-index=9', 'step-verification',
+    );
+  });
+
+  it('logs the selected verification mode once', async () => {
+    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    await service.run(makeRunParams({ mode: 'pull' }));
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', 'step-verify.mode=pull', 'step-verification');
+  });
+
+  it('retries a failed pull assessment and forwards assessor overrides', async () => {
+    mockPullAssess
+      .mockRejectedValueOnce(new Error('chat crashed'))
+      .mockResolvedValueOnce([{ index: 0, status: 'done' }]);
+
+    const outcome = await service.run(makeRunParams({
+      mode: 'pull', assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6',
+    }));
+
+    expect(outcome.summary?.pending).toBe(0);
+    expect(mockPullAssess).toHaveBeenCalledTimes(2);
+    expect(mockPullAssess.mock.calls[1][0]).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-4-6' });
   });
 
   it('treats not-applicable as terminal (no fix round)', async () => {
@@ -287,6 +398,24 @@ describe('PlanStepVerificationService', () => {
     expect(mockAppendToLogFile).toHaveBeenCalledWith(
       'WARN', expect.stringContaining('untracked-truncated=new-file.ts'), 'step-verification',
     );
+  });
+
+  it('logs omitted tracked paths and retries a loud git collection failure', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    const paths = Array.from({ length: 9 }, (_, index) => `src/${index}.ts`);
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      callback(null, { stdout: args.includes('--name-status') ? paths.map(filePath => `M\t${filePath}`).join('\n') : 'x'.repeat(20_000) });
+    });
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    await service.run(makeRunParams());
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('step-verify.diff.omitted'), 'step-verification');
+
+    mockExecFile.mockClear();
+    mockExecFile.mockImplementation((_cmd: string, _args: string[], _opts: unknown, callback: ExecCallback) => callback(new Error('ENOBUFS')));
+    await service.run(makeRunParams());
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('ERROR', expect.stringContaining('step-verify.assess.attempt-failed'), 'step-verification');
+    expect(mockExecFile.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('performs one bounded structured assessment retry after invalid JSON', async () => {

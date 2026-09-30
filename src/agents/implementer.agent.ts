@@ -40,6 +40,7 @@ import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
+import type { WfAiProviderName, WfPlanStepVerificationConfig, WfStepVerificationMode } from '../shared/types/config.types';
 import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
@@ -84,6 +85,9 @@ type VerificationRunParamsArgs = {
   assessedSteps: string[];
   sessionId: string;
   stallWindow: number;
+  mode?: WfStepVerificationMode;
+  assessorProvider?: WfAiProviderName;
+  assessorModel?: string;
   baseline: { sha: string; branch: string } | null;
   refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
   getSuppressed?: () => number;
@@ -97,6 +101,8 @@ export class ImplementerAgent {
   @Optional()
   @Inject(UiDesignScreenshotsStageService)
   private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService;
+
+  private planStepVerificationPassCount = 0;
 
   constructor(
     private readonly configService: ConfigService,
@@ -248,30 +254,42 @@ export class ImplementerAgent {
     resolved: FileResolution, filteredSteps: string[], result: ImplementerResult,
     baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
-    const cfg = this.configService.get<{ enabled?: boolean; stallWindow?: number }>('stages.implement.planStepVerification');
+    const cfg = this.configService.get<WfPlanStepVerificationConfig>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     const skipReason = this.resolvePlanStepVerificationSkipReason(cfg, result, assessedSteps, options, policy);
     if (skipReason) return (this.planStepVerification.logSkip(skipReason, options.silent), result);
-    const fidelityRefresher = this.createFidelityRefresher(assessedSteps, options, baseline);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
-      stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW),
-      refreshSteps: fidelityRefresher.refresh, getSuppressed: fidelityRefresher.getSuppressed,
+      stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW), mode: cfg?.mode,
+      ...this.resolveAssessorTarget(cfg),
+      ...this.createFidelityRefresher(assessedSteps, options, baseline),
     });
     this.logVerificationHeading();
     return this.mergeVerificationOutcome(result, await this.planStepVerification.run(params));
   }
 
   private logVerificationHeading(): void {
-    console.log(chalk.bold('\n  Plan-step fidelity verification'));
+    this.planStepVerificationPassCount += 1;
+    console.log(chalk.bold(`\n  Plan-step fidelity verification (pass ${this.planStepVerificationPassCount})...`));
+    console.log();
   }
 
   private createFidelityRefresher(
     assessedSteps: string[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
-  ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
-    return this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha);
+  ): Pick<PlanStepVerificationRunParams, 'refreshSteps' | 'getSuppressed'> {
+    const refresher = this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha);
+    return { refreshSteps: refresher.refresh, getSuppressed: refresher.getSuppressed };
+  }
+
+  private resolveAssessorTarget(
+    cfg: WfPlanStepVerificationConfig | undefined,
+  ): Pick<PlanStepVerificationRunParams, 'assessorProvider' | 'assessorModel'> {
+    const assessorProvider = cfg?.provider ?? (cfg?.model
+      ? this.configService.get<WfAiProviderName>('stages.implement.provider')
+      : undefined);
+    return { assessorProvider, assessorModel: cfg?.model };
   }
 
   private mergeVerificationOutcome(
@@ -313,19 +331,21 @@ export class ImplementerAgent {
   }
 
   private buildVerificationRunParams(args: VerificationRunParamsArgs): PlanStepVerificationRunParams {
-    const { ticket, scopedPlan, options, resolved, assessedSteps, sessionId, stallWindow, refreshSteps, getSuppressed }
-      = args;
+    const { ticket, scopedPlan, options, resolved, assessedSteps } = args;
     return {
       steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
       repoDir: options.repoDir ?? process.cwd(),
       baseRef: args.baseline?.sha,
-      sessionId,
-      stallWindow,
+      sessionId: args.sessionId,
+      stallWindow: args.stallWindow,
+      ...(args.mode && { mode: args.mode }),
+      ...(args.assessorProvider && { assessorProvider: args.assessorProvider }),
+      ...(args.assessorModel && { assessorModel: args.assessorModel }),
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
-      refreshSteps,
-      getSuppressed,
+      refreshSteps: args.refreshSteps,
+      getSuppressed: args.getSuppressed,
     };
   }
 

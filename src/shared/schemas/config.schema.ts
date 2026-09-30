@@ -78,11 +78,42 @@ export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
 
 export const wfStepVerificationModeSchema = z.enum(['push', 'pull']);
 
-export const wfPlanStepVerificationConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-  stallWindow: z.number().int().min(1).optional(),
-  mode: wfStepVerificationModeSchema.optional(),
-});
+export const wfPlanStepVerificationConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    stallWindow: z.number().int().min(1).optional(),
+    mode: wfStepVerificationModeSchema.optional(),
+    provider: wfAiProviderNameSchema.optional(),
+    model: z.string().min(1).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (!value.provider || value.model) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "'model' is required when 'provider' is set",
+      path: ['model'],
+    });
+  });
+
+type StepVerificationProviderTarget = {
+  provider: z.infer<typeof wfAiProviderNameSchema>;
+  planStepVerification?: z.infer<typeof wfPlanStepVerificationConfigSchema>;
+};
+
+export const validatePullStepVerificationProvider = (
+  value: StepVerificationProviderTarget,
+  ctx: z.RefinementCtx,
+): void => {
+  const verification = value.planStepVerification;
+  const provider = verification?.provider ?? value.provider;
+  if (verification?.mode !== 'pull' || provider === 'anthropic' || provider === 'openai') return;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "planStepVerification.mode 'pull' requires an anthropic or openai provider",
+    path: verification.provider ? ['planStepVerification', 'provider'] : ['provider'],
+  });
+};
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   figma: z.boolean().optional(),
@@ -92,7 +123,7 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   skills: z.array(wfImplementSkillNameSchema).optional(),
   verificationConditions: wfVerificationConditionsConfigSchema.optional(),
   planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
-});
+}).superRefine(validatePullStepVerificationProvider);
 
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   skills: z.array(wfReviewSkillNameSchema).optional(),
@@ -232,7 +263,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
   planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
-});
+}).superRefine(validatePullStepVerificationProvider);
 
 export const normalizedCreateStageConfigSchema = z.object({
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),

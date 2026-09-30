@@ -2345,6 +2345,21 @@ describe('StageAgentService', () => {
       expect(spawnCli).toHaveBeenCalledTimes(0);
     });
 
+    it('routes a provider override through the matching CLI runner', async () => {
+      spawnCli.mockReturnValueOnce(makeStream({
+        type: 'result', subtype: 'success', result: 'assessed', session_id: 'claude-chat-1',
+      }));
+      const service = new StageAgentService(createCodexImplementConfigService());
+
+      await service.chatTurn({
+        stage: 'implement', userMessage: 'Assess steps', systemPrompt: 'sys', repoDir: '/tmp/repo',
+        providerOverride: 'anthropic', modelOverride: 'claude-sonnet-4-6',
+      });
+
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(spawnCodex).not.toHaveBeenCalled();
+    });
+
     it('writes a normalized structured-output schema for Codex chat turns', async () => {
       let writtenSchema: string | undefined;
       buildCodexCliArgs.mockImplementation(({ outputSchemaPath }: { outputSchemaPath?: string }) => {
@@ -3746,6 +3761,15 @@ describe('StageAgentService', () => {
       expect(chatOnceSpy).toHaveBeenCalledTimes(2);
       expect(chatOnceSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelOverride: 'gpt-5.4-mini', session: undefined }));
       expect(result.content).toBe('chat response');
+    });
+
+    it('does not use the stage fallback model for a provider override', async () => {
+      const svc = new StageAgentService(createFallbackConfigService());
+      const chatOnceSpy = jest.spyOn(svc as any, 'chatTurnOnce').mockRejectedValue(mockModelUnavailableError);
+      await expect(svc.chatTurn({
+        stage: 'generate', systemPrompt: 'sys', userMessage: 'hi', providerOverride: 'anthropic', modelOverride: 'claude-sonnet-4-6',
+      })).rejects.toThrow(mockModelUnavailableError);
+      expect(chatOnceSpy).toHaveBeenCalledTimes(1);
     });
 
     it('chatTurn does not retry an auth-category error', async () => {

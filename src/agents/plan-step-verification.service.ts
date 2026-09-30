@@ -10,10 +10,14 @@ import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
+import type { WfAiProviderName, WfStepVerificationMode } from '../shared/types/config.types';
+import { PullStepAssessorService } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
+const PER_FILE_DIFF_CHARS = 8_000;
+const GIT_MAX_BUFFER = 10 * 1024 * 1024;
 
 const countStatuses = (statuses: Iterable<StepAssessment>): Record<StepAssessment['status'], number> => {
   const counts = { done: 0, 'not-applicable': 0, 'partially-done': 0, 'not-done': 0, unverifiable: 0 };
@@ -39,10 +43,10 @@ const STEP_ASSESSOR_RULES = [
   '## Status rules',
   '- done: fully implemented in the evidence',
   '- partially-done: started but incomplete (requires missing field)',
-  '- not-done: not implemented at all (requires missing field)',
+  '- not-done: not implemented, including any step whose named file shows no change in the changed-files list (requires missing field)',
   '- not-applicable: step requires no code change or cannot be proven by a diff (e.g. run-the-tests steps, confirm-existing-behavior steps) — use instead of not-done for such steps',
-  '- unverifiable: the evidence cannot in principle prove or disprove a temporal/process claim, an investigation step, or a named file absent from the evidence (requires missing field)',
-  '- Paths under another repository prefix are outside this assessment; judge only the current repository portion and use unverifiable only when that portion cannot be judged.',
+  '- unverifiable: ONLY for temporal, process, or investigation claims that evidence cannot in principle prove or disprove (requires missing field)',
+  '- Paths under another repository prefix are outside this assessment; judge only the current repository portion.',
   '',
   'Index each step ONLY by its [Plan step N] tag. A step\'s own text may contain other numbers '
   + '(e.g. an internal "Step N (RED)/(GREEN)" label) — those are part of that step\'s content, not separate steps to assess.',
@@ -59,26 +63,117 @@ const VERIFICATION_PROMPT_FOOTER = [
   'Do not output any text or plan before making your first tool call.',
 ];
 
-const findDuplicateOrUnexpected = (statuses: StepAssessment[], expectedIndices: number[]): string | undefined => {
-  const seen = new Set<number>();
-  const expected = new Set(expectedIndices);
-  for (const s of statuses) {
-    if (!expected.has(s.index)) return `unexpected index ${s.index}`;
-    if (seen.has(s.index)) return `duplicate index ${s.index}`;
-    seen.add(s.index);
-  }
-  return undefined;
+export type PushEvidence = {
+  nameStatus: string;
+  fileDiffSections: string[];
+  untrackedSections: string[];
+  omittedPaths: string[];
+  truncatedUntrackedPaths: string[];
+};
+type RetainedUntracked = { retained: string[]; remaining: number; truncatedPaths: string[] };
+type PushEvidenceParams = { repoDir: string; baseRef: string; stepTexts: string[]; untrackedSections?: string[] };
+
+const runGitDiff = async (repoDir: string, args: string[]): Promise<string> => {
+  const { stdout } = await execFileAsync('git', ['diff', ...args], { cwd: repoDir, maxBuffer: GIT_MAX_BUFFER });
+  return stdout;
 };
 
-const buildEvidenceText = (diff: string, untrackedSections: string[], truncated: boolean): string => {
-  const untrackedBlock
-    = untrackedSections.length > 0
-      ? `\n\n## Untracked new files\n\n${untrackedSections.join('\n\n')}`
-      : '';
-  const evidenceNote = truncated
-    ? '\n[Evidence was truncated. Apply conservative judgment — prefer not-done over done when unsure.]'
-    : '';
-  return diff + untrackedBlock + evidenceNote;
+const parseChangedPaths = (nameStatus: string): string[] => nameStatus
+  .split('\n')
+  .filter(Boolean)
+  .map(line => line.split('\t').at(-1) ?? '')
+  .filter(Boolean);
+
+const orderByStepMention = (paths: string[], stepTexts: string[]): string[] => {
+  const text = stepTexts.join('\n');
+  return [...paths.filter(path => text.includes(path)), ...paths.filter(path => !text.includes(path))];
+};
+
+const untrackedSectionPath = (section: string, index: number): string =>
+  /^### ([^\n]+)/.exec(section)?.[1] ?? `section-${index}`;
+
+const retainUntrackedSections = (sections: string[], budget: number): RetainedUntracked => {
+  let remaining = budget;
+  const retained: string[] = [];
+  const truncatedPaths: string[] = [];
+  for (const [index, section] of sections.entries()) {
+    remaining = retainUntrackedSection(section, index, remaining, retained, truncatedPaths);
+  }
+  return { retained, remaining, truncatedPaths };
+};
+const retainUntrackedSection = (
+  section: string, index: number, remaining: number, retained: string[], truncatedPaths: string[],
+): number => {
+  const sectionPath = untrackedSectionPath(section, index);
+  const capped = capEvidenceSection(section, remaining);
+  if (!capped) {
+    truncatedPaths.push(sectionPath);
+    return remaining;
+  }
+  if (capped.length < section.length) truncatedPaths.push(sectionPath);
+  retained.push(capped);
+  return remaining - capped.length;
+};
+
+const capEvidenceSection = (section: string, budget: number): string | undefined => {
+  const limit = Math.min(PER_FILE_DIFF_CHARS, budget);
+  if (section.length <= limit) return section;
+  const marker = '\n[truncated]';
+  if (limit <= marker.length) return undefined;
+  return `${section.slice(0, limit - marker.length)}${marker}`;
+};
+
+const capFileDiff = (path: string, diff: string, budget: number): string | undefined => {
+  const heading = `### ${path}\n`;
+  const limit = Math.min(PER_FILE_DIFF_CHARS, budget);
+  if (limit <= heading.length) return undefined;
+  if (heading.length + diff.length <= limit) return heading + diff;
+  const marker = '\n[truncated]';
+  const contentLength = limit - heading.length - marker.length;
+  if (contentLength <= 0) return undefined;
+  return `${heading}${diff.slice(0, contentLength)}${marker}`;
+};
+
+export const collectPushEvidence = async (params: PushEvidenceParams): Promise<PushEvidence> => {
+  const nameStatus = await runGitDiff(params.repoDir, ['--name-status', params.baseRef]);
+  const retainedUntracked = retainUntrackedSections(
+    params.untrackedSections ?? [],
+    Math.max(0, MAX_ASSESSOR_EVIDENCE_CHARS - nameStatus.length),
+  );
+  const collected = await collectFileDiffSections(params, parseChangedPaths(nameStatus), retainedUntracked.remaining);
+  return buildPushEvidence(nameStatus, collected, retainedUntracked);
+};
+
+const buildPushEvidence = (
+  nameStatus: string, collected: { sections: string[]; omittedPaths: string[] }, retained: RetainedUntracked,
+): PushEvidence => ({
+  nameStatus, fileDiffSections: collected.sections, untrackedSections: retained.retained,
+  omittedPaths: collected.omittedPaths, truncatedUntrackedPaths: retained.truncatedPaths,
+});
+
+const collectFileDiffSections = async (
+  params: PushEvidenceParams, paths: string[], initialBudget: number,
+): Promise<{ sections: string[]; omittedPaths: string[]; remaining: number }> => {
+  const state = { remaining: initialBudget, sections: [] as string[], omittedPaths: [] as string[] };
+  for (const filePath of orderByStepMention(paths, params.stepTexts)) {
+    await collectFileDiffSection(params, filePath, state);
+  }
+  return state;
+};
+
+const collectFileDiffSection = async (
+  params: PushEvidenceParams, filePath: string,
+  state: { remaining: number; sections: string[]; omittedPaths: string[] },
+): Promise<void> => {
+  if (state.remaining < PER_FILE_DIFF_CHARS / 4) {
+    state.omittedPaths.push(filePath);
+    return;
+  }
+  const diff = await runGitDiff(params.repoDir, [params.baseRef, '--', filePath]);
+  const section = capFileDiff(filePath, diff, state.remaining);
+  if (section) state.sections.push(section);
+  else state.omittedPaths.push(filePath);
+  state.remaining -= section?.length ?? 0;
 };
 
 type RoundResult = {
@@ -88,14 +183,6 @@ type RoundResult = {
   assessmentFailed?: boolean;
   assessmentFailureCause?: string;
   pendingIndices?: number[];
-};
-
-type UntrackedRetentionParams = {
-  section: string;
-  index: number;
-  remaining: number;
-  retainedUntracked: string[];
-  truncatedPaths: string[];
 };
 
 type VerificationLoopState = {
@@ -122,6 +209,9 @@ export interface PlanStepVerificationRunParams {
    * when there's no prior commit to anchor to (e.g. a brand-new repo).
    */
   baseRef?: string;
+  mode?: WfStepVerificationMode;
+  assessorProvider?: WfAiProviderName;
+  assessorModel?: string;
   sessionId: string;
   stallWindow: number;
   silent?: boolean;
@@ -144,18 +234,6 @@ export interface PlanStepVerificationOutcome {
   extraPassCount: number;
 }
 
-export const validateStepAssessments = (
-  statuses: StepAssessment[],
-  expectedIndices: number[],
-): Map<number, StepAssessment> | string => {
-  if (statuses.length !== expectedIndices.length) return `expected ${expectedIndices.length} assessments, got ${statuses.length}`;
-  const error = findDuplicateOrUnexpected(statuses, expectedIndices);
-  if (error !== undefined) return error;
-  const map = new Map<number, StepAssessment>();
-  for (const s of statuses) map.set(s.index, s);
-  return map;
-};
-
 /**
  * Plan steps carry repo-prefixed paths (e.g. `shop-v1.1/specs/plan.json`) to disambiguate
  * files across a multi-repo workspace listing, but `git diff` output is always relative to
@@ -172,15 +250,25 @@ export const stripRepoNamePrefix = (steps: AssessableStep[], repoDir: string): A
 
 export const buildStepAssessorPrompt = (
   steps: AssessableStep[],
-  diff: string,
-  untrackedSections: string[],
-  truncated: boolean,
+  evidence: PushEvidence,
 ): string => {
   const numbered = steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
-  const evidence = buildEvidenceText(diff, untrackedSections, truncated);
-  const body = ['', '## Changed files diff', evidence, ''].join('\n');
-  return [...STEP_ASSESSOR_PREAMBLE, numbered, body, ...STEP_ASSESSOR_RULES].join('\n');
+  return [...STEP_ASSESSOR_PREAMBLE, numbered, buildPushEvidenceBody(evidence), ...STEP_ASSESSOR_RULES].join('\n');
 };
+
+const buildPushEvidenceBody = (evidence: PushEvidence): string => [
+  '',
+  '## Changed files (complete list)',
+  evidence.nameStatus,
+  '',
+  '## Per-file diffs',
+  evidence.fileDiffSections.join('\n\n'),
+  buildOmittedEvidenceNote(evidence.omittedPaths),
+  buildUntrackedEvidenceNote(evidence.untrackedSections),
+  '',
+].join('\n');
+const buildOmittedEvidenceNote = (paths: string[]): string => paths.length ? `\nChanged but their hunks were omitted for size — the changed-files list above is authoritative: ${paths.join(', ')}` : '';
+const buildUntrackedEvidenceNote = (sections: string[]): string => sections.length ? `\n\n## Untracked new files\n\n${sections.join('\n\n')}` : '';
 
 type FixPromptArgs = {
   pending: StepAssessment[];
@@ -203,15 +291,36 @@ export const buildPlanStepVerificationPrompt = (args: FixPromptArgs): string => 
   return [...lines, ...VERIFICATION_PROMPT_FOOTER].join('\n');
 };
 
+const partitionAssessments = (
+  statuses: StepAssessment[], expectedIndices: number[],
+): { assessments: Map<number, StepAssessment>; droppedIndices: number[] } => {
+  const expected = new Set(expectedIndices);
+  const assessments = new Map<number, StepAssessment>();
+  const droppedIndices: number[] = [];
+  for (const status of statuses) {
+    if (expected.has(status.index) && !assessments.has(status.index)) assessments.set(status.index, status);
+    else droppedIndices.push(status.index);
+  }
+  return { assessments, droppedIndices };
+};
+
+const buildUnassessedFallback = (index: number): StepAssessment => ({
+  index,
+  status: 'not-done',
+  missing: 'Not assessed in this round; assessor response omitted this index.',
+});
+
 @Injectable()
 export class PlanStepVerificationService {
   constructor(
     private readonly aiService: AiService,
     private readonly gitService: GitService,
     private readonly presenter: CliPresenter,
+    private readonly pullStepAssessor: PullStepAssessorService,
   ) {}
 
   async run(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
+    this.logEventAndAppendToLogFile('INFO', `step-verify.mode=${params.mode ?? 'push'}`, params.silent);
     try {
       return await this.runVerificationLoop(params);
     } catch (error) {
@@ -478,48 +587,74 @@ export class PlanStepVerificationService {
     params: PlanStepVerificationRunParams, steps: AssessableStep[],
     onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
-    const result = await this.runSingleAssessmentAttempt(params, steps)
+    return this.runSingleAssessmentAttempt(params, steps)
       .catch(error => this.handleAssessmentAttemptError(error, onFailureCause));
-    if (typeof result === 'string') {
-      onFailureCause?.(`validation-error: ${result}`);
-      this.logEventAndAppendToLogFile('WARN', `step-verify.assess.validation-error msg=${result}`, params.silent);
-      return undefined;
-    }
-    return result;
   }
 
   private async runSingleAssessmentAttempt(
     params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
-  ): Promise<Map<number, StepAssessment> | string> {
-    const { diff, untrackedSections, truncated } = await this.captureEvidence(params);
-    const steps = stripRepoNamePrefix(activeSteps, params.repoDir);
-    const prompt = buildStepAssessorPrompt(steps, diff, untrackedSections, truncated);
-    return this.assessWithPrompt(prompt, activeSteps.map(step => step.index));
+  ): Promise<Map<number, StepAssessment>> {
+    const statuses = params.mode === 'pull'
+      ? await this.runPullAssessment(params, activeSteps)
+      : await this.runPushAssessment(params, activeSteps);
+    return this.reconcilePartialAssessments(statuses, activeSteps.map(step => step.index), params.silent);
   }
 
-  private async assessWithPrompt(
-    prompt: string, expectedIndices: number[],
-  ): Promise<Map<number, StepAssessment> | string> {
+  private async runPullAssessment(
+    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
+  ): Promise<StepAssessment[]> {
+    return this.pullStepAssessor.assess({
+      steps: stripRepoNamePrefix(activeSteps, params.repoDir),
+      repoDir: params.repoDir,
+      baseRef: params.baseRef ?? 'HEAD',
+      provider: params.assessorProvider,
+      model: params.assessorModel,
+    });
+  }
+
+  private async runPushAssessment(
+    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
+  ): Promise<StepAssessment[]> {
+    const strippedSteps = stripRepoNamePrefix(activeSteps, params.repoDir);
+    const evidence = await this.captureEvidence(params, strippedSteps);
+    const prompt = buildStepAssessorPrompt(strippedSteps, evidence);
+    return this.requestPushAssessment(params, prompt);
+  }
+
+  private async requestPushAssessment(
+    params: PlanStepVerificationRunParams, prompt: string,
+  ): Promise<StepAssessment[]> {
     const response = await this.aiService.execute({
       prompt,
       systemPrompt: STEP_ASSESSOR_SYSTEM_PROMPT_WITH_SCHEMA,
-      temperature: 0,
-      maxTokens: 4096,
+      temperature: 0, maxTokens: 4096,
       stage: 'implement',
       structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
+      ...(params.assessorProvider && { provider: params.assessorProvider }),
+      ...(params.assessorModel && { model: params.assessorModel }),
     });
-    const validated = stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content));
-    const result = validateStepAssessments(validated.statuses, expectedIndices);
-    return this.logInvalidAssessmentBody(result, response.content);
+    return stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content)).statuses;
   }
 
-  private logInvalidAssessmentBody(
-    result: Map<number, StepAssessment> | string, responseBody: string,
-  ): Map<number, StepAssessment> | string {
-    if (typeof result === 'string') {
-      appendToLogFile('DEBUG', `step-verify.assess.raw-response body=${responseBody}`, 'step-verification');
+  private reconcilePartialAssessments(
+    statuses: StepAssessment[], expectedIndices: number[], silent?: boolean,
+  ): Map<number, StepAssessment> {
+    const { assessments, droppedIndices } = partitionAssessments(statuses, expectedIndices);
+    const missingIndices = expectedIndices.filter(index => !assessments.has(index));
+    this.logReconciliationAnomalies(missingIndices, droppedIndices, silent);
+    for (const index of missingIndices) {
+      assessments.set(index, buildUnassessedFallback(index));
     }
-    return result;
+    return assessments;
+  }
+
+  private logReconciliationAnomalies(missingIndices: number[], droppedIndices: number[], silent?: boolean): void {
+    for (const index of missingIndices) this.logReconciliationAnomaly(`missing-index=${index}`, silent);
+    for (const index of droppedIndices) this.logReconciliationAnomaly(`dropped-index=${index}`, silent);
+  }
+
+  private logReconciliationAnomaly(anomaly: string, silent?: boolean): void {
+    this.logEventAndAppendToLogFile('WARN', `step-verify.assess.partial ${anomaly}`, silent);
   }
 
   private logAssessmentSummary(
@@ -548,60 +683,25 @@ export class PlanStepVerificationService {
   }
 
   private async captureEvidence(
-    params: PlanStepVerificationRunParams,
-  ): Promise<{ diff: string; untrackedSections: string[]; truncated: boolean }> {
-    const rawDiff = await this.getDiff(params.repoDir, params.baseRef ?? 'HEAD');
+    params: PlanStepVerificationRunParams, strippedSteps: AssessableStep[],
+  ): Promise<PushEvidence> {
     const untrackedSections = await this.collectUntrackedSections(params.repoDir);
-    const combined = rawDiff + untrackedSections.join('\n\n');
-    if (combined.length <= MAX_ASSESSOR_EVIDENCE_CHARS) {
-      return { diff: rawDiff, untrackedSections, truncated: false };
+    const evidence = await collectPushEvidence({
+      repoDir: params.repoDir,
+      baseRef: params.baseRef ?? 'HEAD',
+      stepTexts: strippedSteps.map(step => step.text),
+      untrackedSections,
+    });
+    this.logEvidenceGaps(evidence, params.silent);
+    return evidence;
+  }
+
+  private logEvidenceGaps(evidence: PushEvidence, silent?: boolean): void {
+    if (evidence.omittedPaths.length) {
+      this.logEventAndAppendToLogFile('WARN', `step-verify.diff.omitted paths=${evidence.omittedPaths.join(',')}`, silent);
     }
-    const { retainedUntracked, remaining, truncatedUntracked } = this.prioritizeUntrackedEvidence(untrackedSections);
-    this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated original=${combined.length}${truncatedUntracked}`, params.silent);
-    return { diff: rawDiff.slice(0, Math.max(0, remaining)), untrackedSections: retainedUntracked, truncated: true };
-  }
-
-  private prioritizeUntrackedEvidence(untrackedSections: string[]): {
-    retainedUntracked: string[];
-    remaining: number;
-    truncatedUntracked: string;
-  } {
-    let remaining = MAX_ASSESSOR_EVIDENCE_CHARS;
-    const retainedUntracked: string[] = [];
-    const truncatedPaths: string[] = [];
-    for (const [index, section] of untrackedSections.entries()) {
-      remaining = this.retainUntrackedSection({ section, index, remaining, retainedUntracked, truncatedPaths });
-    }
-    const truncatedUntracked = truncatedPaths.length ? ` untracked-truncated=${truncatedPaths.join(',')}` : '';
-    return { retainedUntracked, remaining, truncatedUntracked };
-  }
-
-  private retainUntrackedSection(params: UntrackedRetentionParams): number {
-    const { section, index, remaining, retainedUntracked, truncatedPaths } = params;
-    const path = this.untrackedSectionPath(section, index);
-    if (remaining <= 0) {
-      truncatedPaths.push(path);
-      return remaining;
-    }
-    if (section.length > remaining) truncatedPaths.push(path);
-    const retained = section.slice(0, remaining);
-    retainedUntracked.push(retained);
-    return remaining - retained.length;
-  }
-
-  private untrackedSectionPath(section: string, index: number): string {
-    return /^### ([^\n]+)/.exec(section)?.[1] ?? `section-${index}`;
-  }
-
-  private async getDiff(repoDir: string, baseRef: string): Promise<string> {
-    try {
-      const { stdout } = await execFileAsync('git', ['diff', baseRef], {
-        cwd: repoDir,
-        maxBuffer: MAX_ASSESSOR_EVIDENCE_CHARS * 2,
-      });
-      return stdout;
-    } catch {
-      return '';
+    if (evidence.truncatedUntrackedPaths.length) {
+      this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated untracked-truncated=${evidence.truncatedUntrackedPaths.join(',')}`, silent);
     }
   }
 

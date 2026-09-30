@@ -47,22 +47,50 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
     ).toThrow();
   });
 
-  it('accepts planStepVerification with mode: pull', () => {
+  it('accepts push and pull verification modes', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'push' } }),
+    ).not.toThrow();
     expect(() =>
       wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'pull' } }),
     ).not.toThrow();
   });
 
-  it('accepts planStepVerification with mode: push', () => {
-    expect(() =>
-      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'push' } }),
-    ).not.toThrow();
-  });
-
-  it('rejects planStepVerification with an unknown mode', () => {
+  it('rejects an unknown verification mode', () => {
     expect(() =>
       wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { mode: 'poll' } }),
     ).toThrow();
+  });
+
+  it('requires a model when an assessor provider is configured', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { provider: 'openai' } }),
+    ).toThrow("'model' is required when 'provider' is set");
+  });
+
+  it('accepts model-only and provider-plus-model assessor targets', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', planStepVerification: { model: 'claude-sonnet-4-6' } }),
+    ).not.toThrow();
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      planStepVerification: { provider: 'openai', model: 'gpt-5.6-terra' },
+    })).not.toThrow();
+  });
+
+  it('rejects unsupported effective providers in pull mode', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'google', planStepVerification: { mode: 'pull' },
+    })).toThrow('requires an anthropic or openai provider');
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic', planStepVerification: { mode: 'pull', provider: 'deepseek', model: 'deepseek-chat' },
+    })).toThrow('requires an anthropic or openai provider');
+  });
+
+  it('allows google overrides in push mode', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic', planStepVerification: { mode: 'push', provider: 'google', model: 'gemini-2.5-pro' },
+    })).not.toThrow();
   });
 });
 

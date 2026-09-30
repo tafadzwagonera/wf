@@ -275,6 +275,7 @@ type ChatTurnParams = {
   structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
   modelOverride?: string;
+  providerOverride?: 'anthropic' | 'openai';
   repoDir?: string;
   responseValidator?: ResponseValidator;
   session?: AgentChatSession;
@@ -1541,7 +1542,7 @@ export class StageAgentService {
 
   private async chatTurnOnce(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const backend = this.resolveStageBackend(params.stage);
-    const provider = this.resolveStageProvider(params.stage);
+    const provider = params.providerOverride ?? this.resolveStageProvider(params.stage);
     if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
     if (backend === 'cli') {
       return provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params);
@@ -1558,7 +1559,7 @@ export class StageAgentService {
     } catch (error) {
       if (!isUnavailableModelError(error)) throw error;
       const fallbackModel = this.resolveFallbackModel(params.stage);
-      if (!fallbackModel) throw error;
+      if (!fallbackModel || params.providerOverride) throw error;
       return this.chatTurnWithFallback(params, error, fallbackModel);
     }
   }

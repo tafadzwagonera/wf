@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
-import { isValidRegexPattern } from '../shared/schemas/config.schema';
+import { isValidRegexPattern, wfPlanStepVerificationConfigSchema, validatePullStepVerificationProvider } from '../shared/schemas/config.schema';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
 import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import type {
@@ -207,16 +207,10 @@ const implementStageSchema = z
     skills: z.array(z.string()).optional(),
     figma: z.boolean().optional(),
     verificationConditions: verificationConditionsSchema.optional(),
-    planStepVerification: z
-      .object({
-        enabled: z.boolean().optional(),
-        stallWindow: z.number().int().min(1).optional(),
-        mode: z.enum(['push', 'pull']).optional(),
-      })
-      .strict()
-      .optional(),
+    planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validatePullStepVerificationProvider);
 
 const logLevels = ['error', 'warn', 'info', 'debug'] as const;
 
