@@ -19,8 +19,10 @@ import type {
   wfImplementStageModelsConfigSchema,
   wfPlanSkillNameSchema,
   wfPlanStageConfigSchema,
+  wfPlanStepVerificationConfigSchema,
   wfReviewSkillNameSchema,
   wfReviewStageConfigSchema,
+  wfStepVerificationModeSchema,
   wfVerificationConditionsConfigSchema,
 } from '../schemas/config.schema';
 
@@ -44,7 +46,9 @@ export type WfImplementStageModelRoutingThresholdsConfig = z.infer<
 export type WfImplementStageModelsConfig = z.infer<typeof wfImplementStageModelsConfigSchema>;
 export type WfPlanSkillName = z.infer<typeof wfPlanSkillNameSchema>;
 export type WfPlanStageConfig = z.infer<typeof wfPlanStageConfigSchema>;
+export type WfPlanStepVerificationConfig = z.infer<typeof wfPlanStepVerificationConfigSchema>;
 export type NormalizedReviewStageConfig = z.infer<typeof normalizedReviewStageConfigSchema>;
 export type WfReviewSkillName = z.infer<typeof wfReviewSkillNameSchema>;
 export type WfReviewStageConfig = z.infer<typeof wfReviewStageConfigSchema>;
+export type WfStepVerificationMode = z.infer<typeof wfStepVerificationModeSchema>;
 export type WfVerificationConditionsConfig = z.infer<typeof wfVerificationConditionsConfigSchema>;

@@ -1274,6 +1274,25 @@ describe('wf-config-loader', () => {
         }),
       ).toThrow(ValidationError);
     });
+
+    it('accepts and normalizes planStepVerification.mode verbatim', () => {
+      const normalized = normalizeWfConfig({
+        ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+        stages: { implement: { provider: 'anthropic', planStepVerification: { mode: 'pull' } } },
+      });
+      expect(normalized.stages?.implement?.planStepVerification).toEqual({ mode: 'pull' });
+    });
+
+    it('rejects an invalid planStepVerification.mode', () => {
+      expect(() =>
+        normalizeWfConfig({
+          ai: [{ provider: 'anthropic', apiKey: 'key', model: 'claude-3' }],
+          stages: {
+            implement: { provider: 'anthropic', planStepVerification: { mode: 'poll' } as never },
+          },
+        }),
+      ).toThrow(ValidationError);
+    });
   });
 
   describe('initializeWfConfig', () => {

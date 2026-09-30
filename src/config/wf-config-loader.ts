@@ -211,6 +211,7 @@ const implementStageSchema = z
       .object({
         enabled: z.boolean().optional(),
         stallWindow: z.number().int().min(1).optional(),
+        mode: z.enum(['push', 'pull']).optional(),
       })
       .strict()
       .optional(),
