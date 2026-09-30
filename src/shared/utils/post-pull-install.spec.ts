@@ -43,4 +43,10 @@ describe('runPostPullDependencyInstall', () => {
     await expect(runPostPullDependencyInstall('/repo')).resolves.toBeUndefined();
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('npm not found'));
   });
+
+  it('logs nothing when installDependencies is skipped', async () => {
+    mockInstallDependencies.mockResolvedValue({ packageManager: 'npm', success: true, skipped: true });
+    await runPostPullDependencyInstall('/repo');
+    expect(consoleSpy).not.toHaveBeenCalled();
+  });
 });

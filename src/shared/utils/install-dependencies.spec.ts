@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from 'child_process';
+import * as fs from 'node:fs';
 import { installDependencies, runDependencyInstallForVerification } from './install-dependencies';
 import { detectPackageManager } from './detect-repo-conventions';
 
@@ -11,10 +12,15 @@ jest.mock('child_process', () => ({
   spawn: jest.fn(),
   spawnSync: jest.fn(),
 }));
+jest.mock('node:fs', () => ({
+  ...jest.requireActual('node:fs'),
+  existsSync: jest.fn(),
+}));
 jest.mock('./detect-repo-conventions');
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 const mockSpawnSync = spawnSync as jest.MockedFunction<typeof spawnSync>;
+const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockDetectPackageManager = detectPackageManager as jest.MockedFunction<typeof detectPackageManager>;
 
 const REPO_DIR = '/fake/repo';
@@ -22,6 +28,7 @@ const REPO_DIR = '/fake/repo';
 describe('installDependencies', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockExistsSync.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -89,6 +96,16 @@ describe('installDependencies', () => {
     const installCallOptions = mockExecSync.mock.calls[1][1];
     expect(installCallOptions).not.toHaveProperty('timeout');
   });
+
+  it('skips the install without invoking a package manager when there is no package.json', async () => {
+    mockDetectPackageManager.mockReturnValue('npm');
+    mockExistsSync.mockReturnValue(false);
+
+    const result = await installDependencies(REPO_DIR);
+
+    expect(result).toEqual({ packageManager: 'npm', success: true, skipped: true });
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
 });
 
 describe('runDependencyInstallForVerification', () => {
@@ -96,6 +113,7 @@ describe('runDependencyInstallForVerification', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockExistsSync.mockReturnValue(true);
     mockDetectPackageManager.mockReturnValue('yarn');
   });
 
@@ -159,5 +177,17 @@ describe('runDependencyInstallForVerification', () => {
     const result = runDependencyInstallForVerification(REPO_DIR, options);
 
     expect(result.result).toMatchObject({ status: 'not-run', exitCode: 2, output: 'abcdefgh', reason: 'Dependency install failed' });
+  });
+
+  it('skips the install without spawning a process when there is no package.json', () => {
+    mockExistsSync.mockReturnValue(false);
+
+    const result = runDependencyInstallForVerification(REPO_DIR, options);
+
+    expect(result).toMatchObject({
+      packageManager: 'yarn',
+      result: { command: 'yarn install --frozen-lockfile', status: 'not-run', reason: 'No package.json found; skipping dependency install' },
+    });
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,11 @@
 import { execSync, spawnSync } from 'child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { detectPackageManager } from './detect-repo-conventions';
 import type { PackageManager } from './detect-repo-conventions';
 import type { VerificationCommandResult } from './review-verification.types';
+
+const hasPackageJson = (repoDir: string): boolean => fs.existsSync(path.join(repoDir, 'package.json'));
 
 const INSTALL_COMMANDS: Record<PackageManager, string> = {
   bun: 'bun install',
@@ -18,7 +22,7 @@ const INSTALL_ARGUMENTS: Record<PackageManager, string[]> = {
 };
 
 export type DependencyInstallResult
-  = | { packageManager: PackageManager; success: true }
+  = | { packageManager: PackageManager; success: true; skipped?: boolean }
     | { packageManager: PackageManager; success: false; warning: string };
 
 export interface VerificationDependencyInstallResult {
@@ -59,6 +63,10 @@ const runInstall = (
 // Declared async so callers can `await` it uniformly; the install itself runs via execSync.
 export const installDependencies = async (repoDir: string): Promise<DependencyInstallResult> => {
   const packageManager = detectPackageManager(repoDir);
+
+  if (!hasPackageJson(repoDir)) {
+    return { packageManager, success: true, skipped: true };
+  }
 
   if (!isPackageManagerAvailable(packageManager)) {
     return {
@@ -116,11 +124,21 @@ const installFailureReason = (result: ReturnType<typeof spawnSync>, timedOut: bo
 
 const verificationInstallResult = (packageManager: PackageManager, command: string, startedAt: number, result: ReturnType<typeof spawnSync>, maxOutputBytes: number, succeeded: boolean, timedOut: boolean): VerificationDependencyInstallResult => ({ packageManager, result: { command, status: succeeded ? 'passed' : 'not-run', durationMs: durationSince(startedAt), exitCode: result.status ?? undefined, signal: result.signal ?? undefined, output: boundedOutput([result.stdout, result.stderr].filter(Boolean).join(''), maxOutputBytes), reason: succeeded ? undefined : installFailureReason(result, timedOut) } });
 
+const skippedVerificationInstallResult = (
+  packageManager: PackageManager, command: string
+): VerificationDependencyInstallResult => ({
+  packageManager,
+  result: { command, status: 'not-run', durationMs: 0, reason: 'No package.json found; skipping dependency install' },
+});
+
 export const runDependencyInstallForVerification = (
   repoDir: string, options: VerificationCommandOptions
 ): VerificationDependencyInstallResult => {
   const packageManager = detectPackageManager(repoDir);
   const command = `${packageManager} ${INSTALL_ARGUMENTS[packageManager].join(' ')}`;
+
+  if (!hasPackageJson(repoDir)) return skippedVerificationInstallResult(packageManager, command);
+
   const startedAt = Date.now();
   const availability = spawnSync(packageManager, ['--version'], commandOptions(repoDir, options));
   if (availability.error || availability.status !== 0) {

@@ -10,6 +10,10 @@
  *
  * Note: `post-pull-dependency-install.smoke.ts` covers the now-deleted git-diff
  * gate — that test exercises a removed code path and should be retired.
+ *
+ * Note: the target dir needs a package.json so an install is actually attempted;
+ * `dependency-install-skips-without-package-json.smoke.ts` covers the no-package.json
+ * skip path — this test is scoped to the `skip` param itself.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -74,7 +78,7 @@ function assertSchemaRejectsNonBoolean(base: { trackerName: string }): void {
   const result = implementerOptionsSchema.safeParse({ ...base, skipInstall: 'yes' });
   assert(
     'implementerOptionsSchema rejects skipInstall: "yes" (non-boolean)',
-    !result.success,
+    result.success === false,
     'expected ZodError but parse succeeded',
   );
 }
@@ -89,6 +93,7 @@ function checkSchema(): void {
 async function main(): Promise<void> {
   console.log(chalk.bold('\nSkip-install flag smoke test\n'));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-skip-install-'));
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0' }));
   try {
     await checkRuntimeBehaviour(dir);
     checkSchema();

@@ -8,5 +8,6 @@ export const runPostPullDependencyInstall = async (repoDir: string, skip?: boole
     console.log(chalk.yellow(`  ⚠ ${result.warning}`));
     return;
   }
+  if (result.skipped) return;
   console.log(chalk.gray(`  ✔ Dependencies updated via ${result.packageManager}`));
 };
