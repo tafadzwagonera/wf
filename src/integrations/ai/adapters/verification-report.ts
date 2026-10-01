@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
+import { executeWithCatch } from '../../../shared/utils/execute-with-catch';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 
 /**
@@ -46,15 +47,57 @@ const extractErrorOutput = (error: unknown): string => {
   return [stdout, stderr].filter(Boolean).join('\n').slice(0, 4000);
 };
 
-const runSingleScript = (script: VerificationScript, repoDir: string): VerificationOutcome => {
-  try {
-    execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS });
-    console.log(chalk.green(`    ✔ ${script.command}`));
-    return { id: script.id, command: script.command, policy: script.policy, status: 'passed' };
-  } catch (error: unknown) {
+const CD_PREFIX_PATTERN = /^cd\s+(?:'[^']+'|"[^"]+"|\S+)\s*&&\s*(.+)$/;
+const LEADING_BINARY_PATTERN = /^([\w./-]+)(?:\s|$)/;
+
+const extractLeadingBinary = (command: string): string | null => {
+  const trimmed = command.trim();
+  const cdMatch = CD_PREFIX_PATTERN.exec(trimmed);
+  const target = cdMatch ? cdMatch[1].trim() : trimmed;
+  const binaryMatch = LEADING_BINARY_PATTERN.exec(target);
+  return binaryMatch ? binaryMatch[1] : null;
+};
+
+const isBinaryAvailable = (binary: string): boolean => {
+  const [, error] = executeWithCatch({
+    fn: () => execSync(`command -v ${binary}`, { stdio: 'pipe' }),
+    onError: (error: unknown) => error,
+  });
+  return !error;
+};
+
+const createSkippedOutcome = (script: VerificationScript, binary: string): VerificationOutcome => {
+  console.log(chalk.yellow(`    ⏭ ${script.command}`));
+  return {
+    id: script.id,
+    command: script.command,
+    policy: script.policy,
+    status: 'skipped',
+    output: `${binary}: command not found`,
+  };
+};
+
+const executeScriptAndCreateOutcome = (script: VerificationScript, repoDir: string): VerificationOutcome => {
+  const [, error] = executeWithCatch({
+    fn: () => execSync(script.command, { cwd: repoDir, stdio: 'pipe', timeout: SCRIPT_TIMEOUT_MS }),
+    onError: (error: unknown) => error,
+  });
+
+  if (error) {
     console.log(chalk.red(`    ✖ ${script.command}`));
     return { id: script.id, command: script.command, policy: script.policy, status: 'failed', output: extractErrorOutput(error) };
   }
+
+  console.log(chalk.green(`    ✔ ${script.command}`));
+  return { id: script.id, command: script.command, policy: script.policy, status: 'passed' };
+};
+
+const runSingleScript = (script: VerificationScript, repoDir: string): VerificationOutcome => {
+  const binary = extractLeadingBinary(script.command);
+  if (binary && !isBinaryAvailable(binary)) {
+    return createSkippedOutcome(script, binary);
+  }
+  return executeScriptAndCreateOutcome(script, repoDir);
 };
 
 /**

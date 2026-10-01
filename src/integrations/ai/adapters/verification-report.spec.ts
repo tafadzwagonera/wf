@@ -1,5 +1,13 @@
-import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt } from './verification-report';
+import { execSync } from 'node:child_process';
+import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification } from './verification-report';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
+
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual('node:child_process'),
+  execSync: jest.fn(),
+}));
+
+const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 
 const createMockScript = (overrides: Partial<VerificationScript> = {}): VerificationScript => ({
   id: 'lint',
@@ -180,5 +188,83 @@ describe('buildVerificationFixPrompt', () => {
     );
     expect(result).toBe(buildVerificationFixPrompt([createMockOutcome({ status: 'failed' })]));
     expect(result).not.toContain('Only modify files within this task');
+  });
+});
+
+describe('runProgrammaticVerification', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    mockExecSync.mockClear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns skipped outcome when binary is not in PATH', () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (String(cmd).startsWith('command -v')) throw new Error('command not found');
+      throw new Error('should not reach real command');
+    });
+    const scripts = [createMockScript({ id: 'tf', command: 'terraform plan', policy: 'enforced' })];
+
+    const outcomes = runProgrammaticVerification(scripts, '/repo');
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].status).toBe('skipped');
+    expect(outcomes[0].output).toBe('terraform: command not found');
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    expect(mockExecSync).toHaveBeenCalledWith('command -v terraform', { stdio: 'pipe' });
+  });
+
+  it('returns passed outcome when binary exists and script succeeds', () => {
+    mockExecSync.mockImplementation(() => Buffer.from(''));
+    const scripts = [createMockScript({ id: 'tf', command: 'terraform validate', policy: 'enforced' })];
+
+    const outcomes = runProgrammaticVerification(scripts, '/repo');
+
+    expect(outcomes[0].status).toBe('passed');
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(mockExecSync).toHaveBeenNthCalledWith(1, 'command -v terraform', { stdio: 'pipe' });
+    expect(mockExecSync).toHaveBeenNthCalledWith(2, 'terraform validate', expect.objectContaining({ cwd: '/repo' }));
+  });
+
+  it('returns failed outcome when binary exists but script throws', () => {
+    const scriptError = Object.assign(new Error('exit 1'), { stdout: 'plan failed', stderr: '' });
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (String(cmd).startsWith('command -v')) return Buffer.from('/usr/bin/terraform');
+      throw scriptError;
+    });
+    const scripts = [createMockScript({ id: 'tf', command: 'terraform plan', policy: 'enforced' })];
+
+    const outcomes = runProgrammaticVerification(scripts, '/repo');
+
+    expect(outcomes[0].status).toBe('failed');
+    expect(outcomes[0].output).toContain('plan failed');
+  });
+
+  it('probes the binary after cd prefix, not cd itself', () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (String(cmd).startsWith('command -v')) throw new Error('not found');
+      return Buffer.from('');
+    });
+    const scripts = [createMockScript({ id: 'tf', command: 'cd /app && terraform plan', policy: 'enforced' })];
+
+    const outcomes = runProgrammaticVerification(scripts, '/repo');
+
+    expect(outcomes[0].status).toBe('skipped');
+    expect(outcomes[0].output).toBe('terraform: command not found');
+    expect(mockExecSync).toHaveBeenCalledWith('command -v terraform', { stdio: 'pipe' });
+  });
+
+  it('skips binary probe and runs real command for ambiguous leading token', () => {
+    mockExecSync.mockImplementation(() => Buffer.from(''));
+    const scripts = [createMockScript({ id: 'env', command: 'FOO=bar terraform plan', policy: 'enforced' })];
+
+    const outcomes = runProgrammaticVerification(scripts, '/repo');
+
+    expect(outcomes[0].status).toBe('passed');
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    expect(mockExecSync).toHaveBeenCalledWith('FOO=bar terraform plan', expect.objectContaining({ cwd: '/repo' }));
   });
 });
