@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { verificationPolicySchema } from './verification.schema';
+import { isValidRegexPattern, verificationPolicySchema } from './verification.schema';
 import { planPhaseSchema, resolutionPlanSchema } from './ai.schema';
 import { codeReviewSchema } from './review.schema';
 
@@ -9,6 +9,9 @@ export const verificationScriptSchema = z.object({
   command: z.string(),
   policy: verificationPolicySchema,
   reason: z.string().optional(),
+  earlyExitPattern: z.string().min(1).refine(isValidRegexPattern, {
+    message: 'must be a valid regular expression',
+  }).optional(),
   aliases: z.array(z.string()),
 });
 

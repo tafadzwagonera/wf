@@ -1,4 +1,17 @@
-import { implementerOptionsSchema } from './agent.schema';
+import { implementerOptionsSchema, verificationScriptSchema } from './agent.schema';
+
+describe('verificationScriptSchema earlyExitPattern', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('preserves a valid early-exit pattern', () => {
+    const result = verificationScriptSchema.parse({ id: 'tf', name: 'tf', command: 'terraform plan', policy: 'enforced', aliases: [], earlyExitPattern: 'Preparing the remote plan' });
+    expect(result.earlyExitPattern).toBe('Preparing the remote plan');
+  });
+
+  it('remains backward-compatible without an early-exit pattern', () => {
+    expect(verificationScriptSchema.parse({ id: 'lint', name: 'lint', command: 'yarn lint', policy: 'enforced', aliases: [] }).earlyExitPattern).toBeUndefined();
+  });
+});
 
 describe('implementerOptionsSchema initialPromptOverride', () => {
   afterEach(() => jest.restoreAllMocks());

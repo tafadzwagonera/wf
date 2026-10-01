@@ -26,9 +26,9 @@ const createScript = (id: string, command: string): VerificationScript[] => [
   { id, name: id, command, policy: 'enforced', aliases: [] },
 ];
 
-const test1 = (): void => {
+const test1 = async (): Promise<void> => {
   console.log('Test 1: Missing binary results in skipped status');
-  const outcomes = runProgrammaticVerification(createScript('missing', 'nonexistent-binary-12345-abcdef plan'), repoDir);
+  const outcomes = await runProgrammaticVerification(createScript('missing', 'nonexistent-binary-12345-abcdef plan'), repoDir);
   if (outcomes.length === 1 && outcomes[0].status === 'skipped') {
     pass('Missing binary results in skipped status');
   } else {
@@ -36,9 +36,9 @@ const test1 = (): void => {
   }
 };
 
-const test2 = (): void => {
+const test2 = async (): Promise<void> => {
   console.log('Test 2: Skipped outcome includes binary name in output');
-  const outcomes = runProgrammaticVerification(createScript('missing', 'nonexistent-binary-12345-abcdef plan'), repoDir);
+  const outcomes = await runProgrammaticVerification(createScript('missing', 'nonexistent-binary-12345-abcdef plan'), repoDir);
   if (outcomes[0]?.output?.includes('nonexistent-binary-12345-abcdef')) {
     pass('Skipped outcome includes binary name in message');
   } else {
@@ -46,9 +46,9 @@ const test2 = (): void => {
   }
 };
 
-const test3 = (): void => {
+const test3 = async (): Promise<void> => {
   console.log('Test 3: Existing binary script runs normally');
-  const outcomes = runProgrammaticVerification(createScript('echo', 'echo "test"'), repoDir);
+  const outcomes = await runProgrammaticVerification(createScript('echo', 'echo "test"'), repoDir);
   if (outcomes.length === 1 && outcomes[0].status === 'passed') {
     pass('Existing binary script runs and reports passed');
   } else {
@@ -56,9 +56,9 @@ const test3 = (): void => {
   }
 };
 
-const test4 = (): void => {
+const test4 = async (): Promise<void> => {
   console.log('Test 4: CD prefix handling extracts binary correctly');
-  const outcomes = runProgrammaticVerification(createScript('cd-missing', 'cd /tmp && nonexistent-binary-12345-abcdef plan'), repoDir);
+  const outcomes = await runProgrammaticVerification(createScript('cd-missing', 'cd /tmp && nonexistent-binary-12345-abcdef plan'), repoDir);
   if (outcomes[0]?.status === 'skipped' && outcomes[0]?.output?.includes('nonexistent-binary-12345-abcdef')) {
     pass('CD prefix correctly extracts binary for existence check');
   } else {
@@ -66,9 +66,9 @@ const test4 = (): void => {
   }
 };
 
-const test5 = (): void => {
+const test5 = async (): Promise<void> => {
   console.log('Test 5: Ambiguous leading token does not skip binary check');
-  const outcomes = runProgrammaticVerification(createScript('env-assign', 'MYVAR=value echo "test"'), repoDir);
+  const outcomes = await runProgrammaticVerification(createScript('env-assign', 'MYVAR=value echo "test"'), repoDir);
   if (outcomes[0]?.status === 'passed') {
     pass('Ambiguous leading token (env assignment) runs real command');
   } else {
@@ -87,7 +87,7 @@ const cleanup = (): void => {
 const runTests = async (): Promise<void> => {
   console.log('\n=== Test: Verification binary existence check ===\n');
   try {
-    for (const test of [test1, test2, test3, test4, test5]) test();
+    for (const test of [test1, test2, test3, test4, test5]) await test();
   } catch (error) {
     console.error('Test error:', error);
     counts.failed++;

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { verificationPolicySchema } from '../schemas/verification.schema';
+import { isValidRegexPattern, verificationPolicySchema } from '../schemas/verification.schema';
 import { ValidationError } from '../errors/app.error';
 import type {
   VerificationPolicy,
@@ -25,20 +25,35 @@ const extractStepFields = (rawStep: Record<string, unknown>) => ({
   run: typeof rawStep.run === 'string' ? rawStep.run.trim() : '',
   policy: rawStep.policy,
   reason: typeof rawStep.reason === 'string' ? rawStep.reason.trim() || undefined : undefined,
+  earlyExitPattern: typeof rawStep.earlyExitPattern === 'string' ? rawStep.earlyExitPattern.trim() || undefined : undefined,
   repo: typeof rawStep.repo === 'string' ? rawStep.repo.trim() || undefined : undefined,
 });
+
+const requireStepField = (value: string, label: string, filePath: string): void => {
+  if (value) return;
+  throw new ValidationError(`Verification step is missing ${label}: ${filePath}`);
+};
+
+const validateStepPolicy = (policy: unknown, filePath: string): void => {
+  if (typeof policy === 'string' && VALID_POLICIES.has(policy)) return;
+  throw new ValidationError(`Verification step has an invalid policy: ${filePath}`);
+};
+
+const validateEarlyExitPattern = (pattern: string | undefined, filePath: string): void => {
+  if (!pattern || isValidRegexPattern(pattern)) return;
+  throw new ValidationError(`Verification step has an invalid early-exit pattern: ${filePath}`);
+};
 
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
     throw new ValidationError(`Verification step is not valid: ${filePath}`);
   }
-  const { id, run, policy, reason, repo } = extractStepFields(value as Record<string, unknown>);
-  if (!id) throw new ValidationError(`Verification step is missing id: ${filePath}`);
-  if (!run) throw new ValidationError(`Verification step is missing run command: ${filePath}`);
-  if (typeof policy !== 'string' || !VALID_POLICIES.has(policy)) {
-    throw new ValidationError(`Verification step has an invalid policy: ${filePath}`);
-  }
-  return { id, run, policy: policy as VerificationPolicy, reason, repo };
+  const { id, run, policy, reason, earlyExitPattern, repo } = extractStepFields(value as Record<string, unknown>);
+  requireStepField(id, 'id', filePath);
+  requireStepField(run, 'run command', filePath);
+  validateStepPolicy(policy, filePath);
+  validateEarlyExitPattern(earlyExitPattern, filePath);
+  return { id, run, policy: policy as VerificationPolicy, reason, earlyExitPattern, repo };
 };
 
 const normalizeWaiver = (value: unknown, filePath: string): VerificationWaiver => {

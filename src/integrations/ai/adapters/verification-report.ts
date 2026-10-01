@@ -1,6 +1,7 @@
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { executeWithCatch } from '../../../shared/utils/execute-with-catch';
+import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 
 /**
@@ -34,6 +35,7 @@ const STATUS_ICONS: Record<VerificationOutcome['status'], string> = {
 };
 
 const SCRIPT_TIMEOUT_MS = 120_000;
+const EARLY_EXIT_KILL_GRACE_MS = 500;
 
 /**
  * Extracts stdout and stderr from an execSync error, capped at 4000 chars.
@@ -92,28 +94,115 @@ const executeScriptAndCreateOutcome = (script: VerificationScript, repoDir: stri
   return { id: script.id, command: script.command, policy: script.policy, status: 'passed' };
 };
 
-const runSingleScript = (script: VerificationScript, repoDir: string): VerificationOutcome => {
+type EarlyExitScript = VerificationScript & { earlyExitPattern: string };
+
+class EarlyExitRun {
+  private readonly script: EarlyExitScript;
+  private readonly timeoutMs: number;
+  private readonly child: ReturnType<typeof spawn>;
+  private readonly pattern: RegExp;
+  private output = '';
+  private matched = false;
+  private settled = false;
+  private timeout: ReturnType<typeof setTimeout> | undefined;
+  private killGrace: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    script: EarlyExitScript,
+    repoDir: string,
+    timeoutMs: number,
+  ) {
+    this.script = script;
+    this.timeoutMs = timeoutMs;
+    this.child = spawn(script.command, {
+      cwd: repoDir,
+      shell: true,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.pattern = new RegExp(script.earlyExitPattern ?? '');
+  }
+
+  run(): Promise<VerificationOutcome> {
+    return new Promise(resolve => this.listen(resolve));
+  }
+
+  private listen(resolve: (outcome: VerificationOutcome) => void): void {
+    this.timeout = setTimeout(() => this.fail(resolve, 'Verification check timed out'), this.timeoutMs);
+    this.child.stdout?.on('data', this.appendOutput);
+    this.child.stderr?.on('data', this.appendOutput);
+    this.child.once('error', error => this.fail(resolve, `Verification spawn failed: ${error.message}`));
+    this.child.once('close', code => this.close(resolve, code));
+  }
+
+  private appendOutput = (chunk: Buffer): void => {
+    this.output = (this.output + chunk.toString()).slice(-4000);
+    if (this.matched || !this.pattern.test(this.output)) return;
+    this.matched = true;
+    this.terminate();
+  };
+
+  private close(resolve: (outcome: VerificationOutcome) => void, code: number | null): void {
+    if (this.settled) return;
+    if (!this.matched) this.terminate();
+    this.finish(resolve, this.matched ? 'passed' : 'failed', `Command exited before early-exit match (code ${code ?? 'unknown'})`);
+  }
+
+  private fail(resolve: (outcome: VerificationOutcome) => void, diagnostic: string): void {
+    this.terminate();
+    signalProcessTree(this.child, 'SIGKILL');
+    this.finish(resolve, 'failed', diagnostic);
+  }
+
+  private terminate(): void {
+    if (this.settled) return;
+    signalProcessTree(this.child, 'SIGTERM');
+    if (this.killGrace) return;
+    this.killGrace = setTimeout(() => signalProcessTree(this.child, 'SIGKILL'), EARLY_EXIT_KILL_GRACE_MS);
+  }
+
+  private finish(resolve: (outcome: VerificationOutcome) => void, status: VerificationOutcome['status'], diagnostic: string): void {
+    if (this.settled) return;
+    this.settled = true;
+    if (this.timeout) clearTimeout(this.timeout);
+    if (this.killGrace) clearTimeout(this.killGrace);
+    console.log(status === 'passed' ? chalk.green(`    ✔ ${this.script.command}`) : chalk.red(`    ✖ ${this.script.command}`));
+    resolve({ id: this.script.id, command: this.script.command, policy: this.script.policy, status, output: `${diagnostic}\n${this.output}`.slice(0, 4000) });
+  }
+}
+
+export const runScriptWithEarlyExit = (
+  script: EarlyExitScript, repoDir: string, timeoutMs = SCRIPT_TIMEOUT_MS,
+): Promise<VerificationOutcome> => new EarlyExitRun(script, repoDir, timeoutMs).run();
+
+const runSingleScript = async (script: VerificationScript, repoDir: string): Promise<VerificationOutcome> => {
   const binary = extractLeadingBinary(script.command);
   if (binary && !isBinaryAvailable(binary)) {
     return createSkippedOutcome(script, binary);
+  }
+  if (script.earlyExitPattern) {
+    return runScriptWithEarlyExit({ ...script, earlyExitPattern: script.earlyExitPattern }, repoDir);
   }
   return executeScriptAndCreateOutcome(script, repoDir);
 };
 
 /**
- * Runs each configured verification script programmatically via execSync.
+ * Runs each configured verification script programmatically. Scripts with an
+ * early-exit pattern pass once their output matches; other scripts run to completion.
  * Returns one outcome per script with the exact configured command.
  *
  * @param scripts - Configured verification scripts to execute.
  * @param repoDir - Working directory for command execution.
  * @returns One outcome per script, in order.
  */
-export function runProgrammaticVerification(
+export async function runProgrammaticVerification(
   scripts: VerificationScript[],
   repoDir: string,
-): VerificationOutcome[] {
+): Promise<VerificationOutcome[]> {
   if (scripts.length === 0) return [];
-  return scripts.map(script => runSingleScript(script, repoDir));
+  const outcomes: VerificationOutcome[] = [];
+  for (const script of scripts) outcomes.push(await runSingleScript(script, repoDir));
+  return outcomes;
 }
 
 /**

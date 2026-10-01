@@ -2,11 +2,23 @@ import { z } from 'zod';
 
 export const verificationPolicySchema = z.enum(['enforced', 'best_effort', 'override']);
 
+export const isValidRegexPattern = (pattern: string): boolean => {
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const verificationStepSchema = z.object({
   id: z.string(),
   run: z.string(),
   policy: verificationPolicySchema,
   reason: z.string().optional(),
+  earlyExitPattern: z.string().min(1).refine(isValidRegexPattern, {
+    message: 'must be a valid regular expression',
+  }).optional(),
   repo: z.string().optional().describe(
     'Repo name this verification step applies to (must match an entry in affectedRepositories). Required whenever affectedRepositories has more than one entry.'
   ),

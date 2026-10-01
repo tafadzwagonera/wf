@@ -372,11 +372,11 @@ export class CodexCliAdapter implements ImplementerBackend {
     return { sessionId, wrote };
   }
 
-  private evaluateVerificationPass(
+  private async evaluateVerificationPass(
     scripts: VerificationScript[], repoDir: string, passNumber: number,
-  ): { outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] } {
+  ): Promise<{ outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] }> {
     console.log(chalk.bold(`\n  Running verification (pass ${passNumber})...`));
-    const outcomes = runProgrammaticVerification(scripts, repoDir);
+    const outcomes = await runProgrammaticVerification(scripts, repoDir);
     const { codeFailures, commandFailures } = partitionFailures(getEnforcedFailures(outcomes));
     for (const cf of commandFailures) {
       console.log(chalk.gray(`    [${CODEX_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
@@ -406,9 +406,9 @@ export class CodexCliAdapter implements ImplementerBackend {
     return fix;
   }
 
-  private initVerificationFixState(p: CodexVerificationLoopParams): VerificationFixState {
+  private async initVerificationFixState(p: CodexVerificationLoopParams): Promise<VerificationFixState> {
     const passNumber = 1;
-    const { outcomes, codeFailures } = this.evaluateVerificationPass(
+    const { outcomes, codeFailures } = await this.evaluateVerificationPass(
       p.params.verificationScripts, p.repoDir, passNumber
     );
     return {
@@ -424,11 +424,11 @@ export class CodexCliAdapter implements ImplementerBackend {
       && state.readOnly < DEFAULT_STALL_THRESHOLD;
   }
 
-  private applySuccessfulFix(
+  private async applySuccessfulFix(
     scripts: VerificationScript[], repoDir: string, state: VerificationFixState
-  ): void {
+  ): Promise<void> {
     state.readOnly = 0;
-    const next = this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
+    const next = await this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
     state.outcomes = next.outcomes;
     state.codeFailures = next.codeFailures;
     state.stalled = checkVerificationStall(
@@ -447,12 +447,12 @@ export class CodexCliAdapter implements ImplementerBackend {
     const fix = await this.attemptCodexFix(ctx, p, state.passNumber, sessionId, state.codeFailures);
     state.sessionId = fix.sessionId;
     if (!state.sessionId || !fix.wrote) return;
-    this.applySuccessfulFix(p.params.verificationScripts, p.repoDir, state);
+    await this.applySuccessfulFix(p.params.verificationScripts, p.repoDir, state);
   }
 
   private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
-    const state = this.initVerificationFixState(p);
+    const state = await this.initVerificationFixState(p);
     while (this.shouldRunFixIteration(state)) {
       await this.runVerificationFixIteration(ctx, p, state);
     }

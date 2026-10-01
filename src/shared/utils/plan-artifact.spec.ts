@@ -21,6 +21,8 @@ import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError } from '../errors
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('parsePlanArtifact', () => {
+  afterEach(() => jest.restoreAllMocks());
+
   it('parses plan verification targeted checks and waivers from JSON artifacts', () => {
     const plan = parsePlanArtifact(
       JSON.stringify({
@@ -35,6 +37,7 @@ describe('parsePlanArtifact', () => {
               run: 'yarn test:manual -- test-issue-review',
               policy: 'enforced',
               reason: 'Covers review regressions',
+              earlyExitPattern: 'Preparing the remote plan',
             },
           ],
           waivers: [
@@ -55,6 +58,7 @@ describe('parsePlanArtifact', () => {
           run: 'yarn test:manual -- test-issue-review',
           policy: 'enforced',
           reason: 'Covers review regressions',
+          earlyExitPattern: 'Preparing the remote plan',
         },
       ],
       waivers: [

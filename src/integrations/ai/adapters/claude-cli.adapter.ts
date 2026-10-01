@@ -543,11 +543,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return result;
   }
 
-  private evaluateVerificationPass(
+  private async evaluateVerificationPass(
     scripts: VerificationScript[], repoDir: string, passNumber: number,
-  ): { outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] } {
+  ): Promise<{ outcomes: VerificationOutcome[]; codeFailures: VerificationOutcome[] }> {
     console.log(chalk.bold(`\n  Running verification (pass ${passNumber})...`));
-    const outcomes = runProgrammaticVerification(scripts, repoDir);
+    const outcomes = await runProgrammaticVerification(scripts, repoDir);
     const { codeFailures, commandFailures } = partitionFailures(getEnforcedFailures(outcomes));
     for (const cf of commandFailures) {
       console.log(chalk.gray(`    [${CLI_ADAPTER_LABEL}] Skipping unfixable command: ${cf.command}`));
@@ -571,11 +571,13 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return fix;
   }
 
-  private initVerificationFixState(
+  private async initVerificationFixState(
     p: ContinuationLoopParams, sessionId: string | undefined
-  ): VerificationFixState {
+  ): Promise<VerificationFixState> {
     const passNumber = 1;
-    const { outcomes, codeFailures } = this.evaluateVerificationPass(p.verificationScripts, p.repoDir, passNumber);
+    const { outcomes, codeFailures } = await this.evaluateVerificationPass(
+      p.verificationScripts, p.repoDir, passNumber,
+    );
     return {
       outcomes, codeFailures, sessionId, prevFails: Infinity, stalled: 0, readOnly: 0, passNumber, exhausted: false,
     };
@@ -588,11 +590,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       && state.readOnly < DEFAULT_STALL_THRESHOLD;
   }
 
-  private applySuccessfulFix(
+  private async applySuccessfulFix(
     scripts: VerificationScript[], repoDir: string, state: VerificationFixState
-  ): void {
+  ): Promise<void> {
     state.readOnly = 0;
-    const next = this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
+    const next = await this.evaluateVerificationPass(scripts, repoDir, ++state.passNumber);
     state.outcomes = next.outcomes;
     state.codeFailures = next.codeFailures;
     state.stalled = checkVerificationStall(
@@ -611,13 +613,13 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const fix = await this.attemptVerificationFix(p, state.passNumber, sessionId, state.codeFailures);
     state.sessionId = fix.sessionId;
     if (!state.sessionId || !fix.wrote) return;
-    this.applySuccessfulFix(p.verificationScripts, p.repoDir, state);
+    await this.applySuccessfulFix(p.verificationScripts, p.repoDir, state);
   }
 
   private async runProgrammaticVerificationLoop(
     p: ContinuationLoopParams, sessionId: string | undefined
   ): Promise<VerificationOutcome[]> {
-    const state = this.initVerificationFixState(p, sessionId);
+    const state = await this.initVerificationFixState(p, sessionId);
     while (this.shouldRunFixIteration(state)) {
       await this.runVerificationFixIteration(p, state);
     }

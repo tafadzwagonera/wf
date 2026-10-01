@@ -1,6 +1,14 @@
-import { mergeVerificationSteps, normalizeTargetedStepCommand, parseVerificationManifest } from './verification-manifest';
+import { mergeVerificationSteps, normalizePlanVerification, normalizeTargetedStepCommand, parseVerificationManifest } from './verification-manifest';
 
 describe('parseVerificationManifest', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('preserves earlyExitPattern in manifests and plan normalization', () => {
+    const manifest = parseVerificationManifest(JSON.stringify({ version: 1, baseline: [{ id: 'tf', run: 'terraform plan', policy: 'enforced', earlyExitPattern: 'Preparing the remote plan' }] }), '/tmp/verification.json');
+    const plan = normalizePlanVerification({ targeted: manifest.baseline }, '/tmp/plan.json');
+    expect(manifest.baseline[0].earlyExitPattern).toBe('Preparing the remote plan');
+    expect(plan?.targeted?.[0].earlyExitPattern).toBe('Preparing the remote plan');
+  });
   it('parses enforced and best-effort baseline steps', () => {
     const manifest = parseVerificationManifest(
       JSON.stringify({

@@ -1,13 +1,29 @@
-import { execSync } from 'node:child_process';
-import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification } from './verification-report';
+import { EventEmitter } from 'node:events';
+import { execSync, spawn, type ChildProcess } from 'node:child_process';
+import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
+import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 
 jest.mock('node:child_process', () => ({
   ...jest.requireActual('node:child_process'),
   execSync: jest.fn(),
+  spawn: jest.fn(),
+}));
+
+jest.mock('../../../shared/utils/signal-process-tree', () => ({
+  signalProcessTree: jest.fn(),
 }));
 
 const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
+const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+const mockSignalProcessTree = signalProcessTree as jest.MockedFunction<typeof signalProcessTree>;
+
+const createMockChild = (): ChildProcess => {
+  const child = new EventEmitter() as ChildProcess;
+  child.stdout = new EventEmitter() as ChildProcess['stdout'];
+  child.stderr = new EventEmitter() as ChildProcess['stderr'];
+  return child;
+};
 
 const createMockScript = (overrides: Partial<VerificationScript> = {}): VerificationScript => ({
   id: 'lint',
@@ -195,20 +211,22 @@ describe('runProgrammaticVerification', () => {
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockClear();
+    mockSpawn.mockClear();
+    mockSignalProcessTree.mockClear();
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  it('returns skipped outcome when binary is not in PATH', () => {
+  it('returns skipped outcome when binary is not in PATH', async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (String(cmd).startsWith('command -v')) throw new Error('command not found');
       throw new Error('should not reach real command');
     });
     const scripts = [createMockScript({ id: 'tf', command: 'terraform plan', policy: 'enforced' })];
 
-    const outcomes = runProgrammaticVerification(scripts, '/repo');
+    const outcomes = await runProgrammaticVerification(scripts, '/repo');
 
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0].status).toBe('skipped');
@@ -217,11 +235,11 @@ describe('runProgrammaticVerification', () => {
     expect(mockExecSync).toHaveBeenCalledWith('command -v terraform', { stdio: 'pipe' });
   });
 
-  it('returns passed outcome when binary exists and script succeeds', () => {
+  it('returns passed outcome when binary exists and script succeeds', async () => {
     mockExecSync.mockImplementation(() => Buffer.from(''));
     const scripts = [createMockScript({ id: 'tf', command: 'terraform validate', policy: 'enforced' })];
 
-    const outcomes = runProgrammaticVerification(scripts, '/repo');
+    const outcomes = await runProgrammaticVerification(scripts, '/repo');
 
     expect(outcomes[0].status).toBe('passed');
     expect(mockExecSync).toHaveBeenCalledTimes(2);
@@ -229,7 +247,7 @@ describe('runProgrammaticVerification', () => {
     expect(mockExecSync).toHaveBeenNthCalledWith(2, 'terraform validate', expect.objectContaining({ cwd: '/repo' }));
   });
 
-  it('returns failed outcome when binary exists but script throws', () => {
+  it('returns failed outcome when binary exists but script throws', async () => {
     const scriptError = Object.assign(new Error('exit 1'), { stdout: 'plan failed', stderr: '' });
     mockExecSync.mockImplementation((cmd: string) => {
       if (String(cmd).startsWith('command -v')) return Buffer.from('/usr/bin/terraform');
@@ -237,34 +255,115 @@ describe('runProgrammaticVerification', () => {
     });
     const scripts = [createMockScript({ id: 'tf', command: 'terraform plan', policy: 'enforced' })];
 
-    const outcomes = runProgrammaticVerification(scripts, '/repo');
+    const outcomes = await runProgrammaticVerification(scripts, '/repo');
 
     expect(outcomes[0].status).toBe('failed');
     expect(outcomes[0].output).toContain('plan failed');
   });
 
-  it('probes the binary after cd prefix, not cd itself', () => {
+  it('probes the binary after cd prefix, not cd itself', async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (String(cmd).startsWith('command -v')) throw new Error('not found');
       return Buffer.from('');
     });
     const scripts = [createMockScript({ id: 'tf', command: 'cd /app && terraform plan', policy: 'enforced' })];
 
-    const outcomes = runProgrammaticVerification(scripts, '/repo');
+    const outcomes = await runProgrammaticVerification(scripts, '/repo');
 
     expect(outcomes[0].status).toBe('skipped');
     expect(outcomes[0].output).toBe('terraform: command not found');
     expect(mockExecSync).toHaveBeenCalledWith('command -v terraform', { stdio: 'pipe' });
   });
 
-  it('skips binary probe and runs real command for ambiguous leading token', () => {
+  it('skips binary probe and runs real command for ambiguous leading token', async () => {
     mockExecSync.mockImplementation(() => Buffer.from(''));
     const scripts = [createMockScript({ id: 'env', command: 'FOO=bar terraform plan', policy: 'enforced' })];
 
-    const outcomes = runProgrammaticVerification(scripts, '/repo');
+    const outcomes = await runProgrammaticVerification(scripts, '/repo');
 
     expect(outcomes[0].status).toBe('passed');
     expect(mockExecSync).toHaveBeenCalledTimes(1);
     expect(mockExecSync).toHaveBeenCalledWith('FOO=bar terraform plan', expect.objectContaining({ cwd: '/repo' }));
+  });
+
+  it('stops a spawned process group when stdout matches the early-exit pattern', async () => {
+    mockExecSync.mockReturnValue(Buffer.from('/usr/bin/terraform'));
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+    const scripts = [createMockScript({ command: 'terraform apply', earlyExitPattern: '(?:^|\\n)Preparing the remote plan' })];
+
+    const result = runProgrammaticVerification(scripts, '/repo');
+    child.stdout?.emit('data', Buffer.from('Preparing the remote plan'));
+    child.emit('close', null, 'SIGTERM');
+
+    await expect(result).resolves.toEqual([
+      expect.objectContaining({ id: 'lint', status: 'passed' }),
+    ]);
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    expect(mockSpawn).toHaveBeenCalledWith('terraform apply', expect.objectContaining({
+      cwd: '/repo', detached: true, shell: true,
+    }));
+    expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGTERM');
+  });
+
+  it('stops a spawned process group when stderr matches the early-exit pattern', async () => {
+    mockExecSync.mockReturnValue(Buffer.from('/usr/bin/terraform'));
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+    const result = runProgrammaticVerification([createMockScript({ earlyExitPattern: 'Preparing the remote plan' })], '/repo');
+    child.stderr?.emit('data', Buffer.from('Preparing the remote plan'));
+    child.emit('close', null, 'SIGTERM');
+    await expect(result).resolves.toEqual([expect.objectContaining({ status: 'passed' })]);
+    expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGTERM');
+  });
+
+  it('matches an early-exit pattern split across output chunks', async () => {
+    mockExecSync.mockReturnValue(Buffer.from('/usr/bin/terraform'));
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+    const result = runProgrammaticVerification([
+      createMockScript({ earlyExitPattern: 'Preparing the remote plan' }),
+    ], '/repo');
+    child.stdout?.emit('data', Buffer.from('Preparing the remote '));
+    child.stdout?.emit('data', Buffer.from('plan'));
+    child.emit('close', null, 'SIGTERM');
+
+    await expect(result).resolves.toEqual([expect.objectContaining({ status: 'passed' })]);
+    expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGTERM');
+  });
+
+  it('fails when a process exits before its early-exit pattern is observed', async () => {
+    mockExecSync.mockReturnValue(Buffer.from('/usr/bin/terraform'));
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+    const result = runProgrammaticVerification([createMockScript({ earlyExitPattern: 'marker' })], '/repo');
+    child.emit('close', 0, null);
+    await expect(result).resolves.toEqual([expect.objectContaining({ status: 'failed' })]);
+    expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGTERM');
+  });
+
+  it('reports output from a non-zero early-exit process', async () => {
+    mockExecSync.mockReturnValue(Buffer.from('/usr/bin/terraform'));
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+    const result = runProgrammaticVerification([createMockScript({ earlyExitPattern: 'marker' })], '/repo');
+    child.stderr?.emit('data', Buffer.from('terraform failed'));
+    child.emit('close', 1, null);
+
+    await expect(result).resolves.toEqual([
+      expect.objectContaining({ status: 'failed', output: expect.stringContaining('terraform failed') }),
+    ]);
+  });
+
+  it('fails after an injected early-exit timeout', async () => {
+    const child = createMockChild();
+    mockSpawn.mockReturnValue(child);
+
+    await expect(runScriptWithEarlyExit(
+      { ...createMockScript(), earlyExitPattern: 'marker' }, '/repo', 1,
+    )).resolves.toEqual(expect.objectContaining({
+      status: 'failed', output: expect.stringContaining('timed out'),
+    }));
+    expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGKILL');
   });
 });

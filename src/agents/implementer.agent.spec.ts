@@ -2115,17 +2115,24 @@ describe('ImplementerAgent', () => {
           verification: {
             targeted: [
               { id: 'typecheck-shop', run: 'yarn typecheck', policy: 'enforced', repo: 'shop-v1.1' },
-              { id: 'test-repo-a', run: 'yarn test -- src/example.spec.ts', policy: 'enforced', repo: 'repo-a' },
+              {
+                id: 'test-repo-a', run: 'yarn test -- src/example.spec.ts', policy: 'enforced',
+                repo: 'repo-a', earlyExitPattern: 'Tests passed',
+              },
             ],
           },
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, allowMultiRepoScope: true },
       );
 
-      const scripts = adapterSpy.mock.calls[0][0].verificationScripts as Array<{ id: string }>;
+      const scripts = adapterSpy.mock.calls[0][0].verificationScripts as Array<{
+        id: string;
+        earlyExitPattern?: string;
+      }>;
       const ids = scripts.map(s => s.id);
       expect(ids).toContain('test-repo-a');
       expect(ids).not.toContain('typecheck-shop');
+      expect(scripts.find(s => s.id === 'test-repo-a')?.earlyExitPattern).toBe('Tests passed');
     });
 
     it('passes all targeted steps through in a single-repo plan', async () => {

@@ -951,6 +951,7 @@ export class ImplementerAgent {
       command,
       policy: effectivePolicy,
       reason: step.reason,
+      earlyExitPattern: step.earlyExitPattern,
       aliases: this.findPackageAliases(command, packageScripts),
     };
   }
