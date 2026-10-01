@@ -123,6 +123,43 @@ describe('parseVerificationManifest', () => {
     );
     expect(manifest.baseline[0].repo).toBe('shop-v1.1');
   });
+
+  it('warns when a baseline step uses terraform fmt -recursive', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    parseVerificationManifest(
+      JSON.stringify({
+        version: 1,
+        baseline: [{ id: 'format', run: 'terraform fmt -check -recursive', policy: 'enforced' }],
+      }),
+      '/tmp/verification.json',
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('terraform fmt -recursive'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('"format"'));
+  });
+
+  it('warns when a baseline step uses terraform fmt --recursive', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    parseVerificationManifest(
+      JSON.stringify({
+        version: 1,
+        baseline: [{ id: 'fmt', run: 'terraform fmt --recursive', policy: 'enforced' }],
+      }),
+      '/tmp/verification.json',
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('terraform fmt -recursive'));
+  });
+
+  it('does not warn for a scoped terraform fmt -check step', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    parseVerificationManifest(
+      JSON.stringify({
+        version: 1,
+        baseline: [{ id: 'format', run: 'terraform fmt -check main.tf', policy: 'enforced' }],
+      }),
+      '/tmp/verification.json',
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('normalizeTargetedStepCommand', () => {

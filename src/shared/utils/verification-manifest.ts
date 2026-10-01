@@ -44,6 +44,15 @@ const validateEarlyExitPattern = (pattern: string | undefined, filePath: string)
   throw new ValidationError(`Verification step has an invalid early-exit pattern: ${filePath}`);
 };
 
+const warnTerraformFmtRecursive = (run: string, id: string, filePath: string): void => {
+  if (!run.includes('terraform fmt') || !/\s--?recursive\b/.test(run)) return;
+  console.warn(
+    `[wf] ${path.basename(filePath)} step "${id}": `
+    + '"terraform fmt -recursive" checks the entire repository. '
+    + 'Use "terraform fmt -check <file.tf ...>" scoped to affected files.'
+  );
+};
+
 const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   if (!value || typeof value !== 'object') {
     throw new ValidationError(`Verification step is not valid: ${filePath}`);
@@ -53,6 +62,7 @@ const normalizeStep = (value: unknown, filePath: string): VerificationStep => {
   requireStepField(run, 'run command', filePath);
   validateStepPolicy(policy, filePath);
   validateEarlyExitPattern(earlyExitPattern, filePath);
+  warnTerraformFmtRecursive(run, id, filePath);
   return { id, run, policy: policy as VerificationPolicy, reason, earlyExitPattern, repo };
 };
 
