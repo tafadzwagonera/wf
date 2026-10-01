@@ -511,3 +511,163 @@ describe('validatePlanQuality with skillRules', () => {
     expect(result).toEqual([]);
   });
 });
+
+const terraformTestInfra: TestInfraContext = {
+  ecosystems: [{ ecosystem: 'terraform', hasTfFiles: true, hasBackendConfig: false }],
+  primary: 'terraform',
+};
+
+describe('validatePlanQuality — terraform-fmt-scope', () => {
+  const repos = ['wf'];
+  const makeParams = (
+    run: string,
+    affectedFiles?: Parameters<typeof validatePlanQuality>[0]['plan']['affectedFiles'],
+  ): Parameters<typeof validatePlanQuality>[0] => ({
+    plan: {
+      verification: { targeted: [{ id: 'tf-fmt', run, policy: 'enforced' }] },
+      ...(affectedFiles !== undefined ? { affectedFiles } : {}),
+    },
+    affectedRepositories: repos,
+    testInfra: terraformTestInfra,
+  });
+
+  const fmtViolations = (params: Parameters<typeof validatePlanQuality>[0]) =>
+    validatePlanQuality(params).filter(v => v.ruleId === 'terraform-fmt-scope');
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('accepts terraform fmt -check main.tf with affectedFiles string entry', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check main.tf', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('accepts FileEntry-object affectedFiles', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check main.tf', [{ filePath: 'main.tf', status: 'found' }]))).toHaveLength(0);
+  });
+
+  it('accepts cd-prefixed command with repo-stripped affectedFiles', () => {
+    const params = makeParams('cd wf && terraform fmt -check main.tf', ['wf/main.tf']);
+    expect(fmtViolations(params)).toHaveLength(0);
+  });
+
+  it('accepts quoted path token', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check "main.tf"', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('accepts dotslash-prefixed path token', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check ./main.tf', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('accepts multi-file fmt when all files planned', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check a.tf b.tf', ['a.tf', 'b.tf']))).toHaveLength(0);
+  });
+
+  it('does not flag terraform validate or terraform plan', () => {
+    const params: Parameters<typeof validatePlanQuality>[0] = {
+      plan: {
+        verification: {
+          targeted: [
+            { id: 'val', run: 'terraform validate', policy: 'enforced' },
+            { id: 'plan', run: 'terraform plan -target=module.foo', policy: 'enforced' },
+          ],
+        },
+        affectedFiles: ['main.tf'],
+      },
+      affectedRepositories: repos,
+      testInfra: terraformTestInfra,
+    };
+    expect(fmtViolations(params)).toHaveLength(0);
+  });
+
+  it('accepts chained command with fmt first — validate segment not treated as path', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check main.tf && terraform validate', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('accepts flag-value forms: -check=true -list=false -diff', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check=true -list=false -diff main.tf', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('accepts redirection tokens: 2>&1 not treated as path', () => {
+    expect(fmtViolations(makeParams('terraform fmt -check main.tf 2>&1', ['main.tf']))).toHaveLength(0);
+  });
+
+  it('flags bare terraform fmt -check with no file args', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('list affected files explicitly');
+  });
+
+  it('flags -recursive flag', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -recursive main.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-recursive');
+  });
+
+  it('flags --recursive flag', () => {
+    const violations = fmtViolations(makeParams('terraform fmt --recursive main.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-recursive');
+  });
+
+  it('flags missing -check (mutating form)', () => {
+    const violations = fmtViolations(makeParams('terraform fmt main.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-check');
+  });
+
+  it('flags -check=false as missing -check', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check=false main.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-check');
+  });
+
+  it('flags stdin dash token as no file args', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check -', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('list affected files explicitly');
+  });
+
+  it('flags directory arg (no .tf/.tfvars extension)', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check modules/foo', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('directories');
+  });
+
+  it('flags chained validate && fmt -recursive (fmt second)', () => {
+    const violations = fmtViolations(makeParams('terraform validate && terraform fmt -recursive', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-recursive');
+  });
+
+  it('structural checks still fire when affectedFiles absent', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -recursive'));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('-recursive');
+  });
+
+  it('flags file not in affectedFiles', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check other.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('other.tf');
+    expect(violations[0].message).toContain('tf-fmt');
+  });
+
+  it('flags only orphaned file in multi-file fmt', () => {
+    const violations = fmtViolations(makeParams('terraform fmt -check main.tf other.tf', ['main.tf']));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('other.tf');
+  });
+
+  it('skips membership check when affectedFiles empty', () => {
+    const params: Parameters<typeof validatePlanQuality>[0] = {
+      plan: {
+        verification: { targeted: [{ id: 'tf-fmt', run: 'terraform fmt -check main.tf', policy: 'enforced' }] },
+        affectedFiles: [],
+      },
+      affectedRepositories: repos,
+      testInfra: terraformTestInfra,
+    };
+    expect(fmtViolations(params)).toHaveLength(0);
+  });
+});

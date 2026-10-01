@@ -256,6 +256,8 @@ describe('formatTestInfraPromptSection', () => {
     expect(output).toContain('Terraform files detected with backend configuration');
     expect(output).toContain('terraform validate');
     expect(output).toContain('terraform plan -target=module.foo');
+    expect(output).toContain('terraform fmt -check <file.tf');
+    expect(output).toContain('never bare, never -recursive');
   });
 
   it('includes go details in output', () => {

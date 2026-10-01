@@ -126,23 +126,17 @@ const isVerificationCommandAllowed = (
   const trimmed = normalizeRepoLocalVerificationCommand(command, affectedRepositories);
   const nodeInfra = testInfra?.ecosystems.find((ecosystem): ecosystem is NodeInfra => ecosystem.ecosystem === 'node');
 
-  if (isNodeVerificationAllowed(trimmed, nodeInfra)) {
-    return true;
-  }
+  if (isNodeVerificationAllowed(trimmed, nodeInfra)) return true;
 
   if (
     testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'terraform')
     && TERRAFORM_COMMAND_PATTERN.test(trimmed)
-  ) {
-    return true;
-  }
+  ) return true;
 
   if (
     testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'python')
     && PYTHON_COMMAND_PATTERN.test(trimmed)
-  ) {
-    return true;
-  }
+  ) return true;
 
   return !!(testInfra?.ecosystems.some(ecosystem => ecosystem.ecosystem === 'go') && GO_COMMAND_PATTERN.test(trimmed));
 };
@@ -240,6 +234,83 @@ const detectInlineAllowlistDrift = (
   return (verification?.targeted ?? []).flatMap(check => findOrphanedPathViolations(check, plannedPaths));
 };
 
+const stripRepoPrefixFromPath = (path: string, repos: string[]): string =>
+  repos.reduce(
+    (acc, repo) => acc.startsWith(`${repo}/`) ? acc.slice(repo.length + 1) : acc,
+    path,
+  );
+
+const normalizePathToken = (t: string): string =>
+  t.replaceAll(/^["']|["']$/g, '').replace(/^\.\//, '');
+
+const findTerraformFmtMembershipViolations = (
+  normalizedPaths: string[],
+  plannedPaths: Set<string>,
+  checkId: string | undefined,
+  affectedRepositories: string[]
+): PlanQualityViolation[] =>
+  normalizedPaths
+    .filter(p => !plannedPaths.has(stripRepoPrefixFromPath(p, affectedRepositories)))
+    .map(p => createViolation(
+      'terraform-fmt-scope',
+      `Verification "${checkId}" references "${p}" which is not in affectedFiles. `
+      + 'Add the file to affectedFiles or remove it from the verification command.'
+    ));
+
+const detectTerraformFmtStructuralViolations = (
+  flags: string[], normalizedPaths: string[], pathArgs: string[]
+): PlanQualityViolation[] => {
+  if (flags.some(f => /^--?recursive/.test(f)))
+    return [createViolation('terraform-fmt-scope', 'terraform fmt must not use -recursive; list affected files explicitly.')];
+  const hasCheck = flags.some(f => f === '-check' || f === '--check' || /^-+check=true/.test(f));
+  if (!hasCheck || flags.some(f => /^-+check=false/.test(f)))
+    return [createViolation('terraform-fmt-scope', 'terraform fmt must use -check; the mutating form is not a verification command.')];
+  if (normalizedPaths.length === 0 || pathArgs.includes('-'))
+    return [createViolation('terraform-fmt-scope', 'terraform fmt must list affected files explicitly.')];
+  if (normalizedPaths.some(p => !/\.(tf|tfvars)$/.test(p)))
+    return [createViolation('terraform-fmt-scope', 'terraform fmt must list explicit .tf files, not directories.')];
+  return [];
+};
+
+const parseTerraformFmtArgs = (
+  segment: string
+): { flags: string[]; pathArgs: string[]; normalizedPaths: string[] } => {
+  const args = segment.split(/\s+/).slice(2);
+  const flags = args.filter(t => t.startsWith('-'));
+  const pathArgs = args.filter(t => !t.startsWith('-') && !t.includes('>') && !t.includes('<'));
+  return { flags, pathArgs, normalizedPaths: pathArgs.map(normalizePathToken).filter(p => p !== '-') };
+};
+
+const analyzeTerraformFmtSegment = (
+  segment: string,
+  checkId: string | undefined,
+  plannedPaths: Set<string> | null,
+  affectedRepositories: string[]
+): PlanQualityViolation[] => {
+  if (!/^terraform fmt\b/.test(segment)) return [];
+  const { flags, pathArgs, normalizedPaths } = parseTerraformFmtArgs(segment);
+  const structural = detectTerraformFmtStructuralViolations(flags, normalizedPaths, pathArgs);
+  if (structural.length > 0) return structural;
+  return plannedPaths
+    ? findTerraformFmtMembershipViolations(normalizedPaths, plannedPaths, checkId, affectedRepositories)
+    : [];
+};
+
+const detectTerraformFmtScopeViolations = (
+  verification: ResolutionPlan['verification'] | undefined,
+  affectedFiles: ResolutionPlan['affectedFiles'] | undefined,
+  affectedRepositories?: string[]
+): PlanQualityViolation[] => {
+  const repos = affectedRepositories ?? [];
+  const plannedPaths = affectedFiles?.length ? buildPlannedPathSet(affectedFiles, repos) : null;
+  return (verification?.targeted ?? []).flatMap(check => {
+    if (!check.run) return [];
+    return normalizeRepoLocalVerificationCommand(check.run, affectedRepositories)
+      .split(/\s*(?:&&|\|\||;|\|)\s*/)
+      .flatMap(s => analyzeTerraformFmtSegment(s.trim(), check.id, plannedPaths, repos));
+  });
+};
+
 // eslint-disable-next-line max-lines-per-function
 const detectVerificationViolations = (
   verification: ResolutionPlan['verification'] | undefined,
@@ -271,60 +342,59 @@ const detectVerificationViolations = (
   return violations;
 };
 
-// eslint-disable-next-line max-lines-per-function
+const detectFileSuffixViolations = (
+  testPatterns: NonNullable<NodeInfra['testPatterns']>,
+  stepText: string,
+): PlanQualityViolation[] => {
+  const violations: PlanQualityViolation[] = [];
+  if (testPatterns.fileSuffix === '.spec' && /\.test\.(ts|tsx|js|jsx)\b/.test(stepText))
+    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.spec.* suffix.'));
+  if (testPatterns.fileSuffix === '.test' && /\.spec\.(ts|tsx|js|jsx)\b/.test(stepText))
+    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.test.* suffix.'));
+  return violations;
+};
+
+const detectMockCleanupViolations = (
+  testPatterns: NonNullable<NodeInfra['testPatterns']>,
+  stepText: string,
+): PlanQualityViolation[] => {
+  const cleanup = testPatterns.mockCleanup;
+  if (!cleanup) return [];
+  const mismatch = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'].find(
+    m => m !== cleanup.method && new RegExp(`\\b\\w+\\.${m}\\(\\)`).test(stepText)
+  );
+  if (!mismatch) return [];
+  return [createViolation(
+    'mock-cleanup-convention',
+    `Snippets must use ${cleanup.namespace}.${cleanup.method}() instead of ${mismatch}().`
+  )];
+};
+
+const detectMockFactoryViolations = (
+  testPatterns: NonNullable<NodeInfra['testPatterns']>,
+  stepText: string,
+): PlanQualityViolation[] => {
+  const expectedFactoryPrefix = testPatterns.mockFactoryPrefix;
+  if (!expectedFactoryPrefix) return [];
+  const factoryIdentifiers = stepText.match(/\bcreate\w*(?:Mock|Stub|Fake|Spy)\w*/g) ?? [];
+  const mismatchedFactory = factoryIdentifiers.find(id => !id.startsWith(expectedFactoryPrefix));
+  if (!mismatchedFactory) return [];
+  return [createViolation(
+    'mock-factory-prefix',
+    `Snippets must use the detected factory prefix "${expectedFactoryPrefix}" instead of "${mismatchedFactory}".`
+  )];
+};
+
 const detectTestConventionViolations = (steps: string[], testInfra?: TestInfraContext): PlanQualityViolation[] => {
   const nodeInfra = testInfra?.ecosystems.find((ecosystem): ecosystem is NodeInfra => ecosystem.ecosystem === 'node');
   const testPatterns = nodeInfra?.testPatterns;
-
-  if (!testPatterns) {
-    return [];
-  }
-
+  if (!testPatterns) return [];
   const stepText = steps.join('\n');
-  const violations: PlanQualityViolation[] = [];
-
-  if (testPatterns.fileSuffix === '.spec' && /\.test\.(ts|tsx|js|jsx)\b/.test(stepText)) {
-    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.spec.* suffix.'));
-  }
-
-  if (testPatterns.fileSuffix === '.test' && /\.spec\.(ts|tsx|js|jsx)\b/.test(stepText)) {
-    violations.push(createViolation('test-file-suffix', 'Snippets must use the detected *.test.* suffix.'));
-  }
-
-  if (testPatterns.mockCleanup) {
-    const { namespace, method } = testPatterns.mockCleanup;
-    const mismatchedCleanup = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'].find(
-      candidateMethod =>
-        candidateMethod !== method
-        && new RegExp(`\\b\\w+\\.${candidateMethod}\\(\\)`).test(stepText)
-    );
-
-    if (mismatchedCleanup) {
-      violations.push(
-        createViolation(
-          'mock-cleanup-convention',
-          `Snippets must use ${namespace}.${method}() instead of ${mismatchedCleanup}().`
-        )
-      );
-    }
-  }
-
-  if (testPatterns.mockFactoryPrefix) {
-    const expectedFactoryPrefix = testPatterns.mockFactoryPrefix;
-    const factoryIdentifiers = stepText.match(/\bcreate\w*(?:Mock|Stub|Fake|Spy)\w*/g) ?? [];
-    const mismatchedFactory = factoryIdentifiers.find(identifier => !identifier.startsWith(expectedFactoryPrefix));
-
-    if (mismatchedFactory) {
-      violations.push(
-        createViolation(
-          'mock-factory-prefix',
-          `Snippets must use the detected factory prefix "${expectedFactoryPrefix}" instead of "${mismatchedFactory}".`
-        )
-      );
-    }
-  }
-
-  return violations;
+  return [
+    ...detectFileSuffixViolations(testPatterns, stepText),
+    ...detectMockCleanupViolations(testPatterns, stepText),
+    ...detectMockFactoryViolations(testPatterns, stepText),
+  ];
 };
 
 const uniqueViolations = (violations: PlanQualityViolation[]): PlanQualityViolation[] => {
@@ -344,6 +414,7 @@ const detectSkillViolations = (params: ValidatePlanQualityParams): PlanQualityVi
     rule.validate(params.plan).map(message => ({ ruleId: rule.ruleId, message }))
   );
 
+// eslint-disable-next-line max-lines-per-function
 const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViolation[] => {
   const steps = Array.isArray(params.plan.steps)
     ? params.plan.steps.filter((step): step is string => true)
@@ -354,7 +425,12 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
     ...detectVerificationViolations(
       params.plan.verification, params.testInfra, params.affectedRepositories, params.packageManager
     ),
-    ...detectInlineAllowlistDrift(params.plan.verification, params.plan.affectedFiles, params.affectedRepositories),
+    ...detectInlineAllowlistDrift(
+      params.plan.verification, params.plan.affectedFiles, params.affectedRepositories
+    ),
+    ...detectTerraformFmtScopeViolations(
+      params.plan.verification, params.plan.affectedFiles, params.affectedRepositories
+    ),
     ...detectTestConventionViolations(steps, params.testInfra),
     ...detectSkillViolations(params),
   ]);

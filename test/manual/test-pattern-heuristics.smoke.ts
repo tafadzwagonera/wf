@@ -27,14 +27,20 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const lacks = (text: string, fragment: string): boolean => !text.includes(fragment);
-
 const check = (message: string, condition: boolean, detail?: string): void => {
   if (condition) {
     pass(message);
     return;
   }
   fail(message, detail);
+};
+
+const checkAbsent = (message: string, text: string, fragment: string, detail?: string): void => {
+  if (text.includes(fragment)) {
+    fail(message, detail);
+    return;
+  }
+  pass(message);
 };
 
 const createTempRepo = (): string => fs.mkdtempSync(path.join(os.tmpdir(), 'wf-heuristics-'));
@@ -86,7 +92,7 @@ function buildVitestEcosystem() {
 function checkVitestPromptRendering(): void {
   const output = formatTestInfraPromptSection(buildVitestEcosystem() as any);
   check('renders vi.restoreAllMocks() for Vitest', output.includes('vi.restoreAllMocks()'), 'vi.restoreAllMocks() missing from prompt');
-  check('jest.restoreAllMocks() absent for Vitest', lacks(output, 'jest.restoreAllMocks()'), 'unexpected jest.restoreAllMocks() in prompt');
+  checkAbsent('jest.restoreAllMocks() absent for Vitest', output, 'jest.restoreAllMocks()', 'unexpected jest.restoreAllMocks() in prompt');
 }
 
 function checkDiSetupTestingModule(): void {
@@ -144,8 +150,8 @@ function checkPromptRenderingJest(): void {
 function checkPromptRenderingFactory(): void {
   const output = formatTestInfraPromptSection(buildJestEcosystem('factory-function', null, false) as any);
   check('renders factory-function DI line with assumption guidance', output.includes('factory helpers') && output.includes('State which factory'), 'missing factory-function prompt text');
-  check('mockCleanup section absent when null', lacks(output, 'Mock isolation'), 'mockCleanup rendered when it should be absent');
-  check('errorHandlerExits section absent when false', lacks(output, 'Error handler'), 'errorHandlerExits rendered when it should be absent');
+  checkAbsent('mockCleanup section absent when null', output, 'Mock isolation', 'mockCleanup rendered when it should be absent');
+  checkAbsent('errorHandlerExits section absent when false', output, 'Error handler', 'errorHandlerExits rendered when it should be absent');
 }
 
 function runMockCleanupChecks(): void {

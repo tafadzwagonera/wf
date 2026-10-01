@@ -388,7 +388,7 @@ const formatTerraformEcoLines = (eco: TerraformInfra): string[] => {
   const backendNote = eco.hasBackendConfig ? ' with backend configuration' : '';
   return [
     `- Terraform files detected${backendNote}`,
-    '- Available commands: terraform validate, terraform plan, terraform fmt -check',
+    '- Available commands: terraform validate, terraform plan, terraform fmt -check <file.tf ...>',
   ];
 };
 
@@ -415,6 +415,7 @@ const buildNodeVerificationRules = (packageManager: PackageManager): string[] =>
 const TERRAFORM_VERIFICATION_RULES: string[] = [
   '- Use "terraform validate" for syntax/config checks, "terraform plan" for drift detection.',
   '- Prefer targeted: "terraform plan -target=module.foo" over bare "terraform plan".',
+  '- "terraform fmt" must use -check and list the affected .tf files explicitly (e.g. "terraform fmt -check main.tf variables.tf") — never bare, never -recursive.',
 ];
 
 const formatAllowedCommandForms = (eco: NodeInfra, packageManager: PackageManager): string[] => [
