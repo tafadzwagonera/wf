@@ -8,6 +8,14 @@ const WORKTREE_PREFIX = 'wf-verify-';
 const MARKER_NAME = '.wf-verification-marker.json';
 const STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 
+const gitEnv = ((): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  delete env['GIT_DIR'];
+  delete env['GIT_INDEX_FILE'];
+  delete env['GIT_WORK_TREE'];
+  return env;
+})();
+
 export interface VerificationSnapshot {
   worktreePath: string;
   repositoryHead: string;
@@ -48,7 +56,7 @@ const captureCleanupError = (errors: string[], operation: () => void): void => {
 
 const removeGitWorktree = (repoDir: string, worktreePath: string, errors: string[]): void => {
   captureCleanupError(errors, () => execFileSync(
-    'git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoDir, stdio: 'ignore' },
+    'git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoDir, stdio: 'ignore', env: gitEnv },
   ));
 };
 
@@ -60,7 +68,7 @@ const removeWorktreeDirectory = (worktreePath: string, markerPath: string, error
 };
 
 const pruneWorktrees = (repoDir: string, errors: string[]): void => {
-  captureCleanupError(errors, () => execFileSync('git', ['worktree', 'prune'], { cwd: repoDir, stdio: 'ignore' }));
+  captureCleanupError(errors, () => execFileSync('git', ['worktree', 'prune'], { cwd: repoDir, stdio: 'ignore', env: gitEnv }));
 };
 
 const removePatchFile = (patchPath: string): void => {
@@ -72,7 +80,7 @@ const removePatchFile = (patchPath: string): void => {
 };
 
 const listedWorktrees = (repoDir: string): string[] => execFileSync(
-  'git', ['worktree', 'list', '--porcelain'], { cwd: repoDir, encoding: 'utf-8' },
+  'git', ['worktree', 'list', '--porcelain'], { cwd: repoDir, encoding: 'utf-8', env: gitEnv },
 ).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length));
 
 const isExpiredSnapshot = (repoDir: string, worktreePath: string): boolean => {
@@ -112,7 +120,7 @@ export const createVerificationSnapshot = (options: VerificationSnapshotOptions)
 const resolveRepositoryHead = (repoDir: string): { repositoryHead: string } | { status: 'not-run'; reason: string } => {
   try {
     const repositoryHead = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env: gitEnv,
     }).trim();
     return { repositoryHead };
   } catch (error) {
@@ -146,13 +154,13 @@ const applySnapshot = (
   patchPath: string, diff: string, invocationId: string
 ): void => {
   execFileSync('git', ['worktree', 'add', '--detach', worktreePath, repositoryHead], {
-    cwd: repoDir, stdio: 'ignore',
+    cwd: repoDir, stdio: 'ignore', env: gitEnv,
   });
   fs.writeFileSync(path.join(worktreePath, MARKER_NAME), JSON.stringify({
     invocationId, createdAt: new Date().toISOString(), sourceRepositoryPath: path.resolve(repoDir),
   }));
   fs.writeFileSync(patchPath, diff);
-  execFileSync('git', ['apply', '--3way', patchPath], { cwd: worktreePath, stdio: 'ignore' });
+  execFileSync('git', ['apply', '--3way', patchPath], { cwd: worktreePath, stdio: 'ignore', env: gitEnv });
 };
 
 const snapshotFailure = (

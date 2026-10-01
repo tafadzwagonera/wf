@@ -4,8 +4,16 @@ import * as path from 'node:path';
 import { createVerificationSnapshot } from './verification-snapshot';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
+const gitEnv = ((): NodeJS.ProcessEnv => {
+  const env = { ...process.env };
+  delete env['GIT_DIR'];
+  delete env['GIT_INDEX_FILE'];
+  delete env['GIT_WORK_TREE'];
+  return env;
+})();
+
 const git = (repoDir: string, args: string[]): string => execFileSync('git', args, {
-  cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
+  cwd: repoDir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], env: gitEnv,
 });
 
 describe('createVerificationSnapshot', () => {
