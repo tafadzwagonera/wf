@@ -149,7 +149,7 @@ const buildRoutingResult = (
 ): ModelRoutingResult => ({
   model,
   defaultModel,
-  logMessage: `[${adapterLabel}] Model routing: ${suffix}`,
+  logMessage: `[${adapterLabel}] Model routing: ${model} (${suffix})`,
 });
 
 export type ModelRoutingParams = {

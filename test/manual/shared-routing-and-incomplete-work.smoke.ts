@@ -40,7 +40,7 @@ function checkCodexCliAdapter(codexCliSource: string): void {
 function checkIterationPatterns(openaiSource: string, anthropicSource: string): void {
   assert(
     'OpenAI adapter builds continuation prompts via buildIterationPrompt',
-    openaiSource.includes('buildIterationPrompt') && !(openaiSource.includes('iterationAgent') || openaiSource.includes('iterationRunner'))
+    openaiSource.includes('buildIterationPrompt') && !openaiSource.includes('iterationAgent') && !openaiSource.includes('iterationRunner')
   );
   assert('Anthropic adapter resumes session across passes', anthropicSource.includes('resume: p.sessionId') && !anthropicSource.includes('lastPassSummary'));
   assert('Anthropic adapter uses discoverChangedFiles', anthropicSource.includes('discoverChangedFiles'));
@@ -71,7 +71,7 @@ function checkGlobFiltering(openaiSource: string, anthropicSource: string): void
 function checkModelRoutingContinuation(anthropicSource: string, cliSource: string): void {
   assert(
     'Anthropic adapter continuation does not use defaultModel',
-    !(anthropicSource.includes('iterationModel = modelRoutingResult.defaultModel') || anthropicSource.includes('iterationModel'))
+    !anthropicSource.includes('iterationModel = modelRoutingResult.defaultModel') && !anthropicSource.includes('iterationModel')
   );
   assert(
     'Claude CLI adapter continuation uses routed model',
