@@ -219,6 +219,7 @@ export function printVerificationReport(outcomes: VerificationOutcome[]): void {
     const policy = outcome.policy === 'enforced' ? chalk.red('[enforced]') : chalk.gray('[best_effort]');
     console.log(`    ${icon} ${policy} ${outcome.command}`);
   }
+  console.log();
 }
 
 /**

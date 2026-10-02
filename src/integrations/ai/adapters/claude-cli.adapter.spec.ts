@@ -756,4 +756,53 @@ describe('ClaudeCliAdapter', () => {
       expect(result.modelsUsed).toEqual([expect.any(String)]);
     });
   });
+
+  describe('verification pass numbering', () => {
+    const yieldCliResult = () =>
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0.01 };
+      })();
+
+    const createNumberingParams = () => ({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature' as const, summary: 'test', steps: ['step 1'],
+          estimatedComplexity: 'low' as const, affectedFiles: [], affectedRepositories: [], risks: [],
+        },
+        action: 'feature' as const, path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira' as const, repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    it('seeds the verification header from verificationPassOffset', async () => {
+      mockSpawnCli.mockReturnValue(yieldCliResult());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      const result = await adapter.generateAndVerify({ ...createNumberingParams(), verificationPassOffset: 2 });
+
+      const logged = logSpy.mock.calls.map(call => String(call[0])).join('\n');
+      logSpy.mockRestore();
+      expect(logged).toContain('Running verification (pass 3)');
+      expect(result.verificationPassCount).toBe(1);
+    });
+
+    it('defaults to pass 1 when no verificationPassOffset is provided', async () => {
+      mockSpawnCli.mockReturnValue(yieldCliResult());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      const result = await adapter.generateAndVerify(createNumberingParams());
+
+      const logged = logSpy.mock.calls.map(call => String(call[0])).join('\n');
+      logSpy.mockRestore();
+      expect(logged).toContain('Running verification (pass 1)');
+      expect(result.verificationPassCount).toBe(1);
+    });
+  });
 });

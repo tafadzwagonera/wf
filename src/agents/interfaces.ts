@@ -88,10 +88,12 @@ export interface ImplementerBackend {
     skillNames?: string[];
     figmaContextSection?: string;
     uiDesignScreenshotPaths?: string[];
+    verificationPassOffset?: number;
   }): Promise<{
     sessionId?: string;
     verificationOutcomes: VerificationOutcome[];
     passCount?: number;
     modelsUsed?: string[];
+    verificationPassCount?: number;
   }>;
 }

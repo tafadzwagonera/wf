@@ -34,6 +34,14 @@ type GenerateAndVerifyParams = {
   conventionsSection?: string;
   skillNames?: string[];
   uiDesignScreenshotPaths?: string[];
+  verificationPassOffset?: number;
+};
+
+type CodexSessionResult = {
+  sessionId?: string;
+  verificationOutcomes: VerificationOutcome[];
+  modelsUsed: string[];
+  verificationPassCount: number;
 };
 
 type AssistantBlock = { type: string; name?: string; input?: Record<string, unknown> };
@@ -317,7 +325,10 @@ export class CodexCliAdapter implements ImplementerBackend {
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[];
+    modelsUsed?: string[]; verificationPassCount: number;
+  }> {
     const repoDir = params.options.repoDir ?? process.cwd();
     assertCodexCliAvailable();
     const model = resolveCodexModel(params.options, params.planArtifact, this.configService);
@@ -325,8 +336,8 @@ export class CodexCliAdapter implements ImplementerBackend {
   }
 
   private async runCodexSession(
-    params: GenerateAndVerifyParams, model: string, repoDir: string
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
+    params: GenerateAndVerifyParams, model: string, repoDir: string,
+  ): Promise<CodexSessionResult> {
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
     const activityState: ActivityState = { verificationOutcomes: [] };
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
@@ -346,14 +357,14 @@ export class CodexCliAdapter implements ImplementerBackend {
   private async finalizeCodexSession(
     params: GenerateAndVerifyParams, activityState: ActivityState,
     touchedFiles: Set<string>, sessionId: string | undefined, model: string,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; verificationPassCount: number }> {
     this.logSessionSummary(touchedFiles, sessionId);
     const repoDir = params.options.repoDir ?? process.cwd();
-    const verificationOutcomes = await this.runProgrammaticVerificationLoop({
+    const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop({
       params, activityState, touchedFiles, sessionId, model, repoDir,
     });
-    printVerificationReport(verificationOutcomes);
-    return { sessionId, verificationOutcomes };
+    printVerificationReport(outcomes);
+    return { sessionId, verificationOutcomes: outcomes, verificationPassCount };
   }
 
   private logFixPassStart(passNumber: number, failureCount: number): void {
@@ -414,7 +425,7 @@ export class CodexCliAdapter implements ImplementerBackend {
   }
 
   private async initVerificationFixState(p: CodexVerificationLoopParams): Promise<VerificationFixState> {
-    const passNumber = 1;
+    const passNumber = (p.params.verificationPassOffset ?? 0) + 1;
     const { outcomes, codeFailures } = await this.evaluateVerificationPass(
       p.params.verificationScripts, p.repoDir, passNumber
     );
@@ -457,12 +468,15 @@ export class CodexCliAdapter implements ImplementerBackend {
     await this.applySuccessfulFix(p.params.verificationScripts, p.repoDir, state);
   }
 
-  private async runProgrammaticVerificationLoop(p: CodexVerificationLoopParams): Promise<VerificationOutcome[]> {
+  private async runProgrammaticVerificationLoop(
+    p: CodexVerificationLoopParams,
+  ): Promise<{ outcomes: VerificationOutcome[]; verificationPassCount: number }> {
     const ctx = this.buildBaseStreamContext(p.params, p.activityState, p.touchedFiles, p.repoDir);
     const state = await this.initVerificationFixState(p);
     while (this.shouldRunFixIteration(state)) {
       await this.runVerificationFixIteration(ctx, p, state);
     }
-    return state.outcomes;
+    const verificationPassCount = state.passNumber - (p.params.verificationPassOffset ?? 0);
+    return { outcomes: state.outcomes, verificationPassCount };
   }
 }

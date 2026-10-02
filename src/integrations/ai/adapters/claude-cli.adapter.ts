@@ -71,6 +71,7 @@ type GenerateAndVerifyParams = {
   skillNames?: string[];
   figmaContextSection?: string;
   uiDesignScreenshotPaths?: string[];
+  verificationPassOffset?: number;
 };
 
 type CliSessionParams = {
@@ -84,6 +85,7 @@ type CliSessionParams = {
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
   uiDesignScreenshotPaths?: string[];
+  verificationPassOffset?: number;
 };
 
 type ContinuationLoopParams = {
@@ -98,6 +100,7 @@ type ContinuationLoopParams = {
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
+  verificationPassOffset?: number;
 };
 
 type SinglePassParams = {
@@ -433,7 +436,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   async generateAndVerify(
     params: GenerateAndVerifyParams,
   ): Promise<{
-    sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; modelsUsed: string[];
+    sessionId?: string; verificationOutcomes: VerificationOutcome[];
+    passCount: number; modelsUsed: string[]; verificationPassCount: number;
   }> {
     assertClaudeCliAvailable();
     const sessionParams = await this.buildCliSessionParams(params);
@@ -449,7 +453,10 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const modelRoutingResult = this.resolveCliModelRouting(options, params.planArtifact);
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
     const appendSystemPrompt = await buildAppendSystemPrompt(params, repoDir);
-    return createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt);
+    return {
+      ...createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt),
+      verificationPassOffset: params.verificationPassOffset,
+    };
   }
 
   private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
@@ -485,7 +492,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     sessionId: string | undefined,
     touchedFiles: Set<string>,
     activityState: ActivityState
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+  }> {
     await discoverChangedFiles(p.repoDir, touchedFiles);
     return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
   }
@@ -498,7 +507,9 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runCliSession(
     p: CliSessionParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+  }> {
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
     const activityState: ActivityState = { verificationOutcomes: [] };
@@ -512,12 +523,14 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async finalizeCliSession(
     p: ContinuationLoopParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+  }> {
     const { sessionId, passCount } = await this.runContinuationLoop(p);
     this.logFileSummary(p.touchedFiles);
-    const verificationOutcomes = await this.runProgrammaticVerificationLoop(p, sessionId);
-    printVerificationReport(verificationOutcomes);
-    return { sessionId, verificationOutcomes, passCount };
+    const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop(p, sessionId);
+    printVerificationReport(outcomes);
+    return { sessionId, verificationOutcomes: outcomes, passCount, verificationPassCount };
   }
 
   private logFileSummary(touchedFiles: Set<string>): void {
@@ -574,7 +587,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private async initVerificationFixState(
     p: ContinuationLoopParams, sessionId: string | undefined
   ): Promise<VerificationFixState> {
-    const passNumber = 1;
+    const passNumber = (p.verificationPassOffset ?? 0) + 1;
     const { outcomes, codeFailures } = await this.evaluateVerificationPass(
       p.verificationScripts, p.repoDir, passNumber,
     );
@@ -618,12 +631,13 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private async runProgrammaticVerificationLoop(
     p: ContinuationLoopParams, sessionId: string | undefined
-  ): Promise<VerificationOutcome[]> {
+  ): Promise<{ outcomes: VerificationOutcome[]; verificationPassCount: number }> {
     const state = await this.initVerificationFixState(p, sessionId);
     while (this.shouldRunFixIteration(state)) {
       await this.runVerificationFixIteration(p, state);
     }
-    return state.outcomes;
+    const verificationPassCount = state.passNumber - (p.verificationPassOffset ?? 0);
+    return { outcomes: state.outcomes, verificationPassCount };
   }
 
   private async runContinuationLoop(

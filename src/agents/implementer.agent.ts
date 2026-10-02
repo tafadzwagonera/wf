@@ -105,6 +105,8 @@ export class ImplementerAgent {
 
   private planStepVerificationPassCount = 0;
 
+  private verificationPassOffset = 0;
+
   constructor(
     private readonly configService: ConfigService,
     private readonly gitService: GitService,
@@ -138,6 +140,7 @@ export class ImplementerAgent {
       return this.executeInvestigation(ticket, planArtifact);
     }
 
+    this.resetRunCounters();
     this.printImplementationHeader(options);
     this.validateImplementationScope(planArtifact, options.repoDir, options.allowMultiRepoScope);
     const branchName = await this.handleBranchWorkflow(ticket, planArtifact, options);
@@ -149,6 +152,11 @@ export class ImplementerAgent {
     const baseline = await this.captureCommitBaseline(options.repoDir);
     const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved, baseline);
     return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
+  }
+
+  private resetRunCounters(): void {
+    this.verificationPassOffset = 0;
+    this.planStepVerificationPassCount = 0;
   }
 
   private printImplementationHeader(options: ImplementerOptions): void {
@@ -600,8 +608,7 @@ export class ImplementerAgent {
   }
 
   private async executeBackendAdapter(
-    ticket: TicketArtifact, planArtifact: PlanArtifact,
-    options: ImplementerOptions, resolved: FileResolution,
+    ticket: TicketArtifact, planArtifact: PlanArtifact, options: ImplementerOptions, resolved: FileResolution,
   ) {
     const { repoName, contextFiles } = resolved;
     const verificationScripts = this.buildVerificationScripts(options.repoDir, planArtifact, options.isNewRepo);
@@ -612,11 +619,13 @@ export class ImplementerAgent {
     this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
     const skillParams = await this.resolveSkillParams(ticket, options, planArtifact.path);
     this.stageAgentService.logResolvedStageTarget('implement');
-    return this.createAdapter(backendSelection).generateAndVerify({
-      ticket, planArtifact, options, verificationScripts,
-      contextFiles, repoName, ...tracked,
-      conventionsSection, ...skillParams,
+    const res = await this.createAdapter(backendSelection).generateAndVerify({
+      ticket, planArtifact, options, verificationScripts, contextFiles,
+      repoName, ...tracked, conventionsSection, ...skillParams,
+      verificationPassOffset: this.verificationPassOffset,
     });
+    this.verificationPassOffset += res.verificationPassCount ?? 0;
+    return res;
   }
 
   private buildConventionsSection(

@@ -3298,4 +3298,75 @@ describe('ImplementerAgent', () => {
       expect(callArg).toHaveProperty('uiDesignScreenshotPaths', ['/tmp/design.png']);
     });
   });
+
+  describe('verification pass offset threading', () => {
+    const singleRepoPlan = () => buildPlan({
+      affectedFiles: ['repo-a/src/example.ts'],
+      affectedRepositories: ['repo-a'],
+    });
+    const options = { trackerName: 'jira' as const, repoDir: '/tmp/repo-a' };
+    const resolved = { repoName: 'repo-a', repoDir: '/tmp/repo-a', repoFiles: [], contextFiles: [] };
+
+    const spyBackend = (result: object) =>
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue(result as never);
+
+    const offsetOfCall = (spy: ReturnType<typeof spyBackend>, index: number) =>
+      (spy.mock.calls[index][0] as { verificationPassOffset?: number }).verificationPassOffset;
+
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('passes verificationPassOffset 0 on a fresh run', async () => {
+      const spy = spyBackend({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, singleRepoPlan(), options);
+
+      expect(offsetOfCall(spy, 0)).toBe(0);
+    });
+
+    it('accumulates verificationPassCount into the offset for subsequent backend calls', async () => {
+      const spy = spyBackend({ sessionId: undefined, verificationOutcomes: [], verificationPassCount: 2 });
+
+      const plan = singleRepoPlan();
+      await agent.execute(ticketArtifact, plan, options);
+      await (agent as any).executeBackendAdapter(ticketArtifact, plan, options, resolved);
+
+      expect(offsetOfCall(spy, 1)).toBe(2);
+    });
+
+    it('treats a missing verificationPassCount as zero', async () => {
+      const spy = spyBackend({ sessionId: undefined, verificationOutcomes: [] });
+
+      const plan = singleRepoPlan();
+      await agent.execute(ticketArtifact, plan, options);
+      await (agent as any).executeBackendAdapter(ticketArtifact, plan, options, resolved);
+
+      expect(offsetOfCall(spy, 1)).toBe(0);
+    });
+
+    it('leaves the offset unchanged when the backend rejects', async () => {
+      const spy = spyBackend({ sessionId: undefined, verificationOutcomes: [], verificationPassCount: 2 });
+
+      const plan = singleRepoPlan();
+      await agent.execute(ticketArtifact, plan, options);
+
+      spy.mockRejectedValueOnce(new Error('backend crashed'));
+      await expect(
+        (agent as any).executeBackendAdapter(ticketArtifact, plan, options, resolved),
+      ).rejects.toThrow('backend crashed');
+
+      await (agent as any).executeBackendAdapter(ticketArtifact, plan, options, resolved);
+      expect(offsetOfCall(spy, 2)).toBe(2);
+    });
+
+    it('resets the offset at the start of each execute run', async () => {
+      const spy = spyBackend({ sessionId: undefined, verificationOutcomes: [], verificationPassCount: 3 });
+
+      await agent.execute(ticketArtifact, singleRepoPlan(), options);
+      await agent.execute(ticketArtifact, singleRepoPlan(), options);
+
+      expect(offsetOfCall(spy, 1)).toBe(0);
+    });
+  });
 });

@@ -99,7 +99,7 @@ describe('printVerificationReport', () => {
   it('prints nothing when outcomes is empty', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     printVerificationReport([]);
-    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledTimes(0);
   });
 
   it('prints a line for each outcome with the correct command', () => {
@@ -118,7 +118,7 @@ describe('printVerificationReport', () => {
     expect(allOutput).toContain('yarn test');
   });
 
-  it('prints a header line followed by one line per outcome', () => {
+  it('prints a header, one line per outcome, and a trailing blank line', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const outcomes: VerificationOutcome[] = [
       createMockOutcome({ status: 'passed' }),
@@ -127,8 +127,7 @@ describe('printVerificationReport', () => {
 
     printVerificationReport(outcomes);
 
-    // header + 2 outcome lines
-    expect(consoleSpy).toHaveBeenCalledTimes(3);
+    expect(consoleSpy).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -163,7 +162,7 @@ describe('checkVerificationStall', () => {
     // stalledPasses=1 with threshold=3 should NOT stop yet
     const notYet = checkVerificationStall(5, 5, 1, 'test-adapter', 3);
     expect(notYet).toBe(2);
-    expect(consoleSpy).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledTimes(0);
 
     // stalledPasses=2 with threshold=3 should stop (updated reaches threshold)
     const stopped = checkVerificationStall(5, 5, 2, 'test-adapter', 3);

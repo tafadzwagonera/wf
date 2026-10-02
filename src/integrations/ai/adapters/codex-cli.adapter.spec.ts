@@ -96,6 +96,36 @@ describe('CodexCliAdapter', () => {
     trackedFilePaths: [] as string[],
   });
 
+  const yieldCodexResult = () =>
+    (async function* () {
+      yield { type: 'thread.started', thread_id: 'thread-abc' };
+      yield { type: 'result', result: 'done', session_id: 'codex-session', num_turns: 1 };
+    })();
+
+  it('seeds the verification header from verificationPassOffset', async () => {
+    mockSpawnCodex.mockReturnValue(yieldCodexResult());
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    const result = await adapter.generateAndVerify({ ...createBaseParams(), verificationPassOffset: 2 });
+
+    const logged = logSpy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(logged).toContain('Running verification (pass 3)');
+    expect(result.verificationPassCount).toBe(1);
+  });
+
+  it('defaults to pass 1 when no verificationPassOffset is provided', async () => {
+    mockSpawnCodex.mockReturnValue(yieldCodexResult());
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    const result = await adapter.generateAndVerify(createBaseParams());
+
+    const logged = logSpy.mock.calls.map(call => String(call[0])).join('\n');
+    expect(logged).toContain('Running verification (pass 1)');
+    expect(result.verificationPassCount).toBe(1);
+  });
+
   it('captures session ID from thread.started message', async () => {
     mockSpawnCodex.mockReturnValue(
       (async function* () {
