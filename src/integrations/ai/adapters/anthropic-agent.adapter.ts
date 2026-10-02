@@ -655,6 +655,7 @@ const resolveSessionOptions = async (input: SessionOptionsInput) => {
   const claudeContext = await loadClaudeContext(repoDir);
   const { model, systemPromptBody } = resolveModelAndPrompt(params, configService, repoDir);
   return {
+    model,
     repoDir,
     sdkOptions: buildSdkOptions({
       repoDir, additionalRepoDirs, model, apiKey, claudeContext,
@@ -755,10 +756,10 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
 
   private async buildAndExecuteSession(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId: string; activityState: ActivityState }> {
+  ): Promise<{ sessionId: string; activityState: ActivityState; model: string }> {
     const activityState = this.buildActivityState(params);
     const allowedCommands = buildAllowedCommands(params.verificationScripts);
-    const { repoDir, sdkOptions } = await resolveSessionOptions(
+    const { model, repoDir, sdkOptions } = await resolveSessionOptions(
       { params, configService: this.configService, allowedCommands, activityState, apiKey: this.resolveApiKey() }
     );
     const { query } = await loadAnthropicAgentSdk();
@@ -766,17 +767,17 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
       query: query as SdkQueryFn, sdkOptions: sdkOptions as Record<string, unknown>,
       params, repoDir, touchedFiles: new Set<string>(), activityState,
     });
-    return { sessionId, activityState };
+    return { sessionId, activityState, model };
   }
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
-    const { sessionId, activityState } = await this.buildAndExecuteSession(params);
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
+    const { sessionId, activityState, model } = await this.buildAndExecuteSession(params);
     const verificationOutcomes = resolveSkippedSteps(
       params.verificationScripts, activityState.verificationOutcomes ?? []
     );
     printVerificationReport(verificationOutcomes);
-    return { sessionId, verificationOutcomes };
+    return { sessionId, verificationOutcomes, modelsUsed: [model] };
   }
 }

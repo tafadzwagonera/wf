@@ -93,6 +93,7 @@ export const planArtifactSchema = z.object({
   path: z.string(),
   fromCache: z.boolean().optional(),
   sessionId: z.string().optional(),
+  modelUsed: z.string().optional(),
 });
 
 export const reviewArtifactSchema = z.object({
@@ -100,6 +101,7 @@ export const reviewArtifactSchema = z.object({
   path: z.string(),
   approved: z.boolean(),
   sessionId: z.string().optional(),
+  modelUsed: z.string().optional(),
 });
 
 export const modelRoutingSchema = z.enum(['auto', 'default', 'mechanical']);

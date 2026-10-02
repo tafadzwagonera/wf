@@ -86,7 +86,9 @@ export class ReviewStageService {
     private readonly stageAgentService: StageAgentService
   ) {}
 
-  async reviewDiff(diff: string, options: ReviewDiffOptions): Promise<{ review: CodeReview; sessionId?: string }> {
+  async reviewDiff(
+    diff: string, options: ReviewDiffOptions
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const threshold = this.resolveReviewDiffThreshold();
     const guidelines = this.buildReviewGuidelines(options);
     const segments = splitDiffByFile(diff);
@@ -234,9 +236,9 @@ export class ReviewStageService {
     diff: string,
     guidelines: string[],
     options: ReviewDiffOptions
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
-    const { review, sessionId } = await this.performReview(diff, guidelines, options);
-    return { review: this.ensureExecutionModeSet(review), sessionId };
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
+    const { review, sessionId, modelUsed } = await this.performReview(diff, guidelines, options);
+    return { review: this.ensureExecutionModeSet(review), sessionId, modelUsed };
   }
 
   private async resolveReviewSkillNames(): Promise<string[] | undefined> {
@@ -250,7 +252,7 @@ export class ReviewStageService {
     diff: string,
     guidelines: string[],
     options: ReviewDiffOptions
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     if (!this.stageAgentService.isEnabledForStage('review')) {
       return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress) };
     }
@@ -259,7 +261,7 @@ export class ReviewStageService {
   }
 
   private async reviewViaAgent(diff: string, guidelines: string[], options: ReviewDiffOptions
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const { skillNames, forkSession, figmaContextSection, screenshots } = options;
     try {
       const result = await this.stageAgentService.reviewCode(
@@ -267,7 +269,7 @@ export class ReviewStageService {
         options.resumeProviderSessionId, options.onProgress,
         { skillNames, forkSession, figmaContextSection, screenshots },
       );
-      return { review: result.review, sessionId: result.sessionId };
+      return { review: result.review, sessionId: result.sessionId, modelUsed: result.modelUsed };
     } catch (error) {
       return this.recoverFromReviewError(error, diff);
     }
@@ -305,13 +307,14 @@ export class ReviewStageService {
    * Callers within ReviewStageService itself (e.g. `createReviewArtifact`) operate in single-repo context and omit it.
    */
   buildReviewArtifact(
-    ticket: TicketArtifact, review: CodeReview, sessionId?: string, repoScope?: string
+    ticket: TicketArtifact, review: CodeReview, sessionId?: string, repoScope?: string, modelUsed?: string
   ): ReviewArtifact {
     return {
       review,
       path: deriveReviewArtifactPath(ticket.path, repoScope),
       approved: review.approved,
       sessionId,
+      modelUsed,
     };
   }
 

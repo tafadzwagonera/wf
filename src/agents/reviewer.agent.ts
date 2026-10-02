@@ -71,8 +71,10 @@ export class ReviewerAgent {
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
     const repoDir = options.repoDir ?? process.cwd();
-    const { review, sessionId } = await this.runStages(ticket, repoDir, options, onProgress);
-    return this.reviewStageService.buildReviewArtifact(ticket, review, sessionId, this.deriveRepoScope(options));
+    const { review, sessionId, modelUsed } = await this.runStages(ticket, repoDir, options, onProgress);
+    return this.reviewStageService.buildReviewArtifact(
+      ticket, review, sessionId, this.deriveRepoScope(options), modelUsed
+    );
   }
 
   private async runStages(
@@ -128,7 +130,7 @@ export class ReviewerAgent {
     ticket: TicketArtifact, repoDir: string, options: ReviewerOptions,
     onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult,
     uiResult?: UiDesignScreenshotsResult
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
     const commentPolicyResult = await this.commentPolicyStageService?.scanIfEnabled(
       { diff, force: options.commentPolicy });
@@ -136,8 +138,8 @@ export class ReviewerAgent {
     const commentPolicyEnabled = commentPolicyResult !== undefined;
     const reviewOptions = this.buildDiffReviewOptions(ticket, repoDir, options,
       { onProgress, sonarResult, figmaResult, uiResult, commentPolicyEnabled });
-    const { review, sessionId } = await this.reviewStageService.reviewDiff(diff, reviewOptions);
-    return { review: mergeCommentPolicyIssues(review, commentPolicyResult), sessionId };
+    const { review, sessionId, modelUsed } = await this.reviewStageService.reviewDiff(diff, reviewOptions);
+    return { review: mergeCommentPolicyIssues(review, commentPolicyResult), sessionId, modelUsed };
   }
 
   private buildDiffReviewOptions(

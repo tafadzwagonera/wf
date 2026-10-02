@@ -1112,7 +1112,7 @@ export class StageAgentService {
     onProgress?: StageProgressCallback;
     priorStageSummary?: string;
     resumeProviderSessionId?: string;
-  }): Promise<{ plan: ResolutionPlan; sessionId?: string }> {
+  }): Promise<{ plan: ResolutionPlan; sessionId?: string; modelUsed?: string }> {
     const { content: response, sessionId, modelUsed } = await this.runStagePrompt({
       stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: planSystemPrompt,
       repoDir: process.cwd(), onProgress: params.onProgress,
@@ -1123,9 +1123,9 @@ export class StageAgentService {
 
   private parseStagePlanResponse(
     response: string, sessionId?: string, modelUsed?: string
-  ): { plan: ResolutionPlan; sessionId?: string } {
+  ): { plan: ResolutionPlan; sessionId?: string; modelUsed?: string } {
     try {
-      return { plan: this.parseAndValidatePlan(response, modelUsed), sessionId };
+      return { plan: this.parseAndValidatePlan(response, modelUsed), sessionId, modelUsed };
     } catch (error) {
       if (isAiProviderErrorLike(error)) throw error;
       return throwStageParseFailure('plan', response, sessionId, error);
@@ -1178,14 +1178,17 @@ export class StageAgentService {
   async reviewCode(
     diff: string, guidelines: string[], repoDir?: string, priorStageSummary?: string,
     resumeProviderSessionId?: string, onProgress?: StageProgressCallback, opts?: ReviewCodeOpts,
-  ): Promise<{ review: CodeReview; sessionId?: string }> {
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const systemPrompt = this.buildReviewSystemPrompt(opts?.screenshots);
     const prompt = buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.figmaContextSection);
     const base = { prompt, systemPrompt, repoDir, priorStageSummary, resumeProviderSessionId, onProgress };
-    const { content: response, sessionId } = await this.runReviewStagePrompt(
+    const { content: response, sessionId, modelUsed } = await this.runReviewStagePrompt(
       base, opts?.forkSession, opts?.screenshots,
     );
-    return this.parseStageReviewResponse(diff, response, sessionId, repoDir, systemPrompt, priorStageSummary);
+    const parsed = await this.parseStageReviewResponse(
+      diff, response, sessionId, repoDir, systemPrompt, priorStageSummary
+    );
+    return { ...parsed, modelUsed };
   }
 
   private async runReviewStagePrompt(

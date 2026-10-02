@@ -2250,6 +2250,24 @@ describe('OpenAIAgentAdapter', () => {
 
       expect(mockRun).toHaveBeenCalledWith(expect.anything(), 'custom override', expect.anything());
     });
+
+    it('resolves with modelsUsed containing the routed model', async () => {
+      const repoDir = createManagedTempDir('openai-modelsused');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      mockRunner.mockImplementation(() => ({
+        run: jest.fn(async () => mockRunResult),
+        config: {},
+      }));
+
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const result = await adapter.generateAndVerify(makeParams(repoDir));
+
+      expect(result.modelsUsed).toEqual([expect.any(String)]);
+    });
   });
 
   describe('validateTypeScriptEdit', () => {

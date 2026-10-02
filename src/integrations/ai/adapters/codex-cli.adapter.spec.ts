@@ -232,4 +232,17 @@ describe('CodexCliAdapter', () => {
 
     expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toBe('custom override');
   });
+
+  it('resolves with modelsUsed containing the configured model', async () => {
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 'codex-session', num_turns: 1 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    const result = await adapter.generateAndVerify(createBaseParams());
+
+    expect(result.modelsUsed).toEqual([expect.any(String)]);
+  });
 });

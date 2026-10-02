@@ -679,9 +679,6 @@ export class IssueCommand extends CommandRunner {
   private async finalizePlanSession(
     planArtifact: PlanArtifact | undefined, sessionState: SessionState | undefined
   ): Promise<SessionState | undefined> {
-    if (planArtifact?.sessionId && sessionState) {
-      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', planArtifact.sessionId);
-    }
     if (sessionState?.stages['plan'] && !sessionState.stages['plan'].completedAt) {
       sessionState = await this.sessionService.recordStageComplete(
         sessionState, 'plan', planArtifact?.plan?.summary ?? null
@@ -1229,6 +1226,12 @@ export class IssueCommand extends CommandRunner {
     sessionState &&= await this.recordStageStart(sessionState, 'plan');
 
     const planArtifact = await this.generatePlanArtifact(ticketArtifact, action, ctx);
+    if (sessionState && planArtifact.sessionId) {
+      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'plan', planArtifact.sessionId);
+    }
+    if (sessionState && planArtifact.modelUsed) {
+      sessionState = await this.sessionService.recordStageModels(sessionState, 'plan', [planArtifact.modelUsed]);
+    }
     await this.offerPlanChat(ticketArtifact, planArtifact, ctx);
 
     return { planArtifact, sessionState };
@@ -1301,8 +1304,9 @@ export class IssueCommand extends CommandRunner {
     sessionState = started;
     const expandedRepos = await this.prepareImplementRepos(repos, planArtifact, options);
     const result = await this.runImplementLoop(
-      ticketArtifact, planArtifact, expandedRepos, options, sessionContext, primaryRepo
+      ticketArtifact, planArtifact, expandedRepos, options, sessionContext, primaryRepo, sessionState
     );
+    sessionState = result.sessionState ?? sessionState;
     if (result.earlyReturn) return { ...result, expandedRepos, sessionState };
     sessionState = await this.finalizeImplementSession(
       sessionState, result.implementerResult, planArtifact, result.primaryRepoSessionId
@@ -1483,11 +1487,13 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
     repos: (string | undefined)[], options: IssueOptions,
     sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
-    primaryRepo: string | undefined
+    primaryRepo: string | undefined,
+    sessionState?: SessionState
   ): Promise<{
     implementerResult: ImplementerResult | undefined;
     earlyReturn: boolean;
     primaryRepoSessionId?: string;
+    sessionState?: SessionState | undefined;
   }> {
     const isMultiRepo = repos.length > 1;
     let implementerResult: ImplementerResult | undefined;
@@ -1504,10 +1510,13 @@ export class IssueCommand extends CommandRunner {
         && resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo)) {
         primaryRepoSessionId = result.implementerResult.sessionId;
       }
-      if (result.earlyReturn) return { ...result, primaryRepoSessionId };
+      if (sessionState && primaryRepoSessionId) {
+        sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', primaryRepoSessionId);
+      }
+      if (result.earlyReturn) return { ...result, primaryRepoSessionId, sessionState };
       ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));
     }
-    return { ...this.finalizeImplementResult(implementerResult, anyHasChanges), primaryRepoSessionId };
+    return { ...this.finalizeImplementResult(implementerResult, anyHasChanges), primaryRepoSessionId, sessionState };
   }
 
   private mergeImplementResult(
@@ -1586,13 +1595,14 @@ export class IssueCommand extends CommandRunner {
     const passCount = implementerResult?.type === 'implementation' ? implementerResult.passCount : undefined;
     const estimatedComplexity = planArtifact?.plan.estimatedComplexity;
     const { prepared, forkSession } = await this.resolveReviewFork(sessionState, implementerResult, planArtifact);
-    sessionState = prepared.sessionState;
     this.printStageHeader(repos.length > 1, options?.silent, '🔍 STAGE 4: Code Review');
-    const reviewArtifact = await this.runReviewLoop(
+    const { reviewArtifact, sessionState: loopState } = await this.runReviewLoop(
       ticketArtifact, planArtifact, repos, options,
-      { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount }, ticketKey, primaryRepo
+      { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount },
+      { ticketKey, primaryRepo },
+      prepared.sessionState
     );
-    sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
+    sessionState = loopState;
     sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'review', null);
     return { reviewArtifact, sessionState };
   }
@@ -1642,30 +1652,48 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions,
     sessionContext: ReviewLoopContext,
-    ticketKey: string,
-    primaryRepo: string | undefined
-  ): Promise<ReviewArtifact | null> {
+    { ticketKey, primaryRepo }: { ticketKey: string; primaryRepo: string | undefined },
+    sessionState: SessionState | undefined
+  ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
     const reviewContext = this.createReviewRepoContext(
       ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey, primaryRepo
     );
-    const reviewArtifacts = await this.collectReviewArtifacts(repos, reviewContext);
-    return reviewArtifacts.at(-1) ?? null;
+    const { reviewArtifacts, sessionState: updated } = await this.collectReviewArtifacts(
+      repos, reviewContext, sessionState
+    );
+    return { reviewArtifact: reviewArtifacts.at(-1) ?? null, sessionState: updated };
+  }
+
+  private async recordAndPresentReviewArtifact(
+    reviewArtifact: ReviewArtifact, reviewContext: ReviewRepoContext, sessionState: SessionState | undefined
+  ): Promise<SessionState | undefined> {
+    sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
+    if (sessionState && reviewArtifact.modelUsed) {
+      sessionState = await this.sessionService.recordStageModels(sessionState, 'review', [reviewArtifact.modelUsed]);
+    }
+    await this.persistAndPresentReview(
+      reviewContext.ticketArtifact, reviewContext.planArtifact, reviewArtifact, reviewContext
+    );
+    return sessionState;
   }
 
   private async collectReviewArtifacts(
     repos: (string | undefined)[],
-    reviewContext: ReviewRepoContext
-  ): Promise<ReviewArtifact[]> {
+    reviewContext: ReviewRepoContext,
+    sessionState: SessionState | undefined
+  ): Promise<{ reviewArtifacts: ReviewArtifact[]; sessionState: SessionState | undefined }> {
     const reviewArtifacts: ReviewArtifact[] = [];
     for (const repo of repos) {
       try {
         const reviewArtifact = await this.runReviewForRepo(repo, reviewContext);
-        if (reviewArtifact) reviewArtifacts.push(reviewArtifact);
+        if (!reviewArtifact) continue;
+        sessionState = await this.recordAndPresentReviewArtifact(reviewArtifact, reviewContext, sessionState);
+        reviewArtifacts.push(reviewArtifact);
       } catch (error) {
         this.handleReviewLoopError(error, repo, repos, reviewContext.options);
       }
     }
-    return reviewArtifacts;
+    return { reviewArtifacts, sessionState };
   }
 
   private handleReviewLoopError(
@@ -1706,7 +1734,6 @@ export class IssueCommand extends CommandRunner {
     });
     if (!reviewArtifact) return null;
 
-    await this.persistAndPresentReview(ticketArtifact, planArtifact, reviewArtifact, reviewContext);
     return reviewArtifact;
   }
 
@@ -1967,6 +1994,10 @@ export class IssueCommand extends CommandRunner {
   private resolveStageModel(stage: string): string {
     const stageModel = this.configService.get<string>(`stages.${stage}.model`);
     if (stageModel) return stageModel;
+    if (stage === 'implement') {
+      const implementModels = this.configService.get<{ default?: string }>('stages.implement.models');
+      if (implementModels?.default) return implementModels.default;
+    }
     const provider = this.configService.get<string>(`stages.${stage}.provider`)
       ?? this.configService.get<string>('ai.provider', 'anthropic');
     return resolveProviderModel(this.configService, provider, '');

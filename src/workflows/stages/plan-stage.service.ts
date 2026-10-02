@@ -30,7 +30,7 @@ import type { RepoConventionsContext,
 } from '../../shared/types/detection.types';
 import type { ReuseCandidateContext } from '../../shared/utils/detect-reuse-candidates';
 
-type PlanResult = { plan: ResolutionPlan; sessionId?: string };
+type PlanResult = { plan: ResolutionPlan; sessionId?: string; modelUsed?: string };
 
 interface PlanGenerationContext {
   ticketContent: string;
@@ -194,7 +194,7 @@ export class PlanStageService {
   async createPlanArtifact(ticket: TicketArtifact, options: PlannerOptions): Promise<PlanArtifact> {
     const cached = await this.tryReuseCachedPlan(ticket, options, path.dirname(ticket.path));
     if (cached) return cached;
-    const { plan, sessionId, figmaLinks } = await this.executePlanGeneration(ticket, options);
+    const { plan, sessionId, modelUsed, figmaLinks } = await this.executePlanGeneration(ticket, options);
     if (this.isFigmaEnabled(options) && !figmaLinks.length) this.warnNoFigmaLinks(this.isInteractiveSession() ? 'no-links-found' : 'non-interactive-session');
     this.enrichPlanWithDirectoryConfigs(plan, options.repoDir ?? process.cwd());
     const result = this.persistPlanArtifact(
@@ -202,7 +202,7 @@ export class PlanStageService {
       hashPlanArtifactSources([ticket.ticketKey]), ticket.ticketKey, options.sourceKind,
       { figmaLinks, uiDesignScreenshots: options.uiDesignScreenshots ?? [] },
     );
-    return { ...result, sessionId };
+    return { ...result, sessionId, modelUsed };
   }
 
   private isFigmaEnabled(options: PlannerOptions): boolean {
@@ -220,7 +220,7 @@ export class PlanStageService {
   private async executePlanGeneration(ticket: TicketArtifact, options: PlannerOptions) {
     const figmaEnabled = this.isFigmaEnabled(options);
     const autoLinks = figmaEnabled ? extractFigmaLinks(ticket.content) : [];
-    const { plan, sessionId } = await this.generatePlan(
+    const { plan, sessionId, modelUsed } = await this.generatePlan(
       ticket.content, this.buildPlanGenerationOptions(ticket, options, autoLinks)
     );
     const figmaLinks = figmaEnabled
@@ -228,7 +228,7 @@ export class PlanStageService {
           ticket.content, autoLinks, { allowPrompt: this.isInteractiveSession(), repoDir: options.repoDir }
         )
       : [];
-    return { plan, sessionId, figmaLinks };
+    return { plan, sessionId, modelUsed, figmaLinks };
   }
 
   async loadPlanArtifact(ticketPath: string, action?: ResolutionAction, repoDir?: string): Promise<PlanArtifact> {

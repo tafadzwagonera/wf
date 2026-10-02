@@ -317,10 +317,16 @@ export class CodexCliAdapter implements ImplementerBackend {
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
     const repoDir = params.options.repoDir ?? process.cwd();
     assertCodexCliAvailable();
     const model = resolveCodexModel(params.options, params.planArtifact, this.configService);
+    return this.runCodexSession(params, model, repoDir);
+  }
+
+  private async runCodexSession(
+    params: GenerateAndVerifyParams, model: string, repoDir: string
+  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
     const activityState: ActivityState = { verificationOutcomes: [] };
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
@@ -328,7 +334,8 @@ export class CodexCliAdapter implements ImplementerBackend {
       params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs,
     );
     await discoverChangedFiles(repoDir, touchedFiles);
-    return this.finalizeCodexSession(params, activityState, touchedFiles, sessionId, model);
+    const finalized = await this.finalizeCodexSession(params, activityState, touchedFiles, sessionId, model);
+    return { ...finalized, modelsUsed: [model] };
   }
 
   private logSessionSummary(touchedFiles: Set<string>, sessionId: string | undefined): void {

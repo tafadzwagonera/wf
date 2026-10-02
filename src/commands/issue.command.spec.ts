@@ -103,6 +103,7 @@ const mockSessionService = {
   findByTicketKey: jest.fn().mockResolvedValue(null),
   recordStageStart: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordProviderSessionId: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  recordStageModels: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordStageComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordSourceBranch: jest.fn().mockImplementation((session, sourceBranch) =>
     Promise.resolve({ ...session, sourceBranch })),
@@ -160,6 +161,8 @@ const resetMockSessionService = (): void => {
   mockSessionService.recordStageStart.mockImplementation(session => Promise.resolve(session));
   mockSessionService.recordProviderSessionId.mockReset();
   mockSessionService.recordProviderSessionId.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.recordStageModels.mockReset();
+  mockSessionService.recordStageModels.mockImplementation(session => Promise.resolve(session));
   mockSessionService.recordStageComplete.mockReset();
   mockSessionService.recordStageComplete.mockImplementation(session => Promise.resolve(session));
   mockSessionService.markComplete.mockReset();
@@ -2532,10 +2535,10 @@ describe('IssueCommand', () => {
         ['repo-1', 'repo-2'],
         {},
         { resumeProviderSessionId: 'review-sess-1', forkSession: true },
-        'WBP-SKIP'
+        { ticketKey: 'WBP-SKIP', primaryRepo: undefined }
       );
 
-      expect(result).toEqual(expect.objectContaining({ path: '/tmp/review-2.md', sessionId: 'review-sess-2' }));
+      expect(result.reviewArtifact).toEqual(expect.objectContaining({ path: '/tmp/review-2.md', sessionId: 'review-sess-2' }));
       expect(mockReviewerExecute).toHaveBeenCalledTimes(2);
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Review failed for repo-1'));
       expect(mockPersistArtifact).toHaveBeenCalledWith(expect.objectContaining({ path: '/tmp/review-2.md' }), 'WBP-SKIP');
@@ -3439,6 +3442,292 @@ describe('IssueCommand', () => {
       expect(initializeWfConfig).toHaveBeenCalledTimes(2);
       expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/tmp/consumer-app/repo-a');
       expect(initializeWfConfig).toHaveBeenNthCalledWith(2, '/tmp/consumer-app/repo-b');
+    });
+  });
+
+  describe('recording order and models threading', () => {
+    const planHash = hashPlanArtifactSources(['WBP-RECTEST']);
+    const planFilename = `2026-07-22-${planHash}-fix-plan.json`;
+    const customDir = path.join(getWfHomeDir(), 'consumer-app');
+    const planPath = path.join(customDir, planFilename);
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+
+    const planJson = JSON.stringify({
+      action: 'fix', summary: 'Test plan', estimatedComplexity: 'low',
+      steps: ['Step 1'], affectedFiles: ['src/test.ts'], affectedRepositories: [],
+    });
+
+    const manifestJson = JSON.stringify({
+      artifactPath: planPath, action: 'fix',
+      createdAt: new Date('2026-07-22T00:00:00.000Z').toISOString(),
+      format: 'json', hash: planHash, sourceKind: 'custom', sourceName: 'WBP-RECTEST',
+    });
+
+    const buildCmd = async (mockOrchestrator: Record<string, unknown>): Promise<IssueCommand> => {
+      const module = await Test.createTestingModule({
+        providers: [
+          IssueCommand,
+          { provide: ConversationService, useValue: {} },
+          { provide: LoggerService, useValue: {
+            info: jest.fn(), warn: jest.fn(), error: jest.fn(), success: jest.fn(),
+          } },
+          {
+            provide: ConfigService,
+            useValue: { get: jest.fn((key: string, defaultValue?: string) => key === 'tracker' ? 'jira' : defaultValue) },
+          },
+          {
+            provide: DryRunPreviewService,
+            useValue: {
+              showHeader: jest.fn(), showStageHeader: jest.fn(), showSummary: jest.fn(),
+              showValidationResult: jest.fn(), showSkipped: jest.fn(), showNoSideEffects: jest.fn(),
+              previewApiCall: jest.fn(), previewFileRead: jest.fn(), previewFileWrite: jest.fn(),
+            },
+          },
+          { provide: AgentOrchestrator, useValue: mockOrchestrator },
+          { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'), getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions') } },
+          { provide: SessionService, useValue: mockSessionService },
+          { provide: ReviewPresenter, useValue: {
+            displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]),
+          } },
+        ],
+      }).compile();
+      return module.get(IssueCommand);
+    };
+
+    const stubFs = (): void => {
+      jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation(
+        (input: string) => String(input) === planPath || String(input) === manifestPath,
+      );
+      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
+        const p = String(input);
+        if (p === manifestPath) return manifestJson;
+        if (p === planPath) return planJson;
+        return '';
+      });
+    };
+
+    beforeEach(() => {
+      (selectProviderSession as jest.Mock).mockResolvedValue({ kind: 'new' });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+    });
+
+    it('records plan providerSessionId before the discuss-plan prompt', async () => {
+      const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-RECPLAN.md');
+      const ticketPlanPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-RECPLAN-fix-plan.json');
+      const callOrder: string[] = [];
+
+      mockSessionService.recordProviderSessionId.mockImplementation((s: any, stage: string) => {
+        callOrder.push(`record:${stage}`);
+        return Promise.resolve(s);
+      });
+      (inquirer.prompt as unknown as jest.Mock).mockImplementation(async () => {
+        callOrder.push('prompt:plan');
+        return { startChat: false };
+      });
+
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({ ticketKey: 'WBP-RECPLAN', content: '#', path: ticketPath }),
+        },
+        planner: {
+          execute: jest.fn().mockResolvedValue({
+            plan: { action: 'fix', summary: 'Plan', estimatedComplexity: 'low', steps: [], affectedFiles: [], affectedRepositories: [] },
+            action: 'fix', path: ticketPlanPath, fromCache: false, sessionId: 'plan-sess-1', modelUsed: 'claude-sonnet-4-6',
+          }),
+        },
+      };
+
+      setInteractiveSession();
+      jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      const command = await buildCmd(mockOrchestrator);
+      await command.run(['WBP-RECPLAN'], { from: 'plan', to: 'plan', action: 'fix' });
+
+      const recordIdx = callOrder.indexOf('record:plan');
+      const promptIdx = callOrder.indexOf('prompt:plan');
+      expect(recordIdx).toBeGreaterThanOrEqual(0);
+      expect(promptIdx).toBeGreaterThanOrEqual(0);
+      expect(recordIdx).toBeLessThan(promptIdx);
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(expect.any(Object), 'plan', 'plan-sess-1');
+    });
+
+    it('records plan modelUsed after plan artifact is generated', async () => {
+      const ticketPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-RECPLAN2.md');
+      const ticketPlanPath = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'WBP-RECPLAN2-fix-plan.json');
+
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({ ticketKey: 'WBP-RECPLAN2', content: '#', path: ticketPath }),
+        },
+        planner: {
+          execute: jest.fn().mockResolvedValue({
+            plan: { action: 'fix', summary: 'Plan', estimatedComplexity: 'low', steps: [], affectedFiles: [], affectedRepositories: [] },
+            action: 'fix', path: ticketPlanPath, fromCache: false, sessionId: 'plan-sess-2', modelUsed: 'claude-sonnet-4-6',
+          }),
+        },
+      };
+
+      jest.spyOn(require('fs'), 'readdirSync').mockReturnValue([] as any);
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
+      jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      const command = await buildCmd(mockOrchestrator);
+      await command.run(['WBP-RECPLAN2'], { from: 'plan', to: 'plan', action: 'fix' });
+
+      expect(mockSessionService.recordStageModels).toHaveBeenCalledWith(expect.any(Object), 'plan', ['claude-sonnet-4-6']);
+    });
+
+    it('records review providerSessionId before the discuss-review prompt', async () => {
+      const callOrder: string[] = [];
+
+      mockSessionService.recordProviderSessionId.mockImplementation((s: any, stage: string) => {
+        callOrder.push(`record:${stage}`);
+        return Promise.resolve(s);
+      });
+      (inquirer.prompt as unknown as jest.Mock).mockImplementation(async () => {
+        callOrder.push('prompt:review');
+        return { startChat: false };
+      });
+
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-RECTEST', content: '# WBP-RECTEST', path: path.join('/tmp/consumer-app', 'jira', 'WBP-RECTEST.md'),
+          }),
+        },
+        reviewer: {
+          execute: jest.fn().mockResolvedValue({
+            review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+            path: '/tmp/review.md', approved: true, sessionId: 'review-sess-abc',
+          }),
+          persistArtifact: jest.fn(),
+        },
+      };
+
+      setInteractiveSession();
+      stubFs();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      const command = await buildCmd(mockOrchestrator);
+      await command.run([planFilename], { from: 'review', to: 'review' });
+
+      const recordIdx = callOrder.indexOf('record:review');
+      const promptIdx = callOrder.indexOf('prompt:review');
+      expect(recordIdx).toBeGreaterThanOrEqual(0);
+      expect(promptIdx).toBeGreaterThanOrEqual(0);
+      expect(recordIdx).toBeLessThan(promptIdx);
+    });
+
+    it('records review modelUsed after review artifact is generated', async () => {
+      const mockOrchestrator = {
+        fetcher: {
+          loadFromDisk: jest.fn().mockReturnValue({
+            ticketKey: 'WBP-RECTEST', content: '# WBP-RECTEST', path: path.join('/tmp/consumer-app', 'jira', 'WBP-RECTEST.md'),
+          }),
+        },
+        reviewer: {
+          execute: jest.fn().mockResolvedValue({
+            review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+            path: '/tmp/review.md', approved: true, sessionId: 'review-sess-abc', modelUsed: 'claude-sonnet-4-6',
+          }),
+          persistArtifact: jest.fn(),
+        },
+      };
+
+      stubFs();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      const command = await buildCmd(mockOrchestrator);
+      await command.run([planFilename], { from: 'review', to: 'review' });
+
+      expect(mockSessionService.recordStageModels).toHaveBeenCalledWith(expect.any(Object), 'review', ['claude-sonnet-4-6']);
+    });
+
+    it('records review sessionId from first repo even when second repo throws', async () => {
+      const mockReviewerExecute = jest.fn()
+        .mockResolvedValueOnce({
+          review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+          path: '/tmp/review-1.md', approved: true, sessionId: 'r1',
+        })
+        .mockRejectedValueOnce(new Error('repo-2 failed'));
+
+      const mockOrchestrator = {
+        reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() },
+      };
+
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const command = await buildCmd(mockOrchestrator);
+      await (command as any).collectReviewArtifacts(
+        ['repo-1', 'repo-2'],
+        {
+          isMultiRepo: true,
+          options: {},
+          planArtifact: undefined,
+          primaryRepo: undefined,
+          repos: ['repo-1', 'repo-2'],
+          sessionContext: {},
+          ticketArtifact: { ticketKey: 'WBP-RECTEST', content: '#', path: '/tmp/consumer-app/jira/WBP-RECTEST.md' },
+          ticketKey: 'WBP-RECTEST',
+        },
+        createMockSessionState(),
+      );
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(expect.any(Object), 'review', 'r1');
+    });
+  });
+
+  describe('resolveStageModel implement models.default', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('uses stages.implement.models.default when stages.implement.model is not set', async () => {
+      const command = await buildCommand();
+      (command as any).configService.get = jest.fn((key: string, defaultValue?: unknown) => {
+        if (key === 'stages.implement.model') return undefined;
+        if (key === 'stages.implement.models') return { default: 'gpt-5.5-terra' };
+        return defaultValue;
+      });
+
+      await (command as any).recordStageStart(createMockSessionState(), 'implement');
+
+      expect(mockSessionService.recordStageStart).toHaveBeenCalledWith(
+        expect.any(Object), 'implement', expect.any(Object), 'gpt-5.5-terra'
+      );
+    });
+
+    it('prefers stages.implement.model over stages.implement.models.default', async () => {
+      const command = await buildCommand();
+      (command as any).configService.get = jest.fn((key: string, defaultValue?: unknown) => {
+        if (key === 'stages.implement.model') return 'explicit-model';
+        if (key === 'stages.implement.models') return { default: 'gpt-5.5-terra' };
+        return defaultValue;
+      });
+
+      await (command as any).recordStageStart(createMockSessionState(), 'implement');
+
+      expect(mockSessionService.recordStageStart).toHaveBeenCalledWith(
+        expect.any(Object), 'implement', expect.any(Object), 'explicit-model'
+      );
     });
   });
 });

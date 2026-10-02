@@ -840,6 +840,17 @@ describe('AnthropicAgentAdapter', () => {
         fs.rmSync(homeDir, { recursive: true, force: true });
       }
     });
+
+    it('resolves with modelsUsed containing the routed model', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      const result = await adapter.generateAndVerify(makeParams());
+
+      expect(result.modelsUsed).toEqual([expect.any(String)]);
+    });
   });
 
   describe('incomplete-work loop stall detection', () => {
