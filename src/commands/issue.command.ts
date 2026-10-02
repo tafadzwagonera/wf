@@ -51,7 +51,7 @@ import * as crypto from 'node:crypto';
 import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
 import { selectProviderSession, type ProviderSessionSelection } from '../shared/utils/provider-session-prompt';
 
-const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
+const wfConfigExtensions = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
 type ReviewLoopContext = {
   resumeProviderSessionId?: string;
@@ -61,7 +61,7 @@ type ReviewLoopContext = {
   passCount?: number;
 };
 
-const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
+const validModelRouting: ModelRouting[] = ['auto', 'default', 'mechanical'];
 enum WorkflowStage {
   FETCH = 'fetch',
   PLAN = 'plan',
@@ -70,7 +70,7 @@ enum WorkflowStage {
   COMMIT = 'commit',
 }
 
-const STAGE_ORDER = [
+const stageOrder = [
   WorkflowStage.FETCH,
   WorkflowStage.PLAN,
   WorkflowStage.IMPLEMENT,
@@ -232,9 +232,9 @@ export class IssueCommand extends CommandRunner {
       'Model selection strategy for implement stage: auto (complexity, targeted-write, step-count, and pattern routing), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
-    if (!VALID_MODEL_ROUTING.includes(val as ModelRouting)) {
+    if (!validModelRouting.includes(val as ModelRouting)) {
       throw new ValidationError(
-        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTING.join(', ')}`
+        `Invalid --model-routing value: ${val}. Must be one of: ${validModelRouting.join(', ')}`
       );
     }
     return val;
@@ -517,7 +517,7 @@ export class IssueCommand extends CommandRunner {
       fromStage = WorkflowStage.PLAN;
     }
 
-    if (STAGE_ORDER.indexOf(fromStage) > STAGE_ORDER.indexOf(toStage)) {
+    if (stageOrder.indexOf(fromStage) > stageOrder.indexOf(toStage)) {
       throw new ValidationError(
         `Invalid stage range: --from ${fromStage} --to ${toStage}. `
         + `The --from stage must come before or equal the --to stage.`
@@ -1424,7 +1424,7 @@ export class IssueCommand extends CommandRunner {
     const missing = resolved
       .map(r => {
         const dirExists = fs.existsSync(r.dir);
-        const configExists = dirExists && WF_CONFIG_EXTENSIONS.some(ext =>
+        const configExists = dirExists && wfConfigExtensions.some(ext =>
           fs.existsSync(path.join(r.dir, `wf.config${ext}`))
         );
         if (dirExists && configExists) return null;
@@ -1818,14 +1818,14 @@ export class IssueCommand extends CommandRunner {
   }
 
   private getStagesToRun(from: WorkflowStage, to: WorkflowStage): WorkflowStage[] {
-    const fromIndex = STAGE_ORDER.indexOf(from);
-    const toIndex = STAGE_ORDER.indexOf(to);
+    const fromIndex = stageOrder.indexOf(from);
+    const toIndex = stageOrder.indexOf(to);
 
     if (fromIndex > toIndex) {
       throw new ValidationError(`Invalid stage range: --from ${from} --to ${to}. 'from' must come before 'to'.`);
     }
 
-    return STAGE_ORDER.slice(fromIndex, toIndex + 1);
+    return stageOrder.slice(fromIndex, toIndex + 1);
   }
 
   /**

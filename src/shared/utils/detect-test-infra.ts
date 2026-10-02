@@ -16,9 +16,9 @@ import type {
 
 export type { Ecosystem, EcosystemInfra, NodeInfra, TerraformInfra, PythonInfra, GoInfra, TestInfraContext } from '../types/detection.types';
 
-const NODE_FRAMEWORKS: NodeFramework[] = ['jest', 'vitest', 'mocha', 'tap', 'ava'];
+const nodeFrameworks: NodeFramework[] = ['jest', 'vitest', 'mocha', 'tap', 'ava'];
 
-const RELEVANT_SCRIPT_PATTERN = /^test|^lint$|^typecheck$|^build$|^check$/;
+const relevantScriptPattern = /^test|^lint$|^typecheck$|^build$|^check$/;
 
 /**
  * Parse the major Node.js version from a version string, `.nvmrc`, or `.node-version` content.
@@ -43,10 +43,10 @@ const readFileOrNull = (filePath: string): string | null => {
   }
 };
 
-const TEST_FILE_PATTERN = /\.(spec|test)\.(ts|tsx|js|jsx)$/;
-const CLEANUP_CALL_PATTERN = /(\w+)\.(restoreAllMocks|resetAllMocks|clearAllMocks)\(\)/g;
-const HELPER_PATTERNS = [/test-utils/, /test-helper/, /__mocks__/, /fixtures/, /test-setup/];
-const CLEANUP_METHODS = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'] as const;
+const testFilePattern = /\.(spec|test)\.(ts|tsx|js|jsx)$/;
+const cleanupCallPattern = /(\w+)\.(restoreAllMocks|resetAllMocks|clearAllMocks)\(\)/g;
+const helperPatterns = [/test-utils/, /test-helper/, /__mocks__/, /fixtures/, /test-setup/];
+const cleanupMethods = ['restoreAllMocks', 'resetAllMocks', 'clearAllMocks'] as const;
 
 const readTestFiles = (testFiles: string[]): Map<string, string> => {
   const contents = new Map<string, string>();
@@ -88,7 +88,7 @@ const scanFileCleanupCalls = (
   acc: { counts: Record<string, number>; files: Set<string>; namespaces: Record<string, number> },
 ): void => {
   const seenMethods = new Set<string>();
-  for (const [, namespace, method] of content.matchAll(new RegExp(CLEANUP_CALL_PATTERN.source, 'g'))) {
+  for (const [, namespace, method] of content.matchAll(new RegExp(cleanupCallPattern.source, 'g'))) {
     if (!seenMethods.has(method)) {
       acc.counts[method]++;
       seenMethods.add(method);
@@ -110,10 +110,10 @@ const scanCleanupPatterns = (contents: Map<string, string>) => {
 
 const resolveMockCleanup = (
   cleanup: ReturnType<typeof scanCleanupPatterns>,
-): { namespace: string; method: (typeof CLEANUP_METHODS)[number] } | null => {
+): { namespace: string; method: (typeof cleanupMethods)[number] } | null => {
   if (cleanup.filesWithCleanup.size === 0) return null;
   const threshold = cleanup.filesWithCleanup.size * 0.5;
-  const dominantMethod = CLEANUP_METHODS.find(m => cleanup.cleanupCounts[m] >= threshold) ?? null;
+  const dominantMethod = cleanupMethods.find(m => cleanup.cleanupCounts[m] >= threshold) ?? null;
   if (!dominantMethod) return null;
   const dominantNamespace = Object.entries(cleanup.namespaceCounts).sort(([, a], [, b]) => b - a)[0][0];
   return { namespace: dominantNamespace, method: dominantMethod };
@@ -142,7 +142,7 @@ const detectErrorHandlerExits = (repoDir: string, skipDirs: Set<string>): boolea
 };
 
 const detectHelperPaths = (repoDir: string, skipDirs: Set<string>): string[] =>
-  walkDir(repoDir, f => HELPER_PATTERNS.some(p => p.test(f)), skipDirs)
+  walkDir(repoDir, f => helperPatterns.some(p => p.test(f)), skipDirs)
     .slice(0, 10)
     .map(f => path.relative(repoDir, f));
 
@@ -170,7 +170,7 @@ const assembleTestPatterns = (
 const detectTestPatterns = (repoDir: string): NodeInfra['testPatterns'] => {
   const skipDirs = buildSkipDirs(repoDir);
   const scanRoot = fs.existsSync(path.join(repoDir, 'src')) ? path.join(repoDir, 'src') : repoDir;
-  const testFiles = walkDir(scanRoot, f => TEST_FILE_PATTERN.test(f), skipDirs).slice(0, 20);
+  const testFiles = walkDir(scanRoot, f => testFilePattern.test(f), skipDirs).slice(0, 20);
   if (testFiles.length === 0) return undefined;
   return assembleTestPatterns(testFiles, readTestFiles(testFiles), repoDir, skipDirs);
 };
@@ -207,7 +207,7 @@ const resolveNodeVersion = (repoDir: string, engines: { node?: string } | undefi
 const filterRelevantScripts = (scripts: Record<string, string>): Record<string, string> => {
   const relevant: Record<string, string> = {};
   for (const [name, value] of Object.entries(scripts)) {
-    if (RELEVANT_SCRIPT_PATTERN.test(name)) relevant[name] = value;
+    if (relevantScriptPattern.test(name)) relevant[name] = value;
   }
   return relevant;
 };
@@ -218,7 +218,7 @@ const buildNodeInfra = (pkg: PackageJson, repoDir: string, nodeVersionMajor: num
     ecosystem: 'node',
     nodeVersionMajor,
     hasNodeTest: nodeVersionMajor !== null && nodeVersionMajor >= 18,
-    frameworks: NODE_FRAMEWORKS.filter(fw => fw in { ...pkg.dependencies, ...pkg.devDependencies }),
+    frameworks: nodeFrameworks.filter(fw => fw in { ...pkg.dependencies, ...pkg.devDependencies }),
     scripts: filterRelevantScripts(allScripts),
     allScriptNames: Object.keys(allScripts),
     testPatterns: detectTestPatterns(repoDir),
@@ -412,7 +412,7 @@ const buildNodeVerificationRules = (packageManager: PackageManager): string[] =>
   '- Verification commands MUST be shell-safe by construction. For inline `node -e`, prefer single-quoted JS strings or properly escaped backticks — never rely on unescaped template literals inside double-quoted shell strings.',
 ];
 
-const TERRAFORM_VERIFICATION_RULES: string[] = [
+const terraformVerificationRules: string[] = [
   '- Use "terraform validate" for syntax/config checks, "terraform plan" for drift detection.',
   '- Prefer targeted: "terraform plan -target=module.foo" over bare "terraform plan".',
   '- "terraform fmt" must use -check and list the affected .tf files explicitly (e.g. "terraform fmt -check main.tf variables.tf") — never bare, never -recursive.',
@@ -436,7 +436,7 @@ const formatVerificationRules = (ctx: TestInfraContext, packageManager: PackageM
     '- Reference ONLY the scripts and binaries listed above. Do not invent scripts.',
     '- Each command must verify a specific side effect of THIS plan — not run a generic suite.',
     ...(nodeEco ? buildNodeVerificationRules(packageManager) : []),
-    ...(tfEco ? TERRAFORM_VERIFICATION_RULES : []),
+    ...(tfEco ? terraformVerificationRules : []),
     '- Every command must be copy-paste-runnable from the repo root.',
     ...(nodeEco ? formatAllowedCommandForms(nodeEco, packageManager) : []),
   ];

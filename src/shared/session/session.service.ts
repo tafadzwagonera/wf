@@ -14,11 +14,11 @@ import type {
 import { getWfSessionDir } from '../utils/wf-paths';
 import { appendToLogFile } from '../logger/log-file-writer';
 
-const STAGE_ORDER = ['plan', 'implement', 'review', 'commit'];
-const RESUME_STAGE_ORDER = ['fetch', ...STAGE_ORDER];
+const stageOrder = ['plan', 'implement', 'review', 'commit'];
+const resumeStageOrder = ['fetch', ...stageOrder];
 const DEFAULT_TTL_DAYS = 7;
 
-const RESUMABLE_COMBINATIONS = new Set([
+const resumableCombinations = new Set([
   'anthropic/agent',
   'anthropic/cli',
   'openai/cli',
@@ -29,7 +29,7 @@ const RESUMABLE_COMBINATIONS = new Set([
  * @returns True when the backend can resume from a prior session ID
  */
 export const isResumableBackend = (fingerprint: StageConfigFingerprint): boolean =>
-  RESUMABLE_COMBINATIONS.has(`${fingerprint.provider}/${fingerprint.backend}`);
+  resumableCombinations.has(`${fingerprint.provider}/${fingerprint.backend}`);
 
 type ResumeWarningContext = {
   configChanged: boolean;
@@ -314,10 +314,10 @@ export class SessionService {
   }
 
   inferNextStage(session: SessionState): string | null {
-    const lastCompleted = RESUME_STAGE_ORDER.findLastIndex(stage => session.stages[stage]?.completedAt);
+    const lastCompleted = resumeStageOrder.findLastIndex(stage => session.stages[stage]?.completedAt);
     if (lastCompleted < 0) return session.sourceType === 'custom' ? 'plan' : 'fetch';
-    if (lastCompleted >= RESUME_STAGE_ORDER.length - 1) return null;
-    return RESUME_STAGE_ORDER[lastCompleted + 1];
+    if (lastCompleted >= resumeStageOrder.length - 1) return null;
+    return resumeStageOrder[lastCompleted + 1];
   }
 
   async deleteBySessionId(sessionId: string): Promise<boolean> {
@@ -454,11 +454,11 @@ export class SessionService {
   }
 
   private findPriorSummary(session: SessionState, nextStage: string): string | null {
-    const nextIndex = STAGE_ORDER.indexOf(nextStage);
+    const nextIndex = stageOrder.indexOf(nextStage);
     if (nextIndex <= 0) return null;
 
     for (let i = nextIndex - 1; i >= 0; i--) {
-      const priorRecord = session.stages[STAGE_ORDER[i]];
+      const priorRecord = session.stages[stageOrder[i]];
       if (priorRecord?.completedAt && priorRecord.summary) return priorRecord.summary;
     }
     return null;
@@ -504,9 +504,9 @@ export class SessionService {
 
   private resolvePriorStageResume(session: SessionState, nextStage: string,
     currentFingerprint: StageConfigFingerprint, warnings: string[]): ProviderSessionCandidate | null {
-    const nextIndex = STAGE_ORDER.indexOf(nextStage);
+    const nextIndex = stageOrder.indexOf(nextStage);
     for (let i = nextIndex - 1; i >= 0; i--) {
-      const stageName = STAGE_ORDER[i];
+      const stageName = stageOrder[i];
       const record = session.stages[stageName];
       if (!record?.completedAt) continue;
       if (this.canResumeStageRecord(record, currentFingerprint)) {
