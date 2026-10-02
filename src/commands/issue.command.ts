@@ -1509,9 +1509,9 @@ export class IssueCommand extends CommandRunner {
       if (result.implementerResult?.type === 'implementation'
         && resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo)) {
         primaryRepoSessionId = result.implementerResult.sessionId;
-      }
-      if (sessionState && primaryRepoSessionId) {
-        sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', primaryRepoSessionId);
+        if (sessionState && primaryRepoSessionId) {
+          sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', primaryRepoSessionId);
+        }
       }
       if (result.earlyReturn) return { ...result, primaryRepoSessionId, sessionState };
       ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));

@@ -3222,6 +3222,28 @@ describe('IssueCommand', () => {
       expect(result.earlyReturn).toBe(true);
       expect(result.primaryRepoSessionId).toBe('primary-sid');
     });
+
+    it('records providerSessionId exactly once even when a second repo follows the primary', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn()
+        .mockResolvedValueOnce({
+          type: 'implementation', hasChanges: true, branchName: null,
+          sessionId: 'primary-sid', verificationOutcomes: [],
+        })
+        .mockResolvedValueOnce({
+          type: 'implementation', hasChanges: false, branchName: null,
+          sessionId: 'secondary-sid', verificationOutcomes: [],
+        });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const mockSession: any = { ticketKey: 'WBP-SCOPE', stages: {} };
+
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA', mockSession
+      );
+
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledTimes(1);
+      expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(mockSession, 'implement', 'primary-sid');
+    });
   });
 
   describe('finalizeImplementSession primaryRepoSessionId', () => {
