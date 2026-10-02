@@ -1,0 +1,72 @@
+#!/bin/sh
+set -e
+
+self_dir="$(cd "$(dirname "$0")" && pwd)"
+
+resolve_real_git() {
+  if [ -n "$WF_REAL_GIT" ] && [ -x "$WF_REAL_GIT" ]; then
+    echo "$WF_REAL_GIT"
+    return 0
+  fi
+  IFS=':'
+  for dir in $PATH; do
+    if [ "$dir" = "$self_dir" ]; then continue; fi
+    if [ -x "$dir/git" ]; then
+      echo "$dir/git"
+      return 0
+    fi
+  done
+  unset IFS
+  echo "wf: could not locate real git executable" >&2
+  exit 127
+}
+
+subcommand=''
+skip_next=0
+for arg in "$@"; do
+  if [ "$skip_next" = "1" ]; then skip_next=0; continue; fi
+  case "$arg" in
+    -C|-c|--git-dir|--work-tree|--namespace|--exec-path)
+      skip_next=1; continue ;;
+    --*=*|-*=*) continue ;;
+    -*) continue ;;
+    *)
+      subcommand="$arg"
+      break ;;
+  esac
+done
+
+if [ "$subcommand" != "commit" ]; then
+  real_git="$(resolve_real_git)"
+  exec "$real_git" "$@"
+fi
+
+past_double_dash=0
+skip_value=0
+for arg in "$@"; do
+  if [ "$skip_value" = "1" ]; then skip_value=0; continue; fi
+  if [ "$past_double_dash" = "1" ]; then continue; fi
+  case "$arg" in
+    --)
+      past_double_dash=1 ;;
+    --no-verify)
+      echo "wf: git commit --no-verify is blocked; commit hooks must run" >&2
+      exit 1 ;;
+    -m|-F|-C|-c|-t|--message|--file|--author|--date|--trailer|--fixup|--squash|--template)
+      skip_value=1 ;;
+    --message=*|--file=*|--author=*|--date=*|--trailer=*|--fixup=*|--squash=*|--template=*)
+      ;;
+    -m*)
+      ;;
+    -*)
+      stripped="${arg#-}"
+      case "$stripped" in
+        *n*)
+          echo "wf: git commit --no-verify is blocked; commit hooks must run" >&2
+          exit 1 ;;
+      esac ;;
+  esac
+done
+
+real_git="$(resolve_real_git)"
+exec "$real_git" "$@"

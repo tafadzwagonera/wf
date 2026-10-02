@@ -28,7 +28,7 @@
     "postinstall": "node scripts/postinstall.js && lefthook install",
     "prebuild": "rm -rf dist",
     "build": "nest build",
-    "postbuild": "chmod +x dist/main.js && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
+    "postbuild": "chmod +x dist/main.js dist/bootstrap/git-shim/git && ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "docs:sync": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts",
     "docs:check": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts --check",

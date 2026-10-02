@@ -5,6 +5,7 @@ import { GitError, InvalidBranchNameError } from '../../shared/utils/errors';
 import { findBranchNameViolation, safeBranchNamePattern } from './branch-name';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { BranchInfo, CommitInfo, CommitOptions, CreateBranchOptions } from '../../shared/types/git.types';
+import { capitalizeCommitMessageDescription } from '../../shared/utils/commit-subject-case';
 
 export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from '../../shared/types/git.types';
 
@@ -17,15 +18,18 @@ export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from 
 const createGit = (cwd?: string): SimpleGit =>
   simpleGit({ baseDir: cwd });
 
+const COMMIT_HOOK_BLOCK_TIMEOUT_MS = 90_000;
+
 /**
- * Create a SimpleGit instance for `cwd` with LEFTHOOK disabled so automated
- * commit flows are not blocked by git hooks.
+ * Create a SimpleGit instance for `cwd` with a block timeout and non-interactive
+ * environment so git hooks run without prompting or hanging.
  *
  * @param cwd - Repository working directory
- * @returns A SimpleGit instance with LEFTHOOK=0 in its environment
+ * @returns A SimpleGit instance with hook-friendly environment variables
  */
 const createCommitGit = (cwd: string): SimpleGit =>
-  createGit(cwd).env({ ...process.env, LEFTHOOK: '0' });
+  simpleGit({ baseDir: cwd, timeout: { block: COMMIT_HOOK_BLOCK_TIMEOUT_MS } })
+    .env({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' });
 
 const DEFAULT_PROTECTED_BRANCHES = ['main', 'master', 'develop'];
 
@@ -334,7 +338,7 @@ export class GitService {
   /**
    * Verify staged files, then create the git commit and return its hash.
    *
-   * @param git - SimpleGit instance (LEFTHOOK=0 already set)
+   * @param git - SimpleGit instance (hooks enabled; non-interactive env set)
    * @param options - Commit options including message and allowEmpty flag
    * @returns The short commit hash
    */
@@ -344,7 +348,7 @@ export class GitService {
     if (!updatedStatus.staged.length && !options.allowEmpty) {
       throw new GitError('No changes to commit');
     }
-    const result = await git.commit(options.message);
+    const result = await git.commit(capitalizeCommitMessageDescription(options.message));
     this.logger.success(`Created commit: ${result.commit}`);
     return result.commit;
   }

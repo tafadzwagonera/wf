@@ -1,6 +1,7 @@
 import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
+import { buildGitShimEnvOverrides } from '../../../shared/utils/git-shim-path';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import { registerSigintHandler } from '../../../shared/utils/sigint-registry';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
@@ -233,12 +234,12 @@ const makeObserveMessage = (
   resetInactivity();
 };
 
-const spawnCodexProcess = (
-  args: string[], cwd: string, env?: Record<string, string>, prompt?: string,
-): ChildProcess => {
+const spawnCodexProcess = (args: string[], cwd: string,
+  env?: Record<string, string>, prompt?: string): ChildProcess => {
+  const mergedEnv = { ...process.env, ...env };
   const child = spawn('codex', args, {
     cwd,
-    env: { ...process.env, ...env, WF_MANAGED_SESSION: '1' },
+    env: { ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });

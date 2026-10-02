@@ -63,4 +63,16 @@ describe('formatCommitPolicyPromptSection', () => {
     expect(prohibitive).toContain('overrides any');
     expect(permissive).toContain('overrides any');
   });
+
+  it('instructs agent not to use --no-verify in the allows-commit branch', () => {
+    const text = formatCommitPolicyPromptSection(resolveCommitPolicy('low'));
+    expect(text).toContain('--no-verify');
+    expect(text).toContain('hooks must run');
+  });
+
+  it('instructs agent not to use --no-verify in the prohibit-commit branch', () => {
+    const text = formatCommitPolicyPromptSection(resolveCommitPolicy('medium'));
+    expect(text).toContain('--no-verify');
+    expect(text).toContain('hooks must run');
+  });
 });

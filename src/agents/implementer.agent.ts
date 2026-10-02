@@ -1,6 +1,7 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
+import { violatesUppercaseDescription } from '../shared/utils/commit-subject-case';
 import { GitService } from '../integrations/git/git.service';
 import { safeBranchNamePattern, sanitizeBranchNameInput, validateBranchNameInput } from '../integrations/git/branch-name';
 import type { BranchInfo } from '../shared/types/git.types';
@@ -486,15 +487,20 @@ export class ImplementerAgent {
     baseline: { sha: string; branch: string } | null,
     repoDir?: string
   ): Promise<void> {
-    if (policy.allowsCommit || baseline === null) return;
+    if (baseline === null) return;
     if (!(await this.hasNewCommitsSinceBaseline(baseline, repoDir))) return;
 
-    const skipReason = await this.resolveRewindSkipReason(baseline, repoDir);
-    if (skipReason) {
-      console.log(chalk.yellow(`  Commit policy: ${skipReason}`));
+    if (!policy.allowsCommit) {
+      const skipReason = await this.resolveRewindSkipReason(baseline, repoDir);
+      if (skipReason) {
+        console.log(chalk.yellow(`  Commit policy: ${skipReason}`));
+        return;
+      }
+      await this.rewindDisallowedCommits(baseline, repoDir);
       return;
     }
-    await this.rewindDisallowedCommits(baseline, repoDir);
+
+    await this.enforceCommitSubjectRule(baseline, repoDir);
   }
 
   private async hasNewCommitsSinceBaseline(
@@ -545,6 +551,37 @@ export class ImplementerAgent {
       `  Commit policy: reverted ${commitsToRevert.length} commit(s) — work is staged and recoverable via \`git reflog\`:`
     ));
     for (const c of commitsToRevert) console.log(chalk.yellow(`      - ${c.subject}`));
+  }
+
+  private async enforceCommitSubjectRule(
+    baseline: { sha: string; branch: string },
+    repoDir?: string
+  ): Promise<void> {
+    try {
+      const commits = await this.gitService.listCommitsInRange({ from: baseline.sha, to: 'HEAD' }, repoDir);
+      const violating = commits.filter(c => violatesUppercaseDescription(c.subject));
+      if (violating.length === 0) return;
+      await this.rewindLowercaseSubjectCommits(baseline, violating, repoDir);
+    } catch {
+      console.log(chalk.yellow('  Commit subject rule: git safety check failed; leaving commits in place'));
+    }
+  }
+
+  private async rewindLowercaseSubjectCommits(
+    baseline: { sha: string; branch: string },
+    violating: { hash: string; subject: string }[],
+    repoDir?: string
+  ): Promise<void> {
+    const skipReason = await this.resolveRewindSkipReason(baseline, repoDir);
+    if (skipReason) {
+      console.log(chalk.yellow(`  Commit subject rule: ${skipReason}`));
+      return;
+    }
+    await this.gitService.resetSoftToCommit(baseline.sha, repoDir);
+    console.log(chalk.yellow(
+      `  Commit subject rule: reverted ${violating.length} commit(s) with lowercase commit description(s) — work is staged and recoverable via \`git reflog\`:`
+    ));
+    for (const c of violating) console.log(chalk.yellow(`      - ${c.subject}`));
   }
 
   private async resolveSkillParams(

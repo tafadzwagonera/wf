@@ -897,7 +897,8 @@ const resolveCommitFormatInstructions = (detectedFormat: 'conventional' | 'freef
   detectedFormat === 'conventional'
     ? `Use conventional commits format: <type>(<scope>): <subject>
 Types: feat, fix, docs, style, refactor, test, chore
-Example: "feat(auth): add JWT token validation"`
+Example: "feat(auth): Add JWT token validation"
+The description after the colon must begin with an uppercase letter.`
     : 'Write a clear, concise commit message describing the changes';
 
 const COMMIT_DIFF_EXCERPT_MAX_CHARS = 3000;

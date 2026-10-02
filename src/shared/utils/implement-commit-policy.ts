@@ -30,16 +30,18 @@ export const resolveCommitPolicy = (complexity: string | undefined): CommitPolic
  * @param ticketKey - Ticket key to embed in the commit message format example
  * @returns Prompt text to append to the implement stage's conventions section
  */
+const NO_VERIFY_CLAUSE = 'Never pass --no-verify (or -n) to git commit; commit hooks must run. ';
+
 export const formatCommitPolicyPromptSection = (policy: CommitPolicy, ticketKey?: string): string => {
   if (!policy.allowsCommit) {
     return `Commit policy: this change is estimated **${policy.complexity}** complexity. `
       + 'Do NOT create git commits and do NOT run `git commit`. Leave your work in the working tree '
-      + `— a separate review stage inspects the diff before it is committed. ${OVERRIDE_CLAUSE}`;
+      + `— a separate review stage inspects the diff before it is committed. ${NO_VERIFY_CLAUSE}${OVERRIDE_CLAUSE}`;
   }
   const commitExample = ticketKey
     ? `\`wf issue:commit -m "${ticketKey}: <Description beginning with an uppercase letter>"\``
     : '`wf issue:commit -m "<ticket-key>: <Description beginning with an uppercase letter>"`';
   return `Commit policy: this change is estimated **${policy.complexity}** complexity. `
     + `You MAY create a git commit for this change using ${commitExample}. `
-    + `The commit description must begin with an uppercase letter. ${OVERRIDE_CLAUSE}`;
+    + `The commit description must begin with an uppercase letter. ${NO_VERIFY_CLAUSE}${OVERRIDE_CLAUSE}`;
 };

@@ -400,6 +400,20 @@ describe('codex-cli-runner', () => {
       );
     });
 
+    it('prepends the git shim dir to PATH in the spawned child env', async () => {
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test');
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      const spawnEnv: Record<string, string> = mockSpawn.mock.calls[0][2].env as Record<string, string>;
+      expect(spawnEnv.PATH).toMatch(/bootstrap\/git-shim/);
+    });
+
     it('kills the whole process group so verification subprocesses cannot outlive the run', async () => {
       const child = createMockCodexProcess();
       mockSpawn.mockReturnValue(child as never);

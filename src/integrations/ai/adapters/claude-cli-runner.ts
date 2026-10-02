@@ -1,6 +1,7 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
+import { buildGitShimEnvOverrides } from '../../../shared/utils/git-shim-path';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
@@ -297,9 +298,10 @@ async function* parseLineMessages(
  */
 const spawnChild = (params: SpawnChildParams): { child: ReturnType<typeof spawn>; exitRecord: CliExitRecord } => {
   const exitRecord: CliExitRecord = { exited: false, code: null, signal: null };
+  const mergedEnv = { ...process.env, ...params.env };
   const child = spawn('claude', params.args, {
     cwd: params.cwd,
-    env: { ...process.env, ...params.env, WF_MANAGED_SESSION: '1' },
+    env: { ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });

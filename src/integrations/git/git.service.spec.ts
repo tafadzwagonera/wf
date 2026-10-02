@@ -10,6 +10,8 @@ const mockCwdGitInstance = {
   raw: jest.fn(),
   status: jest.fn(),
   add: jest.fn(),
+  commit: jest.fn(),
+  env: jest.fn().mockReturnThis(),
 };
 
 jest.mock('simple-git', () => jest.fn(() => mockCwdGitInstance));
@@ -640,6 +642,61 @@ describe('GitService', () => {
       const files = await service.getChangedFilesSince('develop', '/repo');
 
       expect(files).toEqual([]);
+    });
+  });
+
+  describe('finaliseCommit capitalization', () => {
+    it('capitalizes a lowercase description before calling git.commit', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ staged: ['src/a.ts'], files: [] });
+      mockCwdGitInstance.commit.mockResolvedValue({ commit: 'abc123' });
+
+      await service.commit({ message: 'feat: add thing', cwd: '/repo' });
+
+      expect(mockCwdGitInstance.commit).toHaveBeenCalledWith('feat: Add thing');
+    });
+
+    it('leaves an already-uppercase description unchanged', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ staged: ['src/a.ts'], files: [] });
+      mockCwdGitInstance.commit.mockResolvedValue({ commit: 'abc123' });
+
+      await service.commit({ message: 'feat: Add thing', cwd: '/repo' });
+
+      expect(mockCwdGitInstance.commit).toHaveBeenCalledWith('feat: Add thing');
+    });
+  });
+
+  describe('createCommitGit configuration', () => {
+    it('constructs simple-git with a 90s block timeout for commits', async () => {
+      const simpleGitMock = jest.requireMock('simple-git');
+      mockCwdGitInstance.status.mockResolvedValue({ staged: ['src/a.ts'], files: [] });
+      mockCwdGitInstance.commit.mockResolvedValue({ commit: 'abc123' });
+
+      await service.commit({ message: 'feat: Add thing', cwd: '/repo' });
+
+      expect(simpleGitMock).toHaveBeenCalledWith(
+        expect.objectContaining({ timeout: { block: 90_000 } })
+      );
+    });
+
+    it('sets GIT_TERMINAL_PROMPT=0 and GIT_EDITOR=true in the commit env', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ staged: ['src/a.ts'], files: [] });
+      mockCwdGitInstance.commit.mockResolvedValue({ commit: 'abc123' });
+
+      await service.commit({ message: 'feat: Add thing', cwd: '/repo' });
+
+      expect(mockCwdGitInstance.env).toHaveBeenCalledWith(
+        expect.objectContaining({ GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' })
+      );
+    });
+
+    it('does not set LEFTHOOK in the commit env', async () => {
+      mockCwdGitInstance.status.mockResolvedValue({ staged: ['src/a.ts'], files: [] });
+      mockCwdGitInstance.commit.mockResolvedValue({ commit: 'abc123' });
+
+      await service.commit({ message: 'feat: Add thing', cwd: '/repo' });
+
+      const envArg = mockCwdGitInstance.env.mock.calls[0]?.[0] ?? {};
+      expect(envArg).not.toHaveProperty('LEFTHOOK');
     });
   });
 });

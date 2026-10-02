@@ -853,6 +853,7 @@ describe('ImplementerAgent', () => {
       gitService.getRecentCommits
         .mockResolvedValueOnce([{ hash: 'baseline-sha', message: 'baseline', author: 'a', date: new Date('2024-01-01') }])
         .mockResolvedValueOnce([{ hash: 'new-sha', message: 'agent commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockResolvedValue([{ hash: 'new-sha', subject: 'Feat: Add thing' }]);
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
         .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
 
@@ -1059,6 +1060,83 @@ describe('ImplementerAgent', () => {
       expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
       const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
       expect(logCalls.some(msg => msg.includes('git safety check failed'))).toBe(true);
+    });
+  });
+
+  describe('enforceCommitSubjectRule (low-complexity backstop)', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('rewinds when a low-complexity commit has a lowercase subject', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'base-sha', message: 'base', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'raw commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'feat: add thing' }]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low',
+      }), { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true });
+
+      expect(gitService.resetSoftToCommit).toHaveBeenCalledWith('base-sha', '/tmp/repo-a');
+    });
+
+    it('does not rewind when a low-complexity commit has an uppercase subject', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'base-sha', message: 'base', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'raw commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'feat: Add thing' }]);
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low',
+      }), { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+    });
+
+    it('skips rewind when branch changed, even for a lowercase low-complexity subject', async () => {
+      let branchCallCount = 0;
+      gitService.getCurrentBranch.mockImplementation(async () => {
+        branchCallCount += 1;
+        return branchCallCount <= 2 ? 'main' : 'some-other-branch';
+      });
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'base-sha', message: 'base', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'raw commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockImplementation(async (opts: { mergesOnly?: boolean }) =>
+        opts.mergesOnly ? [] : [{ hash: 'new-sha', subject: 'feat: add thing' }]);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low',
+      }), { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, noBranch: true });
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
+      const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+      expect(logCalls.some(msg => msg.includes('branch changed'))).toBe(true);
+    });
+
+    it('does not crash when listCommitsInRange throws during the subject rule check', async () => {
+      gitService.getRecentCommits
+        .mockResolvedValueOnce([{ hash: 'base-sha', message: 'base', author: 'a', date: new Date('2024-01-01') }])
+        .mockResolvedValueOnce([{ hash: 'new-sha', message: 'raw commit', author: 'a', date: new Date('2024-01-02') }]);
+      gitService.listCommitsInRange.mockRejectedValue(new Error('git error'));
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify')
+        .mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
+
+      await expect(agent.execute(ticketArtifact, buildPlan({
+        affectedFiles: ['repo-a/src/example.ts'], estimatedComplexity: 'low',
+      }), { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true })).resolves.toBeDefined();
+
+      expect(gitService.resetSoftToCommit).not.toHaveBeenCalled();
     });
   });
 
