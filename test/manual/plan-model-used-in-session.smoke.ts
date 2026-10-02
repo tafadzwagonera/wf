@@ -19,7 +19,7 @@ import type { SessionState } from '../../src/shared/types/session.types';
 
 const { counts, pass, fail } = createReporter();
 
-const PLAN_MODEL_USED = 'claude-opus-5-smoke';
+const PLAN_MODEL_USED = 'claude-opus-5-smoke' as const;
 
 function buildSessionState(ticketKey: string): SessionState {
   return {

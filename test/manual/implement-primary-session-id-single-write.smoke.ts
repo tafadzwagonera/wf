@@ -20,11 +20,11 @@ import type { SessionState } from '../../src/shared/types/session.types';
 
 const { counts, pass, fail } = createReporter();
 
-const PRIMARY_REPO = '/tmp/wf-smoke-primary';
-const SECONDARY_REPO = '/tmp/wf-smoke-secondary';
-const PRIMARY_SESSION_ID = `primary-sess-${crypto.randomUUID().slice(0, 8)}`;
-const SECONDARY_SESSION_ID = `secondary-sess-${crypto.randomUUID().slice(0, 8)}`;
-const MODEL_USED = 'claude-sonnet-4-6';
+const PRIMARY_REPO = '/tmp/wf-smoke-primary' as const;
+const SECONDARY_REPO = '/tmp/wf-smoke-secondary' as const;
+const primarySessionId = `primary-sess-${crypto.randomUUID().slice(0, 8)}`;
+const secondarySessionId = `secondary-sess-${crypto.randomUUID().slice(0, 8)}`;
+const MODEL_USED = 'claude-sonnet-4-6' as const;
 
 function buildSessionState(ticketKey: string): SessionState {
   return {
@@ -65,7 +65,7 @@ async function runScenario(
 
   let executeCallIndex = 0;
   (command as any).executeRepoImplementation = async () => {
-    const sessionId = executeCallIndex === 0 ? PRIMARY_SESSION_ID : SECONDARY_SESSION_ID;
+    const sessionId = executeCallIndex === 0 ? primarySessionId : secondarySessionId;
     executeCallIndex++;
     return {
       implementerResult: {
@@ -102,8 +102,8 @@ function checkSingleWrite(recordCalls: RecordCall[]): void {
 
 function checkPrimarySessionId(recordCalls: RecordCall[]): void {
   const call = recordCalls[0];
-  if (call?.stage === 'implement' && call?.sessionId === PRIMARY_SESSION_ID) {
-    pass(`recordProviderSessionId called with primary session ID '${PRIMARY_SESSION_ID}'`);
+  if (call?.stage === 'implement' && call?.sessionId === primarySessionId) {
+    pass(`recordProviderSessionId called with primary session ID '${primarySessionId}'`);
   } else {
     fail('wrong stage or sessionId in recordProviderSessionId call', JSON.stringify(call));
   }
@@ -111,8 +111,8 @@ function checkPrimarySessionId(recordCalls: RecordCall[]): void {
 
 function checkFinalSessionState(finalState: SessionState | undefined): void {
   const implementStage = finalState?.stages?.['implement'];
-  if (implementStage?.providerSessionId === PRIMARY_SESSION_ID) {
-    pass(`session file contains primary session ID '${PRIMARY_SESSION_ID}' after runImplementLoop`);
+  if (implementStage?.providerSessionId === primarySessionId) {
+    pass(`session file contains primary session ID '${primarySessionId}' after runImplementLoop`);
   } else {
     fail('session file missing or incorrect providerSessionId', JSON.stringify(implementStage));
   }

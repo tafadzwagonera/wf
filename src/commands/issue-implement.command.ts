@@ -33,8 +33,8 @@ import chalk from 'chalk';
 import inquirer from 'inquirer';
 import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
 
-const VALID_MODEL_ROUTING: ModelRouting[] = ['auto', 'default', 'mechanical'];
-const WF_CONFIG_EXTENSIONS = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
+const validModelRouting: ModelRouting[] = ['auto', 'default', 'mechanical'];
+const wfConfigExtensions = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
 const loadPlanFile = (filePath: string): ResolutionPlan => {
   if (!fs.existsSync(filePath)) {
@@ -131,9 +131,9 @@ export class IssueImplementCommand extends CommandRunner {
       'Model selection strategy: auto (complexity, targeted-write, step-count, and pattern routing), default (force default model), mechanical (force cheaper model). Defaults to auto.',
   })
   parseModelRouting(val: string): string {
-    if (!VALID_MODEL_ROUTING.includes(val as ModelRouting)) {
+    if (!validModelRouting.includes(val as ModelRouting)) {
       throw new ValidationError(
-        `Invalid --model-routing value: ${val}. Must be one of: ${VALID_MODEL_ROUTING.join(', ')}`
+        `Invalid --model-routing value: ${val}. Must be one of: ${validModelRouting.join(', ')}`
       );
     }
     return val;
@@ -473,7 +473,7 @@ export class IssueImplementCommand extends CommandRunner {
     const missing = resolved
       .map(r => {
         const dirExists = fs.existsSync(r.dir);
-        const configExists = dirExists && WF_CONFIG_EXTENSIONS.some(ext =>
+        const configExists = dirExists && wfConfigExtensions.some(ext =>
           fs.existsSync(path.join(r.dir, `wf.config${ext}`))
         );
         if (dirExists && configExists) return null;

@@ -20,7 +20,7 @@ import type { ReviewArtifact } from '../../src/agents/interfaces';
 
 const { counts, pass, fail } = createReporter();
 
-const REVIEW_SESSION_ID = 'review-provider-sid-smoke';
+const REVIEW_SESSION_ID = 'review-provider-sid-smoke' as const;
 
 function buildSessionState(ticketKey: string): SessionState {
   return {
