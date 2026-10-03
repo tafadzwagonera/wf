@@ -81,7 +81,7 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
   buildSystemPrompt({ repoDir, conventionsSection: params.conventionsSection });
 
 const buildCodexSkillFragment = async (params: GenerateAndVerifyParams): Promise<string> =>
-  params.skillNames?.length ? buildSkillPromptFragment(params.skillNames, CODEX_ADAPTER_LABEL, chalk.cyan) : '';
+  params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames, CODEX_ADAPTER_LABEL, chalk.cyan) : '';
 
 const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);

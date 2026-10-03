@@ -347,8 +347,7 @@ const buildRetryFeedbackBlock = (feedback?: string[]): string =>
     : '';
 
 const resolvePlanBackendMeta = (key: string | undefined): { backend: string; color: (s: string) => string } => {
-  if (key === 'claude-cli') return { backend: 'claude-cli', color: chalk.gray };
-  if (key === 'openai-agent') return { backend: 'openai-agent', color: chalk.cyan };
+  if (key === 'cli') return { backend: CLI_STAGE_LABEL, color: chalk.gray };
   return { backend: 'anthropic-agent', color: chalk.cyan };
 };
 
