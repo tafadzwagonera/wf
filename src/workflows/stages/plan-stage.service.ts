@@ -29,6 +29,7 @@ import type { RepoConventionsContext,
   CrossRepoContext
 } from '../../shared/types/detection.types';
 import type { ReuseCandidateContext } from '../../shared/utils/detect-reuse-candidates';
+import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
 
 type PlanResult = { plan: ResolutionPlan; sessionId?: string; modelUsed?: string };
 
@@ -141,12 +142,12 @@ export class PlanStageService {
     ticket: TicketArtifact, options: PlannerOptions, artifactDir: string
   ): Promise<PlanArtifact | null> {
     if (!options.skipExisting) return null;
-    try {
-      return await this.resolveCachedPlan(ticket, options, artifactDir);
-    } catch (error) {
-      if (error instanceof PlanArtifactNotFoundError) return null;
-      throw error;
-    }
+    const [cached] = await executeAsyncWithCatch({
+      fn: () => this.resolveCachedPlan(ticket, options, artifactDir),
+      rethrowIf: error => !(error instanceof PlanArtifactNotFoundError),
+      onError: () => null,
+    });
+    return cached ?? null;
   }
 
   private writePlanFile(

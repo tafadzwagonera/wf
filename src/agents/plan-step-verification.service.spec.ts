@@ -483,6 +483,13 @@ describe('PlanStepVerificationService', () => {
     await expect(service.run(makeRunParams())).resolves.toBeDefined();
   });
 
+  it('rethrows AI provider auth errors from the verification loop', async () => {
+    const authError = Object.assign(new Error('auth failure'), { name: 'AiProviderError', category: 'auth' as const });
+    jest.spyOn(service as any, 'runVerificationLoop').mockRejectedValueOnce(authError);
+
+    await expect(service.run(makeRunParams())).rejects.toBe(authError);
+  });
+
   it('terminates when refreshSteps is set and assessor consistently returns invalid JSON', async () => {
     mockAiExecute.mockResolvedValue({ content: 'not json' });
     const mockRefreshSteps = jest.fn().mockResolvedValue(new Map([[0, 'Step A enriched']]));

@@ -12,6 +12,69 @@ beforeEach(() => {
 });
 
 describe('executeWithCatch', () => {
+  describe('rethrowIf', () => {
+    it('propagates the original error instance when rethrowIf returns true', () => {
+      const thrown = new Error('selective');
+      let caught: unknown;
+      try {
+        executeWithCatch({
+          fn: () => { throw thrown; },
+          rethrowIf: () => true,
+        });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBe(thrown);
+    });
+
+    it('does not call onError when rethrowIf returns true', () => {
+      const onError = jest.fn();
+      let caughtError: unknown;
+      try {
+        executeWithCatch({
+          fn: () => { throw new Error(); },
+          rethrowIf: () => true,
+          onError,
+        });
+      } catch (e) {
+        caughtError = e;
+      }
+      expect(caughtError).toBeInstanceOf(Error);
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('does not call ErrorHandler.handle when rethrowIf returns true', () => {
+      let caughtError: unknown;
+      try {
+        executeWithCatch({
+          fn: () => { throw new Error(); },
+          rethrowIf: () => true,
+        });
+      } catch (e) {
+        caughtError = e;
+      }
+      expect(caughtError).toBeInstanceOf(Error);
+      expect(mockHandle).not.toHaveBeenCalled();
+    });
+
+    it('falls through to onError when rethrowIf returns false', () => {
+      const [, fallback] = executeWithCatch({
+        fn: () => { throw new Error(); },
+        rethrowIf: () => false,
+        onError: () => 'caught',
+      });
+      expect(fallback).toBe('caught');
+    });
+
+    it('falls through to ErrorHandler.handle when rethrowIf returns false and no onError', () => {
+      executeWithCatch({
+        fn: () => { throw new Error(); },
+        rethrowIf: () => false,
+      });
+      expect(mockHandle).toHaveBeenCalled();
+    });
+  });
+
   it('returns [result, undefined] on success', () => {
     const [result, fallback] = executeWithCatch({ fn: () => 42 });
 
@@ -65,6 +128,46 @@ describe('executeWithCatch', () => {
 });
 
 describe('executeAsyncWithCatch', () => {
+  describe('rethrowIf', () => {
+    it('propagates the original error instance when rethrowIf returns true', async () => {
+      const thrown = new Error('async selective');
+      await expect(
+        executeAsyncWithCatch({
+          fn: async () => { throw thrown; },
+          rethrowIf: () => true,
+        })
+      ).rejects.toBe(thrown);
+    });
+
+    it('does not call onError when rethrowIf returns true', async () => {
+      const onError = jest.fn();
+      await expect(
+        executeAsyncWithCatch({
+          fn: async () => { throw new Error(); },
+          rethrowIf: () => true,
+          onError,
+        })
+      ).rejects.toThrow();
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('does not call ErrorHandler.handle when rethrowIf returns true', async () => {
+      let caughtError: unknown;
+      try {
+        await executeAsyncWithCatch({
+          fn: async () => {
+            throw new Error();
+          },
+          rethrowIf: () => true,
+        });
+      } catch (e) {
+        caughtError = e;
+      }
+      expect(caughtError).toBeInstanceOf(Error);
+      expect(mockHandle).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns [result, undefined] on success', async () => {
     const [result, fallback] = await executeAsyncWithCatch({ fn: async () => 'ok' });
 

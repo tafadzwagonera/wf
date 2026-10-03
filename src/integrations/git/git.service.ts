@@ -6,6 +6,7 @@ import { findBranchNameViolation, safeBranchNamePattern } from './branch-name';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { BranchInfo, CommitInfo, CommitOptions, CreateBranchOptions } from '../../shared/types/git.types';
 import { capitalizeCommitMessageDescription } from '../../shared/utils/commit-subject-case';
+import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
 
 export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from '../../shared/types/git.types';
 
@@ -210,12 +211,11 @@ export class GitService {
    */
   async getUpstreamRef(branchName: string, cwd?: string): Promise<string | null> {
     const git = cwd ? createGit(cwd) : this.git;
-    try {
-      const ref = await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`]);
-      return ref.trim() || null;
-    } catch {
-      return null;
-    }
+    const [ref] = await executeAsyncWithCatch({
+      fn: async () => (await git.raw(['rev-parse', '--abbrev-ref', `${branchName}@{upstream}`])).trim() || null,
+      onError: () => null,
+    });
+    return ref ?? null;
   }
 
   /**
@@ -231,14 +231,16 @@ export class GitService {
    */
   async getBranchCreationSource(branchName: string, cwd?: string): Promise<string | null> {
     const git = cwd ? createGit(cwd) : this.git;
-    try {
-      const output = await git.raw(['reflog', 'show', branchName]);
-      const match = /branch: Created from (\S+)/.exec(output);
-      if (!match || match[1] === 'HEAD') return null;
-      return match[1];
-    } catch {
-      return null;
-    }
+    const [source] = await executeAsyncWithCatch({
+      fn: async () => {
+        const output = await git.raw(['reflog', 'show', branchName]);
+        const match = /branch: Created from (\S+)/.exec(output);
+        if (!match || match[1] === 'HEAD') return null;
+        return match[1];
+      },
+      onError: () => null,
+    });
+    return source ?? null;
   }
 
   /**
@@ -253,12 +255,12 @@ export class GitService {
    */
   async getChangedFilesSince(ref: string, cwd?: string): Promise<string[]> {
     const git = cwd ? createGit(cwd) : this.git;
-    try {
-      const output = await git.raw(['diff', '--name-only', ref]);
-      return output.split('\n').map(line => line.trim()).filter(Boolean);
-    } catch {
-      return [];
-    }
+    const [files] = await executeAsyncWithCatch({
+      fn: async () =>
+        (await git.raw(['diff', '--name-only', ref])).split('\n').map(line => line.trim()).filter(Boolean),
+      onError: () => [],
+    });
+    return files ?? [];
   }
 
   private async checkoutOrCreateBranch(git: SimpleGit, branchName: string, baseBranch?: string): Promise<void> {
@@ -632,12 +634,11 @@ export class GitService {
    */
   async getMergeBase(refA: string, refB: string, cwd?: string): Promise<string | null> {
     const git = cwd ? createGit(cwd) : this.git;
-    try {
-      const sha = await git.raw(['merge-base', refA, refB]);
-      return sha.trim() || null;
-    } catch {
-      return null;
-    }
+    const [sha] = await executeAsyncWithCatch({
+      fn: async () => (await git.raw(['merge-base', refA, refB])).trim() || null,
+      onError: () => null,
+    });
+    return sha ?? null;
   }
 
   async checkoutBranch(branchName: string, cwd?: string): Promise<void> {

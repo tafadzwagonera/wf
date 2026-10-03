@@ -13,6 +13,7 @@ import { isAiProviderErrorLike } from '../shared/utils/errors';
 import type { WfAiProviderName, WfStepVerificationMode } from '../shared/types/config.types';
 import { PullStepAssessorService } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
+import { executeAsyncWithCatch, executeWithCatch } from '../shared/utils/execute-with-catch';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
@@ -321,14 +322,16 @@ export class PlanStepVerificationService {
 
   async run(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
     this.logEventAndAppendToLogFile('INFO', `step-verify.mode=${params.mode ?? 'push'}`, params.silent);
-    try {
-      return await this.runVerificationLoop(params);
-    } catch (error) {
-      if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
-      const cause = error instanceof Error ? error.message : String(error);
-      this.logEventAndAppendToLogFile('ERROR', `step-verify.error cause=${cause}`, params.silent);
-      return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
-    }
+    const [outcome] = await executeAsyncWithCatch({
+      fn: () => this.runVerificationLoop(params),
+      rethrowIf: error => isAiProviderErrorLike(error) && error.category === 'auth',
+      onError: error => {
+        const cause = error instanceof Error ? error.message : String(error);
+        this.logEventAndAppendToLogFile('ERROR', `step-verify.error cause=${cause}`, params.silent);
+        return { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
+      },
+    });
+    return outcome ?? { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
   }
 
   private async runVerificationLoop(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
@@ -710,11 +713,11 @@ export class PlanStepVerificationService {
     const untrackedFiles: string[] = (status as { not_added?: string[] }).not_added ?? [];
     const sections: string[] = [];
     for (const file of untrackedFiles) {
-      try {
-        sections.push(`### ${file}\n\`\`\`\n${fs.readFileSync(path.resolve(repoDir, file), 'utf-8')}\n\`\`\``);
-      } catch {
-        appendToLogFile('DEBUG', `step-verify.untracked.unreadable path=${file}`, 'step-verification');
-      }
+      const [section] = executeWithCatch({
+        fn: () => `### ${file}\n\`\`\`\n${fs.readFileSync(path.resolve(repoDir, file), 'utf-8')}\n\`\`\``,
+        onError: () => { appendToLogFile('DEBUG', `step-verify.untracked.unreadable path=${file}`, 'step-verification'); },
+      });
+      if (section !== undefined) sections.push(section);
     }
     return sections;
   }

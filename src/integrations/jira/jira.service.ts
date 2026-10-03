@@ -7,6 +7,7 @@ import { JiraApiError } from '../../shared/utils/errors';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
+import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
 
 const DEFAULT_SEARCH_FIELDS = [
   'assignee',
@@ -407,13 +408,11 @@ export class JiraService {
    * if no match is found or the fetch fails.
    */
   async resolveValidPriorityName(requested: string): Promise<string | undefined> {
-    try {
-      const priorities = await this.fetchJiraPriorities();
-      return findMatchingPriorityName(priorities, requested);
-    } catch {
-      this.logger.warn(buildPriorityFetchWarning(requested));
-      return undefined;
-    }
+    const [name] = await executeAsyncWithCatch({
+      fn: async () => findMatchingPriorityName(await this.fetchJiraPriorities(), requested),
+      onError: () => { this.logger.warn(buildPriorityFetchWarning(requested)); },
+    });
+    return name;
   }
 
   private async fetchJiraPriorities(): Promise<Array<{ id: string; name: string }>> {
@@ -432,19 +431,19 @@ export class JiraService {
    * @returns Allowed Jira priority name, or undefined when priority is unavailable
    */
   async resolveCreatePriorityName(
-    projectKey: string,
-    issueTypeName: string,
-    requestedPriority: string
+    projectKey: string, issueTypeName: string, requestedPriority: string
   ): Promise<string | undefined> {
-    try {
-      return await this.resolveCreatePriorityFromMetadata(projectKey, issueTypeName, requestedPriority);
-    } catch {
-      this.logger.warn(
-        `Failed to resolve Jira create priority metadata for ${projectKey} ${issueTypeName} `
-        + `while resolving requested priority "${requestedPriority}". Falling back to the global priority list.`
-      );
-      return this.resolveValidPriorityName(requestedPriority);
-    }
+    const [fromMeta, fromFallback] = await executeAsyncWithCatch<string | undefined, string | undefined>({
+      fn: () => this.resolveCreatePriorityFromMetadata(projectKey, issueTypeName, requestedPriority),
+      onError: async () => {
+        this.logger.warn(
+          `Failed to resolve Jira create priority metadata for ${projectKey} ${issueTypeName} `
+          + `while resolving requested priority "${requestedPriority}". Falling back to the global priority list.`
+        );
+        return this.resolveValidPriorityName(requestedPriority);
+      },
+    });
+    return fromMeta ?? fromFallback;
   }
 
   /**

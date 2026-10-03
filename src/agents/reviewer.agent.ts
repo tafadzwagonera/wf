@@ -22,6 +22,7 @@ import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 interface DiffReviewInputs {
   onProgress?: (line: string) => void;
@@ -177,20 +178,21 @@ export class ReviewerAgent {
   private async runSonarStage(
     repoDir: string, ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
   ): Promise<SonarScanResult | undefined> {
-    try {
-      return await this.sonarStageService.scanIfEnabled({
+    const [scan] = await executeAsyncWithCatch({
+      fn: () => this.sonarStageService.scanIfEnabled({
         repoDir,
         force: options.sonar,
         ticketKey: ticket.ticketKey,
         allowPrompt: false,
         onProgress,
-      });
-    } catch (error) {
-      if (!(error instanceof ConfigurationError) && !(error instanceof ExecutionError)) throw error;
-      const message = `SonarQube CLI error — continuing review for ${path.basename(repoDir)} without Sonar findings: ${error.message}`;
-      if (!options.silent) this.presenter.outcome('warning', message);
-      return undefined;
-    }
+      }),
+      rethrowIf: error => !(error instanceof ConfigurationError) && !(error instanceof ExecutionError),
+      onError: error => {
+        const message = `SonarQube CLI error — continuing review for ${path.basename(repoDir)} without Sonar findings: ${(error as Error).message}`;
+        if (!options.silent) this.presenter.outcome('warning', message);
+      },
+    });
+    return scan;
   }
 
   private async runFigmaStage(

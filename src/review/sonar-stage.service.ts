@@ -14,6 +14,7 @@ import { promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import type { StageProgressCallback } from '../shared/types/agent.types';
 import type { BranchInfo } from '../shared/types/git.types';
 import type { SessionState } from '../shared/types/session.types';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 /**
  * Options controlling a SonarQube pre-review scan.
@@ -107,15 +108,17 @@ export class SonarStageService {
   private async resolveRecordedSourceBranch(
     repoDir: string, branchInfo: BranchInfo, options: SonarStageOptions
   ): Promise<string | undefined> {
-    try {
-      if (options.providerSessionId) {
-        const originSession = await this.sessionService.findByProviderSessionId(options.providerSessionId, 'plan');
-        if (originSession?.sourceBranch) return originSession.sourceBranch;
-      }
-      return await this.resolveSourceBranchFromManifestChain(repoDir, branchInfo, options);
-    } catch {
-      return undefined;
-    }
+    const [result] = await executeAsyncWithCatch({
+      fn: async () => {
+        if (options.providerSessionId) {
+          const originSession = await this.sessionService.findByProviderSessionId(options.providerSessionId, 'plan');
+          if (originSession?.sourceBranch) return originSession.sourceBranch;
+        }
+        return this.resolveSourceBranchFromManifestChain(repoDir, branchInfo, options);
+      },
+      onError: () => undefined,
+    });
+    return result;
   }
 
   private async resolveSourceBranchFromManifestChain(

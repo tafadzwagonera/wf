@@ -10,6 +10,7 @@ import type {
   StepFidelityFailure,
   StepFidelityVerificationResult,
 } from '../shared/types/step-spec-fidelity.types';
+import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 export type AssessableStep = { index: number; text: string };
 
@@ -60,13 +61,11 @@ export class StepSpecFidelityService {
 
   async verifyAll(steps: AssessableStep[], repoDir: string, baseRef?: string): Promise<StepFidelityVerificationResult> {
     const result = this.createVerificationResult(steps);
-    let diff: string;
-    try {
-      diff = await this.captureDiff(repoDir, baseRef ?? 'HEAD');
-    } catch (err) {
-      this.addDiffFailure(result, err);
-      return result;
-    }
+    const [diff] = await executeAsyncWithCatch({
+      fn: () => this.captureDiff(repoDir, baseRef ?? 'HEAD'),
+      onError: err => this.addDiffFailure(result, err),
+    });
+    if (diff === undefined) return result;
     await this.processSteps(steps, diff, result);
     return result;
   }

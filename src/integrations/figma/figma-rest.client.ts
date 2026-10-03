@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiError, ERROR_CODE, ValidationError } from '../../shared/utils/errors';
+import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
 
 export interface FigmaFillContext {
   type: string;
@@ -189,12 +190,11 @@ async function fetchFrame(url: string, headers: Record<string, string>): Promise
 async function attemptFetch(
   url: string, headers: Record<string, string>, logger: Logger
 ): Promise<FigmaFrameContext | undefined> {
-  try {
-    return await fetchFrame(url, headers);
-  } catch (err) {
-    logger.warn(`Figma frame fetch failed for ${url}: ${(err as Error).message}`);
-    return undefined;
-  }
+  const [frame] = await executeAsyncWithCatch({
+    fn: () => fetchFrame(url, headers),
+    onError: err => logger.warn(`Figma frame fetch failed for ${url}: ${(err as Error).message}`),
+  });
+  return frame;
 }
 
 @Injectable()

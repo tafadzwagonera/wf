@@ -48,6 +48,7 @@ import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.ada
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
 import { CodexCliAdapter } from '../integrations/ai/adapters/codex-cli.adapter';
 import inquirer from 'inquirer';
+import { executeWithCatch, executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 interface FileResolution {
   repoName: string;
@@ -469,15 +470,19 @@ export class ImplementerAgent {
    * @returns The baseline sha/branch, or null when there is no baseline (e.g. a repo with no commits)
    */
   private async captureCommitBaseline(repoDir?: string): Promise<{ sha: string; branch: string } | null> {
-    try {
-      const commits = await this.gitService.getRecentCommits(1, repoDir);
-      if (commits.length === 0) return null;
-      const branch = await this.gitService.getCurrentBranch(repoDir);
-      return { sha: commits[0].hash, branch };
-    } catch {
-      console.log(chalk.yellow('  Could not read HEAD baseline; commit policy enforcement skipped'));
-      return null;
-    }
+    const [baseline] = await executeAsyncWithCatch({
+      fn: async () => {
+        const commits = await this.gitService.getRecentCommits(1, repoDir);
+        if (commits.length === 0) return null;
+        const branch = await this.gitService.getCurrentBranch(repoDir);
+        return { sha: commits[0].hash, branch };
+      },
+      onError: () => {
+        console.log(chalk.yellow('  Could not read HEAD baseline; commit policy enforcement skipped'));
+        return null;
+      },
+    });
+    return baseline ?? null;
   }
 
   /**
@@ -917,16 +922,14 @@ export class ImplementerAgent {
   private readPackageScripts(repoDir?: string): Record<string, string> {
     const packageJsonPath = path.join(repoDir ?? process.cwd(), 'package.json');
     if (!fs.existsSync(packageJsonPath)) return {};
-
-    try {
-      const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { scripts?: Record<string, string> };
-      return pkg.scripts ?? {};
-    } catch {
-      console.log(
-        chalk.yellow(`  ⚠ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`)
-      );
-      return {};
-    }
+    const [scripts] = executeWithCatch({
+      fn: () => (JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { scripts?: Record<string, string> }).scripts ?? {},
+      onError: () => {
+        console.log(chalk.yellow(`  ⚠ Unable to parse ${packageJsonPath}; continuing without package.json alias discovery.`));
+        return {};
+      },
+    });
+    return scripts ?? {};
   }
 
   private buildVerificationScripts(
@@ -1342,11 +1345,10 @@ export class ImplementerAgent {
    * is a diagnostic hint, not load-bearing state.
    */
   private recordFeatureBranchSource(planArtifact: PlanArtifact, sourceBranch: string, branchName: string): void {
-    try {
-      updatePlanArtifactManifestSourceBranch(planArtifact.path, sourceBranch, branchName);
-    } catch (error) {
-      console.log(chalk.yellow(`  Could not record source branch on plan manifest: ${error}`));
-    }
+    executeWithCatch({
+      fn: () => updatePlanArtifactManifestSourceBranch(planArtifact.path, sourceBranch, branchName),
+      onError: error => { console.log(chalk.yellow(`  Could not record source branch on plan manifest: ${error}`)); },
+    });
   }
 
   private async ensureCleanWorkingTree(
@@ -1485,25 +1487,25 @@ export class ImplementerAgent {
   }
 
   private async pullSafe(branch: string, cwd: string | undefined): Promise<void> {
-    try {
-      console.log(chalk.gray(`  Pulling latest from origin/${branch}...`));
-      await this.gitService.pull('origin', branch, cwd);
-    } catch {
-      console.log(chalk.yellow(
-        `  Could not pull ${branch} (no upstream or network issue) — continuing with local state`
-      ));
-    }
+    console.log(chalk.gray(`  Pulling latest from origin/${branch}...`));
+    await executeAsyncWithCatch({
+      fn: () => this.gitService.pull('origin', branch, cwd),
+      onError: () => {
+        console.log(chalk.yellow(`  Could not pull ${branch} (no upstream or network issue) — continuing with local state`));
+      },
+    });
   }
 
   private async restoreStash(didStash: boolean, cwd: string | undefined): Promise<void> {
     if (!didStash) return;
-    try {
-      await this.gitService.stashPop(cwd);
-    } catch {
-      console.log(chalk.yellow(
-        '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.'
-      ));
-    }
+    await executeAsyncWithCatch({
+      fn: () => this.gitService.stashPop(cwd),
+      onError: () => {
+        console.log(chalk.yellow(
+          '  Stash pop encountered conflicts. Your changes are in stash@{0} — resolve manually after implementation.'
+        ));
+      },
+    });
   }
 
   private async resolveShouldPull(branch: string, interactive: boolean): Promise<boolean> {
@@ -1634,14 +1636,11 @@ export class ImplementerAgent {
   private validateBranchPattern(branchName: string, patternOverride?: string): void {
     const pattern = patternOverride ?? this.configService.get<string>('git.branchNamePattern');
     if (!pattern) return;
-
-    try {
-      if (!new RegExp(pattern).test(branchName)) {
-        console.log(chalk.yellow(`  Generated branch name "${branchName}" does not match pattern: ${pattern}`));
-      }
-    } catch {
-      console.log(chalk.yellow(`  Invalid branch pattern in config (git.branchNamePattern): ${pattern}`));
-    }
+    const [matches] = executeWithCatch({
+      fn: () => new RegExp(pattern).test(branchName),
+      onError: () => { console.log(chalk.yellow(`  Invalid branch pattern in config (git.branchNamePattern): ${pattern}`)); },
+    });
+    if (matches === false) console.log(chalk.yellow(`  Generated branch name "${branchName}" does not match pattern: ${pattern}`));
   }
 
   private generateCustomBranchName(artifactStem: string, action: ResolutionAction): string {
