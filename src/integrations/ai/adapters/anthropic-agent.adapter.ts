@@ -18,6 +18,7 @@ import type {
   VerificationOutcome,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
+import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import { resolveSkippedSteps, printVerificationReport, DEFAULT_STALL_THRESHOLD } from './verification-report';
 import {
   resolveModelRouting,
@@ -708,13 +709,14 @@ type AgentSessionParams = {
   activityState: ActivityState;
 };
 
-const buildAgentSessionTaskBriefParams = (s: AgentSessionParams): BuildTaskBriefParams => ({
+const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: string): BuildTaskBriefParams => ({
   ticketKey: s.params.ticket.ticketKey, repoName: s.params.repoName,
   repoFiles: s.params.repoFiles, contextFiles: s.params.contextFiles,
   trackedFilePaths: s.params.trackedFilePaths, verificationScripts: s.params.verificationScripts,
   planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
   planRisks: s.params.planArtifact.plan.risks, planAction: s.params.planArtifact.plan.action,
-  skillNames: s.params.skillNames, figmaContextSection: s.params.figmaContextSection,
+  skillFragment: skillFragment.length > 0 ? skillFragment : undefined,
+  figmaContextSection: s.params.figmaContextSection,
   phases: s.params.planArtifact.plan.phases,
 });
 
@@ -727,7 +729,10 @@ const buildSdkContinuationParams = (
 });
 
 const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
-  const taskBriefParams = buildAgentSessionTaskBriefParams(s);
+  const skillFragment = s.params.skillNames?.length
+    ? await buildSkillPromptFragment(s.params.skillNames, ANTHROPIC_AGENT_LABEL, chalk.cyan)
+    : '';
+  const taskBriefParams = buildAgentSessionTaskBriefParams(s, skillFragment);
   const finalResult = await runInitialSdkSession({
     query: s.query, sdkOptions: s.sdkOptions, resumeSessionId: s.params.options.resumeProviderSessionId,
     repoDir: s.repoDir, touchedFiles: s.touchedFiles, activityState: s.activityState, taskBriefParams,

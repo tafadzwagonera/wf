@@ -21,20 +21,15 @@ export const wfAiProviderNameSchema = z.enum(['anthropic', 'openai', 'google', '
 export const wfBackendModeSchema = z.enum(['agent', 'cli', 'standard']);
 
 export const wfPlanSkillNameSchema = z.enum([
-  'frontend-design',
+  'frontend-design-nuxt',
   'test-driven-development',
   'writing-plans',
 ]);
 
 export const wfImplementSkillNameSchema = z.enum([
   'coding-style',
-  'frontend-design',
-  'receiving-code-review',
+  'frontend-design-nuxt',
   'test-driven-development',
-]);
-
-export const wfReviewSkillNameSchema = z.enum([
-  'receiving-code-review',
 ]);
 
 export const wfAiProviderConfigSchema = z.object({
@@ -53,7 +48,6 @@ export const wfAiStageTargetConfigSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(0).optional(),
   inactivityTimeoutMs: z.number().int().min(0).optional(),
-  skills: z.array(z.string()).optional(),
 });
 
 export const wfPlanStageConfigSchema = wfAiStageTargetConfigSchema.extend({
@@ -126,7 +120,6 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
 }).superRefine(validatePullStepVerificationProvider);
 
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
-  skills: z.array(wfReviewSkillNameSchema).optional(),
   sonar: z.boolean().optional(),
   figma: z.boolean().optional(),
   maxDiffLength: z.number().int().min(1).optional(),
@@ -238,7 +231,6 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(0).optional(),
   inactivityTimeoutMs: z.number().int().min(0).optional(),
-  skills: z.array(z.string()).optional(),
 });
 
 export const normalizedReviewStageConfigSchema = normalizedAiStageTargetConfigSchema.extend({

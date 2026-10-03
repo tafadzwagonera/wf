@@ -20,7 +20,8 @@ import {
   extractConventionalType,
 } from '../../shared/utils/commit-diff-stat';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
-import { resolveSkills } from '../../skills';
+import chalk from 'chalk';
+import { buildSkillPromptFragment } from '../../skills';
 import {
   formatRepoConventionsPromptSection,
   type PackageManager,
@@ -56,10 +57,8 @@ import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
 import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
-  buildPlanSkillSection,
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
-  buildReviewSkillSection,
   buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
@@ -529,7 +528,9 @@ export const normalizeFileEntries = (raw: (string | FileEntry)[]): FileEntry[] =
 /**
  * Collect non-empty discovery prompt sections for the given context.
  * @param context Raw plan context object
- * @param issueContent
+ * @param conventions
+ * @param repoName
+ * @param isUiRelevant
  * @returns Array of non-empty section strings
  */
 const buildDiscoveryCandidates = (
@@ -557,6 +558,7 @@ const collectDiscoverySections = (context: Record<string, unknown>, issueContent
 /**
  * Build the discovery context block injected into the plan prompt.
  * @param context Raw plan context object
+ * @param issueContent
  * @returns Newline-delimited discovery sections, or empty string
  */
 const buildPlanDiscoveryBlock = (context: Record<string, unknown>, issueContent = ''): string => {
@@ -671,28 +673,34 @@ const extractSkillNames = (context: Record<string, unknown> | undefined): string
 
 /**
  * Build the full plan prompt body including instructions, test infra, and output schema.
- * @param action Plan action type
- * @param issueContent Issue text
  * @param context Optional plan context
- * @param repoExample Example repository name for the JSON schema
- * @param discoveryBlock Pre-built discovery sections block
- * @param hasNodeTestInfra Whether node test infrastructure was detected
+ * @param packageManager
  * @returns Complete prompt string
  */
-const buildPlanPromptBody = (
+const buildTestInfraSections = (
+  context: Record<string, unknown> | undefined, packageManager: PackageManager,
+): [string, string] => [
+  context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext, packageManager) : '',
+  buildPlanTestConventionsBlock(!!context?.testInfra),
+];
+
+const resolvePackageManager = (context: Record<string, unknown> | undefined): PackageManager =>
+  (context?.conventions as { packageManager?: PackageManager } | undefined)?.packageManager ?? 'npm';
+
+const buildPlanPromptBody = async (
   action: ResolutionAction, issueContent: string,
   context: Record<string, unknown> | undefined,
   repoExample: string, discoveryBlock: string,
   hasNodeTestInfra: boolean
-): string => {
-  const packageManager: PackageManager = (context?.conventions as { packageManager?: PackageManager } | undefined)?.packageManager ?? 'npm';
+): Promise<string> => {
+  const packageManager = resolvePackageManager(context);
+  const skillNames = extractSkillNames(context);
+  const skillFragment = skillNames?.length ? await buildSkillPromptFragment(skillNames, 'ai-service', chalk.gray) : '';
   return assemblePlanPrompt(
-    buildPlanPreamble(action, issueContent, context),
-    discoveryBlock,
-    [context?.testInfra ? formatTestInfraPromptSection(context.testInfra as TestInfraContext, packageManager) : '', buildPlanTestConventionsBlock(!!context?.testInfra)],
+    buildPlanPreamble(action, issueContent, context), discoveryBlock,
+    buildTestInfraSections(context, packageManager),
     buildPlanVerificationBlock(hasNodeTestInfra),
-    buildPlanOutputSchema(action, repoExample, packageManager),
-    buildPlanSkillSection(extractSkillNames(context)));
+    buildPlanOutputSchema(action, repoExample, packageManager), skillFragment);
 };
 
 /**
@@ -757,14 +765,12 @@ Return your response as a JSON object matching the CodeReview interface.`;
 const formatReviewGuidelines = (guidelines: string[]): string =>
   guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
 
-const buildReviewPrompt = (diff: string, guidelines: string[], skillNames?: string[]): string => {
+const buildReviewPrompt = (diff: string, guidelines: string[]): string => {
   const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
-  const skillSection = buildReviewSkillSection(skillNames);
   return [
     codeSection,
     'Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
     reviewInstructions,
-    ...(skillSection ? [skillSection] : []),
     reviewTraceGuidance,
     '\n',
     reviewOutputSchema,
@@ -1112,7 +1118,7 @@ export class AiService {
     context?: Record<string, unknown>
   ): Promise<ResolutionPlan> {
     const screenshots = this.encodeUiScreenshots(context);
-    const { prompt, planMaxTokens } = this.buildPlanGenerationRequest(action, issueContent, context);
+    const { prompt, planMaxTokens } = await this.buildPlanGenerationRequest(action, issueContent, context);
     const response = await retryOnUnusableResponse(
       () => this.executePlanPrompt(prompt, planMaxTokens, screenshots),
       response => this.requirePlanJsonContent(response),
@@ -1184,9 +1190,7 @@ export class AiService {
   }
 
   private async buildReviewPromptFrom(diff: string, guidelines: string[]): Promise<string> {
-    const reviewSkillIds = this.configService.get<string[]>('stages.review.skills') ?? [];
-    const reviewSkillNames = await this.resolveReviewSkillNames(reviewSkillIds);
-    return buildReviewPrompt(diff, guidelines, reviewSkillNames.length ? reviewSkillNames : undefined);
+    return buildReviewPrompt(diff, guidelines);
   }
 
   /**
@@ -1323,23 +1327,18 @@ export class AiService {
     return this.execute({ prompt, systemPrompt: reviewSystemPrompt, temperature: 0.3, maxTokens, stage: 'review' });
   }
 
-  private buildPlanGenerationRequest(
+  private async buildPlanGenerationRequest(
     action: ResolutionAction,
     issueContent: string,
     context?: Record<string, unknown>
-  ): { planMaxTokens: number; prompt: string } {
+  ): Promise<{ planMaxTokens: number; prompt: string }> {
     const repoExample = resolvePlanPromptRepoExample(context?.affectedRepositories as string[] | undefined);
     const discoveryBlock = context ? buildPlanDiscoveryBlock(context, issueContent) : '';
     const hasNodeInfra = detectNodeTestInfra(context);
     return {
       planMaxTokens: this.configService.get<number>('stages.plan.maxTokens', DEFAULT_PLAN_MAX_TOKENS),
-      prompt: buildPlanPromptBody(action, issueContent, context, repoExample, discoveryBlock, hasNodeInfra),
+      prompt: await buildPlanPromptBody(action, issueContent, context, repoExample, discoveryBlock, hasNodeInfra),
     };
-  }
-
-  private async resolveReviewSkillNames(reviewSkillIds: string[]): Promise<string[]> {
-    if (!reviewSkillIds.length) return [];
-    return (await resolveSkills(reviewSkillIds, { interactive: false, stage: 'review' })).map(s => s.id);
   }
 
   private requirePlanJsonContent(response: AIResponse): string {

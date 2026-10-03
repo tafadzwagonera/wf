@@ -20,7 +20,6 @@ import type {
   wfPlanSkillNameSchema,
   wfPlanStepVerificationConfigSchema,
   wfPlanStageConfigSchema,
-  wfReviewSkillNameSchema,
   wfReviewStageConfigSchema,
   wfStepVerificationModeSchema,
   wfVerificationConditionsConfigSchema,
@@ -48,7 +47,6 @@ export type WfPlanSkillName = z.infer<typeof wfPlanSkillNameSchema>;
 export type WfPlanStepVerificationConfig = z.infer<typeof wfPlanStepVerificationConfigSchema>;
 export type WfPlanStageConfig = z.infer<typeof wfPlanStageConfigSchema>;
 export type NormalizedReviewStageConfig = z.infer<typeof normalizedReviewStageConfigSchema>;
-export type WfReviewSkillName = z.infer<typeof wfReviewSkillNameSchema>;
 export type WfReviewStageConfig = z.infer<typeof wfReviewStageConfigSchema>;
 export type WfStepVerificationMode = z.infer<typeof wfStepVerificationModeSchema>;
 export type WfVerificationConditionsConfig = z.infer<typeof wfVerificationConditionsConfigSchema>;

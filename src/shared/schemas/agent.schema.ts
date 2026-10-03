@@ -152,7 +152,7 @@ export const buildTaskBriefParamsSchema = z.object({
   planSummary: z.string().optional(),
   planRisks: z.array(z.string()).optional(),
   planAction: resolutionActionSchema.optional(),
-  skillNames: z.array(z.string()).optional(),
+  skillFragment: z.string().optional(),
   figmaContextSection: z.string().optional(),
   phases: z.array(planPhaseSchema).optional(),
 });

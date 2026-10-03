@@ -2,13 +2,13 @@ import inquirer from 'inquirer';
 import { ConfigurationError, ValidationError } from '../shared/errors/app.error';
 import type { SkillDefinition, SkillQualityRule, SkillStage } from './skill.types';
 
-export const KNOWN_SKILLS = new Map<string, SkillDefinition>();
+export const knownSkills = new Map<string, SkillDefinition>();
 
 export const registerSkill = (skill: SkillDefinition): void => {
-  if (KNOWN_SKILLS.has(skill.id)) {
+  if (knownSkills.has(skill.id)) {
     throw new ValidationError(`Skill "${skill.id}" is already registered.`, { skillId: skill.id });
   }
-  KNOWN_SKILLS.set(skill.id, skill);
+  knownSkills.set(skill.id, skill);
 };
 
 const throwStageMismatchError = (id: string, skillStages: SkillStage[], requestedStage: SkillStage): never => {
@@ -18,7 +18,7 @@ const throwStageMismatchError = (id: string, skillStages: SkillStage[], requeste
 };
 
 const throwUnknownSkillError = (id: string): never => {
-  const available = Array.from(KNOWN_SKILLS.keys());
+  const available = Array.from(knownSkills.keys());
   const list = available.length > 0 ? available.join(', ') : '(none registered)';
   throw new ConfigurationError(`Unknown skill "${id}". Available skills: ${list}.`);
 };
@@ -28,9 +28,9 @@ const resolveUnknownSkillInteractively = async (id: string): Promise<SkillDefini
   const { correctedId } = await inquirer.prompt<{ correctedId: string }>([{
     type: 'list', name: 'correctedId',
     message: `Unknown skill "${id}". Select a replacement or skip:`,
-    choices: [...Array.from(KNOWN_SKILLS.keys()), SKIP_CHOICE], prefix: ' ',
+    choices: [...Array.from(knownSkills.keys()), SKIP_CHOICE], prefix: ' ',
   }]);
-  return correctedId === SKIP_CHOICE ? null : KNOWN_SKILLS.get(correctedId) ?? null;
+  return correctedId === SKIP_CHOICE ? null : knownSkills.get(correctedId) ?? null;
 };
 
 type ResolveSkillsOpts = { interactive: boolean; stage?: SkillStage };
@@ -38,7 +38,7 @@ type ResolveSkillsOpts = { interactive: boolean; stage?: SkillStage };
 export const resolveSkills = async (ids: string[], opts: ResolveSkillsOpts): Promise<SkillDefinition[]> => {
   const resolved: SkillDefinition[] = [];
   for (const id of ids) {
-    const known = KNOWN_SKILLS.get(id);
+    const known = knownSkills.get(id);
     if (known) {
       if (opts.stage && !known.stages.includes(opts.stage)) throwStageMismatchError(id, known.stages, opts.stage);
       resolved.push(known);

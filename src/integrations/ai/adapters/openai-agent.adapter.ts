@@ -1297,7 +1297,7 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
-  skillNames: params.skillNames, figmaContextSection: params.figmaContextSection,
+  figmaContextSection: params.figmaContextSection,
   phases: params.planArtifact.plan.phases ?? undefined,
 });
 
@@ -1424,7 +1424,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   }
 
   private async buildSkillFragment(params: GenerateAndVerifyParams): Promise<string> {
-    const skillPart = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames) : '';
+    const skillPart = params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames, OPENAI_AGENT_LABEL, chalk.cyan) : '';
     const figmaPart = params.figmaContextSection ? `\n\n${params.figmaContextSection}` : '';
     return `${skillPart}${figmaPart}`;
   }

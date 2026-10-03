@@ -36,6 +36,7 @@ import {
   spawnCli,
   type ClaudeCliMessage,
 } from './claude-cli-runner';
+import { buildSkillPromptFragment } from '../../../skills/skill-content';
 
 const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
@@ -381,26 +382,33 @@ const buildAppendSystemPrompt = async (params: GenerateAndVerifyParams, repoDir:
 const resolveAdditionalRepoDirs = (params: GenerateAndVerifyParams): string[] =>
   params.options.additionalRepoDirs ?? [];
 
-const buildCliTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: string): BuildPlanContextParams => ({
+const buildCliTaskBriefParams = (
+  params: GenerateAndVerifyParams, repoDir: string, skillFragment: string,
+): BuildPlanContextParams => ({
   ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
-  skillNames: params.skillNames, figmaContextSection: params.figmaContextSection,
+  skillFragment: skillFragment.length > 0 ? skillFragment : undefined, figmaContextSection: params.figmaContextSection,
   phases: params.planArtifact.plan.phases ?? undefined,
 });
 
-const createCliSessionParams = (
+const createCliSessionParams = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, appendSystemPrompt: string,
-): CliSessionParams => ({
-  options: params.options, repoFiles: params.repoFiles, repoName: params.repoName,
-  repoDir, appendSystemPrompt, model,
-  additionalRepoDirs: resolveAdditionalRepoDirs(params),
-  verificationScripts: params.verificationScripts,
-  taskBriefParams: buildCliTaskBriefParams(params, repoDir),
-  uiDesignScreenshotPaths: params.uiDesignScreenshotPaths,
-});
+): Promise<CliSessionParams> => {
+  const skillFragment = params.skillNames?.length
+    ? await buildSkillPromptFragment(params.skillNames, CLI_ADAPTER_LABEL, chalk.gray)
+    : '';
+  return {
+    options: params.options, repoFiles: params.repoFiles, repoName: params.repoName,
+    repoDir, appendSystemPrompt, model,
+    additionalRepoDirs: resolveAdditionalRepoDirs(params),
+    verificationScripts: params.verificationScripts,
+    taskBriefParams: buildCliTaskBriefParams(params, repoDir, skillFragment),
+    uiDesignScreenshotPaths: params.uiDesignScreenshotPaths,
+  };
+};
 
 const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
   buildCliArgs({
@@ -454,7 +462,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     console.log(chalk.cyan(`  ${modelRoutingResult.logMessage}`));
     const appendSystemPrompt = await buildAppendSystemPrompt(params, repoDir);
     return {
-      ...createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt),
+      ...await createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt),
       verificationPassOffset: params.verificationPassOffset,
     };
   }

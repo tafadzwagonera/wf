@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { CodexCliAdapter } from './codex-cli.adapter';
 import * as codexRunner from './codex-cli-runner';
+import * as skillContent from '../../../skills/skill-content';
 
 jest.mock('./codex-cli-runner');
 jest.mock('./shared-routing', () => {
@@ -274,5 +275,20 @@ describe('CodexCliAdapter', () => {
     const result = await adapter.generateAndVerify(createBaseParams());
 
     expect(result.modelsUsed).toEqual([expect.any(String)]);
+  });
+
+  it('injects skill SKILL.md content into the implement prompt when skillNames is set', async () => {
+    jest.spyOn(skillContent, 'buildSkillPromptFragment').mockResolvedValue('## Skill: coding-style\nContent');
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's', num_turns: 1, total_cost_usd: 0 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify({ ...createBaseParams(), skillNames: ['coding-style'] });
+
+    const builtArgs = mockBuildCodexCliArgs.mock.calls[0][0];
+    expect(builtArgs.prompt).toContain('## Skill: coding-style');
   });
 });

@@ -4,6 +4,6 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": ["bootstrap/*.json", "bootstrap/git-shim/*"]
+    "assets": ["bootstrap/*.json", "bootstrap/git-shim/*", "skills/content/**/*.md"]
   }
 }

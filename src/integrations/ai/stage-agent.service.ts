@@ -18,10 +18,8 @@ import { loadAiContextConfig } from './adapters/load-ai-context-config';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
-  buildPlanSkillSection,
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
-  buildReviewSkillSection,
   buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
@@ -86,6 +84,7 @@ import {
 } from '../../shared/utils/detect-reuse-candidates';
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
+import { buildSkillPromptFragment } from '../../skills/skill-content';
 import { estimateLlmCostUsd } from './llm-cost';
 import { buildSanitisedJsonSchema, normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './schema/openai-json-schema';
 export { buildSanitisedJsonSchema } from './schema/openai-json-schema';
@@ -253,7 +252,7 @@ type OpenAiStageContext = {
 };
 
 type ReviewCodeOpts = {
-  skillNames?: string[]; forkSession?: boolean; figmaContextSection?: string; screenshots?: UiDesignScreenshot[];
+  forkSession?: boolean; figmaContextSection?: string; screenshots?: UiDesignScreenshot[];
 };
 
 type StagePromptParams = {
@@ -346,25 +345,40 @@ const buildRetryFeedbackBlock = (feedback?: string[]): string =>
     ? `Previous plan attempt was rejected for these exact reasons:\n${feedback.join('\n')}\n\nRegenerate the full plan and fix every listed problem. Do not repeat any rejected step wording.\n\n`
     : '';
 
-const buildStagePlanPrompt = (params: GeneratePlanParams): string => {
-  const hasNodeTestInfra = params.testInfra?.ecosystems.some(e => e.ecosystem === 'node') ?? false;
+const resolvePlanBackendMeta = (key: string | undefined): { backend: string; color: (s: string) => string } => {
+  if (key === 'claude-cli') return { backend: 'claude-cli', color: chalk.gray };
+  if (key === 'openai-agent') return { backend: 'openai-agent', color: chalk.cyan };
+  return { backend: 'anthropic-agent', color: chalk.cyan };
+};
+
+const resolvePlanPromptOpts = (
+  params: GeneratePlanParams, backend: string, color: (s: string) => string,
+): PlanPromptBodyOpts => {
   const packageManager: PackageManager = params.conventions?.packageManager ?? 'npm';
-  return buildPlanPromptBody({
+  return {
     action: params.action, issueContent: params.issueContent, ticketKey: params.ticketKey,
     affectedRepositories: params.affectedRepositories,
     repoExample: resolveStagePromptRepoExample(params.affectedRepositories),
     retryFeedbackBlock: buildRetryFeedbackBlock(params.planQualityFeedback),
     discoveryBlock: buildPlanDiscoveryBlock(params),
     testInfraSection: params.testInfra ? formatTestInfraPromptSection(params.testInfra, packageManager) : '',
-    hasNodeInfra: hasNodeTestInfra,
-    skillNames: params.skillNames,
-    packageManager,
-  });
+    hasNodeInfra: params.testInfra?.ecosystems.some(e => e.ecosystem === 'node') ?? false,
+    skillNames: params.skillNames, packageManager, backend, color,
+  };
+};
+
+const buildStagePlanPrompt = async (
+  params: GeneratePlanParams, configService: ConfigService,
+): Promise<string> => {
+  const { backend, color } = resolvePlanBackendMeta(configService.get<string>('stages.plan.backend'));
+  return buildPlanPromptBody(resolvePlanPromptOpts(params, backend, color));
 };
 
 type PlanPromptBodyOpts = {
   action: string;
   affectedRepositories?: string[];
+  backend: string;
+  color: (s: string) => string;
   discoveryBlock: string;
   hasNodeInfra: boolean;
   issueContent: string;
@@ -398,26 +412,30 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-const buildPlanPromptBody = (opts: PlanPromptBodyOpts): string => [
-  buildPlanPromptPreamble(opts),
-  opts.testInfraSection,
-  buildPlanTestConventionsBlock(!!opts.testInfraSection),
-  planMinimalChangePrinciple,
-  buildPlanVerificationBlock(opts.hasNodeInfra),
-  buildPlanJsonSchemaExample(opts),
-  buildPlanSkillSection(opts.skillNames),
-].join('\n');
+const buildPlanPromptBody = async (opts: PlanPromptBodyOpts): Promise<string> => {
+  const skillFragment = opts.skillNames?.length
+    ? await buildSkillPromptFragment(opts.skillNames, opts.backend, opts.color)
+    : '';
+  return [
+    buildPlanPromptPreamble(opts),
+    opts.testInfraSection,
+    buildPlanTestConventionsBlock(!!opts.testInfraSection),
+    planMinimalChangePrinciple,
+    buildPlanVerificationBlock(opts.hasNodeInfra),
+    buildPlanJsonSchemaExample(opts),
+    skillFragment,
+  ].join('\n');
+};
 
 const buildStageReviewPrompt = (
-  diff: string, guidelines: string[], skillNames?: string[], figmaContextSection?: string
+  diff: string, guidelines: string[], figmaContextSection?: string
 ): string => {
   const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
-  const skillSection = buildReviewSkillSection(skillNames, figmaContextSection);
   return [
     `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
     `\nReview Guidelines:\n${numberedGuidelines}`,
     `\n${reviewInstructions}`,
-    ...(skillSection ? [skillSection] : []),
+    ...(figmaContextSection ? [figmaContextSection] : []),
     reviewTraceGuidance,
     `\n${reviewOutputSchema}`,
   ].join('\n');
@@ -1114,7 +1132,7 @@ export class StageAgentService {
     resumeProviderSessionId?: string;
   }): Promise<{ plan: ResolutionPlan; sessionId?: string; modelUsed?: string }> {
     const { content: response, sessionId, modelUsed } = await this.runStagePrompt({
-      stage: 'plan', prompt: buildStagePlanPrompt(params), systemPrompt: planSystemPrompt,
+      stage: 'plan', prompt: await buildStagePlanPrompt(params, this.configService), systemPrompt: planSystemPrompt,
       repoDir: process.cwd(), onProgress: params.onProgress,
       priorStageSummary: params.priorStageSummary, resumeProviderSessionId: params.resumeProviderSessionId,
     });
@@ -1180,7 +1198,7 @@ export class StageAgentService {
     resumeProviderSessionId?: string, onProgress?: StageProgressCallback, opts?: ReviewCodeOpts,
   ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const systemPrompt = this.buildReviewSystemPrompt(opts?.screenshots);
-    const prompt = buildStageReviewPrompt(diff, guidelines, opts?.skillNames, opts?.figmaContextSection);
+    const prompt = buildStageReviewPrompt(diff, guidelines, opts?.figmaContextSection);
     const base = { prompt, systemPrompt, repoDir, priorStageSummary, resumeProviderSessionId, onProgress };
     const { content: response, sessionId, modelUsed } = await this.runReviewStagePrompt(
       base, opts?.forkSession, opts?.screenshots,

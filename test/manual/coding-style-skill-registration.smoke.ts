@@ -5,7 +5,7 @@
  *
  * Verifies:
  *   1. AppModule bootstraps without error
- *   2. KNOWN_SKILLS contains 'coding-style' after bootstrap
+ *   2. knownSkills contains 'coding-style' after bootstrap
  *   3. coding-style stages deep-equals ['implement']
  *   4. resolveSkills accepts coding-style for implement stage
  *   5. resolveSkills rejects coding-style for plan stage
@@ -16,7 +16,7 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { KNOWN_SKILLS, resolveSkills } from '../../src/skills/skill-registry';
+import { knownSkills, resolveSkills } from '../../src/skills/skill-registry';
 import { buildSkillPromptFragment } from '../../src/skills/skill-content';
 import { ConfigurationError } from '../../src/shared/errors/app.error';
 import chalk from 'chalk';
@@ -33,8 +33,8 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 };
 
 function checkKnownSkillsRegistered(): void {
-  assert('KNOWN_SKILLS.has(coding-style)', KNOWN_SKILLS.has('coding-style'));
-  const skill = KNOWN_SKILLS.get('coding-style');
+  assert('knownSkills.has(coding-style)', knownSkills.has('coding-style'));
+  const skill = knownSkills.get('coding-style');
   assert(
     'stages is [implement]',
     JSON.stringify(skill?.stages) === JSON.stringify(['implement']),
@@ -79,7 +79,7 @@ async function checkRejectsForReview(): Promise<void> {
 }
 
 async function checkSkillPromptFragment(): Promise<void> {
-  const fragment = await buildSkillPromptFragment(['coding-style']);
+  const fragment = await buildSkillPromptFragment(['coding-style'], 'smoke-test', s => s);
   assert('fragment contains "## Skill: coding-style"', fragment.includes('## Skill: coding-style'));
   assert('fragment contains SKILL.md content', fragment.includes('name: coding-style'));
 }

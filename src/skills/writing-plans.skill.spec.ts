@@ -1,4 +1,4 @@
-import { KNOWN_SKILLS } from './skill-registry';
+import { knownSkills } from './skill-registry';
 
 // Import the skill module to trigger registration
 import './writing-plans.skill';
@@ -8,12 +8,12 @@ describe('writing-plans skill', () => {
     jest.restoreAllMocks();
   });
 
-  it('is registered in KNOWN_SKILLS', () => {
-    expect(KNOWN_SKILLS.has('writing-plans')).toBe(true);
+  it('is registered in knownSkills', () => {
+    expect(knownSkills.has('writing-plans')).toBe(true);
   });
 
   it('has stages: plan', () => {
-    expect(KNOWN_SKILLS.get('writing-plans')?.stages).toEqual(['plan']);
+    expect(knownSkills.get('writing-plans')?.stages).toEqual(['plan']);
   });
 });
 
@@ -23,7 +23,7 @@ describe('writing-plans skill: no-placeholders quality rule', () => {
   });
 
   const getRule = () => {
-    const skill = KNOWN_SKILLS.get('writing-plans');
+    const skill = knownSkills.get('writing-plans');
     const rules = skill?.getQualityRules?.() ?? [];
     const rule = rules.find(r => r.ruleId === 'no-placeholders');
     if (!rule) throw new Error('no-placeholders rule not found in writing-plans skill');

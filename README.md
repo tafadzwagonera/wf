@@ -146,7 +146,6 @@ export default defineConfig({
       provider: 'anthropic',
       backend: 'cli',
       inactivityTimeoutMs: 600000,
-      skills: ['receiving-code-review'],
     },
     commit: {
       provider: 'google',
@@ -210,7 +209,6 @@ stages:
     provider: anthropic
     backend: cli
     inactivityTimeoutMs: 600000
-    skills: [receiving-code-review]
   commit:
     provider: google
     backend: standard
@@ -275,7 +273,7 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 - `ai[].default` is optional when only one provider is configured, and required when two or more providers are configured.
 - `ai[].maxTokens` is only applied to Gemini provider entries using Gemini models; other providers ignore it.
 - `stages.generate`, `stages.plan`, `stages.review`, and `stages.implement` accept `{ provider, model, backend? }`.
-- `stages.plan`, `stages.implement`, and `stages.review` accept a typed `skills` array to opt in to registered skills for the stage. Valid skill names are enforced per stage: plan accepts `frontend-design`, `test-driven-development`, and `writing-plans`; implement accepts `coding-style`, `frontend-design`, `receiving-code-review`, and `test-driven-development`; review accepts `receiving-code-review`. Each skill ID must be registered in the skill registry and must support the target stage; a mismatch throws a `ConfigurationError`. In interactive sessions, unknown skill IDs prompt for correction; in non-interactive mode they throw immediately. For the review stage, resolved skill names are injected as Skill-tool invocation hints in the review prompt so the model invokes them before reviewing. For the implement stage, all backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI) inject skill invocation hints into the system prompt. Codex CLI also has native skill support at `~/.codex/superpowers/skills/` and can discover and invoke skills autonomously.
+- `stages.plan` and `stages.implement` accept a typed `skills` array to opt in to registered skills for the stage. Valid skill names are enforced per stage: plan accepts `frontend-design-nuxt`, `test-driven-development`, and `writing-plans`; implement accepts `coding-style`, `frontend-design-nuxt`, and `test-driven-development`. Each skill ID must be registered in the skill registry and must support the target stage; a mismatch throws a `ConfigurationError`. In interactive sessions, unknown skill IDs prompt for correction; in non-interactive mode they throw immediately. For both the plan and implement stages, all backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI) inline the full SKILL.md content directly into the prompt — no native Skill tool resolution, ~/.claude/skills/, or ~/.codex/skills/ path is consulted at runtime.
 - `stages.plan`, `stages.implement`, and `stages.review` accept `maxTokens?: number` to set the output token ceiling for the stage (default: 16384). Increase this if the model truncates verbose JSON responses. This setting applies to provider-backed stages only; Claude Code CLI and Codex CLI do not expose a wf-controlled output-token limit, so the CLI backend detects truncation (`stop_reason: 'max_tokens'`) automatically instead of applying this knob.
 - `stages.plan`, `stages.review`, `stages.generate`, and `stages.implement` accept `timeoutMs?: number` to set the wall-clock timeout for CLI backend invocations (default: 15 minutes). They also accept `inactivityTimeoutMs?: number` to set the per-message inactivity timeout (default: 2 minutes). The two timeouts serve different purposes:
   - **`timeoutMs`** (wall-clock) — an absolute upper bound on how long the subprocess is allowed to run from the moment it is spawned, regardless of whether it is producing output. It fires exactly once and cannot be reset.

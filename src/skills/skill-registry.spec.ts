@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { KNOWN_SKILLS, registerSkill, resolveSkills, collectQualityRules } from './skill-registry';
+import { knownSkills, registerSkill, resolveSkills, collectQualityRules } from './skill-registry';
 import { ConfigurationError } from '../shared/errors/app.error';
 import type { SkillDefinition } from './skill.types';
 
@@ -11,13 +11,13 @@ const createMockSkill = (id: string, stages: SkillDefinition['stages'] = ['plan'
 describe('registerSkill', () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    KNOWN_SKILLS.clear();
+    knownSkills.clear();
   });
 
-  it('adds the skill to KNOWN_SKILLS', () => {
+  it('adds the skill to knownSkills', () => {
     const mockSkill = createMockSkill('test-skill');
     registerSkill(mockSkill);
-    expect(KNOWN_SKILLS.get('test-skill')).toBe(mockSkill);
+    expect(knownSkills.get('test-skill')).toBe(mockSkill);
   });
 
   it('throws on duplicate skill ID', () => {
@@ -29,7 +29,7 @@ describe('registerSkill', () => {
 describe('resolveSkills', () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    KNOWN_SKILLS.clear();
+    knownSkills.clear();
   });
 
   it('returns resolved definitions for valid IDs', async () => {
@@ -113,7 +113,7 @@ describe('resolveSkills', () => {
 describe('collectQualityRules', () => {
   afterEach(() => {
     jest.restoreAllMocks();
-    KNOWN_SKILLS.clear();
+    knownSkills.clear();
   });
 
   it('returns empty array when no skills have quality rules', () => {

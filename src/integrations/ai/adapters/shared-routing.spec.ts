@@ -134,29 +134,19 @@ describe('buildPlanContext', () => {
     expect(rules).toContain('delete it');
   });
 
-  it('includes skill invocation hints when skillNames are provided', () => {
+  it('inlines skillFragment content when provided', () => {
     const result = buildPlanContext({
       ...baseParams,
-      skillNames: ['writing-plans', 'test-driven-development'],
+      skillFragment: '## Skill: writing-plans\nContent A\n\n## Skill: test-driven-development\nContent B',
     });
 
-    expect(result).toContain("Skill('writing-plans')");
-    expect(result).toContain("Skill('test-driven-development')");
-    expect(result).toContain('Skill-specific instructions:');
+    expect(result).toContain('## Skill: writing-plans');
+    expect(result).toContain('## Skill: test-driven-development');
   });
 
-  it('omits skill section when skillNames is an empty array', () => {
-    const result = buildPlanContext({
-      ...baseParams,
-      skillNames: [],
-    });
-
-    expect(result).not.toContain('Skill-specific instructions:');
-  });
-
-  it('omits skill section when skillNames is omitted', () => {
+  it('omits skill content when skillFragment is undefined', () => {
     const result = buildPlanContext(baseParams);
-    expect(result).not.toContain('Skill-specific instructions:');
+    expect(result).not.toContain('## Skill:');
   });
 
   it('includes phase checkpoint instructions when plan has phases', () => {
@@ -471,10 +461,9 @@ describe('buildTaskBrief', () => {
     expect(result).toContain('package.json');
   });
 
-  it('includes skill section when skillNames is provided', () => {
-    const result = buildTaskBrief({ ...baseParams, skillNames: ['test-driven-development'] });
-    expect(result).toContain('Skill-specific instructions:');
-    expect(result).toContain("Skill('test-driven-development')");
+  it('inlines skillFragment content when provided', () => {
+    const result = buildTaskBrief({ ...baseParams, skillFragment: '## Skill: test-driven-development\nContent' });
+    expect(result).toContain('## Skill: test-driven-development');
   });
 });
 

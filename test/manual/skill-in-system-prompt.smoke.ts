@@ -50,12 +50,12 @@ function checkSkillSignatureAndDescription(prompt: string): void {
   const skillLine = prompt.split('\n').find(l => l.includes('Skill(skill, args?)'));
   assert(
     'Skill line mentions "specialized skill"',
-    !!skillLine && skillLine.includes('specialized skill'),
+    skillLine !== undefined && skillLine.includes('specialized skill'),
     `Got: ${skillLine}`
   );
   assert(
     'Skill line mentions example skills (plan-quality, executing-plans)',
-    !!skillLine && skillLine.includes('plan-quality') && skillLine.includes('executing-plans'),
+    skillLine !== undefined && skillLine.includes('plan-quality') && skillLine.includes('executing-plans'),
     `Got: ${skillLine}`
   );
 }

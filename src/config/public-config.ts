@@ -13,7 +13,6 @@ export type {
   WfImplementStageModelsConfig,
   WfPlanSkillName,
   WfPlanStageConfig,
-  WfReviewSkillName,
   WfVerificationConditionsConfig,
 } from '../shared/types/config.types';
 

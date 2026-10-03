@@ -7,8 +7,6 @@ import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AiProviderError } from '../../shared/utils/errors';
-import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
-import type { SkillDefinition } from '../../skills/skill.types';
 import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 describe('ReviewStageService', () => {
@@ -197,9 +195,7 @@ describe('ReviewStageService', () => {
     };
   };
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
+  afterEach(() => jest.restoreAllMocks());
 
   it('builds default review guidelines around the provided context', async () => {
     const { service, aiService } = await buildService();
@@ -801,82 +797,16 @@ describe('ReviewStageService', () => {
     });
   });
 
-  describe('skill integration', () => {
-    const createMockReviewSkill = (id: string): SkillDefinition => ({ id, stages: ['review'] });
-    let savedSkills: Map<string, SkillDefinition>;
-
-    beforeEach(() => {
-      savedSkills = new Map(KNOWN_SKILLS);
-      KNOWN_SKILLS.clear();
-    });
-
-    afterEach(() => {
-      KNOWN_SKILLS.clear();
-      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
-    });
-
-    it('passes resolved skillNames to stageAgentService.reviewCode when agent backend is enabled', async () => {
-      registerSkill(createMockReviewSkill('receiving-code-review'));
-      const { service, stageAgentService } = await buildService({
-        agentEnabled: true,
-        reviewSkills: ['receiving-code-review'],
-      });
-
-      await service.reviewDiff('diff --git a/file b/file', {
-        context: 'ticket WBP-SKILL: Skill review',
-        repoDir: '/tmp/repo',
-      });
-
-      expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Array),
-        '/tmp/repo',
-        undefined,
-        undefined,
-        undefined,
-        { skillNames: ['receiving-code-review'], forkSession: undefined }
-      );
-    });
-
-    it('passes undefined skillNames to agent when no skills are configured', async () => {
-      const { service, stageAgentService } = await buildService({ agentEnabled: true });
-
-      await service.reviewDiff('diff --git a/file b/file', {
-        context: 'ticket WBP-NO-SKILL: No skills',
-        repoDir: '/tmp/repo',
-      });
-
-      expect(stageAgentService.reviewCode).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.any(Array),
-        '/tmp/repo',
-        undefined,
-        undefined,
-        undefined,
-        { skillNames: undefined, forkSession: undefined }
-      );
-    });
-
-    it('throws ConfigurationError when a skill does not support the review stage', async () => {
-      registerSkill({ id: 'plan-only-skill', stages: ['plan'] });
-      const { service } = await buildService({
-        agentEnabled: true,
-        reviewSkills: ['plan-only-skill'],
-      });
-
-      await expect(
-        service.reviewDiff('diff --git a/file b/file', { context: 'mismatch test' })
-      ).rejects.toThrow('does not support the "review" stage');
-    });
-
+  describe('reviewViaAgent', () => {
     it('surfaces sessionId from agent backend on success', async () => {
       const { service, stageAgentService } = await buildService({ agentEnabled: true });
       (stageAgentService.reviewCode as jest.Mock).mockResolvedValue({
-        review: { summary: 'ok', issues: [], suggestions: [], approved: true, executionMode: 'cli' },
+        review: { ...mockReview, executionMode: 'agent' as const },
         sessionId: 'review-sess-1',
       });
 
-      const result = await service.reviewDiff('diff', { context: 'test' });
+      const result = await service.reviewDiff('diff', { context: 'ticket WBP-SID: Session ID test' });
+
       expect(result.sessionId).toBe('review-sess-1');
     });
 
@@ -886,14 +816,16 @@ describe('ReviewStageService', () => {
         reviewBackend: 'agent',
       });
       (stageAgentService.reviewCode as jest.Mock).mockRejectedValueOnce(
-        new AiProviderError('parse fail', { response: '{"summary":"ok","issues":[],"suggestions":[],"approved":true}', sessionId: 'review-sess-2' }, true, 'parse')
+        new AiProviderError('parse fail', {
+          response: JSON.stringify({ summary: 'ok', issues: [], suggestions: [], approved: true }),
+          sessionId: 'review-sess-2',
+        }, true, 'parse')
       );
       const svc = aiService as unknown as Record<string, unknown>;
-      svc.validateReviewJson = jest.fn().mockResolvedValue({
-        summary: 'ok', issues: [], suggestions: [], approved: true,
-      });
+      svc.validateReviewJson = jest.fn().mockResolvedValue({ ...mockReview, executionMode: 'standard' as const });
 
-      const result = await service.reviewDiff('diff', { context: 'test' });
+      const result = await service.reviewDiff('diff', { context: 'ticket WBP-SID2: Session ID recovery' });
+
       expect(result.sessionId).toBe('review-sess-2');
     });
   });

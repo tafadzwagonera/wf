@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from '../../integrations/ai/ai.service';
 import { PlanStageService } from './plan-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
-import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
+import { knownSkills, registerSkill } from '../../skills/skill-registry';
 import {
   buildPlanArtifactManifest,
   buildPlanArtifactManifestPath,
@@ -1361,13 +1361,13 @@ describe('PlanStageService', () => {
     let savedSkills: Map<string, import('../../skills/skill.types').SkillDefinition>;
 
     beforeEach(() => {
-      savedSkills = new Map(KNOWN_SKILLS);
-      KNOWN_SKILLS.clear();
+      savedSkills = new Map(knownSkills);
+      knownSkills.clear();
     });
 
     afterEach(() => {
-      KNOWN_SKILLS.clear();
-      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
+      knownSkills.clear();
+      for (const [k, v] of savedSkills) knownSkills.set(k, v);
     });
 
     it('passes skillNames in context when plan skills are configured', async () => {
@@ -1414,7 +1414,7 @@ describe('PlanStageService', () => {
     });
 
     it('throws ConfigurationError when a plan skill does not support the plan stage', async () => {
-      registerSkill({ id: 'receiving-code-review', stages: ['review', 'implement'] });
+      registerSkill({ id: 'frontend-design-nuxt', stages: ['implement'] });
       const module = await Test.createTestingModule({
         providers: [
           PlanStageService,
@@ -1430,7 +1430,7 @@ describe('PlanStageService', () => {
             provide: ConfigService,
             useValue: {
               get: jest.fn((key: string) => {
-                if (key === 'stages.plan.skills') return ['receiving-code-review'];
+                if (key === 'stages.plan.skills') return ['frontend-design-nuxt'];
                 return undefined;
               }),
             },

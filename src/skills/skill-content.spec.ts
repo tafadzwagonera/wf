@@ -1,46 +1,34 @@
+import * as path from 'path';
 import { readSkillContent, buildSkillPromptFragment } from './skill-content';
 import { ConfigurationError } from '../shared/errors/app.error';
+import * as logFileWriter from '../shared/logger/log-file-writer';
 
 jest.mock('fs/promises');
-jest.mock('glob');
 
 import * as fs from 'fs/promises';
-import { glob } from 'glob';
 
 const mockReadFile = fs.readFile as jest.MockedFunction<typeof fs.readFile>;
-const mockGlob = glob as jest.MockedFunction<typeof glob>;
+
+const bundledPath = (skillId: string) =>
+  path.join(__dirname, 'content', skillId, 'SKILL.md');
+
+const noopColor = (s: string) => s;
 
 describe('readSkillContent', () => {
-  beforeEach(() => {
-    // Glob patterns with wildcards return no matches by default
-    mockGlob.mockResolvedValue([]);
-  });
-
   afterEach(() => {
     jest.restoreAllMocks();
-    jest.clearAllMocks();
   });
 
-  it('returns file content when SKILL.md is found via direct path', async () => {
+  it('returns file content when SKILL.md is found at the bundled path', async () => {
     mockReadFile.mockResolvedValueOnce('# My Skill\nDo something.' as never);
 
     const result = await readSkillContent('my-skill');
     expect(result).toBe('# My Skill\nDo something.');
+    expect(mockReadFile).toHaveBeenCalledWith(bundledPath('my-skill'), 'utf-8');
   });
 
-  it('returns file content when SKILL.md is found via glob pattern', async () => {
-    mockReadFile
-      .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
-      .mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockGlob.mockResolvedValueOnce(['/home/.claude/plugins/cache/claude-plugins-official/v1/skills/glob-skill/SKILL.md'] as never);
-    mockReadFile.mockResolvedValueOnce('# Glob Skill\nFound via wildcard.' as never);
-
-    const result = await readSkillContent('glob-skill');
-    expect(result).toBe('# Glob Skill\nFound via wildcard.');
-  });
-
-  it('returns null when SKILL.md is not found in any location', async () => {
-    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+  it('returns null when SKILL.md is not found at the bundled path', async () => {
+    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     const result = await readSkillContent('missing-skill');
     expect(result).toBeNull();
@@ -48,42 +36,71 @@ describe('readSkillContent', () => {
 });
 
 describe('buildSkillPromptFragment', () => {
+  let mockAppendToLogFile: jest.SpyInstance;
+
   beforeEach(() => {
-    mockGlob.mockResolvedValue([]);
+    mockAppendToLogFile = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+    const knownSkillIds = new Set(['my-skill', 'skill-a', 'skill-b']);
+    mockReadFile.mockImplementation((filePath: unknown) => {
+      const p = filePath as string;
+      const skillId = /content\/([^/]+)\/SKILL\.md$/.exec(p)?.[1];
+      if (skillId && knownSkillIds.has(skillId)) {
+        return Promise.resolve('# Skill content' as never);
+      }
+      return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    });
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    jest.clearAllMocks();
   });
 
   it('returns empty string when skillIds array is empty', async () => {
-    const result = await buildSkillPromptFragment([]);
+    const result = await buildSkillPromptFragment([], 'test-backend', noopColor);
     expect(result).toBe('');
   });
 
   it('concatenates SKILL.md content for multiple skills under headers', async () => {
-    mockReadFile
-      .mockResolvedValueOnce('Content for skill-a.' as never)
-      .mockResolvedValueOnce('Content for skill-b.' as never);
-
-    const result = await buildSkillPromptFragment(['skill-a', 'skill-b']);
+    const result = await buildSkillPromptFragment(['skill-a', 'skill-b'], 'test-backend', noopColor);
     expect(result).toContain('## Skill: skill-a');
-    expect(result).toContain('Content for skill-a.');
+    expect(result).toContain('# Skill content');
     expect(result).toContain('## Skill: skill-b');
-    expect(result).toContain('Content for skill-b.');
+  });
+
+  it('calls appendToLogFile once per successfully loaded skill', async () => {
+    await buildSkillPromptFragment(['skill-a', 'skill-b'], 'test-backend', noopColor);
+
+    expect(mockAppendToLogFile).toHaveBeenCalledTimes(2);
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', "Skill('skill-a') loaded", 'test-backend');
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', "Skill('skill-b') loaded", 'test-backend');
+  });
+
+  it('wraps the console log line in the provided color function', async () => {
+    const mockColor = jest.fn((s: string) => s);
+
+    await buildSkillPromptFragment(['skill-a'], 'test-backend', mockColor);
+
+    expect(mockColor).toHaveBeenCalledWith("  [test-backend] Skill('skill-a') loaded");
   });
 
   it('throws ConfigurationError when a SKILL.md is missing', async () => {
-    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-
-    await expect(buildSkillPromptFragment(['missing-skill'])).rejects.toThrow(ConfigurationError);
+    await expect(
+      buildSkillPromptFragment(['missing-skill'], 'test-backend', noopColor)
+    ).rejects.toThrow(ConfigurationError);
   });
 
   it('includes the skill ID in the ConfigurationError message', async () => {
-    mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    await expect(
+      buildSkillPromptFragment(['my-missing-skill'], 'test-backend', noopColor)
+    ).rejects.toThrow('my-missing-skill');
+  });
 
-    await expect(buildSkillPromptFragment(['my-missing-skill']))
-      .rejects.toThrow('my-missing-skill');
+  it('does not call appendToLogFile when a skill fails to load', async () => {
+    await expect(
+      buildSkillPromptFragment(['missing-skill'], 'test-backend', noopColor)
+    ).rejects.toThrow(ConfigurationError);
+
+    expect(mockAppendToLogFile).not.toHaveBeenCalled();
   });
 });

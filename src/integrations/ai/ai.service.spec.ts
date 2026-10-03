@@ -2,7 +2,6 @@ import { ConfigService } from '@nestjs/config';
 import { AiService, parseJsonResponse } from './ai.service';
 import { LoggerService } from '../../shared/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { KNOWN_SKILLS, registerSkill } from '../../skills/skill-registry';
 import { AiProviderError } from '../../shared/utils/errors';
 import { stepAssessmentResponseJsonSchema } from '../../shared/schemas/step-verification.schema';
 import { stepFidelityResponseJsonSchema } from '../../shared/schemas/step-spec-fidelity.schema';
@@ -1612,50 +1611,19 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
   });
 
-  describe('reviewCode skill injection', () => {
-    const savedSkills = new Map(KNOWN_SKILLS);
-
-    beforeEach(() => {
-      KNOWN_SKILLS.clear();
-      registerSkill({ id: 'receiving-code-review', stages: ['review', 'implement'] });
-    });
-
+  describe('reviewCode prompt', () => {
     afterEach(() => {
-      KNOWN_SKILLS.clear();
-      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
       jest.restoreAllMocks();
     });
 
-    it('includes skill invocation hints in review prompt when skills are configured', async () => {
-      const adapter = createAdapter();
-      const configService = {
-        get: jest.fn((key: string, defaultValue?: unknown) => {
-          const values: Record<string, unknown> = {
-            'ai.provider': 'openai',
-            'ai.model': 'gpt-5.4',
-            'ai.providers': [{ provider: 'openai', apiKey: 'k', model: 'gpt-5.4', default: true }],
-            'stages.review.skills': ['receiving-code-review'],
-          };
-          return key in values ? values[key] : defaultValue;
-        }),
-      } as unknown as ConfigService;
-      const service = new AiService(mockLogger, adapter, configService);
-
-      await service.reviewCode('diff --git a/file', ['check style']);
-
-      const prompt = (adapter.execute as jest.Mock).mock.calls[0][0].prompt as string;
-      expect(prompt).toContain("Skill('receiving-code-review')");
-      expect(prompt).toContain('Skill-specific instructions:');
-    });
-
-    it('omits skill section from review prompt when no skills are configured', async () => {
+    it('does not include Skill() invocation directives in the review prompt', async () => {
       const adapter = createAdapter();
       const service = new AiService(mockLogger, adapter, createConfigService());
 
       await service.reviewCode('diff --git a/file', ['check style']);
 
       const prompt = (adapter.execute as jest.Mock).mock.calls[0][0].prompt as string;
-      expect(prompt).not.toContain('Skill-specific instructions:');
+      expect(prompt).not.toMatch(/Skill\('[^']+'\)/);
     });
   });
 

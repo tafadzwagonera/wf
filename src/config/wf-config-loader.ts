@@ -766,7 +766,6 @@ const buildNormalizedStageTarget = (
   outputFormat: stageTarget.outputFormat,
   timeoutMs: stageTarget.timeoutMs,
   inactivityTimeoutMs: stageTarget.inactivityTimeoutMs,
-  skills: stageTarget.skills,
 });
 
 /**

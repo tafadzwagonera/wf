@@ -12,7 +12,7 @@ registerSkill({
         const steps = Array.isArray(plan.steps) ? plan.steps : [];
         const violations: string[] = [];
         for (const [index, step] of steps.entries()) {
-          if (typeof step === 'string' && PLACEHOLDER_PATTERN.test(step)) {
+          if (PLACEHOLDER_PATTERN.test(step)) {
             violations.push(`Step ${index + 1} contains a placeholder: "${step}"`);
           }
         }

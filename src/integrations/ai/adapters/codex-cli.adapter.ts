@@ -12,6 +12,7 @@ import type {
 } from '../../../agents/interfaces';
 import { resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
+import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
   printVerificationReport, getEnforcedFailures,
@@ -79,13 +80,17 @@ const buildPriorStagePreamble = (options: ImplementerOptions): string =>
 const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: string): string =>
   buildSystemPrompt({ repoDir, conventionsSection: params.conventionsSection });
 
-const buildCodexImplementPrompt = (params: GenerateAndVerifyParams, repoDir: string): string => {
+const buildCodexSkillFragment = async (params: GenerateAndVerifyParams): Promise<string> =>
+  params.skillNames?.length ? buildSkillPromptFragment(params.skillNames, CODEX_ADAPTER_LABEL, chalk.cyan) : '';
+
+const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
   const screenshotPaths = params.uiDesignScreenshotPaths?.length
     ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.uiDesignScreenshotPaths.map(p => `- ${p}`).join('\n')
     : '';
-  return `${preamble}${systemPrompt}${screenshotPaths}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
+  const skillFragment = await buildCodexSkillFragment(params);
+  return `${preamble}${systemPrompt}${screenshotPaths}${skillFragment}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
 };
 
 const logCommandStarted = (message: CodexCliMessage): boolean => {
@@ -275,11 +280,11 @@ const logTouchedFiles = (touchedFiles: Set<string>): void => {
 
 type RunCodexStreamResult = { sessionId: string | undefined; touchedFiles: Set<string> };
 
-const buildStreamContext = (
+const buildStreamContext = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
   timeoutMs: number, inactivityTimeoutMs: number,
-): StreamContext => {
-  const implementPrompt = params.options.initialPromptOverride ?? buildCodexImplementPrompt(params, repoDir);
+): Promise<StreamContext> => {
+  const implementPrompt = params.options.initialPromptOverride ?? await buildCodexImplementPrompt(params, repoDir);
   const cliArgs = buildCodexCliArgs({
     prompt: implementPrompt, model, cwd: repoDir,
     permissionMode: 'full-auto', sessionId: params.options.resumeProviderSessionId,
@@ -295,7 +300,7 @@ const runCodexStream = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, activityState: ActivityState,
   timeoutMs: number, inactivityTimeoutMs: number,
 ): Promise<RunCodexStreamResult> => {
-  const ctx = buildStreamContext(params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs);
+  const ctx = await buildStreamContext(params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs);
   const { sessionId } = await processCodexStream(ctx, params.options.resumeProviderSessionId);
   return { sessionId, touchedFiles: ctx.touchedFiles };
 };

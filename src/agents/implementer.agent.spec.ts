@@ -15,7 +15,7 @@ import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
-import { KNOWN_SKILLS, registerSkill } from '../skills/skill-registry';
+import { knownSkills, registerSkill } from '../skills/skill-registry';
 import { isRepoResolvable } from './utils';
 import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conventions';
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
@@ -2022,15 +2022,15 @@ describe('ImplementerAgent', () => {
     let savedSkills: Map<string, import('../skills/skill.types').SkillDefinition>;
 
     beforeEach(() => {
-      savedSkills = new Map(KNOWN_SKILLS);
-      KNOWN_SKILLS.clear();
+      savedSkills = new Map(knownSkills);
+      knownSkills.clear();
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: undefined, verificationOutcomes: [] });
       jest.spyOn(console, 'log').mockImplementation(() => {});
     });
 
     afterEach(() => {
-      KNOWN_SKILLS.clear();
-      for (const [k, v] of savedSkills) KNOWN_SKILLS.set(k, v);
+      knownSkills.clear();
+      for (const [k, v] of savedSkills) knownSkills.set(k, v);
     });
 
     it('passes resolved skillNames to the adapter when implement skills are configured', async () => {

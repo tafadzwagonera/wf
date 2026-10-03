@@ -28,7 +28,6 @@ import {
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
 import { StageProgressCallback } from '../../shared/types/agent.types';
-import { resolveSkills } from '../../skills';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
@@ -72,7 +71,6 @@ interface ReviewDiffOptions {
   resumeProviderSessionId?: string;
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
-  skillNames?: string[];
   figmaContextSection?: string;
   screenshots?: UiDesignScreenshot[];
   commentPolicyEnabled?: boolean;
@@ -241,13 +239,6 @@ export class ReviewStageService {
     return { review: this.ensureExecutionModeSet(review), sessionId, modelUsed };
   }
 
-  private async resolveReviewSkillNames(): Promise<string[] | undefined> {
-    const ids = this.configService.get<string[]>('stages.review.skills') ?? [];
-    if (!ids.length) return undefined;
-    const skills = await resolveSkills(ids, { interactive: this.isInteractiveSession(), stage: 'review' });
-    return skills.map(s => s.id);
-  }
-
   private async performReview(
     diff: string,
     guidelines: string[],
@@ -256,18 +247,17 @@ export class ReviewStageService {
     if (!this.stageAgentService.isEnabledForStage('review')) {
       return { review: await this.aiService.reviewCode(diff, guidelines, options.onProgress) };
     }
-    const skillNames = await this.resolveReviewSkillNames();
-    return this.reviewViaAgent(diff, guidelines, { ...options, skillNames });
+    return this.reviewViaAgent(diff, guidelines, options);
   }
 
   private async reviewViaAgent(diff: string, guidelines: string[], options: ReviewDiffOptions
   ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
-    const { skillNames, forkSession, figmaContextSection, screenshots } = options;
+    const { forkSession, figmaContextSection, screenshots } = options;
     try {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
         options.resumeProviderSessionId, options.onProgress,
-        { skillNames, forkSession, figmaContextSection, screenshots },
+        { forkSession, figmaContextSection, screenshots },
       );
       return { review: result.review, sessionId: result.sessionId, modelUsed: result.modelUsed };
     } catch (error) {

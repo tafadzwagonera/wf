@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { FigmaFrameContext, FigmaNodeLayout } from '../figma/figma-rest.client';
 
@@ -133,13 +133,6 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-export const buildPlanSkillSection = (skillNames?: string[]): string => {
-  if (!skillNames?.length) return '';
-  return '\n\nSkill-specific instructions:\nBefore starting work, invoke each of the following skills using the Skill tool:\n'
-    + skillNames.map(s => `- Skill('${s}')`).join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.';
-};
-
 function formatNodeHeader(node: FigmaNodeLayout, indent: string): string {
   const dims = node.width !== undefined && node.height !== undefined
     ? ` (${node.width}×${node.height}px)`
@@ -195,17 +188,6 @@ export const buildFigmaContextSection = (frames: FigmaFrameContext[]): string =>
     const header = `Frame: ${f.url}\nName: ${f.name} (${f.width}×${f.height}px)\nScreenshot: ${f.screenshotUrl}`;
     return `${header}\n\nLayout:\n${formatNodeLayout(f.layout)}`;
   }).join('\n\n---\n\n');
-};
-
-export const buildReviewSkillSection = (skillNames?: string[], figmaContextSection?: string): string => {
-  if (!skillNames?.length && !figmaContextSection) return '';
-  const lines: string[] = (skillNames ?? []).map(s => `- Skill('${s}')`);
-  const skillBlock = lines.length
-    ? '\nSkill-specific instructions:\nBefore starting review, invoke each of the following skills using the Skill tool:\n'
-    + lines.join('\n')
-    + '\nFollow each skill\'s instructions fully before proceeding.\n'
-    : '';
-  return figmaContextSection ? `${skillBlock}\n\n${figmaContextSection}` : skillBlock;
 };
 
 export const deriveModelSource = (provider: string, model: string): string => {
