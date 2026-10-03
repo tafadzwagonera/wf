@@ -602,7 +602,7 @@ const recordFileChange = (
 ): void => {
   mutable.fileChangeStatus.set(rel, status);
   mutable.changedFilesSinceLastVerification.add(rel);
-  console.log(chalk.cyan(`  [openai-agent] File ${status}: ${rel}`));
+  console.log(chalk.gray(`  [openai-agent] File ${status}: ${rel}`));
 };
 
 const executeWriteFile = async (

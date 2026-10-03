@@ -342,7 +342,9 @@ const handleSdkMessage = (
 ): SDKResultMessage | undefined => {
   if (logProgressMessage(message)) return undefined;
   collectPersistedFiles(message, repoDir, touchedFiles);
-  for (const m of formatActivityMessages(message, repoDir, activityState)) console.log(chalk.cyan(m));
+  const isFilesPersisted = message.type === 'system' && message.subtype === 'files_persisted';
+  const activityColor = isFilesPersisted ? chalk.gray : chalk.cyan;
+  for (const m of formatActivityMessages(message, repoDir, activityState)) console.log(activityColor(m));
   trackVerificationOutcome(message, activityState);
   return message.type === 'result' ? message : undefined;
 };

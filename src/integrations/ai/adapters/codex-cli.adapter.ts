@@ -128,7 +128,7 @@ const processAssistantBlock = (block: AssistantBlock, repoDir: string, touchedFi
   if (!filePath) return false;
   const relativePath = path.isAbsolute(filePath) ? path.relative(repoDir, filePath) : filePath;
   touchedFiles.add(relativePath);
-  console.log(chalk.cyan(`  [${CODEX_ADAPTER_LABEL}] File updated: ${relativePath}`));
+  console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] File updated: ${relativePath}`));
   return true;
 };
 
