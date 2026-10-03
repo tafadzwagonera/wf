@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { parseJsonResponse } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
-import type { WfAiProviderName } from '../shared/types/config.types';
+import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 import { ConfigurationError } from '../shared/utils/errors';
 import type { AssessableStep } from './step-spec-fidelity.service';
@@ -13,6 +13,7 @@ export type PullStepAssessmentParams = {
   baseRef: string;
   provider?: WfAiProviderName;
   model?: string;
+  backend?: WfBackendMode;
 };
 
 const PULL_STEP_ASSESSOR_SYSTEM_PROMPT
@@ -73,6 +74,7 @@ export class PullStepAssessorService {
       repoDir: params.repoDir,
       providerOverride: resolvePullProvider(params.provider),
       modelOverride: params.model,
+      ...(params.backend && { backendOverride: params.backend }),
       structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
       responseValidator: { label: 'plan_step_assessment', parse: value => stepAssessmentResponseSchema.parse(value) },
     });

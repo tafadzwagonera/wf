@@ -1089,7 +1089,7 @@ export class AiService {
     if (!agentStageNameSchema.safeParse(request.stage).success) return null;
     if (!this.stageAgentService?.isEnabledForStage(request.stage as AgentStageName)) return null;
     const { provider, model } = this.stageAgentService.resolveTargetForStage(request.stage as AgentStageName);
-    const [p, m] = [request.provider, request.model];
+    const { provider: p, model: m } = request;
     const result = await this.stageAgentService.chatTurn({
       stage: request.stage as AgentStageName,
       systemPrompt: request.systemPrompt ?? '', userMessage: request.prompt, structuredOutput: request.structuredOutput,

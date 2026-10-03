@@ -91,8 +91,8 @@ export class StepSpecFidelityService {
     steps: AssessableStep[], diff: string, result: StepFidelityVerificationResult,
     assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<void> {
+    const { assessorProvider: provider, assessorModel: model, assessorBackend: backend } = assessorTarget ?? {};
     for (const step of steps) {
-      const { assessorProvider: provider, assessorModel: model, assessorBackend: backend } = assessorTarget ?? {};
       const r = await this.run({ stepText: step.text, diff, provider, model, backend });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {

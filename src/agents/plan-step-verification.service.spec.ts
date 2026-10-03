@@ -313,6 +313,18 @@ describe('PlanStepVerificationService', () => {
     expect(mockPullAssess.mock.calls[1][0]).toMatchObject({ provider: 'anthropic', model: 'claude-sonnet-4-6' });
   });
 
+  it('forwards assessorBackend as backend to pull assessor when set', async () => {
+    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+    await service.run(makeRunParams({ mode: 'pull', assessorBackend: 'cli' }));
+    expect(mockPullAssess).toHaveBeenCalledWith(expect.objectContaining({ backend: 'cli' }));
+  });
+
+  it('omits backend from pull assessor when assessorBackend is not set', async () => {
+    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+    await service.run(makeRunParams({ mode: 'pull' }));
+    expect(mockPullAssess.mock.calls[0][0]).not.toHaveProperty('backend');
+  });
+
   it('treats not-applicable as terminal (no fix round)', async () => {
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-applicable' }] }),

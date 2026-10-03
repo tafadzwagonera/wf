@@ -70,6 +70,17 @@ describe('PullStepAssessorService', () => {
     })).rejects.toThrow('unsupported for provider');
   });
 
+  it('forwards backend as backendOverride when set, omits it when absent', async () => {
+    mockChatTurn.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }), session: {} });
+
+    await service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD', backend: 'cli' });
+    expect(mockChatTurn).toHaveBeenCalledWith(expect.objectContaining({ backendOverride: 'cli' }));
+
+    mockChatTurn.mockClear();
+    await service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' });
+    expect(mockChatTurn.mock.calls[0][0]).not.toHaveProperty('backendOverride');
+  });
+
   it('rejects invalid payloads and propagates chat failures', async () => {
     mockChatTurn.mockResolvedValue({ content: 'not json', session: { provider: 'anthropic' } });
     await expect(service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' })).rejects.toThrow();

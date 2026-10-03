@@ -613,6 +613,7 @@ export class PlanStepVerificationService {
       baseRef: params.baseRef ?? 'HEAD',
       provider: params.assessorProvider,
       model: params.assessorModel,
+      ...(params.assessorBackend && { backend: params.assessorBackend }),
     });
   }
 
