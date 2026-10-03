@@ -10,6 +10,7 @@ import type {
   StepFidelityFailure,
   StepFidelityVerificationResult,
 } from '../shared/types/step-spec-fidelity.types';
+import type { WfAiProviderName } from '../shared/types/config.types';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 export type AssessableStep = { index: number; text: string };
@@ -19,6 +20,8 @@ const MAX_FIDELITY_DIFF_CHARS = 60_000;
 export interface StepSpecFidelityRunParams {
   stepText: string;
   diff: string;
+  provider?: WfAiProviderName;
+  model?: string;
 }
 
 type RunResult = { findings: StepFidelityFinding[]; failure?: StepFidelityFailure };
@@ -59,14 +62,19 @@ export class StepSpecFidelityService {
     private readonly gitService: GitService,
   ) {}
 
-  async verifyAll(steps: AssessableStep[], repoDir: string, baseRef?: string): Promise<StepFidelityVerificationResult> {
+  async verifyAll(
+    steps: AssessableStep[],
+    repoDir: string,
+    baseRef?: string,
+    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string },
+  ): Promise<StepFidelityVerificationResult> {
     const result = this.createVerificationResult(steps);
     const [diff] = await executeAsyncWithCatch({
       fn: () => this.captureDiff(repoDir, baseRef ?? 'HEAD'),
       onError: err => this.addDiffFailure(result, err),
     });
     if (diff === undefined) return result;
-    await this.processSteps(steps, diff, result);
+    await this.processSteps(steps, diff, result, assessorTarget);
     return result;
   }
 
@@ -80,9 +88,13 @@ export class StepSpecFidelityService {
 
   private async processSteps(
     steps: AssessableStep[], diff: string, result: StepFidelityVerificationResult,
+    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string },
   ): Promise<void> {
     for (const step of steps) {
-      const r = await this.run({ stepText: step.text, diff });
+      const r = await this.run({
+        stepText: step.text, diff,
+        provider: assessorTarget?.assessorProvider, model: assessorTarget?.assessorModel,
+      });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
         result.failures.push({ ...r.failure, stepIndex: step.index });
@@ -98,6 +110,7 @@ export class StepSpecFidelityService {
         maxTokens: 2048,
         stage: 'implement',
         structuredOutput: { name: 'step_spec_fidelity', schema: stepFidelityResponseJsonSchema },
+        ...(params.provider && { provider: params.provider }), ...(params.model && { model: params.model }),
       });
       return this.parseAndReturn(res.content);
     } catch (e) {

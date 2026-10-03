@@ -75,10 +75,10 @@ function checkHelpShowsConventionalFlag(help: string): void {
 }
 
 function checkHelpHasNoPositional(help: string): void {
-  if (!help.includes('[ticket-key]')) {
-    pass('issue:commit --help does not show [ticket-key] positional');
-  } else {
+  if (help.includes('[ticket-key]')) {
     fail('issue:commit --help still shows [ticket-key] positional');
+  } else {
+    pass('issue:commit --help does not show [ticket-key] positional');
   }
 }
 
@@ -90,10 +90,10 @@ async function checkTicketKeyAccepted(): Promise<void> {
   await commitCmd.run([], { ticketKey: 'WBP-9999', dryRun: true });
   const err = errCap.restore();
   logCap.restore();
-  if (!err.includes('Error') && !err.includes('error')) {
-    pass('Dry-run with --ticket-key accepted without errors');
-  } else {
+  if (err.includes('Error') || err.includes('error')) {
     fail('Dry-run with --ticket-key produced an error', err.slice(0, 200));
+  } else {
+    pass('Dry-run with --ticket-key accepted without errors');
   }
   await app.close();
 }

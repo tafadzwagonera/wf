@@ -108,10 +108,10 @@ async function captureCommandOutput(
 }
 
 function validateSmallSourceOutput(output: string, pass: any, fail: any): void {
-  if (!output.includes('Summarising')) {
-    pass('No summarisation warning for small source');
-  } else {
+  if (output.includes('Summarising')) {
     fail('Unexpected summarisation warning for small source');
+  } else {
+    pass('No summarisation warning for small source');
   }
 }
 
@@ -159,10 +159,10 @@ async function testOversizedSourceWithMocking(command: IssueGenerateCommand, pas
   fs.writeFileSync(tmpFile, 'x'.repeat(31_000), 'utf-8');
   setupMocksForOversizedSourceTest(pass);
   const capturedOutput = await captureCommandOutput(command, tmpFile, true);
-  if (!capturedOutput.includes('Summarising')) {
-    pass('Silent mode suppresses summarisation warning');
-  } else {
+  if (capturedOutput.includes('Summarising')) {
     fail('Silent mode leaked summarisation warning');
+  } else {
+    pass('Silent mode suppresses summarisation warning');
   }
   fs.unlinkSync(tmpFile);
 }

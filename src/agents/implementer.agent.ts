@@ -79,6 +79,11 @@ const REPO_RELATIVE_PATH_PATTERN = /\b(?:src|test|lib|app)\//i;
 
 type PlanStepVerificationSkipReason = 'disabled' | 'no-changes' | 'no-assessed-steps' | 'new-repo' | 'commit-policy-allows-direct-commit';
 
+interface AssessorTarget {
+  assessorProvider?: WfAiProviderName;
+  assessorModel?: string;
+}
+
 type VerificationRunParamsArgs = {
   ticket: TicketArtifact;
   scopedPlan: PlanArtifact;
@@ -260,9 +265,8 @@ export class ImplementerAgent {
   }
 
   private async runPlanStepVerification(
-    ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions,
-    resolved: FileResolution, filteredSteps: string[], result: ImplementerResult,
-    baseline: { sha: string; branch: string } | null,
+    ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions, resolved: FileResolution,
+    filteredSteps: string[], result: ImplementerResult, baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     const cfg = this.configService.get<WfPlanStepVerificationConfig>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
@@ -270,11 +274,12 @@ export class ImplementerAgent {
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     const skipReason = this.resolvePlanStepVerificationSkipReason(cfg, result, assessedSteps, options, policy);
     if (skipReason) return (this.planStepVerification.logSkip(skipReason, options.silent), result);
+    const assessorTarget = this.resolveAssessorTarget(cfg);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
       stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW), mode: cfg?.mode,
-      ...this.resolveAssessorTarget(cfg),
-      ...this.createFidelityRefresher(assessedSteps, options, baseline),
+      ...assessorTarget,
+      ...this.createFidelityRefresher(assessedSteps, options, baseline, assessorTarget),
     });
     this.logVerificationHeading();
     return this.mergeVerificationOutcome(result, await this.planStepVerification.run(params));
@@ -288,14 +293,17 @@ export class ImplementerAgent {
 
   private createFidelityRefresher(
     assessedSteps: string[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
+    assessorTarget: AssessorTarget,
   ): Pick<PlanStepVerificationRunParams, 'refreshSteps' | 'getSuppressed'> {
-    const refresher = this.buildFidelityRefresher(assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha);
+    const refresher = this.buildFidelityRefresher(
+      assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha, assessorTarget,
+    );
     return { refreshSteps: refresher.refresh, getSuppressed: refresher.getSuppressed };
   }
 
   private resolveAssessorTarget(
     cfg: WfPlanStepVerificationConfig | undefined,
-  ): Pick<PlanStepVerificationRunParams, 'assessorProvider' | 'assessorModel'> {
+  ): AssessorTarget {
     const assessorProvider = cfg?.provider ?? (cfg?.model
       ? this.configService.get<WfAiProviderName>('stages.implement.provider')
       : undefined);
@@ -361,10 +369,10 @@ export class ImplementerAgent {
 
   private async enrichStepsWithFidelityErrors(
     steps: AssessableStep[], repoDir: string, baseRef: string | undefined, raised: Map<string, number>,
-    onSuppressed: () => void,
+    onSuppressed: () => void, assessorTarget?: AssessorTarget,
   ): Promise<Map<number, string>> {
     const strippedSteps = stripRepoNamePrefix(steps, repoDir);
-    const result = await this.stepSpecFidelity.verifyAll(strippedSteps, repoDir, baseRef);
+    const result = await this.stepSpecFidelity.verifyAll(strippedSteps, repoDir, baseRef, assessorTarget);
     this.logFidelityFailures(result.failures);
     return new Map(strippedSteps.map(step => {
       const findings = result.findingsPerStep.get(step.index) ?? [];
@@ -405,7 +413,7 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(
-    originalSteps: string[], repoDir: string, baseRef?: string,
+    originalSteps: string[], repoDir: string, baseRef?: string, assessorTarget?: AssessorTarget,
   ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
     const raised = new Map<string, number>();
     let suppressed = 0;
@@ -415,7 +423,7 @@ export class ImplementerAgent {
         const incrementSuppressed = (): void => {
           suppressed += 1;
         };
-        return this.enrichStepsWithFidelityErrors(steps, repoDir, baseRef, raised, incrementSuppressed)
+        return this.enrichStepsWithFidelityErrors(steps, repoDir, baseRef, raised, incrementSuppressed, assessorTarget)
           .catch(() => new Map(steps.map(step => [step.index, step.text])));
       },
       getSuppressed: () => suppressed,

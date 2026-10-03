@@ -353,12 +353,12 @@ async function checkDeclinedExpansion(command: IssueCommand, appDir: string): Pr
   const planArtifact = buildPlanArtifactForExpand(['primary-app', 'declined-svc'], ['declined-svc']);
   const result = await (command as any).expandReposFromPlan([undefined], planArtifact, appDir, false);
   const declinedDir = path.resolve(appDir, '..', 'declined-svc');
-  if (!result.includes('declined-svc')) pass('declined-svc is NOT in returned repos');
-  else fail('declined-svc should not be in returned repos');
-  if (result.includes(undefined)) pass('original repos preserved');
-  else fail('original repos missing from result');
-  if (!fs.existsSync(declinedDir)) pass('declined-svc was NOT scaffolded');
-  else fail('declined-svc should not exist');
+  if (result.includes('declined-svc')) fail('declined-svc should not be in returned repos');
+  else pass('declined-svc is NOT in returned repos');
+  if (!result.includes(undefined)) fail('original repos missing from result');
+  else pass('original repos preserved');
+  if (fs.existsSync(declinedDir)) fail('declined-svc should not exist');
+  else pass('declined-svc was NOT scaffolded');
 }
 
 async function runTest5UserDeclines(command: IssueCommand): Promise<void> {

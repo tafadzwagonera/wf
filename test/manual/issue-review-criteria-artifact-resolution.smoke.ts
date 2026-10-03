@@ -211,13 +211,13 @@ function checkArtifactCriteriaInPrompt(firstPrompt: string): void {
 }
 
 function checkDecoyCriteriaAbsent(firstPrompt: string): void {
-  if (!firstPrompt.includes(DECOY_CRITERIA_TEXT)) pass('review prompt does not include cwd decoy criteria text');
-  else fail('review prompt should not include cwd decoy criteria text', firstPrompt.slice(0, 500));
+  if (firstPrompt.includes(DECOY_CRITERIA_TEXT)) fail('review prompt should not include cwd decoy criteria text', firstPrompt.slice(0, 500));
+  else pass('review prompt does not include cwd decoy criteria text');
 }
 
 function checkNoCriteriaNotFound(output: string): void {
-  if (!output.includes('Criteria file not found')) pass('output does not report "Criteria file not found"');
-  else fail('output should not report "Criteria file not found"', output);
+  if (output.includes('Criteria file not found')) fail('output should not report "Criteria file not found"', output);
+  else pass('output does not report "Criteria file not found"');
 }
 
 function runChecks(data: ScenarioData): void {

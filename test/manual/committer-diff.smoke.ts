@@ -167,8 +167,8 @@ async function runTest7Setup(committer: CommitterAgent, tmpDir: string): Promise
 
 function checkConfigExclusion(committedFiles: string): void {
   const leakedConfig = WF_CONFIG_FILES.find(f => committedFiles.includes(f));
-  if (!leakedConfig) pass('wf.config.* files were NOT committed');
-  else fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles);
+  if (leakedConfig) fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles);
+  else pass('wf.config.* files were NOT committed');
   if (committedFiles.includes('passenger.service.ts')) pass('Source file passenger.service.ts WAS committed alongside wf config files');
   else fail('Source file was not committed — wf.config.* exclusion too broad', committedFiles);
 }

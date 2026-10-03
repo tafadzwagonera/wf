@@ -78,6 +78,22 @@ describe('StepSpecFidelityService', () => {
       expect(result.failure?.category).toBe('provider');
       expect(result.failure?.cause).toContain('rate-limit');
     });
+
+    it('passes provider and model to aiService.execute when set in params', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.run({ stepText: 'step', diff: MOCK_DIFF, provider: 'openai', model: 'gpt-5.6-terra' });
+      expect(mockAiExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: 'openai', model: 'gpt-5.6-terra' }),
+      );
+    });
+
+    it('omits provider and model keys from aiService.execute when not set in params', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      const call = mockAiExecute.mock.calls[0][0];
+      expect(call).not.toHaveProperty('provider');
+      expect(call).not.toHaveProperty('model');
+    });
   });
 
   describe('verifyAll()', () => {
@@ -134,6 +150,20 @@ describe('StepSpecFidelityService', () => {
       });
       await service.verifyAll([{ index: 0, text: 'a' }, { index: 1, text: 'b' }, { index: 2, text: 'c' }], '/repo');
       expect(maxActive).toBe(1);
+    });
+
+    it('forwards assessorTarget provider and model to aiService.execute for each step', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll(
+        [{ index: 0, text: 'step-a' }, { index: 1, text: 'step-b' }],
+        '/repo',
+        undefined,
+        { assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra' },
+      );
+      expect(mockAiExecute).toHaveBeenCalledTimes(2);
+      for (const call of mockAiExecute.mock.calls) {
+        expect(call[0]).toMatchObject({ provider: 'openai', model: 'gpt-5.6-terra' });
+      }
     });
   });
 

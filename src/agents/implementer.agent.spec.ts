@@ -2996,6 +2996,7 @@ describe('ImplementerAgent', () => {
         [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         expect.any(String),
+        { assessorProvider: undefined, assessorModel: undefined },
       );
     });
 
@@ -3075,6 +3076,7 @@ describe('ImplementerAgent', () => {
         [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         undefined,
+        { assessorProvider: undefined, assessorModel: undefined },
       );
     });
 
@@ -3184,6 +3186,54 @@ describe('ImplementerAgent', () => {
         'WARN',
         expect.stringContaining('step-fidelity.degraded'),
         'step-verification',
+      );
+    });
+
+    it('threads configured assessor target to verifyAll when provider and model are set', async () => {
+      setupWithChanges();
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.planStepVerification') return { mode: 'pull', provider: 'openai', model: 'gpt-5.6-terra' };
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+      expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(String),
+        expect.any(String),
+        { assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra' },
+      );
+    });
+
+    it('uses the implement provider for a model-only assessor override in verifyAll', async () => {
+      setupWithChanges();
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.planStepVerification') return { model: 'claude-sonnet-4-6' };
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+      expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(String),
+        expect.any(String),
+        { assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6' },
       );
     });
   });
