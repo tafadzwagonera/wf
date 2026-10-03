@@ -1084,19 +1084,19 @@ export class AiService {
   }
 
   private async tryStageBackendExecute(request: AIRequest): Promise<AIResponse | null> {
-    if (request.provider || request.model) return null;
+    if ((request.provider || request.model) && request.backend !== 'cli' && request.backend !== 'agent') return null;
     if (request.context) return null;
     if (!agentStageNameSchema.safeParse(request.stage).success) return null;
     if (!this.stageAgentService?.isEnabledForStage(request.stage as AgentStageName)) return null;
-    const stage = request.stage as AgentStageName;
-    const { provider, model } = this.stageAgentService.resolveTargetForStage(stage);
+    const { provider, model } = this.stageAgentService.resolveTargetForStage(request.stage as AgentStageName);
+    const [p, m] = [request.provider, request.model];
     const result = await this.stageAgentService.chatTurn({
-      stage,
-      systemPrompt: request.systemPrompt ?? '',
-      userMessage: request.prompt,
-      structuredOutput: request.structuredOutput,
+      stage: request.stage as AgentStageName,
+      systemPrompt: request.systemPrompt ?? '', userMessage: request.prompt, structuredOutput: request.structuredOutput,
+      ...(request.backend && { backendOverride: request.backend }),
+      ...(p && { providerOverride: p as 'anthropic' | 'openai' }), ...(m && { modelOverride: m }),
     });
-    return { content: result.content, provider, model, costUsd: result.costUsd };
+    return { content: result.content, costUsd: result.costUsd, provider: p ?? provider, model: m ?? model };
   }
 
   private logResolvedAdapterTarget(response: AIResponse): void {

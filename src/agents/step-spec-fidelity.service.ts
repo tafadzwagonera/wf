@@ -10,7 +10,7 @@ import type {
   StepFidelityFailure,
   StepFidelityVerificationResult,
 } from '../shared/types/step-spec-fidelity.types';
-import type { WfAiProviderName } from '../shared/types/config.types';
+import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 
 export type AssessableStep = { index: number; text: string };
@@ -22,6 +22,7 @@ export interface StepSpecFidelityRunParams {
   diff: string;
   provider?: WfAiProviderName;
   model?: string;
+  backend?: WfBackendMode;
 }
 
 type RunResult = { findings: StepFidelityFinding[]; failure?: StepFidelityFailure };
@@ -66,7 +67,7 @@ export class StepSpecFidelityService {
     steps: AssessableStep[],
     repoDir: string,
     baseRef?: string,
-    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string },
+    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<StepFidelityVerificationResult> {
     const result = this.createVerificationResult(steps);
     const [diff] = await executeAsyncWithCatch({
@@ -88,13 +89,11 @@ export class StepSpecFidelityService {
 
   private async processSteps(
     steps: AssessableStep[], diff: string, result: StepFidelityVerificationResult,
-    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string },
+    assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<void> {
     for (const step of steps) {
-      const r = await this.run({
-        stepText: step.text, diff,
-        provider: assessorTarget?.assessorProvider, model: assessorTarget?.assessorModel,
-      });
+      const { assessorProvider: provider, assessorModel: model, assessorBackend: backend } = assessorTarget ?? {};
+      const r = await this.run({ stepText: step.text, diff, provider, model, backend });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
         result.failures.push({ ...r.failure, stepIndex: step.index });
@@ -107,10 +106,10 @@ export class StepSpecFidelityService {
     try {
       const res = await this.aiService.execute({
         prompt: buildSpecFidelityPrompt(params.stepText, params.diff),
-        maxTokens: 2048,
-        stage: 'implement',
+        maxTokens: 2048, stage: 'implement',
         structuredOutput: { name: 'step_spec_fidelity', schema: stepFidelityResponseJsonSchema },
         ...(params.provider && { provider: params.provider }), ...(params.model && { model: params.model }),
+        ...(params.backend && { backend: params.backend }),
       });
       return this.parseAndReturn(res.content);
     } catch (e) {

@@ -2662,6 +2662,7 @@ describe('ImplementerAgent', () => {
       expect(params).not.toHaveProperty('mode');
       expect(params).not.toHaveProperty('assessorProvider');
       expect(params).not.toHaveProperty('assessorModel');
+      expect(params).not.toHaveProperty('assessorBackend');
     });
 
     it('skips service.run when cfg.enabled is false', async () => {
@@ -2996,7 +2997,7 @@ describe('ImplementerAgent', () => {
         [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         expect.any(String),
-        { assessorProvider: undefined, assessorModel: undefined },
+        { assessorProvider: undefined, assessorModel: undefined, assessorBackend: undefined },
       );
     });
 
@@ -3076,7 +3077,7 @@ describe('ImplementerAgent', () => {
         [{ index: 0, text: 'Update source file' }],
         expect.any(String),
         undefined,
-        { assessorProvider: undefined, assessorModel: undefined },
+        { assessorProvider: undefined, assessorModel: undefined, assessorBackend: undefined },
       );
     });
 
@@ -3209,7 +3210,7 @@ describe('ImplementerAgent', () => {
         expect.any(Array),
         expect.any(String),
         expect.any(String),
-        { assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra' },
+        { assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra', assessorBackend: undefined },
       );
     });
 
@@ -3233,7 +3234,31 @@ describe('ImplementerAgent', () => {
         expect.any(Array),
         expect.any(String),
         expect.any(String),
-        { assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6' },
+        { assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6', assessorBackend: undefined },
+      );
+    });
+
+    it('threads configured backend to verifyAll as assessorBackend', async () => {
+      setupWithChanges();
+      (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+        if (key === 'stages.implement.planStepVerification') return { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', backend: 'cli' };
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+        return fallback;
+      });
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+      expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(String),
+        expect.any(String),
+        { assessorProvider: 'anthropic', assessorModel: 'claude-haiku-4-5-20251001', assessorBackend: 'cli' },
       );
     });
   });

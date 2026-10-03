@@ -347,6 +347,21 @@ describe('PlanStepVerificationService', () => {
     );
   });
 
+  it('forwards assessorBackend as backend to aiService.execute when set', async () => {
+    mockAiExecute.mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    await service.run(makeRunParams({ assessorBackend: 'cli' }));
+    expect(mockAiExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ backend: 'cli' }),
+    );
+  });
+
+  it('omits backend from aiService.execute when assessorBackend is not set', async () => {
+    mockAiExecute.mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    await service.run(makeRunParams());
+    const call = mockAiExecute.mock.calls[0][0];
+    expect(call).not.toHaveProperty('backend');
+  });
+
   it('requests the named plan-step assessment schema', async () => {
     mockAiExecute.mockResolvedValueOnce({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
     await service.run(makeRunParams());

@@ -275,6 +275,7 @@ type ChatTurnParams = {
   jsonSchema?: string;
   modelOverride?: string;
   providerOverride?: 'anthropic' | 'openai';
+  backendOverride?: WfBackendMode;
   repoDir?: string;
   responseValidator?: ResponseValidator;
   session?: AgentChatSession;
@@ -1562,7 +1563,7 @@ export class StageAgentService {
   }
 
   private async chatTurnOnce(params: ChatTurnParams): Promise<AgentChatTurnResult> {
-    const backend = this.resolveStageBackend(params.stage);
+    const backend = params.backendOverride ?? this.resolveStageBackend(params.stage);
     const provider = params.providerOverride ?? this.resolveStageProvider(params.stage);
     if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
     if (backend === 'cli') {

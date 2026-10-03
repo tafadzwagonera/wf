@@ -41,7 +41,7 @@ import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import type { WfAiProviderName, WfPlanStepVerificationConfig, WfStepVerificationMode } from '../shared/types/config.types';
+import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig, WfStepVerificationMode } from '../shared/types/config.types';
 import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
@@ -82,6 +82,7 @@ type PlanStepVerificationSkipReason = 'disabled' | 'no-changes' | 'no-assessed-s
 interface AssessorTarget {
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
+  assessorBackend?: WfBackendMode;
 }
 
 type VerificationRunParamsArgs = {
@@ -95,6 +96,7 @@ type VerificationRunParamsArgs = {
   mode?: WfStepVerificationMode;
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
+  assessorBackend?: WfBackendMode;
   baseline: { sha: string; branch: string } | null;
   refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
   getSuppressed?: () => number;
@@ -307,7 +309,7 @@ export class ImplementerAgent {
     const assessorProvider = cfg?.provider ?? (cfg?.model
       ? this.configService.get<WfAiProviderName>('stages.implement.provider')
       : undefined);
-    return { assessorProvider, assessorModel: cfg?.model };
+    return { assessorProvider, assessorModel: cfg?.model, assessorBackend: cfg?.backend };
   }
 
   private mergeVerificationOutcome(
@@ -360,6 +362,7 @@ export class ImplementerAgent {
       ...(args.mode && { mode: args.mode }),
       ...(args.assessorProvider && { assessorProvider: args.assessorProvider }),
       ...(args.assessorModel && { assessorModel: args.assessorModel }),
+      ...(args.assessorBackend && { assessorBackend: args.assessorBackend }),
       silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
       refreshSteps: args.refreshSteps,

@@ -94,6 +94,21 @@ describe('StepSpecFidelityService', () => {
       expect(call).not.toHaveProperty('provider');
       expect(call).not.toHaveProperty('model');
     });
+
+    it('passes backend to aiService.execute when set in params', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.run({ stepText: 'step', diff: MOCK_DIFF, backend: 'cli' });
+      expect(mockAiExecute).toHaveBeenCalledWith(
+        expect.objectContaining({ backend: 'cli' }),
+      );
+    });
+
+    it('omits backend key from aiService.execute when not set in params', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.run({ stepText: 'step', diff: MOCK_DIFF });
+      const call = mockAiExecute.mock.calls[0][0];
+      expect(call).not.toHaveProperty('backend');
+    });
   });
 
   describe('verifyAll()', () => {
@@ -164,6 +179,32 @@ describe('StepSpecFidelityService', () => {
       for (const call of mockAiExecute.mock.calls) {
         expect(call[0]).toMatchObject({ provider: 'openai', model: 'gpt-5.6-terra' });
       }
+    });
+
+    it('forwards assessorBackend to aiService.execute for each step when set', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll(
+        [{ index: 0, text: 'step-a' }, { index: 1, text: 'step-b' }],
+        '/repo',
+        undefined,
+        { assessorProvider: 'anthropic', assessorModel: 'claude-haiku-4-5-20251001', assessorBackend: 'cli' },
+      );
+      expect(mockAiExecute).toHaveBeenCalledTimes(2);
+      for (const call of mockAiExecute.mock.calls) {
+        expect(call[0]).toMatchObject({ backend: 'cli' });
+      }
+    });
+
+    it('omits backend from aiService.execute when assessorBackend is not set', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll(
+        [{ index: 0, text: 'step-a' }],
+        '/repo',
+        undefined,
+        { assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra' },
+      );
+      const call = mockAiExecute.mock.calls[0][0];
+      expect(call).not.toHaveProperty('backend');
     });
   });
 

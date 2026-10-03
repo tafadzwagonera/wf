@@ -92,6 +92,34 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
       provider: 'anthropic', planStepVerification: { mode: 'push', provider: 'google', model: 'gemini-2.5-pro' },
     })).not.toThrow();
   });
+
+  it('accepts backend: cli with anthropic provider', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      planStepVerification: { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', backend: 'cli' },
+    })).not.toThrow();
+  });
+
+  it('accepts backend: cli when no provider is set in planStepVerification', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      planStepVerification: { backend: 'cli' },
+    })).not.toThrow();
+  });
+
+  it('rejects backend: cli with a non-anthropic provider', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      planStepVerification: { provider: 'openai', model: 'gpt-5.6-terra', backend: 'cli' },
+    })).toThrow("backend 'cli' is only supported for the 'anthropic' provider");
+  });
+
+  it('accepts backend: agent with openai provider', () => {
+    expect(() => wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      planStepVerification: { provider: 'openai', model: 'gpt-5.6-terra', backend: 'agent' },
+    })).not.toThrow();
+  });
 });
 
 describe('wfImplementStageConfigSchema modelRoutingThresholds', () => {

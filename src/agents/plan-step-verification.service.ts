@@ -10,7 +10,7 @@ import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
-import type { WfAiProviderName, WfStepVerificationMode } from '../shared/types/config.types';
+import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../shared/types/config.types';
 import { PullStepAssessorService } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
 import { executeAsyncWithCatch, executeWithCatch } from '../shared/utils/execute-with-catch';
@@ -213,6 +213,7 @@ export interface PlanStepVerificationRunParams {
   mode?: WfStepVerificationMode;
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
+  assessorBackend?: WfBackendMode;
   sessionId: string;
   stallWindow: number;
   silent?: boolean;
@@ -635,6 +636,7 @@ export class PlanStepVerificationService {
       structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
       ...(params.assessorProvider && { provider: params.assessorProvider }),
       ...(params.assessorModel && { model: params.assessorModel }),
+      ...(params.assessorBackend && { backend: params.assessorBackend }),
     });
     return stepAssessmentResponseSchema.parse(parseJsonResponse<unknown>(response.content)).statuses;
   }

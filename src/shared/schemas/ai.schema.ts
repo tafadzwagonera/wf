@@ -19,6 +19,7 @@ export const aiRequestSchema = z.object({
   provider: z.string().optional(),
   stage: aiStageName.optional(),
   structuredOutput: structuredOutputSchema.optional(),
+  backend: z.enum(['agent', 'cli', 'standard']).optional(),
 });
 
 export const aiResponseSchema = z.object({

@@ -79,6 +79,7 @@ export const wfPlanStepVerificationConfigSchema = z
     mode: wfStepVerificationModeSchema.optional(),
     provider: wfAiProviderNameSchema.optional(),
     model: z.string().min(1).optional(),
+    backend: wfBackendModeSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -87,6 +88,16 @@ export const wfPlanStepVerificationConfigSchema = z
       code: z.ZodIssueCode.custom,
       message: "'model' is required when 'provider' is set",
       path: ['model'],
+    });
+  })
+  .superRefine((value, ctx) => {
+    if (value.backend !== 'cli') return;
+    const provider = value.provider;
+    if (!provider || provider === 'anthropic') return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "backend 'cli' is only supported for the 'anthropic' provider",
+      path: ['backend'],
     });
   });
 
