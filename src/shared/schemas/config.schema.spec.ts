@@ -107,13 +107,6 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
     })).not.toThrow();
   });
 
-  it('rejects backend: cli with a non-anthropic provider', () => {
-    expect(() => wfImplementStageConfigSchema.parse({
-      provider: 'anthropic',
-      planStepVerification: { provider: 'openai', model: 'gpt-5.6-terra', backend: 'cli' },
-    })).toThrow("backend 'cli' is only supported for the 'anthropic' provider");
-  });
-
   it('accepts backend: agent with openai provider', () => {
     expect(() => wfImplementStageConfigSchema.parse({
       provider: 'anthropic',

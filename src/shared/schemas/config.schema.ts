@@ -90,16 +90,7 @@ export const wfPlanStepVerificationConfigSchema = z
       path: ['model'],
     });
   })
-  .superRefine((value, ctx) => {
-    if (value.backend !== 'cli') return;
-    const provider = value.provider;
-    if (!provider || provider === 'anthropic') return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "backend 'cli' is only supported for the 'anthropic' provider",
-      path: ['backend'],
-    });
-  });
+  ;
 
 type StepVerificationProviderTarget = {
   provider: z.infer<typeof wfAiProviderNameSchema>;
