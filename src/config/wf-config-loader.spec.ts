@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { discoverWfConfigPath, getLoadedWfConfig, initializeWfConfig, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
+import { collectDroppedStageFields, discoverWfConfigPath, getLoadedWfConfig, initializeWfConfig, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
 import { ValidationError } from '../shared/utils/errors';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
@@ -497,6 +497,84 @@ describe('wf-config-loader', () => {
       expect(config.stages.implement?.inactivityTimeoutMs).toBe(0);
     });
 
+    it('preserves skills on plan stage config through normalization', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          plan: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            skills: ['test-driven-development', 'writing-plans'],
+          },
+        },
+      });
+
+      expect(config.stages.plan?.skills).toEqual(['test-driven-development', 'writing-plans']);
+    });
+
+    it('preserves skills on implement stage config through normalization', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: {
+            provider: 'openai',
+            model: 'gpt-5.4',
+            skills: ['coding-style', 'test-driven-development'],
+          },
+        },
+      });
+
+      expect(config.stages.implement?.skills).toEqual(['coding-style', 'test-driven-development']);
+    });
+
+    it('preserves figma on plan stage config through normalization', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          plan: { provider: 'openai', model: 'gpt-5.4', figma: true },
+        },
+      });
+
+      expect(config.stages.plan?.figma).toBe(true);
+    });
+
+    it('preserves figma and maxStalledPasses on implement stage config through normalization', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          implement: { provider: 'openai', model: 'gpt-5.4', figma: false, maxStalledPasses: 3 },
+        },
+      });
+
+      expect(config.stages.implement?.figma).toBe(false);
+      expect(config.stages.implement?.maxStalledPasses).toBe(3);
+    });
+
+    it('preserves figma and sonar on review stage config through normalization', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          review: { provider: 'openai', model: 'gpt-5.4', figma: true, sonar: true },
+        },
+      });
+
+      expect(config.stages.review?.figma).toBe(true);
+      expect(config.stages.review?.sonar).toBe(true);
+    });
+
+    it('omits skills from normalized stage configs when not configured', () => {
+      const config = normalizeWfConfig({
+        ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
+        stages: {
+          plan: { provider: 'openai', model: 'gpt-5.4' },
+          implement: { provider: 'openai', model: 'gpt-5.4' },
+        },
+      });
+
+      expect(config.stages.plan?.skills).toBeUndefined();
+      expect(config.stages.implement?.skills).toBeUndefined();
+    });
+
     it('normalizes both timeout fields alongside other implement stage fields', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
@@ -933,6 +1011,44 @@ describe('wf-config-loader', () => {
         expect(config.stages.review?.maxDiffLength).toBeUndefined();
         expect(config.stages.review?.epilogueTimeoutMs).toBeUndefined();
       });
+    });
+  });
+
+  describe('collectDroppedStageFields', () => {
+    it('reports stage fields present in the validated config but absent from the normalized config', () => {
+      const dropped = collectDroppedStageFields(
+        { plan: { provider: 'openai', skills: ['writing-plans'] } },
+        { plan: { provider: 'openai', model: 'gpt-5.4', backend: 'standard' } },
+      );
+
+      expect(dropped).toEqual(['plan.skills']);
+    });
+
+    it('excludes the intentional implement model strip from the report', () => {
+      const dropped = collectDroppedStageFields(
+        { implement: { provider: 'openai', model: 'gpt-5.4', models: { mechanical: 'gpt-5-mini' } } },
+        { implement: { provider: 'openai', backend: 'standard', models: { mechanical: 'gpt-5-mini' } } },
+      );
+
+      expect(dropped).toEqual([]);
+    });
+
+    it('returns an empty list when every validated field is carried through', () => {
+      const dropped = collectDroppedStageFields(
+        { commit: { provider: 'google', model: 'gemini-2.5-flash' } },
+        { commit: { provider: 'google', model: 'gemini-2.5-flash', backend: 'standard' } },
+      );
+
+      expect(dropped).toEqual([]);
+    });
+
+    it('reports every field of a stage whose normalized counterpart is missing entirely', () => {
+      const dropped = collectDroppedStageFields(
+        { generate: { provider: 'openai', model: 'gpt-5.4' } },
+        {},
+      );
+
+      expect(dropped).toEqual(['generate.provider', 'generate.model']);
     });
   });
 

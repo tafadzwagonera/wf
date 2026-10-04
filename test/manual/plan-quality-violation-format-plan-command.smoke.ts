@@ -44,62 +44,74 @@ const makePlan = () => ({
   risks: [] as string[],
 });
 
-const assertFormatOutput = (lines: string[], plan: ReturnType<typeof makePlan>): void => {
-  const output = lines.join('\n');
-
+const assertHeader = (output: string): void => {
   if (output.includes('⚠ Plan quality violations:')) {
     pass('header contains expected text');
   } else {
     fail('header missing expected text', output.slice(0, 200));
   }
+};
 
+const assertTagRendering = (output: string): void => {
   if (output.includes('[rename-target-required]')) {
     pass('[rename-target-required] tag present in output');
   } else {
     fail('[rename-target-required] tag missing from output', output.slice(0, 200));
   }
-
-  const tagIndex = output.indexOf('[rename-target-required]');
-  const charAfterTag = output[tagIndex + '[rename-target-required]'.length];
+  const charAfterTag = output[output.indexOf('[rename-target-required]') + '[rename-target-required]'.length];
   if (charAfterTag === ' ') {
     pass('[ruleId] tag immediately followed by a space');
   } else {
     fail('[ruleId] tag not followed by a space', `got ${JSON.stringify(charAfterTag)}`);
   }
+};
 
-  if (!output.includes('    •')) {
-    pass('old bullet prefix "    •" absent from output');
-  } else {
+const assertBulletAbsent = (output: string): void => {
+  if (output.includes('    •')) {
     fail('old bullet prefix "    •" still present in output');
+  } else {
+    pass('old bullet prefix "    •" absent from output');
   }
+};
 
+const assertRiskEntries = (plan: ReturnType<typeof makePlan>): void => {
   const riskEntry = plan.risks.find(r => /\[plan-quality\].*\[rename-target-required\]/.test(r));
   if (riskEntry) {
     pass('plan.risks contains [plan-quality]...[rename-target-required] entry');
   } else {
     fail('plan.risks missing expected entry', JSON.stringify(plan.risks));
   }
-
-  if (!plan.risks.some(r => r.includes('⚠'))) {
-    pass('plan.risks does not contain display header');
-  } else {
+  if (plan.risks.some(r => r.includes('⚠'))) {
     fail('plan.risks incorrectly contains ⚠ display header');
+  } else {
+    pass('plan.risks does not contain display header');
   }
+};
+
+const assertFormatOutput = (lines: string[], plan: ReturnType<typeof makePlan>): void => {
+  const output = lines.join('\n');
+  assertHeader(output);
+  assertTagRendering(output);
+  assertBulletAbsent(output);
+  assertRiskEntries(plan);
+};
+
+const runScenario = (command: IssuePlanCommand): void => {
+  const plan = makePlan();
+  const { lines, restore } = interceptConsole();
+  try {
+    (command as any).validatePlanQualityRules(plan, ['wf']);
+  } finally {
+    restore();
+  }
+  assertFormatOutput(lines, plan);
 };
 
 const main = async (): Promise<void> => {
   console.log(chalk.bold.cyan('\n  plan quality violation format — IssuePlanCommand.validatePlanQualityRules\n'));
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
-    const command = app.get(IssuePlanCommand);
-    const plan = makePlan();
-    const { lines, restore } = interceptConsole();
-    try {
-      (command as any).validatePlanQualityRules(plan, ['wf']);
-    } finally {
-      restore();
-    }
-    assertFormatOutput(lines, plan);
+    runScenario(app.get(IssuePlanCommand));
   } finally {
     await app.close();
   }

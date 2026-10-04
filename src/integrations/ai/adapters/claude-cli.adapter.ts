@@ -604,11 +604,20 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     };
   }
 
+  /**
+   * Resolves the stall cap for the implement verification-fix loop from
+   * `stages.implement.maxStalledPasses`. Without this read the config field is
+   * accepted by the schema but the loop silently uses the hardcoded default.
+   */
+  private resolveStallThreshold(): number {
+    return this.configService.get<number>('stages.implement.maxStalledPasses', DEFAULT_STALL_THRESHOLD);
+  }
+
   private shouldRunFixIteration(state: VerificationFixState): boolean {
     return !state.exhausted
       && state.codeFailures.length > 0
       && state.sessionId !== undefined
-      && state.readOnly < DEFAULT_STALL_THRESHOLD;
+      && state.readOnly < this.resolveStallThreshold();
   }
 
   private async applySuccessfulFix(
@@ -619,7 +628,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     state.outcomes = next.outcomes;
     state.codeFailures = next.codeFailures;
     state.stalled = checkVerificationStall(
-      state.codeFailures.length, state.prevFails, state.stalled, CLI_ADAPTER_LABEL
+      state.codeFailures.length, state.prevFails, state.stalled, CLI_ADAPTER_LABEL, this.resolveStallThreshold()
     );
     if (state.stalled < 0) state.exhausted = true;
     state.prevFails = state.codeFailures.length;

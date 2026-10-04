@@ -52,33 +52,33 @@ const VIOLATIONS = [
   '[no-inline-test-run] Verification command must use a package-manager script, not inline runner.',
 ];
 
-const assertFormatOutput = (lines: string[], originalViolations: string[]): void => {
-  const output = lines.join('\n');
-
+const assertHeaderAndSeparator = (output: string): void => {
   if (output.includes('⚠ Plan quality violations persisted after retry:')) {
     pass('header contains expected text');
   } else {
     fail('header missing expected text', output.slice(0, 200));
   }
-
-  if (output.includes('[rename-target-required]')) {
-    pass('[rename-target-required] tag present in output');
-  } else {
-    fail('[rename-target-required] tag missing from output', output.slice(0, 200));
-  }
-
-  if (output.includes('[no-inline-test-run]')) {
-    pass('[no-inline-test-run] tag present in output');
-  } else {
-    fail('[no-inline-test-run] tag missing from output', output.slice(0, 200));
-  }
-
   if (output.includes('\n\n')) {
     pass('blank line separates the two violations');
   } else {
     fail('no blank-line separator found between violations', output.slice(0, 300));
   }
+};
 
+const assertTagsPresent = (output: string): void => {
+  if (output.includes('[rename-target-required]')) {
+    pass('[rename-target-required] tag present in output');
+  } else {
+    fail('[rename-target-required] tag missing from output', output.slice(0, 200));
+  }
+  if (output.includes('[no-inline-test-run]')) {
+    pass('[no-inline-test-run] tag present in output');
+  } else {
+    fail('[no-inline-test-run] tag missing from output', output.slice(0, 200));
+  }
+};
+
+const assertViolationsUnmodified = (originalViolations: string[]): void => {
   if (originalViolations.length === 2 && originalViolations[0].startsWith('[rename-target-required]')) {
     pass('original violations array is unmodified after the call');
   } else {
@@ -86,21 +86,30 @@ const assertFormatOutput = (lines: string[], originalViolations: string[]): void
   }
 };
 
+const assertFormatOutput = (lines: string[], originalViolations: string[]): void => {
+  const output = lines.join('\n');
+  assertHeaderAndSeparator(output);
+  assertTagsPresent(output);
+  assertViolationsUnmodified(originalViolations);
+};
+
 type RiskHolder = { plan: { risks: string[] } };
 
-const assertRisksUpdated = (result: RiskHolder, originalAttempt: RiskHolder): void => {
+const assertReturnedRisks = (result: RiskHolder): void => {
   if (result.plan.risks.some(r => r.startsWith('[plan-quality]'))) {
     pass('returned plan.risks contains [plan-quality] entries');
   } else {
     fail('returned plan.risks missing [plan-quality] entries', JSON.stringify(result.plan.risks));
   }
-
   if (result.plan.risks.includes('[existing-risk] Prior risk entry')) {
     pass('returned plan.risks preserves the original risk entry');
   } else {
     fail('original risk entry missing from returned plan', JSON.stringify(result.plan.risks));
   }
+};
 
+const assertRisksUpdated = (result: RiskHolder, originalAttempt: RiskHolder): void => {
+  assertReturnedRisks(result);
   if (originalAttempt.plan.risks.length === 1) {
     pass('original attempt.plan.risks is unmodified (no mutation)');
   } else {
@@ -108,22 +117,25 @@ const assertRisksUpdated = (result: RiskHolder, originalAttempt: RiskHolder): vo
   }
 };
 
+const runScenario = (service: PlanStageService): void => {
+  const attempt = makePlanAttempt();
+  const violations = [...VIOLATIONS];
+  const { lines, restore } = interceptConsole();
+  let result: ReturnType<typeof makePlanAttempt>;
+  try {
+    result = (service as any).applyQualityViolationsToRisks(attempt, violations);
+  } finally {
+    restore();
+  }
+  assertFormatOutput(lines, violations);
+  assertRisksUpdated(result, attempt);
+};
+
 const main = async (): Promise<void> => {
   console.log(chalk.bold.cyan('\n  plan quality violation format — applyQualityViolationsToRisks\n'));
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
-    const service = app.get(PlanStageService);
-    const attempt = makePlanAttempt();
-    const violations = [...VIOLATIONS];
-    const { lines, restore } = interceptConsole();
-    let result: ReturnType<typeof makePlanAttempt>;
-    try {
-      result = (service as any).applyQualityViolationsToRisks(attempt, violations);
-    } finally {
-      restore();
-    }
-    assertFormatOutput(lines, violations);
-    assertRisksUpdated(result, attempt);
+    runScenario(app.get(PlanStageService));
   } finally {
     await app.close();
   }

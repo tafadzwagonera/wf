@@ -43,7 +43,7 @@
  *     'HEAD',
  *     { assessorProvider: 'anthropic', assessorModel: 'claude-haiku-4-5-20251001', assessorBackend: 'cli' }
  *   )`
- * Intercept `console.log` before the call (clone the approach from `skill-load-observability.smoke.ts`)
+ * Intercept `console.log` before the call (clone the approach from `stage-skills-config-propagation.smoke.ts`)
  * and restore it in a `finally` block.
  *
  * Teardown: `await app.close()`, `fs.rmSync(repoDir, { recursive: true, force: true })`, restore `console.log`.

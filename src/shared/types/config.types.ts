@@ -5,6 +5,7 @@ import type {
   normalizedAiStageTargetConfigSchema,
   normalizedCreateStageConfigSchema,
   normalizedImplementStageConfigSchema,
+  normalizedPlanStageConfigSchema,
   normalizedReviewStageConfigSchema,
   normalizedVerificationConditionsConfigSchema,
   wfAiProviderConfigSchema,
@@ -30,6 +31,7 @@ export type NormalizedAiProviderConfig = z.infer<typeof normalizedAiProviderConf
 export type NormalizedAiStageTargetConfig = z.infer<typeof normalizedAiStageTargetConfigSchema>;
 export type NormalizedCreateStageConfig = z.infer<typeof normalizedCreateStageConfigSchema>;
 export type NormalizedImplementStageConfig = z.infer<typeof normalizedImplementStageConfigSchema>;
+export type NormalizedPlanStageConfig = z.infer<typeof normalizedPlanStageConfigSchema>;
 export type NormalizedVerificationConditionsConfig = z.infer<typeof normalizedVerificationConditionsConfigSchema>;
 export type WfAiProviderConfig = z.infer<typeof wfAiProviderConfigSchema>;
 export type WfAiProviderName = z.infer<typeof wfAiProviderNameSchema>;

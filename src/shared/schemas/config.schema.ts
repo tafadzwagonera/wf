@@ -235,7 +235,14 @@ export const normalizedAiStageTargetConfigSchema = z.object({
   inactivityTimeoutMs: z.number().int().min(0).optional(),
 });
 
+export const normalizedPlanStageConfigSchema = normalizedAiStageTargetConfigSchema.extend({
+  figma: z.boolean().optional(),
+  skills: z.array(z.string()).optional(),
+});
+
 export const normalizedReviewStageConfigSchema = normalizedAiStageTargetConfigSchema.extend({
+  sonar: z.boolean().optional(),
+  figma: z.boolean().optional(),
   maxDiffLength: z.number().int().min(1).optional(),
   epilogueTimeoutMs: z.number().int().min(0).optional(),
 });
@@ -247,6 +254,8 @@ export const normalizedVerificationConditionsConfigSchema = z.object({
 
 export const normalizedImplementStageConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
+  figma: z.boolean().optional(),
+  maxStalledPasses: z.number().int().min(1).optional(),
   model: z.string().optional(),
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
