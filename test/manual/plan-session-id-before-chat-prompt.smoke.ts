@@ -75,15 +75,19 @@ function buildTicketArtifact(ticketKey: string) {
 
 const sharedCallLog: string[] = [];
 
+const setupScenarioSession = async (ticketKey: string, sessionService: SessionService): Promise<SessionState> => {
+  const state = buildSessionState(ticketKey);
+  await sessionService.save(state);
+  return state;
+};
+
 function patchOfferPlanChat(command: IssueCommand): void {
   (command as any).offerPlanChat = async () => {
     sharedCallLog.push('offerPlanChat');
   };
 }
 
-function patchRecordProviderSessionId(
-  sessionService: SessionService,
-): void {
+function patchRecordProviderSessionId(sessionService: SessionService): void {
   const original = sessionService.recordProviderSessionId.bind(sessionService);
   sessionService.recordProviderSessionId = async (s: SessionState, stage: string, id: string) => {
     sharedCallLog.push('recordProviderSessionId');
@@ -91,31 +95,22 @@ function patchRecordProviderSessionId(
   };
 }
 
+function patchPlannerAgent(command: IssueCommand): void {
+  (command as any).agents = { planner: { execute: async () => buildFakePlanArtifact() } };
+}
+
 async function runScenario(
   command: IssueCommand,
   sessionService: SessionService,
 ): Promise<{ sessionState: SessionState | undefined }> {
   const ticketKey = `SMOKE-PLAN-SID-${Date.now()}`;
-  const sessionState = buildSessionState(ticketKey);
-  await sessionService.save(sessionState);
-
+  const sessionState = await setupScenarioSession(ticketKey, sessionService);
   patchOfferPlanChat(command);
   patchRecordProviderSessionId(sessionService);
-
-  (command as any).agents = {
-    planner: {
-      execute: async () => buildFakePlanArtifact(),
-    },
-  };
-
-  const ctx = buildMinimalCtx(process.cwd(), ticketKey);
+  patchPlannerAgent(command);
   const result = await (command as any).executePlanStage(
-    buildTicketArtifact(ticketKey),
-    'fix',
-    ctx,
-    sessionState,
+    buildTicketArtifact(ticketKey), 'fix', buildMinimalCtx(process.cwd(), ticketKey), sessionState,
   );
-
   await sessionService.deleteBySessionId(sessionState.sessionId).catch(() => {});
   return { sessionState: result.sessionState };
 }

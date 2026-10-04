@@ -14,7 +14,7 @@
  */
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
-import { buildSkillPromptFragment } from '../../src/skills/skill-content';
+import { buildSkillPromptFragment } from '../../src/skills';
 import chalk from 'chalk';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';

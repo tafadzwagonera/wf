@@ -44,29 +44,27 @@ function buildSessionState(ticketKey: string): SessionState {
 
 type RecordCall = { stage: string; sessionId: string };
 
-async function runScenario(
-  command: IssueCommand,
-  sessionService: SessionService,
-): Promise<{ recordCalls: RecordCall[]; finalState: SessionState | undefined }> {
-  const ticketKey = `SMOKE-IMPL-SID-${Date.now()}`;
-  let sessionState = buildSessionState(ticketKey);
-  await sessionService.save(sessionState);
-
-  sessionState = await sessionService.recordStageStart(
-    sessionState, 'implement', { provider: 'anthropic', backend: 'agent' }, MODEL_USED,
+const setupSession = async (ticketKey: string, sessionService: SessionService): Promise<SessionState> => {
+  const state = buildSessionState(ticketKey);
+  await sessionService.save(state);
+  return sessionService.recordStageStart(
+    state, 'implement', { provider: 'anthropic', backend: 'agent' }, MODEL_USED,
   );
+};
 
-  const recordCalls: RecordCall[] = [];
-  const originalRecord = sessionService.recordProviderSessionId.bind(sessionService);
+const patchRecordProviderSessionId = (sessionService: SessionService, recordCalls: RecordCall[]): void => {
+  const original = sessionService.recordProviderSessionId.bind(sessionService);
   sessionService.recordProviderSessionId = async (s: SessionState, stage: string, id: string) => {
     recordCalls.push({ stage, sessionId: id });
-    return originalRecord(s, stage, id);
+    return original(s, stage, id);
   };
+};
 
-  let executeCallIndex = 0;
+const patchExecuteRepoImplementation = (command: IssueCommand): void => {
+  let callIndex = 0;
   (command as any).executeRepoImplementation = async () => {
-    const sessionId = executeCallIndex === 0 ? primarySessionId : secondarySessionId;
-    executeCallIndex++;
+    const sessionId = callIndex === 0 ? primarySessionId : secondarySessionId;
+    callIndex++;
     return {
       implementerResult: {
         type: 'implementation', hasChanges: true, branchName: null,
@@ -75,21 +73,38 @@ async function runScenario(
       earlyReturn: false,
     };
   };
+};
 
-  const ticketArtifact = { ticketKey, content: `# ${ticketKey}`, path: '/tmp/smoke-ticket.md' };
-  const planArtifact = {
+const buildSmokeArtifacts = (ticketKey: string) => ({
+  ticketArtifact: { ticketKey, content: `# ${ticketKey}`, path: '/tmp/smoke-ticket.md' },
+  planArtifact: {
     action: 'fix', path: '/tmp/smoke-plan.json', fromCache: false,
     plan: { action: 'fix', summary: 'Smoke', steps: [], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
-  };
+  },
+});
 
+const teardownScenario = async (
+  sessionId: string, sessionService: SessionService,
+): Promise<SessionState | undefined> => {
+  const state = await sessionService.load(sessionId) ?? undefined;
+  await sessionService.deleteBySessionId(sessionId).catch(() => {});
+  return state;
+};
+
+async function runScenario(
+  command: IssueCommand,
+  sessionService: SessionService,
+): Promise<{ recordCalls: RecordCall[]; finalState: SessionState | undefined }> {
+  const ticketKey = `SMOKE-IMPL-SID-${Date.now()}`;
+  const sessionState = await setupSession(ticketKey, sessionService);
+  const recordCalls: RecordCall[] = [];
+  patchRecordProviderSessionId(sessionService, recordCalls);
+  patchExecuteRepoImplementation(command);
+  const { ticketArtifact, planArtifact } = buildSmokeArtifacts(ticketKey);
   await (command as any).runImplementLoop(
-    ticketArtifact, planArtifact,
-    [PRIMARY_REPO, SECONDARY_REPO], { silent: true }, {}, PRIMARY_REPO, sessionState,
+    ticketArtifact, planArtifact, [PRIMARY_REPO, SECONDARY_REPO], { silent: true }, {}, PRIMARY_REPO, sessionState,
   );
-
-  const finalState = await sessionService.load(sessionState.sessionId) ?? undefined;
-  await sessionService.deleteBySessionId(sessionState.sessionId).catch(() => {});
-  return { recordCalls, finalState };
+  return { recordCalls, finalState: await teardownScenario(sessionState.sessionId, sessionService) };
 }
 
 function checkSingleWrite(recordCalls: RecordCall[]): void {

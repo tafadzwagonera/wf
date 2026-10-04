@@ -37,16 +37,18 @@ function buildSessionState(ticketKey: string): SessionState {
   };
 }
 
+const FAKE_PLAN = {
+  action: 'fix',
+  summary: 'Smoke plan with model',
+  steps: [],
+  estimatedComplexity: 'low',
+  affectedFiles: [],
+  affectedRepositories: [],
+};
+
 function buildFakePlanArtifact() {
   return {
-    plan: {
-      action: 'fix',
-      summary: 'Smoke plan with model',
-      steps: [],
-      estimatedComplexity: 'low',
-      affectedFiles: [],
-      affectedRepositories: [],
-    },
+    plan: FAKE_PLAN,
     action: 'fix' as const,
     path: '/tmp/smoke-plan-model.md',
     sessionId: 'plan-sid-for-model-test',
@@ -76,34 +78,37 @@ function buildTicketArtifact(ticketKey: string) {
 
 type RecordModelsCall = { stage: string; models: string[] };
 
+const setupScenarioSession = async (ticketKey: string, sessionService: SessionService): Promise<SessionState> => {
+  const state = buildSessionState(ticketKey);
+  await sessionService.save(state);
+  return state;
+};
+
+const patchRecordStageModels = (sessionService: SessionService, capturedCalls: RecordModelsCall[]): void => {
+  const original = sessionService.recordStageModels.bind(sessionService);
+  sessionService.recordStageModels = async (s: SessionState, stage: string, models: string[]) => {
+    capturedCalls.push({ stage, models });
+    return original(s, stage, models);
+  };
+};
+
+const patchPlannerAgent = (command: IssueCommand): void => {
+  (command as any).agents = { planner: { execute: async () => buildFakePlanArtifact() } };
+  (command as any).offerPlanChat = async () => {};
+};
+
 async function runScenario(
   command: IssueCommand,
   sessionService: SessionService,
 ): Promise<RecordModelsCall[]> {
   const ticketKey = `SMOKE-PLAN-MODEL-${Date.now()}`;
-  const sessionState = buildSessionState(ticketKey);
-  await sessionService.save(sessionState);
-
+  const sessionState = await setupScenarioSession(ticketKey, sessionService);
   const capturedCalls: RecordModelsCall[] = [];
-  const originalRecord = sessionService.recordStageModels.bind(sessionService);
-  sessionService.recordStageModels = async (s: SessionState, stage: string, models: string[]) => {
-    capturedCalls.push({ stage, models });
-    return originalRecord(s, stage, models);
-  };
-
-  (command as any).agents = {
-    planner: { execute: async () => buildFakePlanArtifact() },
-  };
-  (command as any).offerPlanChat = async () => {};
-
-  const ctx = buildMinimalCtx(ticketKey);
+  patchRecordStageModels(sessionService, capturedCalls);
+  patchPlannerAgent(command);
   await (command as any).executePlanStage(
-    buildTicketArtifact(ticketKey),
-    'fix',
-    ctx,
-    sessionState,
+    buildTicketArtifact(ticketKey), 'fix', buildMinimalCtx(ticketKey), sessionState,
   );
-
   await sessionService.deleteBySessionId(sessionState.sessionId).catch(() => {});
   return capturedCalls;
 }

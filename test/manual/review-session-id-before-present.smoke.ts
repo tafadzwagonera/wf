@@ -68,32 +68,39 @@ function buildReviewContext(ticketKey: string): Record<string, unknown> {
 
 type CallEntry = { name: string; stage?: string; id?: string };
 
+const setupScenarioSession = async (ticketKey: string, sessionService: SessionService): Promise<SessionState> => {
+  const state = buildSessionState(ticketKey);
+  await sessionService.save(state);
+  return state;
+};
+
+const patchRecordProviderSessionId = (sessionService: SessionService, callLog: CallEntry[]): void => {
+  const original = sessionService.recordProviderSessionId.bind(sessionService);
+  sessionService.recordProviderSessionId = async (s: SessionState, stage: string, id: string) => {
+    callLog.push({ name: 'recordProviderSessionId', stage, id });
+    return original(s, stage, id);
+  };
+};
+
+const patchReviewCommand = (command: IssueCommand, callLog: CallEntry[]): void => {
+  (command as any).persistAndPresentReview = async () => {
+    callLog.push({ name: 'persistAndPresentReview' });
+  };
+  (command as any).agents = { reviewer: { persistArtifact: async () => {} } };
+};
+
 async function runScenario(
   command: IssueCommand,
   sessionService: SessionService,
 ): Promise<CallEntry[]> {
   const ticketKey = `SMOKE-REVIEW-SID-${Date.now()}`;
-  const sessionState = buildSessionState(ticketKey);
-  await sessionService.save(sessionState);
-
+  const sessionState = await setupScenarioSession(ticketKey, sessionService);
   const callLog: CallEntry[] = [];
-
-  const originalRecord = sessionService.recordProviderSessionId.bind(sessionService);
-  sessionService.recordProviderSessionId = async (s: SessionState, stage: string, id: string) => {
-    callLog.push({ name: 'recordProviderSessionId', stage, id });
-    return originalRecord(s, stage, id);
-  };
-
-  (command as any).persistAndPresentReview = async () => {
-    callLog.push({ name: 'persistAndPresentReview' });
-  };
-  (command as any).agents = { reviewer: { persistArtifact: async () => {} } };
-
-  const reviewArtifact = buildReviewArtifact();
-  const reviewContext = buildReviewContext(ticketKey);
-
-  await (command as any).recordAndPresentReviewArtifact(reviewArtifact, reviewContext, sessionState);
-
+  patchRecordProviderSessionId(sessionService, callLog);
+  patchReviewCommand(command, callLog);
+  await (command as any).recordAndPresentReviewArtifact(
+    buildReviewArtifact(), buildReviewContext(ticketKey), sessionState,
+  );
   await sessionService.deleteBySessionId(sessionState.sessionId).catch(() => {});
   return callLog;
 }
