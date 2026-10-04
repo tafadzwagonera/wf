@@ -28,6 +28,9 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      scroll-reset-on-navigation, aria-hidden/tabindex suppression, native control suppression,
      heading and grid-gap class choices).
    - Prefer re-running generators over manually patching generated output.
+   - When a step adds or renames a config field, schema property, or option, trace it to its
+     consumer and list every copy point (raw schema, normalizer, derived types, docs) in the same
+     step — a value that validates but is never read is a defect, not future-proofing.
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
      checkpoints using the \`phases\` array.`;
 
@@ -88,6 +91,8 @@ export const buildPlanVerificationBlock = (hasNodeInfra: boolean): string => {
      and references real scripts from "Available test infrastructure."
    - Use "verification.targeted" for focused checks, "verification.waivers" to explicitly waive
      a baseline check, or omit "verification" entirely when neither applies.
+   - Prefer verification that enters the system where users do — a real config file, a CLI
+     invocation, an on-disk artifact — over direct calls to the internals behind them.
    - Cross-check CLI flags against the installed framework version — stale flags cause false passes.${shellSafety}`;
 };
 
