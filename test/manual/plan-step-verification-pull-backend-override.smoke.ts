@@ -63,7 +63,7 @@ import { createReporter, summarise } from './support/reporter';
 const { counts, pass, fail } = createReporter();
 const CLI_BACKEND_LABEL = 'claude-cli';
 const knownStatuses = new Set(['done', 'not-done', 'partially-done', 'not-applicable', 'unverifiable']);
-const ansiPattern = new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g');
+const ansiPattern = new RegExp(String.fromCodePoint(27) + String.raw`\[[0-9;]*m`, 'g');
 const stripAnsi = (s: string): string => s.replaceAll(ansiPattern, '');
 
 const interceptConsole = (): { lines: string[]; restore: () => void } => {
