@@ -87,7 +87,7 @@ async function checkEmptySkillIdsReturnsEmpty(): Promise<void> {
   const emptyFragment = await buildSkillPromptFragment([], BACKEND, chalk.cyan);
   restore();
   assert('empty skillIds returns empty string', emptyFragment === '');
-  assert('no stdout output for empty skillIds', captured.every(line => line.includes('Skill(') === false));
+  assert('no stdout output for empty skillIds', !captured.some(line => line.includes('Skill(')));
 }
 
 async function main(): Promise<void> {

@@ -36,11 +36,11 @@ const pullAssessmentParams = () => ({
 const reportPullStatuses = (statuses: { index: number; status: string }[]): void => {
   const first = statuses.find(status => status.index === 0)?.status;
   const second = statuses.find(status => status.index === 1)?.status;
-  if (first !== 'done' || second !== 'not-done') {
+  if (first === 'done' && second === 'not-done') {
+    pass('pull assessment distinguishes changed and absent files');
+  } else {
     fail('pull assessment returned unexpected statuses', JSON.stringify(statuses));
-    return;
   }
-  pass('pull assessment distinguishes changed and absent files');
 };
 
 const initializeRepository = (): void => {
