@@ -410,7 +410,7 @@ type ResponseContentDiagnostics = Pick<
 const REVIEW_EMPTY_RESPONSE_RETRY_LIMIT = 1;
 const PLAN_EMPTY_RESPONSE_RETRY_LIMIT = 1;
 
-const BLANK_REVIEW_FINISH_REASONS = new Set([
+const blankReviewFinishReasons = new Set([
   'content_filter', 'error', 'guardrail', 'invalid_request',
   'model_context_window_exceeded', 'recitation', 'refusal',
   'safety', 'tool_use',
@@ -428,9 +428,9 @@ const hasJsonContent = (content: string): boolean => findFirstBrace(content) !==
 const hasNonRecoverableSignal = (response: ReviewResponseDiagnostics): boolean => {
   if (response.refusal?.trim()) return true;
   const finishReason = response.finishReason?.trim().toLowerCase();
-  if (finishReason && BLANK_REVIEW_FINISH_REASONS.has(finishReason)) return true;
+  if (finishReason && blankReviewFinishReasons.has(finishReason)) return true;
   const stopReason = response.stopReason?.trim().toLowerCase();
-  if (stopReason && BLANK_REVIEW_FINISH_REASONS.has(stopReason)) return true;
+  if (stopReason && blankReviewFinishReasons.has(stopReason)) return true;
   const contentTypes = response.contentTypes ?? [];
   return contentTypes.length > 0 && !contentTypes.includes('text');
 };
