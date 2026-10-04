@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
-import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, DEFAULT_STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 
@@ -136,8 +136,8 @@ describe('checkVerificationStall', () => {
     jest.restoreAllMocks();
   });
 
-  it('exports DEFAULT_STALL_THRESHOLD as 2', () => {
-    expect(DEFAULT_STALL_THRESHOLD).toBe(2);
+  it('exports STALL_THRESHOLD as 2', () => {
+    expect(STALL_THRESHOLD).toBe(2);
   });
 
   it('returns incremented count when failures are not decreasing and below threshold', () => {

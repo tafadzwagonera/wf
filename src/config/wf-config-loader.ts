@@ -211,7 +211,7 @@ const implementStageSchema = z
     inactivityTimeoutMs: z.number().int().min(0).optional(),
     skills: z.array(z.string()).optional(),
     figma: z.boolean().optional(),
-    maxStalledPasses: z.number().int().min(1).optional(),
+    stallThresholdForVerificationFix: z.number().int().min(1).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
     planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
   })
@@ -832,8 +832,8 @@ const buildImplementStageOptionalFields = (implementStageConfig: WfImplementStag
     planStepVerification: implementStageConfig.planStepVerification,
   }),
   ...(implementStageConfig.figma !== undefined && { figma: implementStageConfig.figma }),
-  ...(implementStageConfig.maxStalledPasses !== undefined && {
-    maxStalledPasses: implementStageConfig.maxStalledPasses,
+  ...(implementStageConfig.stallThresholdForVerificationFix !== undefined && {
+    stallThresholdForVerificationFix: implementStageConfig.stallThresholdForVerificationFix,
   }),
 });
 

@@ -33,7 +33,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { resolveSkippedSteps, printVerificationReport, DEFAULT_STALL_THRESHOLD } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
 import {
   buildVerificationCommandOrder,
   buildVerificationProgressSignal,
@@ -1060,7 +1060,7 @@ const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
 };
 
 const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
-  configOverride ?? Math.max(DEFAULT_STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
+  configOverride ?? Math.max(STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
 
 const logStalledWorkload = (unvisited: string[], failureCount: number, threshold: number): void => {
   const parts: string[] = [];

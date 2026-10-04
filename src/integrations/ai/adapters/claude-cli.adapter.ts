@@ -14,7 +14,7 @@ import type {
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall, partitionFailures, DEFAULT_STALL_THRESHOLD,
+  checkVerificationStall, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
 import {
   resolveModelRouting,
@@ -606,11 +606,11 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   /**
    * Resolves the stall cap for the implement verification-fix loop from
-   * `stages.implement.maxStalledPasses`. Without this read the config field is
+   * `stages.implement.stallThresholdForVerificationFix`. Without this read the config field is
    * accepted by the schema but the loop silently uses the hardcoded default.
    */
   private resolveStallThreshold(): number {
-    return this.configService.get<number>('stages.implement.maxStalledPasses', DEFAULT_STALL_THRESHOLD);
+    return this.configService.get<number>('stages.implement.stallThresholdForVerificationFix', STALL_THRESHOLD);
   }
 
   private shouldRunFixIteration(state: VerificationFixState): boolean {

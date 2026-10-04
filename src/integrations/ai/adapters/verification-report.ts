@@ -310,7 +310,7 @@ export function buildVerificationFixPrompt(failures: VerificationOutcome[], scop
  * Default stall threshold: number of consecutive non-improving passes before the loop stops.
  * Used by continuation loops and the verification stall check.
  */
-export const DEFAULT_STALL_THRESHOLD = 2;
+export const STALL_THRESHOLD = 2;
 
 /**
  * Checks whether the verification failure count is decreasing.
@@ -320,7 +320,7 @@ export const DEFAULT_STALL_THRESHOLD = 2;
  * @param previousFailures - Number of enforced failures in the prior pass.
  * @param stalledPasses - Running count of non-decreasing passes.
  * @param adapterLabel - Adapter label for log messages.
- * @param threshold - Number of consecutive non-improving passes before stopping (default: DEFAULT_STALL_THRESHOLD).
+ * @param threshold - Number of consecutive non-improving passes before stopping (default: STALL_THRESHOLD).
  * @returns Updated stalledPasses count, or -1 to signal the loop should break.
  */
 export function checkVerificationStall(
@@ -328,7 +328,7 @@ export function checkVerificationStall(
   previousFailures: number,
   stalledPasses: number,
   adapterLabel: string,
-  threshold = DEFAULT_STALL_THRESHOLD,
+  threshold = STALL_THRESHOLD,
 ): number {
   const updated = currentFailures < previousFailures ? 0 : stalledPasses + 1;
   if (updated < threshold) return updated;

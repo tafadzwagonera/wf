@@ -1,6 +1,6 @@
 import { ClaudeCliAdapter } from './claude-cli.adapter';
 import * as cliRunner from './claude-cli-runner';
-import { DEFAULT_STALL_THRESHOLD } from './verification-report';
+import { STALL_THRESHOLD } from './verification-report';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({ __esModule: true }));
 jest.mock('./claude-cli-runner');
@@ -167,18 +167,18 @@ describe('ClaudeCliAdapter', () => {
       prevFails: Infinity, stalled: 0, readOnly, passNumber: 1, exhausted: false,
     });
 
-    it('resolves stages.implement.maxStalledPasses from config', () => {
-      const adapter = new ClaudeCliAdapter(createMockConfigService({ 'stages.implement.maxStalledPasses': 5 }) as any);
+    it('resolves stages.implement.stallThresholdForVerificationFix from config', () => {
+      const adapter = new ClaudeCliAdapter(createMockConfigService({ 'stages.implement.stallThresholdForVerificationFix': 5 }) as any);
       expect((adapter as any).resolveStallThreshold()).toBe(5);
     });
 
-    it('falls back to DEFAULT_STALL_THRESHOLD when maxStalledPasses is unset', () => {
+    it('falls back to STALL_THRESHOLD when stallThresholdForVerificationFix is unset', () => {
       const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
-      expect((adapter as any).resolveStallThreshold()).toBe(DEFAULT_STALL_THRESHOLD);
+      expect((adapter as any).resolveStallThreshold()).toBe(STALL_THRESHOLD);
     });
 
     it('gates fix iterations on the configured cap instead of the hardcoded default', () => {
-      const adapter = new ClaudeCliAdapter(createMockConfigService({ 'stages.implement.maxStalledPasses': 4 }) as any);
+      const adapter = new ClaudeCliAdapter(createMockConfigService({ 'stages.implement.stallThresholdForVerificationFix': 4 }) as any);
       expect((adapter as any).shouldRunFixIteration(makeState(3))).toBe(true);
       expect((adapter as any).shouldRunFixIteration(makeState(4))).toBe(false);
     });

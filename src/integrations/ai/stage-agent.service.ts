@@ -32,7 +32,7 @@ import {
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
-import { DEFAULT_STALL_THRESHOLD } from './adapters/verification-report';
+import { STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
   assertCodexCliAvailable,
@@ -122,7 +122,7 @@ const extractCliDiagnostic = (message: ClaudeCliMessage): string | undefined => 
 };
 
 const CLI_STAGE_LABEL = 'claude-cli';
-const CLI_STALL_THRESHOLD = DEFAULT_STALL_THRESHOLD;
+const CLI_STALL_THRESHOLD = STALL_THRESHOLD;
 const CLI_REVIEW_EPILOGUE_TIMEOUT_MS = 30_000;
 const cliEpiloguePrompt
   = 'Summarize the review for the developer: approval status, issue count by severity, '

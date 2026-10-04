@@ -1,16 +1,16 @@
 /**
- * Manual smoke test: figma, sonar, and maxStalledPasses survive normalization into stage gates
+ * Manual smoke test: figma, sonar, and stallThresholdForVerificationFix survive normalization into stage gates
  *
  * Run: nr test:manual stage-flag-config-propagation.smoke
  *
  * Verifies:
- *   1. initializeWfConfig succeeds with figma/sonar/maxStalledPasses set
+ *   1. initializeWfConfig succeeds with figma/sonar/stallThresholdForVerificationFix set
  *   2. ConfigService resolves stages.{plan,implement,review}.figma = true
  *   3. ConfigService resolves stages.review.sonar = true
- *   4. ConfigService resolves stages.implement.maxStalledPasses = 3
+ *   4. ConfigService resolves stages.implement.stallThresholdForVerificationFix = 3
  *   5. Live gate: PlanStageService.isFigmaEnabled({}) returns true from config alone
  *   6. Live gate: ClaudeCliAdapter resolves the configured stall cap and stops fix
- *      iterations at it (falls back to DEFAULT_STALL_THRESHOLD when omitted)
+ *      iterations at it (falls back to STALL_THRESHOLD when omitted)
  *   7. Negative: omitting all five fields yields undefined reads and a false figma gate
  *
  * Sonar behavioral gating (scan runs vs returns early) is covered by
@@ -26,7 +26,7 @@ import { AppModule } from '../../src/app.module';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { PlanStageService } from '../../src/workflows/stages/plan-stage.service';
 import { ClaudeCliAdapter } from '../../src/integrations/ai/adapters/claude-cli.adapter';
-import { DEFAULT_STALL_THRESHOLD } from '../../src/integrations/ai/adapters/verification-report';
+import { STALL_THRESHOLD } from '../../src/integrations/ai/adapters/verification-report';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
@@ -52,7 +52,7 @@ function makeTempConfig(stagesLines: string[]): string {
 
 const flagsEnabledStages = [
   "    plan: { provider: 'anthropic', figma: true },",
-  "    implement: { provider: 'anthropic', figma: true, maxStalledPasses: 3 },",
+  "    implement: { provider: 'anthropic', figma: true, stallThresholdForVerificationFix: 3 },",
   "    review: { provider: 'anthropic', figma: true, sonar: true },",
 ];
 
@@ -67,13 +67,13 @@ function assertEnabledReads(configService: ConfigService): void {
   assert('stages.implement.figma = true', configService.get<boolean>('stages.implement.figma') === true);
   assert('stages.review.figma = true', configService.get<boolean>('stages.review.figma') === true);
   assert('stages.review.sonar = true', configService.get<boolean>('stages.review.sonar') === true);
-  assert('stages.implement.maxStalledPasses = 3', configService.get<number>('stages.implement.maxStalledPasses') === 3);
+  assert('stages.implement.stallThresholdForVerificationFix = 3', configService.get<number>('stages.implement.stallThresholdForVerificationFix') === 3);
 }
 
 function assertOmittedReads(configService: ConfigService): void {
   const keys = [
     'stages.plan.figma', 'stages.implement.figma', 'stages.review.figma',
-    'stages.review.sonar', 'stages.implement.maxStalledPasses',
+    'stages.review.sonar', 'stages.implement.stallThresholdForVerificationFix',
   ];
   for (const key of keys) {
     assert(`omitted ${key} reads undefined`, configService.get(key) === undefined, `got: ${configService.get(key)}`);
@@ -125,7 +125,7 @@ async function checkFlagsOmitted(tempDirs: string[]): Promise<void> {
   try {
     assertOmittedReads(app.get(ConfigService));
     assert('isFigmaEnabled({}) returns false when figma omitted', readFigmaGate(app) === false);
-    assertStallGate(app.get(ConfigService), DEFAULT_STALL_THRESHOLD);
+    assertStallGate(app.get(ConfigService), STALL_THRESHOLD);
   } finally {
     await app.close();
   }

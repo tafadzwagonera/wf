@@ -17,7 +17,7 @@ import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, 
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall, partitionFailures, DEFAULT_STALL_THRESHOLD,
+  checkVerificationStall, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
 
 const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
@@ -444,7 +444,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     return !state.exhausted
       && state.codeFailures.length > 0
       && state.sessionId !== undefined
-      && state.readOnly < DEFAULT_STALL_THRESHOLD;
+      && state.readOnly < STALL_THRESHOLD;
   }
 
   private async applySuccessfulFix(

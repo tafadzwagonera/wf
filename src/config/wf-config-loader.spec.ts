@@ -538,16 +538,16 @@ describe('wf-config-loader', () => {
       expect(config.stages.plan?.figma).toBe(true);
     });
 
-    it('preserves figma and maxStalledPasses on implement stage config through normalization', () => {
+    it('preserves figma and stallThresholdForVerificationFix on implement stage config through normalization', () => {
       const config = normalizeWfConfig({
         ai: [{ provider: 'openai', apiKey: 'openai-key', model: 'gpt-5.4' }],
         stages: {
-          implement: { provider: 'openai', model: 'gpt-5.4', figma: false, maxStalledPasses: 3 },
+          implement: { provider: 'openai', model: 'gpt-5.4', figma: false, stallThresholdForVerificationFix: 3 },
         },
       });
 
       expect(config.stages.implement?.figma).toBe(false);
-      expect(config.stages.implement?.maxStalledPasses).toBe(3);
+      expect(config.stages.implement?.stallThresholdForVerificationFix).toBe(3);
     });
 
     it('preserves figma and sonar on review stage config through normalization', () => {

@@ -113,7 +113,7 @@ export const validatePullStepVerificationProvider = (
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   figma: z.boolean().optional(),
-  maxStalledPasses: z.number().int().min(1).optional(),
+  stallThresholdForVerificationFix: z.number().int().min(1).optional(),
   models: wfImplementStageModelsConfigSchema.optional(),
   modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
   skills: z.array(wfImplementSkillNameSchema).optional(),
@@ -255,7 +255,7 @@ export const normalizedVerificationConditionsConfigSchema = z.object({
 export const normalizedImplementStageConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
   figma: z.boolean().optional(),
-  maxStalledPasses: z.number().int().min(1).optional(),
+  stallThresholdForVerificationFix: z.number().int().min(1).optional(),
   model: z.string().optional(),
   models: z.object({ default: z.string().optional(), mechanical: z.string().optional() }).optional(),
   modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),

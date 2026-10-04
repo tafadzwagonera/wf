@@ -19,7 +19,7 @@ import type {
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
-import { resolveSkippedSteps, printVerificationReport, DEFAULT_STALL_THRESHOLD } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
 import {
   resolveModelRouting,
   resolveProviderModel,
@@ -502,7 +502,7 @@ const computeUnvisited = (repoFiles: string[], repoName: string, touchedFiles: S
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
 const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
-  configOverride ?? Math.max(DEFAULT_STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
+  configOverride ?? Math.max(STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
 
 const logStallWarning = (currentUnvisited: string[], threshold: number): void => {
   console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] Workload not decreasing after ${threshold} passes — stopping`));
