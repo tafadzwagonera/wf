@@ -4,6 +4,7 @@ import { ValidationError } from '../errors/app.error';
 import type { SkillQualityRule } from '../../skills/skill.types';
 import type { PackageManager } from './detect-repo-conventions';
 import { formatRunnerInvocation, parseRunnerInvocation } from './verification-commands';
+import chalk from 'chalk';
 
 export interface PlanQualityViolation {
   ruleId: string;
@@ -441,4 +442,51 @@ const createPlanQualityError = (violations: PlanQualityViolation[]): ValidationE
   return new ValidationError(`Generated plan failed quality checks:\n${details}`);
 };
 
-export { createPlanQualityError, validatePlanQuality };
+const TAG_PARSE_PATTERN = /^\[([^\]]+)\]\s*(.*)$/s;
+
+// eslint-disable-next-line max-lines-per-function
+const wrapWords = (text: string, width: number, indent: string): string => {
+  if (width <= 0 || text.length <= width) return text;
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    if (!current) {
+      current = word;
+    } else if ((current + ' ' + word).length <= width) {
+      current += ' ' + word;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join('\n' + indent);
+};
+
+// eslint-disable-next-line max-lines-per-function
+const formatPlanQualityViolations = (violations: string[], header: string): string => {
+  const width = Math.min((process.stdout.columns ?? 100) - 8, 100);
+  const headerLine = chalk.bold.yellow(`⚠ ${header}:`);
+
+  const formattedViolations = violations.map(violation => {
+    const match = TAG_PARSE_PATTERN.exec(violation);
+    const tag = match ? match[1] : '';
+    const body = match ? match[2] : violation;
+    const prefix = tag ? `[${tag}] ` : '';
+    const indent = ' '.repeat(prefix.length);
+    const availableWidth = width - prefix.length;
+
+    const wrappedBody = body
+      .split('\n')
+      .map(segment => wrapWords(segment, availableWidth, indent))
+      .join('\n' + indent);
+
+    const tagPart = tag ? chalk.bold.red(`[${tag}]`) + ' ' : '';
+    return tagPart + wrappedBody;
+  });
+
+  return headerLine + '\n' + formattedViolations.join('\n\n');
+};
+
+export { createPlanQualityError, formatPlanQualityViolations, validatePlanQuality };

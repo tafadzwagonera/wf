@@ -22,7 +22,7 @@ import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundE
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { detectPackageManager, detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
-import { validatePlanQuality } from '../../shared/utils/plan-quality';
+import { formatPlanQualityViolations, validatePlanQuality } from '../../shared/utils/plan-quality';
 import type { RepoConventionsContext,
   PriorPlanContext,
   PlanCorrelationResult,
@@ -321,8 +321,7 @@ export class PlanStageService {
     const violations = await this.getLoadedPlanViolations(plan, resolvedRepoDir);
     if (violations.length === 0) return;
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
-    const bullets = formatted.map(v => '      ' + v).join('\n');
-    console.log(chalk.yellow('  ⚠ Plan quality violations (loaded plan):\n' + bullets));
+    console.log(formatPlanQualityViolations(formatted, 'Plan quality violations (loaded plan)'));
     plan.risks = [...(plan.risks ?? []), ...formatted.map(v => `[plan-quality] ${v}`)];
   }
 
@@ -410,8 +409,7 @@ export class PlanStageService {
   }
 
   private applyQualityViolationsToRisks(attempt: PlanResult, violations: string[]): PlanResult {
-    const bullets = violations.map(v => '      ' + v).join('\n');
-    console.log(chalk.yellow(`  ⚠ Plan quality violations persisted after retry:\n${bullets}`));
+    console.log(formatPlanQualityViolations(violations, 'Plan quality violations persisted after retry'));
     const existingRisks = attempt.plan.risks ?? [];
     const qualityRisks = violations.map(v => `[plan-quality] ${v}`);
     return {

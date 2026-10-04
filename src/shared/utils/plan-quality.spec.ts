@@ -1,4 +1,16 @@
-import { createPlanQualityError, validatePlanQuality } from './plan-quality';
+jest.mock('chalk', () => {
+  const makeChain = (): any => {
+    const fn = (s: string) => s;
+    Object.defineProperty(fn, 'bold', { get: () => makeChain() });
+    Object.defineProperty(fn, 'yellow', { get: () => makeChain() });
+    Object.defineProperty(fn, 'red', { get: () => makeChain() });
+    return new Proxy(fn, { get: (t, k) => k in t ? t[k as keyof typeof t] : makeChain() });
+  };
+  const chalk = makeChain();
+  return { default: chalk, __esModule: true };
+});
+
+import { createPlanQualityError, formatPlanQualityViolations, validatePlanQuality } from './plan-quality';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
 import { formatRunnerInvocation } from './verification-commands';
 
@@ -669,5 +681,89 @@ describe('validatePlanQuality — terraform-fmt-scope', () => {
       testInfra: terraformTestInfra,
     };
     expect(fmtViolations(params)).toHaveLength(0);
+  });
+});
+
+describe('formatPlanQualityViolations', () => {
+  let originalColumnsDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    originalColumnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalColumnsDescriptor) {
+      Object.defineProperty(process.stdout, 'columns', originalColumnsDescriptor);
+    }
+  });
+
+  it('(a) splits tag from message and includes both as substrings', () => {
+    const violations = ['[rename-target-required] Step 1 must name the target.'];
+    const output = formatPlanQualityViolations(violations, 'Test header');
+    expect(output).toContain('[rename-target-required]');
+    expect(output).toContain('Step 1 must name the target.');
+  });
+
+  it('(b) prepends header with warning icon', () => {
+    const violations = ['[test-rule] A message.'];
+    const output = formatPlanQualityViolations(violations, 'My header');
+    expect(output).toMatch(/^⚠ My header:/);
+  });
+
+  it('(c) separates multiple violations with blank line', () => {
+    const violations = [
+      '[rule-one] First violation.',
+      '[rule-two] Second violation.',
+    ];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    expect(output).toContain('\n\n');
+    const parts = output.split('\n\n');
+    expect(parts.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('(d) wraps long body at narrow terminal width', () => {
+    Object.defineProperty(process.stdout, 'columns', { value: 40, configurable: true });
+    const longBody = 'This is a very long message that should definitely wrap at a narrow terminal width like 40 characters';
+    const violations = [`[test-tag] ${longBody}`];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    const lines = output.split('\n');
+    expect(lines.length).toBeGreaterThan(2);
+  });
+
+  it('(e) indents continuation lines by tag.length + 3 spaces', () => {
+    Object.defineProperty(process.stdout, 'columns', { value: 40, configurable: true });
+    const tag = 'rename-target-required';
+    const longBody = 'Word that wraps to the next line because the terminal is very narrow';
+    const violations = [`[${tag}] ${longBody}`];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    const lines = output.split('\n');
+    expect(lines.length).toBeGreaterThan(2);
+    const expectedIndent = ' '.repeat(tag.length + 3);
+    const lastLine = lines.at(-1);
+    expect(lastLine).toMatch(new RegExp(`^ {${tag.length + 3}}`));
+  });
+
+  it('(f) handles malformed input without tag prefix', () => {
+    const violations = ['No tag prefix here, just a message.'];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    expect(output).toContain('No tag prefix here');
+    expect(output).toContain('message.');
+  });
+
+  it('(g) treats embedded newline as hard break', () => {
+    const violations = ['[test-rule] Line one\nLine two'];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    expect(output).toContain('Line one');
+    expect(output).toContain('Line two');
+    const lineArray = output.split('\n');
+    expect(lineArray.length).toBeGreaterThan(2);
+  });
+
+  it('(h) falls back to width 100 when process.stdout.columns is undefined', () => {
+    Object.defineProperty(process.stdout, 'columns', { value: undefined, configurable: true });
+    const violations = ['[test-rule] This is a message that should wrap at default width.'];
+    const output = formatPlanQualityViolations(violations, 'Test');
+    expect(output).toContain('[test-rule]');
   });
 });

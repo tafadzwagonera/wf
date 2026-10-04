@@ -28,7 +28,7 @@ import { PlanStageService } from '../workflows/stages/plan-stage.service';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { detectTestInfra } from '../shared/utils/detect-test-infra';
 import type { TestInfraContext, NodeInfra } from '../shared/types/detection.types';
-import { validatePlanQuality } from '../shared/utils/plan-quality';
+import { formatPlanQualityViolations, validatePlanQuality } from '../shared/utils/plan-quality';
 import { detectRepoConventions, type PackageManager } from '../shared/utils/detect-repo-conventions';
 import { parseRunnerInvocation } from '../shared/utils/verification-commands';
 import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
@@ -999,8 +999,7 @@ export class IssuePlanCommand extends CommandRunner {
     if (violations.length === 0) return;
 
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
-    const violationLines = formatted.map(v => `    • ${v}`).join('\n');
-    console.log(chalk.yellow(`  ⚠ Plan quality violations:\n${violationLines}`));
+    console.log(formatPlanQualityViolations(formatted, 'Plan quality violations'));
     const existingRisks = (plan as RepoAwarePlan & { risks?: string[] }).risks ?? [];
     (plan as RepoAwarePlan & { risks?: string[] }).risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
   }
