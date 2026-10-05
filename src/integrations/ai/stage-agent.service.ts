@@ -32,6 +32,7 @@ import {
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL } from '../../common/constant';
 import { STALL_THRESHOLD } from './adapters/verification-report';
 import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
 import {
@@ -93,8 +94,6 @@ const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
 const OPENAI_STAGE_MAX_TURNS = 16;
 const OPENAI_CHAT_MAX_TURNS = 8;
-const READ_ONLY_OPENAI_MODEL = 'gpt-5.4-mini';
-const READ_ONLY_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const ANTHROPIC_STAGE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash'] as const;
 const allowedReadOnlyCommandPrefixes = [
   'pwd',
@@ -1318,7 +1317,7 @@ export class StageAgentService {
       if (implementModels?.default) return implementModels.default;
     }
     const provider = this.resolveStageProvider(stage);
-    const fallback = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
+    const fallback = provider === 'openai' ? DEFAULT_OPENAI_MECHANICAL_MODEL : DEFAULT_ANTHROPIC_MODEL;
     return resolveProviderModel(this.configService, provider, fallback);
   }
 
@@ -1329,7 +1328,7 @@ export class StageAgentService {
   private resolveFallbackModel(stage: AgentStageName): string | undefined {
     const provider = this.resolveStageProvider(stage);
     const currentModel = this.resolveStageModel(stage);
-    const builtInDefault = provider === 'openai' ? READ_ONLY_OPENAI_MODEL : READ_ONLY_ANTHROPIC_MODEL;
+    const builtInDefault = provider === 'openai' ? DEFAULT_OPENAI_MECHANICAL_MODEL : DEFAULT_ANTHROPIC_MODEL;
     const candidate = resolveProviderModel(this.configService, provider, builtInDefault);
     if (candidate === currentModel) {
       appendToLogFile('DEBUG', `stage-agent.model.fallback.none stage=${stage} provider=${provider} model=${currentModel} reason=no-alternative-in-ai-providers`, 'stage-agent');
