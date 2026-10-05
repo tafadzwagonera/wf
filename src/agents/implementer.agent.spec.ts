@@ -2717,6 +2717,42 @@ describe('ImplementerAgent', () => {
       expect(planStepVerificationService.run).not.toHaveBeenCalled();
     });
 
+    it('threads verificationOutcomes and commitPolicy into planStepVerification.run params', async () => {
+      setupWithChanges();
+      const outcome = { id: 'v1', command: 'yarn test src/foo.spec.ts', policy: 'enforced' as const, status: 'passed' as const };
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [outcome],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      expect(planStepVerificationService.run).toHaveBeenCalledWith(expect.objectContaining({
+        verificationOutcomes: [outcome],
+        commitPolicy: { allowsCommit: false, complexity: 'medium' },
+      }));
+    });
+
+    it('omits verificationOutcomes key but always includes commitPolicy when outcomes are empty', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+        sessionId: 'sess-1', verificationOutcomes: [],
+      });
+
+      await agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+      );
+
+      const params = planStepVerificationService.run.mock.calls[0][0];
+      expect(params).not.toHaveProperty('verificationOutcomes');
+      expect(params.commitPolicy).toEqual({ allowsCommit: false, complexity: 'medium' });
+    });
+
     it('attaches stepVerification to result when summary is present', async () => {
       setupWithChanges();
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({

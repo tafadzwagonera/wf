@@ -98,6 +98,8 @@ type VerificationRunParamsArgs = {
   assessorModel?: string;
   assessorBackend?: WfBackendMode;
   baseline: { sha: string; branch: string } | null;
+  verificationOutcomes: VerificationOutcome[];
+  commitPolicy: CommitPolicy;
   refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
   getSuppressed?: () => number;
 };
@@ -280,7 +282,7 @@ export class ImplementerAgent {
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
       stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW), mode: cfg?.mode,
-      ...assessorTarget,
+      verificationOutcomes: result.verificationOutcomes, commitPolicy: policy, ...assessorTarget,
       ...this.createFidelityRefresher(assessedSteps, options, baseline, assessorTarget),
     });
     this.logVerificationHeading();
@@ -363,7 +365,8 @@ export class ImplementerAgent {
       ...(args.assessorProvider && { assessorProvider: args.assessorProvider }),
       ...(args.assessorModel && { assessorModel: args.assessorModel }),
       ...(args.assessorBackend && { assessorBackend: args.assessorBackend }),
-      silent: options.silent,
+      ...(args.verificationOutcomes.length && { verificationOutcomes: args.verificationOutcomes }),
+      commitPolicy: args.commitPolicy, silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
       refreshSteps: args.refreshSteps,
       getSuppressed: args.getSuppressed,

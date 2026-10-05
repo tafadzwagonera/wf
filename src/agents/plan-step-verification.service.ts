@@ -14,6 +14,8 @@ import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '..
 import { PullStepAssessorService } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
 import { executeAsyncWithCatch, executeWithCatch } from '../shared/utils/execute-with-catch';
+import type { VerificationOutcome } from '../shared/types/agent.types';
+import type { CommitPolicy } from '../shared/utils/implement-commit-policy';
 
 const execFileAsync = promisify(execFile);
 const MAX_ASSESSOR_EVIDENCE_CHARS = 60_000;
@@ -56,6 +58,16 @@ const stepAssessorRules = [
   'Do not assume changes you cannot see.',
 ];
 
+const commandEvidenceRules = [
+  '## Command evidence rules',
+  '- Matched command step with passed outcome: mark done',
+  '- Matched command step with failed outcome: mark not-done (cite the failure output as what is missing)',
+  '- Command step matched to a skipped outcome or with no matching entry: mark not-applicable',
+  '- Stage-and-commit step with a blocked commit policy and staged or working-tree changes: mark done'
+  + ' — the implement stage intentionally leaves work staged; this satisfies the step',
+  '- Never mark a policy-blocked commit step as not-done or unverifiable',
+];
+
 const verificationPromptFooter = [
   '',
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
@@ -71,6 +83,14 @@ export type PushEvidence = {
   omittedPaths: string[];
   truncatedUntrackedPaths: string[];
 };
+
+export type ExecutionEvidence = {
+  outcomes: VerificationOutcome[];
+  commitPolicy?: CommitPolicy;
+  stagedFiles: string[];
+  commitsSinceBaseline?: number;
+};
+
 type RetainedUntracked = { retained: string[]; remaining: number; truncatedPaths: string[] };
 type PushEvidenceParams = { repoDir: string; baseRef: string; stepTexts: string[]; untrackedSections?: string[] };
 
@@ -152,6 +172,17 @@ const buildPushEvidence = (
   omittedPaths: collected.omittedPaths, truncatedUntrackedPaths: retained.truncatedPaths,
 });
 
+const countCommitsSinceBaseline = async (repoDir: string, baseRef?: string): Promise<number | undefined> => {
+  if (!baseRef) return undefined;
+  const gitArgs = ['rev-list', '--count', `${baseRef}..HEAD`];
+  const [result] = await executeAsyncWithCatch({
+    fn: () => execFileAsync('git', gitArgs, { cwd: repoDir, maxBuffer: GIT_MAX_BUFFER }),
+    onError: () => undefined,
+  });
+  const count = parseInt(result?.stdout ?? '', 10);
+  return Number.isFinite(count) ? count : undefined;
+};
+
 const collectFileDiffSections = async (
   params: PushEvidenceParams, paths: string[], initialBudget: number,
 ): Promise<{ sections: string[]; omittedPaths: string[]; remaining: number }> => {
@@ -210,6 +241,8 @@ export interface PlanStepVerificationRunParams {
    * when there's no prior commit to anchor to (e.g. a brand-new repo).
    */
   baseRef?: string;
+  verificationOutcomes?: VerificationOutcome[];
+  commitPolicy?: CommitPolicy;
   mode?: WfStepVerificationMode;
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
@@ -250,12 +283,67 @@ export const stripRepoNamePrefix = (steps: AssessableStep[], repoDir: string): A
   return steps.map(step => ({ ...step, text: step.text.split(prefix).join('') }));
 };
 
+const maxOutcomeOutput = 4000;
+
+const capOutcomeOutput = (output: string): string =>
+  output.length > maxOutcomeOutput ? `${output.slice(0, maxOutcomeOutput)} [truncated]` : output;
+
+const renderOutcomeLine = (outcome: VerificationOutcome): string => {
+  if (outcome.status === 'passed') {
+    return `- \`${outcome.command}\` → passed (exit 0; output not captured for passing commands) [policy: ${outcome.policy}]`;
+  }
+  const base = `- \`${outcome.command}\` → ${outcome.status} [policy: ${outcome.policy}]`;
+  if (!outcome.output) return base;
+  const indented = capOutcomeOutput(outcome.output).split('\n').map(l => `  ${l}`).join('\n');
+  return `${base}\n  \`\`\`\n${indented}\n  \`\`\``;
+};
+
+const renderOutcomeLines = (outcomes: VerificationOutcome[]): string =>
+  outcomes.length ? outcomes.map(renderOutcomeLine).join('\n') : '(no verification commands were executed)';
+
+const renderCommitPolicyLine = (policy?: CommitPolicy): string => {
+  if (!policy) return '';
+  return policy.allowsCommit
+    ? 'Commit policy: allowed'
+    : `Commit policy: blocked (complexity=${policy.complexity})`;
+};
+
+const renderStagedLine = (stagedFiles: string[]): string =>
+  stagedFiles.length ? `Staged files: ${stagedFiles.join(', ')}` : 'Staged files: none';
+
+const buildEvidenceContextLines = (evidence: ExecutionEvidence): string[] =>
+  [
+    renderCommitPolicyLine(evidence.commitPolicy),
+    renderStagedLine(evidence.stagedFiles),
+    ...(evidence.commitsSinceBaseline !== undefined
+      ? [`Commits created since baseline: ${evidence.commitsSinceBaseline}`]
+      : []),
+  ].filter(Boolean);
+
+export const buildExecutionEvidenceSection = (evidence?: ExecutionEvidence): string => {
+  if (!evidence) return '';
+  return [
+    '## Command execution evidence',
+    '',
+    'Verification commands executed at the end of the implement stage:',
+    renderOutcomeLines(evidence.outcomes),
+    '',
+    ...buildEvidenceContextLines(evidence),
+  ].join('\n');
+};
+
 export const buildStepAssessorPrompt = (
   steps: AssessableStep[],
   evidence: PushEvidence,
+  executionEvidence?: ExecutionEvidence,
 ): string => {
   const numbered = steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
-  return [...stepAssessorPreamble, numbered, buildPushEvidenceBody(evidence), ...stepAssessorRules].join('\n');
+  const section = buildExecutionEvidenceSection(executionEvidence);
+  const parts = [
+    ...stepAssessorPreamble, numbered, buildPushEvidenceBody(evidence),
+    ...(section ? [section, ''] : []), ...stepAssessorRules, ...(section ? commandEvidenceRules : []),
+  ];
+  return parts.join('\n');
 };
 
 const buildPushEvidenceBody = (evidence: PushEvidence): string => [
@@ -620,7 +708,8 @@ export class PlanStepVerificationService {
   ): Promise<StepAssessment[]> {
     const strippedSteps = stripRepoNamePrefix(activeSteps, params.repoDir);
     const evidence = await this.captureEvidence(params, strippedSteps);
-    const prompt = buildStepAssessorPrompt(strippedSteps, evidence);
+    const executionEvidence = await this.collectExecutionEvidence(params);
+    const prompt = buildStepAssessorPrompt(strippedSteps, evidence, executionEvidence);
     return this.requestPushAssessment(params, prompt);
   }
 
@@ -707,6 +796,25 @@ export class PlanStepVerificationService {
     if (evidence.truncatedUntrackedPaths.length) {
       this.logEventAndAppendToLogFile('WARN', `step-verify.diff.truncated untracked-truncated=${evidence.truncatedUntrackedPaths.join(',')}`, silent);
     }
+  }
+
+  private async collectStagedFiles(repoDir: string): Promise<string[]> {
+    const status = await this.gitService.getStatus(repoDir);
+    return (status as { staged?: string[] }).staged ?? [];
+  }
+
+  private async collectExecutionEvidence(
+    params: PlanStepVerificationRunParams,
+  ): Promise<ExecutionEvidence | undefined> {
+    if (!params.verificationOutcomes?.length && !params.commitPolicy) return undefined;
+    const stagedFiles = await this.collectStagedFiles(params.repoDir);
+    const commitsSinceBaseline = await countCommitsSinceBaseline(params.repoDir, params.baseRef);
+    return {
+      outcomes: params.verificationOutcomes ?? [],
+      ...(params.commitPolicy && { commitPolicy: params.commitPolicy }),
+      stagedFiles,
+      ...(commitsSinceBaseline !== undefined && { commitsSinceBaseline }),
+    };
   }
 
   private async collectUntrackedSections(repoDir: string): Promise<string[]> {

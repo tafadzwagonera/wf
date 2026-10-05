@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   PlanStepVerificationService,
   buildStepAssessorPrompt,
+  buildExecutionEvidenceSection,
   buildPlanStepVerificationPrompt,
   collectPushEvidence,
   stripRepoNamePrefix,
@@ -64,6 +65,108 @@ describe('buildStepAssessorPrompt', () => {
     expect(prompt).toContain('src/b.ts');
     expect(prompt).toMatch(/not-done:.*changed-files list/);
     expect(prompt).toMatch(/unverifiable: ONLY/);
+  });
+
+  it('omits execution evidence section when called with two args', () => {
+    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
+      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
+    });
+    expect(result).not.toContain('## Command execution evidence');
+  });
+
+  it('inserts execution evidence section in order when called with three args', () => {
+    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
+      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
+    }, {
+      outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('## Command execution evidence');
+    expect(result.indexOf('## Per-file diffs')).toBeLessThan(result.indexOf('## Command execution evidence'));
+    expect(result.indexOf('## Command execution evidence')).toBeLessThan(result.indexOf('## Status rules'));
+    expect(result).toContain('## Command evidence rules');
+  });
+});
+
+describe('buildExecutionEvidenceSection', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('returns empty string when evidence is undefined', () => {
+    expect(buildExecutionEvidenceSection(undefined)).toBe('');
+  });
+
+  it('renders a passed outcome without a fenced code block', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [{ id: 'v1', command: 'yarn test src/foo.spec.ts', policy: 'enforced', status: 'passed' }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('→ passed (exit 0; output not captured for passing commands) [policy: enforced]');
+    expect(result).not.toContain('```');
+  });
+
+  it('renders a failed outcome with a fenced code block', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'failed', output: 'FAIL\n1 test failed' }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('→ failed [policy: enforced]');
+    expect(result).toContain('```');
+    expect(result).toContain('FAIL');
+  });
+
+  it('caps failed output at 4000 characters with a truncated marker', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'failed', output: 'x'.repeat(4001) }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('[truncated]');
+  });
+
+  it('renders a skipped outcome without a fence when output is absent', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'skipped' }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('→ skipped [policy: enforced]');
+    expect(result).not.toContain('```');
+  });
+
+  it('renders a skipped outcome with a fence when output is present', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'skipped', output: 'skip reason' }],
+      stagedFiles: [],
+    });
+    expect(result).toContain('→ skipped [policy: enforced]');
+    expect(result).toContain('```');
+    expect(result).toContain('skip reason');
+  });
+
+  it('renders placeholder, blocked policy, and staged none for empty outcomes with blocked policy', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [],
+      commitPolicy: { allowsCommit: false, complexity: 'medium' },
+      stagedFiles: [],
+    });
+    expect(result).toContain('(no verification commands were executed)');
+    expect(result).toContain('Commit policy: blocked (complexity=medium)');
+    expect(result).toContain('Staged files: none');
+  });
+
+  it('renders allowed commit policy line', () => {
+    const result = buildExecutionEvidenceSection({
+      outcomes: [],
+      commitPolicy: { allowsCommit: true, complexity: 'low' },
+      stagedFiles: [],
+    });
+    expect(result).toContain('Commit policy: allowed');
+  });
+
+  it('includes commits since baseline when present and omits when absent', () => {
+    const withBaseline = buildExecutionEvidenceSection({ outcomes: [], stagedFiles: [], commitsSinceBaseline: 2 });
+    expect(withBaseline).toContain('Commits created since baseline: 2');
+
+    const withoutBaseline = buildExecutionEvidenceSection({ outcomes: [], stagedFiles: [] });
+    expect(withoutBaseline).not.toContain('Commits created since baseline');
   });
 });
 
@@ -502,6 +605,62 @@ describe('PlanStepVerificationService', () => {
       'step-verify.assess.invalid',
       'step-verification',
     );
+  });
+
+  it('includes execution evidence section in prompt when verificationOutcomes and commitPolicy are provided', async () => {
+    mockGitGetStatus.mockResolvedValue({ not_added: [], staged: ['src/a.ts'] });
+    (jest.requireMock('node:child_process').execFile as jest.Mock).mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+        callback(null, { stdout: args.includes('rev-list') ? '2' : '' });
+      },
+    );
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams({
+      verificationOutcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+      commitPolicy: { allowsCommit: false, complexity: 'medium' },
+      baseRef: 'abc123',
+    }));
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('## Command execution evidence');
+    expect(prompt).toContain('Commit policy: blocked (complexity=medium)');
+    expect(prompt).toContain('Staged files: src/a.ts');
+    expect(prompt).toContain('Commits created since baseline: 2');
+  });
+
+  it('omits execution evidence section in prompt when no verificationOutcomes or commitPolicy', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams());
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).not.toContain('## Command execution evidence');
+  });
+
+  it('omits commits line from prompt when commitPolicy is set but no baseRef', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams({
+      commitPolicy: { allowsCommit: false, complexity: 'medium' },
+    }));
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('## Command execution evidence');
+    expect(prompt).not.toContain('Commits created since baseline');
+  });
+
+  it('does not call mockAiExecute or mockGitGetStatus in pull mode even when verificationOutcomes are provided', async () => {
+    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+
+    await service.run(makeRunParams({
+      mode: 'pull',
+      verificationOutcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+    }));
+
+    expect(mockPullAssess).toHaveBeenCalled();
+    expect(mockAiExecute).not.toHaveBeenCalled();
+    expect(mockGitGetStatus).not.toHaveBeenCalled();
   });
 
   it('never throws even when an internal error occurs', async () => {
