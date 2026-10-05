@@ -10,7 +10,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
@@ -20,7 +20,6 @@ import {
   checkVerificationStall, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
 
-const DEFAULT_MECHANICAL_MODEL = 'gpt-5.4-mini';
 const CODEX_ADAPTER_LABEL = 'codex-cli';
 
 type GenerateAndVerifyParams = {
@@ -255,8 +254,8 @@ const resolveCodexModelRouting = (
 ) =>
   resolveModelRouting({
     routing: options.modelRouting ?? 'auto',
-    fallbackDefaultModel: resolveProviderModel(configService, 'openai', 'gpt-4.1'),
-    defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
+    fallbackDefaultModel: resolveProviderModel(configService, 'openai', DEFAULT_OPENAI_MODEL),
+    defaultMechanicalModel: DEFAULT_OPENAI_MECHANICAL_MODEL,
     configService,
     plan: planArtifact.plan,
     adapterLabel: CODEX_ADAPTER_LABEL,

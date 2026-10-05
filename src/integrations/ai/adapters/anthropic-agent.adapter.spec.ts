@@ -451,7 +451,7 @@ describe('AnthropicAgentAdapter', () => {
 
       const queryArgs = mockQuery.mock.calls[0][0];
       const options = queryArgs.options as { model: string };
-      expect(options.model).toBe('claude-sonnet-4-6');
+      expect(options.model).toBe('claude-sonnet-5-5');
     });
 
     it('logs usage and cost from final result', async () => {
@@ -584,7 +584,7 @@ describe('AnthropicAgentAdapter', () => {
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
 
       expect(options.cwd).toBe('/repo/primary');
-      expect(options.model).toBe('claude-sonnet-4-6');
+      expect(options.model).toBe('claude-sonnet-5-5');
       expect(options.permissionMode).toBe('acceptEdits');
       expect(options.agentProgressSummaries).toBe(true);
       expect(options.tools).toEqual(

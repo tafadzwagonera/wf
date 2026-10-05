@@ -18,7 +18,7 @@ export type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shar
 
 const execAsync = promisify(exec);
 
-const MECHANICAL_KEYWORD_PATTERNS = [
+const mechanicalKeywordPatterns = [
   /migrate all/i,
   /replace every/i,
   /update each/i,
@@ -33,7 +33,7 @@ const MECHANICAL_KEYWORD_PATTERNS = [
   /\bapply\b.+\b(across|everywhere|to (all|every|each))\b/i,
 ];
 
-const MECHANICAL_SEMANTIC_PATTERNS = [
+const mechanicalSemanticPatterns = [
   /\brepeat\b.+\b(across|for each|in every)\b|replicate.+across/i,
   /boilerplate|scaffold/i,
   /same change|uniform/i,
@@ -56,13 +56,13 @@ const countPatternMatches = (steps: string[], patterns: RegExp[]): number =>
   steps.filter(step => patterns.some(pattern => pattern.test(step))).length;
 
 const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => ({
-  mechanical: countPatternMatches(steps, MECHANICAL_SEMANTIC_PATTERNS),
+  mechanical: countPatternMatches(steps, mechanicalSemanticPatterns),
   creative: countPatternMatches(steps, CREATIVE_SEMANTIC_PATTERNS),
 });
 
 const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
   for (const step of steps) {
-    const matched = MECHANICAL_KEYWORD_PATTERNS.find(pattern => pattern.test(step));
+    const matched = mechanicalKeywordPatterns.find(pattern => pattern.test(step));
     if (matched) {
       return matched;
     }
@@ -121,7 +121,7 @@ export type ModelRoutingResult = {
   logMessage: string;
 };
 
-const MODEL_CONFIG_EXCLUSIVE_ERROR
+const modelConfigExclusiveError
   = 'stages.implement.model and stages.implement.models are mutually exclusive.\n'
     + '  Use stages.implement.model for a single model, or\n'
     + '  Use stages.implement.models for routing-aware model selection (default + mechanical).';
@@ -134,7 +134,7 @@ const resolveModelConfig = (
   const singleModel = configService.get<string>('stages.implement.model');
   const modelsConfig
     = configService.get<import('../../../config/public-config').WfImplementStageModelsConfig>('stages.implement.models');
-  if (singleModel && modelsConfig) throw new ConfigurationError(MODEL_CONFIG_EXCLUSIVE_ERROR);
+  if (singleModel && modelsConfig) throw new ConfigurationError(modelConfigExclusiveError);
   return {
     defaultModel: modelsConfig?.default || singleModel || fallbackDefaultModel,
     mechanicalModel: modelsConfig?.mechanical || singleModel || defaultMechanicalModel,
@@ -174,6 +174,13 @@ export const resolveModelRouting = (params: ModelRoutingParams): ModelRoutingRes
   const autoLabel = detection.isMechanical ? `auto — mechanical: ${detection.reason}` : `auto — creative: ${detection.reason}`;
   return buildRoutingResult(autoModel, defaultModel, adapterLabel, autoLabel);
 };
+
+export {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_OPENAI_MECHANICAL_MODEL,
+} from '../../../common/constant';
 
 export const resolveProviderModel = (
   configService: ConfigService, providerName: string, fallback: string,

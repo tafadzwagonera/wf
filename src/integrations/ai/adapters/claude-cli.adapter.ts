@@ -17,6 +17,8 @@ import {
   checkVerificationStall, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
 import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
   resolveModelRouting,
   resolveProviderModel,
   stripRepoPrefix,
@@ -38,7 +40,6 @@ import {
 } from './claude-cli-runner';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 
-const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const CLI_ADAPTER_LABEL = 'claude-cli';
 const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
 type ActivityState = {
@@ -470,8 +471,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private resolveCliModelRouting(options: ImplementerOptions, planArtifact: PlanArtifact) {
     return resolveModelRouting({
       routing: options.modelRouting ?? 'auto',
-      fallbackDefaultModel: resolveProviderModel(this.configService, 'anthropic', 'claude-sonnet-4-6'),
-      defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
+      fallbackDefaultModel: resolveProviderModel(this.configService, 'anthropic', DEFAULT_ANTHROPIC_MODEL),
+      defaultMechanicalModel: DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
       configService: this.configService,
       plan: planArtifact.plan,
       adapterLabel: CLI_ADAPTER_LABEL,

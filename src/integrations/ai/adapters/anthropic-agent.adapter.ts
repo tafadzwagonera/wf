@@ -21,6 +21,8 @@ import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 import { resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
 import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
   resolveModelRouting,
   resolveProviderModel,
   normalizeCommand,
@@ -38,7 +40,6 @@ import {
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 
 const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
-const DEFAULT_MECHANICAL_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const MAX_CONTINUATION_PASSES = 15;
 const MAX_CONSECUTIVE_IDLE_PASSES = 3;
@@ -619,10 +620,10 @@ const buildSystemPromptParams = (params: GenerateAndVerifyParams, repoDir: strin
 const resolveRoutedModel = (
   params: GenerateAndVerifyParams, configService: ConfigService,
 ): { model: string; logMessage: string } => {
-  const fallbackDefaultModel = resolveProviderModel(configService, 'anthropic', 'claude-sonnet-4-6');
+  const fallbackDefaultModel = resolveProviderModel(configService, 'anthropic', DEFAULT_ANTHROPIC_MODEL);
   return resolveModelRouting({
     routing: params.options.modelRouting ?? 'auto', fallbackDefaultModel,
-    defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL, configService,
+    defaultMechanicalModel: DEFAULT_ANTHROPIC_MECHANICAL_MODEL, configService,
     plan: params.planArtifact.plan, adapterLabel: ANTHROPIC_AGENT_LABEL,
   });
 };

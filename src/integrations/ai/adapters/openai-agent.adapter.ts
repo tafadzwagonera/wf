@@ -43,6 +43,8 @@ import {
 } from '../../../shared/utils/implement-verification';
 import { loadAiContextConfig } from './load-ai-context-config';
 import {
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_OPENAI_MECHANICAL_MODEL,
   resolveModelRouting,
   normalizeCommand,
   buildAllowedCommands,
@@ -53,16 +55,14 @@ import {
   buildImplementerRulesSection,
   type BuildPlanContextParams,
 } from './shared-routing';
-import { buildSkillPromptFragment } from '../../../skills/skill-content';
+import { buildSkillPromptFragment } from '../../../skills';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 import type { ResolutionPlan } from '../ai.service';
 
 const execAsync = promisify(exec);
-const DEFAULT_MODEL = 'gpt-4.1';
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
 const MAX_GREP_LINE_LENGTH = 500;
 const MAX_READ_LINES = 200;
-const DEFAULT_MECHANICAL_MODEL = 'gpt-5.1-codex-mini';
 const OPENAI_AGENT_LABEL = 'openai-agent';
 const MAX_VERIFICATION_OUTPUT_LINES = 200;
 const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
@@ -1250,14 +1250,14 @@ const createAllTools = (mutable: ToolMutableState, vs: VerifyCommandState) => [
 const resolveModel = (
   configService: ConfigService, modelRouting: string | undefined, plan?: ResolutionPlan
 ): { model: string; logMessage: string } => {
-  const fallback = configService.get<string>('ai.model') || DEFAULT_MODEL;
+  const fallback = configService.get<string>('ai.model') || DEFAULT_OPENAI_MODEL;
   const fallbackPlan: ResolutionPlan = plan ?? {
     action: 'feature', summary: '', steps: [], estimatedComplexity: 'medium',
   };
   const result = resolveModelRouting({
     routing: (modelRouting ?? 'auto') as 'auto' | 'default' | 'mechanical',
     fallbackDefaultModel: fallback,
-    defaultMechanicalModel: DEFAULT_MECHANICAL_MODEL,
+    defaultMechanicalModel: DEFAULT_OPENAI_MECHANICAL_MODEL,
     configService, plan: fallbackPlan, adapterLabel: OPENAI_AGENT_LABEL,
   });
   return { model: result.model, logMessage: result.logMessage };

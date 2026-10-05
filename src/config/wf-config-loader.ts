@@ -46,10 +46,12 @@ import {
   resolveDefaultStageBackend,
 } from './stage-backend-defaults';
 
-const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
-const DEFAULT_OPENAI_MODEL = 'gpt-4.1';
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-pro';
-const DEFAULT_DEEPSEEK_MODEL = 'deepseek-reasoner';
+import {
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_DEEPSEEK_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  DEFAULT_OPENAI_MODEL,
+} from '../common/constant';
 
 const CONFIG_FILE_NAMES = [
   'wf.config.ts',
@@ -218,7 +220,7 @@ const implementStageSchema = z
   .strict()
   .superRefine(validatePullStepVerificationProvider);
 
-const logLevels = ['error', 'warn', 'info', 'debug'] as const;
+const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
 
 const configSchema = z
   .object({
@@ -273,13 +275,13 @@ const configSchema = z
     log: z
       .object({
         directory: z.string().optional(),
-        level: z.enum(logLevels).optional(),
+        level: z.enum(LOG_LEVELS).optional(),
       })
       .optional(),
     logging: z
       .object({
         directory: z.string().optional(),
-        level: z.enum(logLevels).optional(),
+        level: z.enum(LOG_LEVELS).optional(),
       })
       .optional(),
     slack: z
@@ -324,7 +326,7 @@ const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
 const isGeminiConfig = ({ provider, model }: { provider: WfAiProviderName; model: string }): boolean =>
   provider === 'google' && model.startsWith('gemini');
 
-const MODEL_PREFIX_TO_PROVIDER: Record<string, WfAiProviderName> = {
+const modelPrefixToProvider: Record<string, WfAiProviderName> = {
   'claude-': 'anthropic',
   'gpt-': 'openai',
   'o1-': 'openai',
@@ -343,7 +345,7 @@ const MODEL_PREFIX_TO_PROVIDER: Record<string, WfAiProviderName> = {
  * @param model - Explicit model name from the config entry (not the default)
  */
 const validateProviderModelMatch = (provider: WfAiProviderName, model: string): void => {
-  for (const [prefix, expectedProvider] of Object.entries(MODEL_PREFIX_TO_PROVIDER)) {
+  for (const [prefix, expectedProvider] of Object.entries(modelPrefixToProvider)) {
     if (model.startsWith(prefix) && provider !== expectedProvider) {
       throw new ValidationError(
         `Invalid wf config: model "${model}" does not match provider "${provider}".`
