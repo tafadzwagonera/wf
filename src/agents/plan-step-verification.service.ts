@@ -34,13 +34,13 @@ const STEP_ASSESSOR_SYSTEM_PROMPT_WITH_SCHEMA
     + '\n\nRespond with a JSON object matching this schema exactly:\n'
     + JSON.stringify(stepAssessmentResponseJsonSchema, null, 2);
 
-const STEP_ASSESSOR_PREAMBLE = [
+const stepAssessorPreamble = [
   STEP_ASSESSOR_SYSTEM_PROMPT,
   '',
   '## Steps to assess',
 ];
 
-const STEP_ASSESSOR_RULES = [
+const stepAssessorRules = [
   '## Status rules',
   '- done: fully implemented in the evidence',
   '- partially-done: started but incomplete (requires missing field)',
@@ -56,7 +56,7 @@ const STEP_ASSESSOR_RULES = [
   'Do not assume changes you cannot see.',
 ];
 
-const VERIFICATION_PROMPT_FOOTER = [
+const verificationPromptFooter = [
   '',
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
   'After all edits are complete, run each verification command exactly as written.',
@@ -255,7 +255,7 @@ export const buildStepAssessorPrompt = (
   evidence: PushEvidence,
 ): string => {
   const numbered = steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
-  return [...STEP_ASSESSOR_PREAMBLE, numbered, buildPushEvidenceBody(evidence), ...STEP_ASSESSOR_RULES].join('\n');
+  return [...stepAssessorPreamble, numbered, buildPushEvidenceBody(evidence), ...stepAssessorRules].join('\n');
 };
 
 const buildPushEvidenceBody = (evidence: PushEvidence): string => [
@@ -281,16 +281,14 @@ type FixPromptArgs = {
 
 export const buildPlanStepVerificationPrompt = (args: FixPromptArgs): string => {
   const { pending, round, stallWindow, stepTexts } = args;
-  const roundHeader = stallWindow === undefined
-    ? `Verification round ${round}: a post-implementation audit found plan steps that are not fully implemented.`
-    : `Verification round ${round} (stall window: ${stallWindow}): a post-implementation audit found plan steps that are not fully implemented.`;
-  const lines: string[] = [roundHeader, ''];
-  for (const p of pending) {
-    lines.push(`Step ${p.index} (${p.status})`);
-    lines.push(stepTexts.get(p.index) ?? '[Enriched step text unavailable]');
-    lines.push(`Missing: ${p.missing ?? 'No missing reason supplied'}`);
-  }
-  return [...lines, ...VERIFICATION_PROMPT_FOOTER].join('\n');
+  const stallWindowTag = stallWindow === undefined ? '' : ` (stall window: ${stallWindow})`;
+  const roundHeader = `Verification round ${round}${stallWindowTag}: a post-implementation audit found plan steps that are not fully implemented.`;
+  const stepLines = pending.flatMap(step => [
+    `Step ${step.index} (${step.status})`,
+    stepTexts.get(step.index) ?? '[Enriched step text unavailable]',
+    `Missing: ${step.missing ?? 'No missing reason supplied'}`,
+  ]);
+  return [roundHeader, '', ...stepLines, ...verificationPromptFooter].join('\n');
 };
 
 const partitionAssessments = (

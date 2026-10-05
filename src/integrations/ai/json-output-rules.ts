@@ -10,4 +10,4 @@ INVALID — literal newline inside a string value:
 context file"}
 
 VALID:
-{"summary": "Fix the context file"}`;
+{"summary": "Fix the context file"}` as const;

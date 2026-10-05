@@ -54,7 +54,7 @@ import type {
 import type { CodeReview } from '../../shared/types/review.types';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
-import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
+import type { ResolutionAction, StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
   buildPlanTestConventionsBlock,
@@ -72,12 +72,11 @@ import {
 } from './prompt-fragments';
 import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
-import type { AgentStageName } from '../../shared/types/agent.types';
 import { agentStageNameSchema } from '../../shared/schemas/agent.schema';
 import { estimateLlmCostUsd } from './llm-cost';
 import type { StageAgentService } from './stage-agent.service';
 
-export const STAGE_AGENT_SERVICE_TOKEN = 'StageAgentService';
+export const STAGE_AGENT_SERVICE_TOKEN = 'StageAgentService' as const;
 
 export type {
   AIRequest,
@@ -1104,7 +1103,7 @@ export class AiService {
       const provider = response.provider ?? 'unknown';
       const model = response.model ?? 'unknown';
       const cost = response.costUsd ?? estimateLlmCostUsd(provider, model, response.usage);
-      const costStr = cost != null ? `$${cost.toFixed(4)}` : 'n/a';
+      const costStr = cost == null ? 'n/a' : `$${cost.toFixed(4)}`;
       this.logger.info(`llm.adapter resolved-provider=${provider} resolved-model=${model}`, 'llm-adapter');
       appendToLogFile('INFO', `llm.adapter resolved-provider=${provider} resolved-model=${model} cost=${costStr}`, 'llm-adapter');
     } catch {
