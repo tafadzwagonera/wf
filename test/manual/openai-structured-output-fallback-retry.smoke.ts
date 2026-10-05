@@ -20,8 +20,8 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const STRUCTURED_OUTPUT = { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema };
-const PAYLOAD_WITH_NULL = { statuses: [{ index: 0, status: 'done', missing: null }] };
+const structuredOutput = { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema };
+const payloadWithNull = { statuses: [{ index: 0, status: 'done', missing: null }] };
 
 function buildConfigService(provider: string, model: string): ConfigService {
   return {
@@ -43,7 +43,7 @@ function buildFailFirstAdapter(provider: string, model: string): LlmAdapter {
     execute: async () => {
       if (++callCount === 1) throw new AiProviderError('model not found', { status: 404 }, true, 'api');
       return {
-        content: JSON.stringify(PAYLOAD_WITH_NULL), provider, model,
+        content: JSON.stringify(payloadWithNull), provider, model,
         usage: { inputTokens: 10, outputTokens: 5 },
       };
     },
@@ -101,7 +101,7 @@ async function checkFallbackDenormalized(): Promise<void> {
   try {
     const response = await service.execute({
       prompt: 'assess', stage: 'implement',
-      provider: 'openai', model: 'gpt-5.4-bad', structuredOutput: STRUCTURED_OUTPUT,
+      provider: 'openai', model: 'gpt-5.4-bad', structuredOutput: structuredOutput,
     });
     checkFallbackNullsStripped(response.content);
     checkFallbackLogOrder(fileLines);
@@ -116,7 +116,7 @@ async function checkFallbackAnthropicNoLog(): Promise<void> {
   try {
     await service.execute({
       prompt: 'assess', provider: 'anthropic',
-      model: 'claude-bad', structuredOutput: STRUCTURED_OUTPUT,
+      model: 'claude-bad', structuredOutput: structuredOutput,
     });
     checkNoDenormalizeLog(fileLines, 'fallback anthropic');
   } finally {

@@ -49,7 +49,7 @@ const createEmptyFormattingStats = (): DescriptionFormattingStats => ({
   suspiciousMarkers: [],
 });
 
-const NODE_TYPE_COUNTERS: Record<string, keyof DescriptionFormattingStats> = {
+const nodeTypeCounters: Record<string, keyof DescriptionFormattingStats> = {
   heading: 'headingCount',
   paragraph: 'paragraphCount',
   codeBlock: 'codeBlockCount',
@@ -73,7 +73,7 @@ const buildDescriptionFormattingStats = (
   if (!node || typeof node !== 'object') return stats;
 
   const adfNode = node as { type?: string; text?: string; content?: unknown[] };
-  const counterKey = adfNode.type ? NODE_TYPE_COUNTERS[adfNode.type] : undefined;
+  const counterKey = adfNode.type ? nodeTypeCounters[adfNode.type] : undefined;
 
   if (counterKey) (stats[counterKey] as number)++;
   if (adfNode.type === 'text' && typeof adfNode.text === 'string') {

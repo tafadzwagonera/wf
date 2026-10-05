@@ -28,7 +28,7 @@ export function resolveSkippedSteps(
   return result;
 }
 
-const STATUS_ICONS: Record<VerificationOutcome['status'], string> = {
+const statusIcons: Record<VerificationOutcome['status'], string> = {
   passed: chalk.green('✔'),
   failed: chalk.red('✖'),
   skipped: chalk.yellow('⏭'),
@@ -215,7 +215,7 @@ export function printVerificationReport(outcomes: VerificationOutcome[]): void {
   if (outcomes.length === 0) return;
   console.log(chalk.bold('\n  Verification report:'));
   for (const outcome of outcomes) {
-    const icon = STATUS_ICONS[outcome.status];
+    const icon = statusIcons[outcome.status];
     const policy = outcome.policy === 'enforced' ? chalk.red('[enforced]') : chalk.gray('[best_effort]');
     console.log(`    ${icon} ${policy} ${outcome.command}`);
   }
@@ -232,7 +232,7 @@ export function getEnforcedFailures(outcomes: VerificationOutcome[]): Verificati
   return outcomes.filter(o => o.policy === 'enforced' && o.status === 'failed');
 }
 
-const COMMAND_FAILURE_PATTERNS = [
+const commandFailurePatterns = [
   /unrecognized option/i,
   /unknown option/i,
   /unrecognized CLI parameter/i,
@@ -252,7 +252,7 @@ const COMMAND_FAILURE_PATTERNS = [
  */
 export function isCommandFailure(outcome: VerificationOutcome): boolean {
   const output = (outcome as { output?: string }).output ?? '';
-  return COMMAND_FAILURE_PATTERNS.some(p => p.test(output));
+  return commandFailurePatterns.some(p => p.test(output));
 }
 
 /**

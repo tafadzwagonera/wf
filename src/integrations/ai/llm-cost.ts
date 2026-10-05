@@ -1,4 +1,4 @@
-const ANTHROPIC_PRICING: Array<{ prefix: string; inputPerMTok: number; outputPerMTok: number }> = [
+const anthropicPricing: Array<{ prefix: string; inputPerMTok: number; outputPerMTok: number }> = [
   { prefix: 'claude-haiku-4-5', inputPerMTok: 1, outputPerMTok: 5 },
   { prefix: 'claude-sonnet-5', inputPerMTok: 3, outputPerMTok: 15 },
   { prefix: 'claude-sonnet-4', inputPerMTok: 3, outputPerMTok: 15 },
@@ -7,7 +7,7 @@ const ANTHROPIC_PRICING: Array<{ prefix: string; inputPerMTok: number; outputPer
 
 type OpenAiModelPricing = { inputPerMToken: number; outputPerMToken: number };
 
-const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
+const openaiPricing: Record<string, OpenAiModelPricing> = {
   'gpt-4.1': { inputPerMToken: 2, outputPerMToken: 8 },
   'gpt-4.1-mini': { inputPerMToken: 0.4, outputPerMToken: 1.6 },
   'gpt-4.1-nano': { inputPerMToken: 0.1, outputPerMToken: 0.4 },
@@ -19,7 +19,7 @@ const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
 };
 
 const estimateOpenAiCost = (model: string, inputTokens: number, outputTokens: number): number | null => {
-  const pricing = OPENAI_PRICING[model];
+  const pricing = openaiPricing[model];
   if (!pricing) return null;
   return (inputTokens / 1_000_000) * pricing.inputPerMToken
     + (outputTokens / 1_000_000) * pricing.outputPerMToken;
@@ -37,7 +37,7 @@ export const estimateLlmCostUsd = (
   if (!provider || !model || !usage) return null;
   if (provider === 'openai') return estimateOpenAiCost(model, usage.inputTokens, usage.outputTokens);
   if (provider !== 'anthropic') return null;
-  const entry = ANTHROPIC_PRICING.find(p => model.startsWith(p.prefix));
+  const entry = anthropicPricing.find(p => model.startsWith(p.prefix));
   if (!entry) return null;
   return (usage.inputTokens / 1_000_000) * entry.inputPerMTok
     + (usage.outputTokens / 1_000_000) * entry.outputPerMTok;

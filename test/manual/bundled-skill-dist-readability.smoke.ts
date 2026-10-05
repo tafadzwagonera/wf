@@ -26,11 +26,11 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
   fail(label, detail);
 };
 
-const BUNDLED_SKILL_IDS = ['coding-style', 'frontend-design-nuxt', 'test-driven-development', 'writing-plans'];
+const bundledSkillIds = ['coding-style', 'frontend-design-nuxt', 'test-driven-development', 'writing-plans'];
 
 async function checkAllBundledSkillsReadable(): Promise<void> {
   console.log(chalk.bold('Test 1: All bundled skills return non-null content'));
-  for (const id of BUNDLED_SKILL_IDS) {
+  for (const id of bundledSkillIds) {
     const content = await readSkillContent(id);
     assert(`readSkillContent('${id}') returns non-null`, content !== null);
     assert(`readSkillContent('${id}') content starts with frontmatter`, content !== null && content.trimStart().startsWith('---'));

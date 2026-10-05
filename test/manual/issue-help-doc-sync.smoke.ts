@@ -126,7 +126,7 @@ function runTest3(): void {
   }
 }
 
-const REQUIRED_ISSUE_COMMANDS = [
+const requiredIssueCommands = [
   'issue:fetch',
   'issue:plan',
   'issue:review',
@@ -146,7 +146,7 @@ function findMissingMarkers(readme: string, commands: string[]): string[] {
 }
 
 function verifyReadmeMarkers(readme: string): void {
-  const missingBlocks = findMissingMarkers(readme, REQUIRED_ISSUE_COMMANDS);
+  const missingBlocks = findMissingMarkers(readme, requiredIssueCommands);
   if (missingBlocks.length === 0) {
     pass('README contains all generated issue command doc markers');
   } else {

@@ -23,7 +23,7 @@ export interface CliExitRecord {
   spawnError?: Error;
 }
 
-const LARGE_VALUE_FLAGS = new Set(['--append-system-prompt', '--json-schema']);
+const largeValueFlags = new Set(['--append-system-prompt', '--json-schema']);
 const SENSITIVE_FLAG_PATTERN = /key|token|secret|password|auth/i;
 const MAX_GENERIC_VALUE_CHARS = 200;
 const DEFAULT_STDERR_TAIL_CHARS = 2000;
@@ -37,7 +37,7 @@ export const extractArgValue = (args: string[], flag: string): string | undefine
 };
 
 const renderArgValue = (flag: string | undefined, value: string): string => {
-  if (flag && LARGE_VALUE_FLAGS.has(flag)) return `<${value.length} chars>`;
+  if (flag && largeValueFlags.has(flag)) return `<${value.length} chars>`;
   if (flag && SENSITIVE_FLAG_PATTERN.test(flag)) return '<redacted>';
   if (value.length > MAX_GENERIC_VALUE_CHARS) {
     return `${value.slice(0, MAX_GENERIC_VALUE_CHARS)}…[+${value.length - MAX_GENERIC_VALUE_CHARS}]`;

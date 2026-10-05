@@ -38,7 +38,7 @@ const { counts, pass, fail } = createReporter();
 
 // The Anthropic SSE format requires "event: <type>\ndata: <json>\n\n" for each event.
 // The SDK's fromSSEResponse checks sse.event against named event types.
-const SSE_LINES = [
+const sseLines = [
   'event: message_start',
   'data: {"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","content":[],"model":"claude-opus-5","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":0}}}',
   '',
@@ -63,7 +63,7 @@ const SSE_LINES = [
   '',
 ];
 
-const SSE_BODY = SSE_LINES.join('\n');
+const SSE_BODY = sseLines.join('\n');
 
 const NON_STREAMING_BODY = JSON.stringify({
   id: 'msg_test',
@@ -146,7 +146,7 @@ type TestCase = {
   expectStreaming: boolean;
 };
 
-const TEST_CASES: TestCase[] = [
+const testCases: TestCase[] = [
   { label: 'maxTokens = 128000 (above ceiling → streaming)', maxTokens: 128000, expectStreaming: true },
   { label: 'maxTokens = 21333 (at ceiling → non-streaming)', maxTokens: 21333, expectStreaming: false },
   { label: 'maxTokens = 21334 (just above ceiling → streaming)', maxTokens: 21334, expectStreaming: true },
@@ -259,7 +259,7 @@ function setupTempRepo(repoDir: string, configPath: string): void {
 
 async function runTests(adapter: AnthropicAdapter, capturedRequests: CapturedRequest[]): Promise<number> {
   let exitCode = 0;
-  for (const tc of TEST_CASES) {
+  for (const tc of testCases) {
     const passed = await runCase(adapter, capturedRequests, tc);
     if (!passed) exitCode = 1;
   }

@@ -5,7 +5,7 @@ import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { readUiDesignScreenshotsFromPlanArtifact } from '../shared/utils/plan-artifact';
 import type { UiDesignScreenshot, UiDesignScreenshotsResult, UiDesignScreenshotsStageOptions } from '../shared/types/ui-design-screenshot';
 
-const MEDIA_TYPES: Record<string, UiDesignScreenshot['mediaType']> = {
+const mediaTypes: Record<string, UiDesignScreenshot['mediaType']> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
@@ -22,7 +22,7 @@ export class UiDesignScreenshotsStageService {
   private encodeFile(p: string): UiDesignScreenshot {
     const buf = fs.readFileSync(p);
     const ext = path.extname(p).toLowerCase();
-    const mediaType = MEDIA_TYPES[ext] ?? 'image/png';
+    const mediaType = mediaTypes[ext] ?? 'image/png';
     return { path: p, mediaType, base64: buf.toString('base64') };
   }
 

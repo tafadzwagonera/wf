@@ -218,7 +218,7 @@ const detectGoContext = (repoDir: string, hasGoMod: boolean): RepoConventionsCon
   }
 };
 
-const PY_LINTER_CANDIDATES: Array<{
+const pyLinterCandidates: Array<{
   file: string;
   tool: string;
   extract: (raw: string) => Record<string, unknown>;
@@ -249,7 +249,7 @@ const PY_LINTER_CANDIDATES: Array<{
 const detectPythonContext = (repoDir: string, language: RepoLanguage): RepoConventionsContext['python'] => {
   if (language !== 'python') return null;
 
-  for (const candidate of PY_LINTER_CANDIDATES) {
+  for (const candidate of pyLinterCandidates) {
     const pyPath = path.join(repoDir, candidate.file);
     if (!fs.existsSync(pyPath)) continue;
     try {
@@ -551,7 +551,7 @@ const detectTypescriptContext = (repoDir: string): RepoConventionsContext['types
   }
 };
 
-const PYTHON_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.git', 'venv', '.venv']);
+const pythonSkipDirs = new Set(['node_modules', '__pycache__', '.git', 'venv', '.venv']);
 
 /**
  * Check whether a directory entry is a Python package root.
@@ -563,7 +563,7 @@ const PYTHON_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.git', 'venv',
 const isPythonPackageDir = (repoDir: string, entry: fs.Dirent): boolean =>
   entry.isDirectory()
   && !entry.name.startsWith('.')
-  && !PYTHON_SKIP_DIRS.has(entry.name)
+  && !pythonSkipDirs.has(entry.name)
   && fs.existsSync(path.join(repoDir, entry.name, '__init__.py'));
 
 /**

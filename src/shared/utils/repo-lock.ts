@@ -113,7 +113,7 @@ const writeLockOrThrow = (lockPath: string, repoDir: string): void => {
  *
  * A lock left behind by a crashed process is treated as stale — and cleared
  * automatically — once its pid is no longer running or it is older than
- * {@link REPO_LOCK_STALE_AFTER_MS}.
+ * {@link repoLockStaleAfterMs}.
  *
  * @param repoDir - Repository directory the workflow will mutate
  * @param fn - Work to run while the lock is held

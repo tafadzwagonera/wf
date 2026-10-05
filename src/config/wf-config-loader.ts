@@ -53,7 +53,7 @@ import {
   DEFAULT_OPENAI_MODEL,
 } from '../common/constant';
 
-const CONFIG_FILE_NAMES = [
+const configFileNames = [
   'wf.config.ts',
   'wf.config.mts',
   'wf.config.js',
@@ -64,14 +64,14 @@ const CONFIG_FILE_NAMES = [
 
 type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
-const MODEL_STAGE_NAMES = ['plan', 'review', 'generate', 'commit'] as const;
+const modelStageNames = ['plan', 'review', 'generate', 'commit'] as const;
 
 type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 /** Fails to build if MODEL_STAGE_NAMES and SupportedModelStageName ever diverge. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof MODEL_STAGE_NAMES)[number]> = true;
+const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof modelStageNames)[number]> = true;
 
-const AGENT_SUPPORTED_PROVIDERS = new Set<WfAiProviderName>(['anthropic', 'openai']);
+const agentSupportedProviders = new Set<WfAiProviderName>(['anthropic', 'openai']);
 
 export interface NormalizedWfConfig {
   tracker: 'jira' | 'github' | 'bitbucket';
@@ -220,7 +220,7 @@ const implementStageSchema = z
   .strict()
   .superRefine(validatePullStepVerificationProvider);
 
-const LOG_LEVELS = ['error', 'warn', 'info', 'debug'] as const;
+const logLevels = ['error', 'warn', 'info', 'debug'] as const;
 
 const configSchema = z
   .object({
@@ -275,13 +275,13 @@ const configSchema = z
     log: z
       .object({
         directory: z.string().optional(),
-        level: z.enum(LOG_LEVELS).optional(),
+        level: z.enum(logLevels).optional(),
       })
       .optional(),
     logging: z
       .object({
         directory: z.string().optional(),
-        level: z.enum(LOG_LEVELS).optional(),
+        level: z.enum(logLevels).optional(),
       })
       .optional(),
     slack: z
@@ -623,7 +623,7 @@ const loadTypeScriptConfigWithLoader = (
  * @returns Absolute config path or null when no config exists
  */
 export const discoverWfConfigPath = (cwd: string): string | null => {
-  const found = CONFIG_FILE_NAMES.map(f => path.join(cwd, f)).filter(p => fs.existsSync(p));
+  const found = configFileNames.map(f => path.join(cwd, f)).filter(p => fs.existsSync(p));
   if (found.length === 0) return null;
   if (found.length > 1) {
     console.warn(
@@ -747,7 +747,7 @@ const resolveStageTargetBackend = (
     throw buildInvalidStageBackendError(stageName, backend);
   }
 
-  if (backend === 'agent' && !AGENT_SUPPORTED_PROVIDERS.has(stageTarget.provider)) {
+  if (backend === 'agent' && !agentSupportedProviders.has(stageTarget.provider)) {
     throw buildUnsupportedAgentStageProviderError(stageName, stageTarget.provider);
   }
 
@@ -938,7 +938,7 @@ const buildAiStageTargets = (
   configuredProviderNames: Set<WfAiProviderName>,
   configuredProvidersByName: Map<WfAiProviderName, { model: string }>
 ): Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>> =>
-  MODEL_STAGE_NAMES.reduce(
+  modelStageNames.reduce(
     (result, stageName) =>
       addStageTarget(result, validatedConfig, stageName, configuredProviderNames, configuredProvidersByName),
     {} as Partial<Record<SupportedModelStageName, NormalizedAiStageTargetConfig>>

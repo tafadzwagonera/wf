@@ -67,6 +67,7 @@ const OPENAI_AGENT_LABEL = 'openai-agent';
 const MAX_VERIFICATION_OUTPUT_LINES = 200;
 const COMPACTION_INPUT_TOKEN_CEILING = 80_000;
 const STATE_PRUNING_TOKEN_CEILING = 120_000;
+const DEFAULT_RETRY_DELAY_IN_MS = 30_000;
 const STATE_PRUNING_KEEP_TAIL_ITEMS = 20;
 const MAX_CONSECUTIVE_RATE_LIMIT_RETRIES = 5;
 const MAX_CONTINUATION_PASSES = 15;
@@ -343,19 +344,18 @@ export const classifyAgentError = (error: unknown): AgentClassification => {
 };
 
 export const parseRetryDelayMs = (error: unknown): number => {
-  const DEFAULT_DELAY_MS = 30_000;
-  if (!(error instanceof Error)) return DEFAULT_DELAY_MS;
+  if (!(error instanceof Error)) return DEFAULT_RETRY_DELAY_IN_MS;
   const match = new RegExp(/try again in (\d+(?:\.\d+)?)\s*(ms|s|seconds?)?/i).exec(error.message);
-  if (!match) return DEFAULT_DELAY_MS;
+  if (!match) return DEFAULT_RETRY_DELAY_IN_MS;
   const value = Number.parseFloat(match[1]);
-  if (Number.isNaN(value) || value <= 0) return DEFAULT_DELAY_MS;
+  if (Number.isNaN(value) || value <= 0) return DEFAULT_RETRY_DELAY_IN_MS;
   const unit = (match[2] ?? 's').toLowerCase();
   return unit === 'ms' ? Math.ceil(value) : Math.ceil(value * 1000);
 };
 
 type OpenAiModelPricing = { inputPerMToken: number; cachedInputPerMToken: number; outputPerMToken: number };
 
-const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
+const openaiPricing: Record<string, OpenAiModelPricing> = {
   'gpt-4.1': { inputPerMToken: 2, cachedInputPerMToken: 0.5, outputPerMToken: 8 },
   'gpt-4.1-mini': { inputPerMToken: 0.4, cachedInputPerMToken: 0.1, outputPerMToken: 1.6 },
   'gpt-4.1-nano': { inputPerMToken: 0.1, cachedInputPerMToken: 0.025, outputPerMToken: 0.4 },
@@ -369,7 +369,7 @@ const OPENAI_PRICING: Record<string, OpenAiModelPricing> = {
 export const estimateOpenAiCostUsd = (
   model: string, inputTokens: number, outputTokens: number, cachedInputTokens: number
 ): number | null => {
-  const pricing = OPENAI_PRICING[model];
+  const pricing = openaiPricing[model];
   if (!pricing) return null;
   const uncached = inputTokens - cachedInputTokens;
   return (uncached / 1_000_000) * pricing.inputPerMToken

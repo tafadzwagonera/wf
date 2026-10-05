@@ -50,9 +50,9 @@ const extractLongFlag = (flags: string): string => {
 };
 
 function getHelpOutput(): string {
-  const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
+  const distMain = path.join(__dirname, '../../dist/main.js');
   try {
-    return execSync(`node ${DIST_MAIN} issue:commit --help`, { encoding: 'utf-8', cwd: os.tmpdir() });
+    return execSync(`node ${distMain} issue:commit --help`, { encoding: 'utf-8', cwd: os.tmpdir() });
   } catch (err: any) {
     return (err.stdout ?? '') + (err.stderr ?? '');
   }

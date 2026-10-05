@@ -22,7 +22,7 @@ const { counts, pass, fail } = createReporter();
 
 const TICKET_CONTEXT = 'Prevent solo travelers from selecting double room options by adding validation in service-passengerv1';
 
-const WF_CONFIG_FILES = ['wf.config.js', 'wf.config.mjs', 'wf.config.ts', 'wf.config.mts', 'wf.config.yaml', 'wf.config.yml'];
+const wfConfigFiles = ['wf.config.js', 'wf.config.mjs', 'wf.config.ts', 'wf.config.mts', 'wf.config.yaml', 'wf.config.yml'];
 
 const INITIAL_V2_CONTENT = [
   'export const updatePax = (pax: any) => {',
@@ -157,7 +157,7 @@ function checkWfExclusion(committedFiles: string): void {
 
 async function runTest7Setup(committer: CommitterAgent, tmpDir: string): Promise<string> {
   const initialFile = path.join(tmpDir, 'passenger.service.ts');
-  for (const cfgFile of WF_CONFIG_FILES) {
+  for (const cfgFile of wfConfigFiles) {
     fs.writeFileSync(path.join(tmpDir, cfgFile), `// wf tooling config — should never be committed\nmodule.exports = {};\n`);
   }
   fs.writeFileSync(initialFile, INITIAL_V4_CONTENT);
@@ -166,7 +166,7 @@ async function runTest7Setup(committer: CommitterAgent, tmpDir: string): Promise
 }
 
 function checkConfigExclusion(committedFiles: string): void {
-  const leakedConfig = WF_CONFIG_FILES.find(f => committedFiles.includes(f));
+  const leakedConfig = wfConfigFiles.find(f => committedFiles.includes(f));
   if (leakedConfig) fail(`wf config file leaked into commit: ${leakedConfig}`, committedFiles);
   else pass('wf.config.* files were NOT committed');
   if (committedFiles.includes('passenger.service.ts')) pass('Source file passenger.service.ts WAS committed alongside wf config files');

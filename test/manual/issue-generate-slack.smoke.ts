@@ -27,7 +27,7 @@ const EXPECTED_THREAD_TS = '1711234567.890000';
 
 const { counts, pass, fail } = createReporter();
 
-const MOCK_SLACK_MESSAGES = [
+const mockSlackMessages = [
   {
     user: 'U111',
     ts: '1711234567.890000',
@@ -82,8 +82,8 @@ function verifySlackFetch(slackFetchCallArgs: [string, string] | null): void {
 }
 
 function buildExpectedArtifactLines(): [string, string] {
-  const line0 = `[${MOCK_SLACK_MESSAGES[0].ts}] ${MOCK_SLACK_MESSAGES[0].user}: ${MOCK_SLACK_MESSAGES[0].text}`;
-  const line1 = `[${MOCK_SLACK_MESSAGES[1].ts}] ${MOCK_SLACK_MESSAGES[1].user}: ${MOCK_SLACK_MESSAGES[1].text}`;
+  const line0 = `[${mockSlackMessages[0].ts}] ${mockSlackMessages[0].user}: ${mockSlackMessages[0].text}`;
+  const line1 = `[${mockSlackMessages[1].ts}] ${mockSlackMessages[1].user}: ${mockSlackMessages[1].text}`;
   return [line0, line1];
 }
 
@@ -153,7 +153,7 @@ function setupSlackMock(state: TestState): any {
   const originalFetchThread = SlackService.prototype.fetchThread;
   (SlackService.prototype as any).fetchThread = async (channelId: string, threadTs: string) => {
     state.slackFetchCallArgs = [channelId, threadTs];
-    return { channelId, threadTs, messages: MOCK_SLACK_MESSAGES };
+    return { channelId, threadTs, messages: mockSlackMessages };
   };
   return originalFetchThread;
 }

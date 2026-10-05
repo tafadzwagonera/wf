@@ -25,7 +25,7 @@ import * as path from 'node:path';
 
 const RECURSIVE_TEST_COMMAND = /(^|[;&|\s])(jest|vitest)\b|\b(yarn|npm|pnpm|bun)\s+(run\s+)?test(:[\w-]+)?\b/;
 
-const GUARDED_METHODS = ['exec', 'execFile', 'execFileSync', 'execSync', 'spawn', 'spawnSync'];
+const guardedMethods = ['exec', 'execFile', 'execFileSync', 'execSync', 'spawn', 'spawnSync'];
 
 // Captured before any spec runs, while cwd is still the project root Jest was invoked from.
 const PROJECT_ROOT = process.cwd();
@@ -75,7 +75,7 @@ const guardMethod = (
 const mockGuardModule = (specifier: string): Record<string, unknown> => {
   const actual = jest.requireActual<Record<string, unknown>>(specifier);
   const guarded: Record<string, unknown> = { ...actual };
-  for (const method of GUARDED_METHODS) {
+  for (const method of guardedMethods) {
     guarded[method] = guardMethod(actual[method] as (...args: unknown[]) => unknown, specifier, method);
   }
   return guarded;

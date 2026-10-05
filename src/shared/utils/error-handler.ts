@@ -4,7 +4,7 @@ import { appendToLogFile } from '../logger/log-file-writer';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
 
-const AI_PROVIDER_CATEGORY_SUGGESTIONS: Partial<Record<AiProviderErrorCategory, string>> = {
+const aiProviderCategorySuggestions: Partial<Record<AiProviderErrorCategory, string>> = {
   timeout: 'The AI provider request timed out. Check your network connection and retry — the provider may be temporarily overloaded.',
   auth: 'Authentication failed. Verify the API key for the selected provider in your wf.config.* file.',
   api: 'The AI provider returned a service error (e.g. rate limit or overload). Wait briefly and retry.',
@@ -15,7 +15,7 @@ const AI_PROVIDER_CATEGORY_SUGGESTIONS: Partial<Record<AiProviderErrorCategory, 
   config: 'The AI provider rejected the request configuration (for example, an invalid response schema). Check the stage model, output schema, and maxTokens in wf.config.*; retrying will not help until the request is corrected.',
 };
 
-const ERROR_CODE_SUGGESTIONS: Record<string, string | null> = {
+const errorCodeSuggestions: Record<string, string | null> = {
   [ERROR_CODE.WORKFLOW_PARSE_ERROR]:
     'Check your workflow file syntax. Ensure YAML frontmatter is valid and markdown is properly formatted.',
   [ERROR_CODE.VALIDATION_ERROR]: 'Review the validation errors above and correct the invalid values.',
@@ -90,10 +90,10 @@ export class ErrorHandler {
 
   private static getSuggestion(error: AppError): string | null {
     if (error instanceof AiProviderError && error.category) {
-      const categorySuggestion = AI_PROVIDER_CATEGORY_SUGGESTIONS[error.category];
+      const categorySuggestion = aiProviderCategorySuggestions[error.category];
       if (categorySuggestion) return categorySuggestion;
     }
-    return ERROR_CODE_SUGGESTIONS[error.code] ?? null;
+    return errorCodeSuggestions[error.code] ?? null;
   }
 
   /**

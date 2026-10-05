@@ -41,7 +41,7 @@ import {
 import { buildSkillPromptFragment } from '../../../skills/skill-content';
 
 const CLI_ADAPTER_LABEL = 'claude-cli';
-const IMPLEMENT_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
+const implementTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
 type ActivityState = {
   lastVerificationCommand?: string;
   verificationOutcomes: VerificationOutcome[];
@@ -339,7 +339,7 @@ const logToolResultVerification = (
 const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
-const SCREENSHOT_MEDIA_TYPES: Record<string, UiDesignScreenshot['mediaType']> = {
+const screenshotMediaTypes: Record<string, UiDesignScreenshot['mediaType']> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.png': 'image/png',
@@ -351,7 +351,7 @@ const SCREENSHOT_MEDIA_TYPES: Record<string, UiDesignScreenshot['mediaType']> = 
 
 const toScreenshot = (imgPath: string): UiDesignScreenshot => ({
   path: imgPath,
-  mediaType: SCREENSHOT_MEDIA_TYPES[path.extname(imgPath).toLowerCase()] ?? 'image/png',
+  mediaType: screenshotMediaTypes[path.extname(imgPath).toLowerCase()] ?? 'image/png',
   base64: '',
 });
 
@@ -361,7 +361,7 @@ const buildImplementCliArgs = (p: CliSessionParams) =>
     appendSystemPrompt: p.appendSystemPrompt,
     model: p.model,
     cwd: p.repoDir,
-    tools: IMPLEMENT_TOOLS,
+    tools: implementTools,
     permissionMode: 'acceptEdits',
     addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
     sessionId: p.options.resumeProviderSessionId,
@@ -418,7 +418,7 @@ const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
     model: p.model,
     cwd: p.repoDir,
     sessionId: p.sessionId,
-    tools: IMPLEMENT_TOOLS,
+    tools: implementTools,
     permissionMode: 'acceptEdits',
     addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
   });

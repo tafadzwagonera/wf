@@ -17,7 +17,7 @@ import { UiDesignScreenshotsStageService } from '../../src/review/ui-design-scre
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
-const FIXTURE_BYTES = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+const fixtureBytes = Buffer.from([0x01, 0x02, 0x03, 0x04]);
 
 type EncodeResult = ReturnType<UiDesignScreenshotsStageService['encodeFromPaths']>;
 type Screenshot = EncodeResult['screenshots'][0];
@@ -25,7 +25,7 @@ type Screenshot = EncodeResult['screenshots'][0];
 function writeFixture(
   dir: string,
   name: string,
-  content: Buffer = FIXTURE_BYTES,
+  content: Buffer = fixtureBytes,
 ): string {
   const p = path.join(dir, name);
   fs.writeFileSync(p, content);
@@ -70,10 +70,10 @@ function checkPngScreenshot(
 
 function checkBase64AndPath(p: string, screenshot: Screenshot): void {
   const decoded = Buffer.from(screenshot.base64, 'base64');
-  if (decoded.equals(FIXTURE_BYTES)) {
+  if (decoded.equals(fixtureBytes)) {
     pass('base64 round-trips to original bytes');
   } else {
-    const expected = FIXTURE_BYTES.toString('hex');
+    const expected = fixtureBytes.toString('hex');
     const got = decoded.toString('hex');
     fail('base64 round-trip failed', `expected ${expected}, got ${got}`);
   }

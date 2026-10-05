@@ -19,16 +19,16 @@ export const deriveReviewArtifactPath = (ticketPath: string, repoScope?: string)
   return stem + suffix;
 };
 
-const VALID_ACTIONS: Set<string> = new Set(['feature', 'fix', 'investigate']);
-const VALID_COMPLEXITIES = ['low', 'medium', 'high'] as const;
+const validActions: Set<string> = new Set(['feature', 'fix', 'investigate']);
+const validComplexities = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
-const PLAN_ARTIFACT_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
+const planArtifactExtensions = ['json', 'md', 'yaml', 'yml'] as const;
 export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(value.replace(/\.[^.]+$/, ''));
 
-type PlanComplexity = (typeof VALID_COMPLEXITIES)[number];
+type PlanComplexity = (typeof validComplexities)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 export type PlanArtifactSourceKind = 'ticket' | 'custom';
@@ -152,7 +152,7 @@ const buildValidatedManifest = (
 
 const parseManifestFields = (value: Partial<PlanArtifactManifest>): PlanArtifactManifest | null => {
   if (!hasRequiredManifestStrings(value)) return null;
-  if (!VALID_ACTIONS.has(value.action as string)) return null;
+  if (!validActions.has(value.action as string)) return null;
   if (value.sourceKind !== 'ticket' && value.sourceKind !== 'custom') return null;
   const format = normalizeFormat(value.format as string) as PlanArtifactFormat;
   if (format !== 'json' && format !== 'md' && format !== 'yaml' && format !== 'yml') return null;
@@ -262,7 +262,7 @@ const parseCanonicalStem = (stem: string): { datePrefix: string; hash: string; a
   }
 
   const [, datePrefix, hash, action] = match;
-  if (!hash || !action || !VALID_ACTIONS.has(action as ResolutionAction)) {
+  if (!hash || !action || !validActions.has(action as ResolutionAction)) {
     return null;
   }
 
@@ -280,7 +280,7 @@ const parseShortHashedStem = (stem: string): { hash: string; action: ResolutionA
   }
 
   const [, hash, action] = match;
-  if (!hash || !action || !VALID_ACTIONS.has(action as ResolutionAction)) {
+  if (!hash || !action || !validActions.has(action as ResolutionAction)) {
     return null;
   }
 
@@ -337,7 +337,7 @@ const matchesManifestIdentifier = (
 
 const isCanonicalArtifactPath = (artifactPath: string): boolean => {
   const extension = path.extname(artifactPath).slice(1).toLowerCase();
-  if (!PLAN_ARTIFACT_EXTENSIONS.includes(extension as (typeof PLAN_ARTIFACT_EXTENSIONS)[number])) {
+  if (!planArtifactExtensions.includes(extension as (typeof planArtifactExtensions)[number])) {
     return false;
   }
 
@@ -385,7 +385,7 @@ const resolveManifestMatch = (
 
 const buildNotFoundCandidateList = (identifierStem: string, requestedAction?: ResolutionAction): string[] =>
   requestedAction && looksLikeTicketKey(identifierStem)
-    ? PLAN_ARTIFACT_EXTENSIONS.map(
+    ? planArtifactExtensions.map(
         extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
       )
     : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
@@ -533,7 +533,7 @@ const extractBulletedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^-\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
 
 const normalizeAction = (value: unknown, filePath: string): ResolutionAction => {
-  if (typeof value === 'string' && VALID_ACTIONS.has(value as ResolutionAction)) {
+  if (typeof value === 'string' && validActions.has(value as ResolutionAction)) {
     return value as ResolutionAction;
   }
 
@@ -545,7 +545,7 @@ const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity =
     return 'medium';
   }
 
-  if (typeof value === 'string' && VALID_COMPLEXITIES.includes(value as PlanComplexity)) {
+  if (typeof value === 'string' && validComplexities.includes(value as PlanComplexity)) {
     return value as PlanComplexity;
   }
 

@@ -3781,7 +3781,7 @@ describe('StageAgentService', () => {
     });
 
     describe('backend-runner-level fallback', () => {
-      const VALID_GENERATE_JSON = '{"title":"t","type":"task","priority":"medium","description":"d"}';
+      const validGenerateJson = '{"title":"t","type":"task","priority":"medium","description":"d"}';
 
       const createCodexCliGenerateFallbackConfig = (): ConfigService =>
         ({
@@ -3863,14 +3863,14 @@ describe('StageAgentService', () => {
         const svc = new StageAgentService(createCodexCliGenerateFallbackConfig());
         spawnCodex.mockReturnValueOnce(makeThrowingIterable(new AiProviderError('model codex-v1 not found', undefined, true, 'api')));
         spawnCodex.mockReturnValueOnce((async function* () {
-          yield { type: 'item.completed', item: { type: 'agent_message', text: VALID_GENERATE_JSON } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: validGenerateJson } };
         })());
 
         const result = await svc.generateFromPrompt('generate a ticket');
 
         expect(spawnCodex).toHaveBeenCalledTimes(2);
         expect(buildCodexCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'gpt-4o' }));
-        expect(result.content).toBe(VALID_GENERATE_JSON);
+        expect(result.content).toBe(validGenerateJson);
       });
 
       it('retries Claude CLI generateFromPrompt with fallback model when spawnCli throws model-unavailable', async () => {
@@ -3884,7 +3884,7 @@ describe('StageAgentService', () => {
 
         expect(spawnCli).toHaveBeenCalledTimes(2);
         expect(buildCliArgs).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'claude-sonnet-4-6' }));
-        expect(result.content).toBe(VALID_GENERATE_JSON);
+        expect(result.content).toBe(validGenerateJson);
       });
 
       it('retries Codex CLI chatTurn with fallback model when spawnCodex throws model-unavailable', async () => {
@@ -3957,7 +3957,7 @@ describe('StageAgentService', () => {
           close: jest.fn(),
         };
         const successSession = Object.assign(
-          (async function* () { yield { type: 'result', subtype: 'success', result: VALID_GENERATE_JSON }; })(),
+          (async function* () { yield { type: 'result', subtype: 'success', result: validGenerateJson }; })(),
           { close: jest.fn() }
         );
 
@@ -3969,7 +3969,7 @@ describe('StageAgentService', () => {
         expect(mockQuery).toHaveBeenNthCalledWith(2, expect.objectContaining({
           options: expect.objectContaining({ model: 'claude-sonnet-4-6' }),
         }));
-        expect(result.content).toBe(VALID_GENERATE_JSON);
+        expect(result.content).toBe(validGenerateJson);
       });
 
       it('retries OpenAI Agent SDK generateFromPrompt with fallback model when runner.run throws model-unavailable', async () => {
@@ -3982,7 +3982,7 @@ describe('StageAgentService', () => {
         const mockStreamedRun = {
           [Symbol.asyncIterator]: () => ({ next: async () => ({ value: undefined, done: true as const }) }),
           error: undefined,
-          finalOutput: VALID_GENERATE_JSON,
+          finalOutput: validGenerateJson,
         };
 
         mockRunner.run
@@ -3993,7 +3993,7 @@ describe('StageAgentService', () => {
 
         expect(buildOpenAiSpy).toHaveBeenCalledTimes(2);
         expect(buildOpenAiSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ model: 'gpt-4o' }));
-        expect(result.content).toBe(VALID_GENERATE_JSON);
+        expect(result.content).toBe(validGenerateJson);
       });
 
       it('does not trigger model-unavailable fallback when spawnCodex throws a stale-session error', async () => {

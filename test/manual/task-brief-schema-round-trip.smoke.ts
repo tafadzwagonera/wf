@@ -28,7 +28,7 @@ const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean): void =>
   condition ? pass(label) : fail(label);
 
-const FULL_PARAMS = {
+const fullParams = {
   ticketKey: 'SCHEMA-1',
   repoName: 'my-repo',
   repoFiles: ['my-repo/src/index.ts'],
@@ -45,7 +45,7 @@ const FULL_PARAMS = {
   phases: [{ label: 'Phase A', stepIndices: [0], verifyAfter: ['yarn lint'] }],
 };
 
-const MINIMAL_PARAMS = {
+const minimalParams = {
   ticketKey: 'SCHEMA-2',
   repoName: 'repo',
   repoFiles: ['repo/a.ts'],
@@ -57,7 +57,7 @@ const MINIMAL_PARAMS = {
 };
 
 function checkFullParams() {
-  const fullParsed = buildTaskBriefParamsSchema.parse(FULL_PARAMS);
+  const fullParsed = buildTaskBriefParamsSchema.parse(fullParams);
   assert('full params parsed successfully', fullParsed.ticketKey === 'SCHEMA-1');
   assert('parsed planAction is feature', fullParsed.planAction === 'feature');
   assert('parsed phases has one entry', fullParsed.phases?.length === 1);
@@ -65,7 +65,7 @@ function checkFullParams() {
 }
 
 function checkMinimalParams(): void {
-  const minimalParsed = buildTaskBriefParamsSchema.parse(MINIMAL_PARAMS);
+  const minimalParsed = buildTaskBriefParamsSchema.parse(minimalParams);
   assert('minimal params parsed successfully (optionals omitted)', minimalParsed.ticketKey === 'SCHEMA-2');
   assert('minimal params has undefined planSummary', minimalParsed.planSummary === undefined);
   assert('minimal params has undefined planRisks', minimalParsed.planRisks === undefined);
@@ -83,16 +83,16 @@ function parseThrowsZodError(parse: () => void): boolean {
 function checkSchemaRejections(): void {
   assert(
     'rejects when ticketKey is missing',
-    parseThrowsZodError(() => buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, ticketKey: undefined })),
+    parseThrowsZodError(() => buildTaskBriefParamsSchema.parse({ ...minimalParams, ticketKey: undefined })),
   );
   assert(
     'rejects when verificationScripts contains invalid entries',
     parseThrowsZodError(() =>
-      buildTaskBriefParamsSchema.parse({ ...MINIMAL_PARAMS, verificationScripts: [{ bad: true }] })),
+      buildTaskBriefParamsSchema.parse({ ...minimalParams, verificationScripts: [{ bad: true }] })),
   );
   assert(
     'rejects when repoDir is missing',
-    parseThrowsZodError(() => buildPlanContextParamsSchema.parse(FULL_PARAMS)),
+    parseThrowsZodError(() => buildPlanContextParamsSchema.parse(fullParams)),
   );
 }
 

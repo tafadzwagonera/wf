@@ -19,7 +19,7 @@ export const stripInlineMarkdownDelimiters = (text: string): string =>
  * implementation-level detail better suited to the plan artifact
  * (Unit Test Scope, Dependencies).
  */
-const STRIPPED_SECTIONS = [
+const strippedSections = [
   '#### References',
   '### Unit Test Scope',
   '#### Dependencies',
@@ -50,7 +50,7 @@ export const stripRedundantSections = (description: string): string => {
  * @returns Sanitized description plus removed heading names
  */
 export const stripRedundantSectionsWithReport = (description: string): StripRedundantSectionsResult => {
-  return STRIPPED_SECTIONS.reduce<StripRedundantSectionsResult>((result, heading) => {
+  return strippedSections.reduce<StripRedundantSectionsResult>((result, heading) => {
     const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`${escaped}\\n(?:(?!#{1,4}\\s).*\\n?)*`, 'g');
     const descriptionWithoutHeading = result.description.replace(pattern, '');

@@ -23,7 +23,7 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const REQUIRED_SESSION_FIELDS = [
+const requiredSessionFields = [
   'sessionId', 'ticketKey', 'toStage', 'action', 'sourceType',
   'customPlanRef', 'createdAt', 'updatedAt', 'completedAt', 'stages',
 ];
@@ -121,7 +121,7 @@ async function checkFindByTicketKey(
 }
 
 function checkRequiredFields(raw: SessionState): void {
-  for (const field of REQUIRED_SESSION_FIELDS) {
+  for (const field of requiredSessionFields) {
     if (field in raw) {
       pass(`Field "${field}" present`);
     } else {

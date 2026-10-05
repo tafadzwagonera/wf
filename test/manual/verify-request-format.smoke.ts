@@ -25,7 +25,7 @@ interface ValidationResult {
   issues: ValidationIssue[];
 }
 
-const RULES: Array<{
+const rules: Array<{
   pattern: RegExp;
   error: (path: string) => string;
   suggestion: string;
@@ -53,7 +53,7 @@ const RULES: Array<{
 ];
 
 const checkTextNode = (text: string, path: string, issues: ValidationIssue[]): void => {
-  for (const rule of RULES) {
+  for (const rule of rules) {
     if (rule.pattern.test(text)) {
       issues.push({
         error: rule.error(path),

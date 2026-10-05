@@ -38,7 +38,7 @@ interface HunkWalkerState {
   blockStartLine: number;
 }
 
-const COMMENT_SYNTAX_BY_EXTENSION: Record<string, CommentSyntax> = {
+const commentSyntaxByExtension: Record<string, CommentSyntax> = {
   '.ts': jsSyntax,
   '.tsx': jsSyntax,
   '.js': jsSyntax,
@@ -69,7 +69,7 @@ export class CommentPolicyStageService {
   }
 
   private scanSegment(segment: DiffSegment): CommentPolicyFinding[] {
-    const syntax = COMMENT_SYNTAX_BY_EXTENSION[path.extname(segment.file).toLowerCase()];
+    const syntax = commentSyntaxByExtension[path.extname(segment.file).toLowerCase()];
     if (!syntax) return [];
     const state: HunkWalkerState = { destLine: 0, blockEnd: null, blockStartLine: 0 };
     const findings: CommentPolicyFinding[] = [];

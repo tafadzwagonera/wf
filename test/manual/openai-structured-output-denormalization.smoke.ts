@@ -22,8 +22,8 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const STRUCTURED_OUTPUT = { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema };
-const PAYLOAD_WITH_NULL = { statuses: [{ index: 0, status: 'done', missing: null }] };
+const structuredOutput = { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema };
+const payloadWithNull = { statuses: [{ index: 0, status: 'done', missing: null }] };
 
 function buildConfigService(): ConfigService {
   return {
@@ -80,9 +80,9 @@ function checkNonJsonResult(threw: boolean, content: string): void {
 }
 
 async function checkNullsStripped(originalAppend: typeof logFileWriter.appendToLogFile): Promise<void> {
-  const { service, fileLines } = buildService(JSON.stringify(PAYLOAD_WITH_NULL), 'openai', 'gpt-5.4');
+  const { service, fileLines } = buildService(JSON.stringify(payloadWithNull), 'openai', 'gpt-5.4');
   const response = await service.execute({
-    prompt: 'assess', stage: 'implement', provider: 'openai', model: 'gpt-5.4', structuredOutput: STRUCTURED_OUTPUT,
+    prompt: 'assess', stage: 'implement', provider: 'openai', model: 'gpt-5.4', structuredOutput: structuredOutput,
   });
   (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;
   const { statuses } = JSON.parse(response.content) as { statuses: Array<Record<string, unknown>> };
@@ -95,10 +95,10 @@ async function checkNullsStripped(originalAppend: typeof logFileWriter.appendToL
 }
 
 async function checkAnthropicPassthrough(originalAppend: typeof logFileWriter.appendToLogFile): Promise<void> {
-  const content = JSON.stringify(PAYLOAD_WITH_NULL);
+  const content = JSON.stringify(payloadWithNull);
   const { service } = buildService(content, 'anthropic', 'claude-sonnet-4-6');
   const response = await service.execute({
-    prompt: 'assess', provider: 'anthropic', model: 'claude-sonnet-4-6', structuredOutput: STRUCTURED_OUTPUT,
+    prompt: 'assess', provider: 'anthropic', model: 'claude-sonnet-4-6', structuredOutput: structuredOutput,
   });
   (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;
   if (response.content === content) {
@@ -109,10 +109,10 @@ async function checkAnthropicPassthrough(originalAppend: typeof logFileWriter.ap
 }
 
 async function checkFencedJson(originalAppend: typeof logFileWriter.appendToLogFile): Promise<void> {
-  const fenced = '```json\n' + JSON.stringify(PAYLOAD_WITH_NULL) + '\n```';
+  const fenced = '```json\n' + JSON.stringify(payloadWithNull) + '\n```';
   const { service } = buildService(fenced, 'openai', 'gpt-5.4');
   const response = await service.execute({
-    prompt: 'assess', stage: 'implement', provider: 'openai', model: 'gpt-5.4', structuredOutput: STRUCTURED_OUTPUT,
+    prompt: 'assess', stage: 'implement', provider: 'openai', model: 'gpt-5.4', structuredOutput: structuredOutput,
   });
   (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;
   const { statuses } = JSON.parse(response.content) as { statuses: Array<Record<string, unknown>> };
@@ -129,7 +129,7 @@ async function checkNonJsonPassthrough(originalAppend: typeof logFileWriter.appe
   let threw = false;
   try {
     result = await service.execute({
-      prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput: STRUCTURED_OUTPUT,
+      prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput: structuredOutput,
     });
   } catch {
     threw = true;
@@ -139,7 +139,7 @@ async function checkNonJsonPassthrough(originalAppend: typeof logFileWriter.appe
 }
 
 async function checkNoStructuredOutputPassthrough(originalAppend: typeof logFileWriter.appendToLogFile): Promise<void> {
-  const content = JSON.stringify(PAYLOAD_WITH_NULL);
+  const content = JSON.stringify(payloadWithNull);
   const { service, fileLines } = buildService(content, 'openai', 'gpt-5.4');
   const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4' });
   (logFileWriter as Record<string, unknown>).appendToLogFile = originalAppend;

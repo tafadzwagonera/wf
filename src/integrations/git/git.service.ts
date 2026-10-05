@@ -32,7 +32,7 @@ const createCommitGit = (cwd: string): SimpleGit =>
   simpleGit({ baseDir: cwd, timeout: { block: COMMIT_HOOK_BLOCK_TIMEOUT_MS } })
     .env({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' });
 
-const DEFAULT_PROTECTED_BRANCHES = ['main', 'master', 'develop'];
+const defaultProtectedBranches = ['main', 'master', 'develop'];
 
 /**
  * Re-throw `error` as a {@link GitError} unless it already is one, extracting
@@ -670,7 +670,7 @@ export class GitService {
    */
   private resolveProtectedBranches(): string[] {
     const configured = this.configService.get<string[]>('git.protectedBranches');
-    return configured ?? DEFAULT_PROTECTED_BRANCHES;
+    return configured ?? defaultProtectedBranches;
   }
 
   /**
@@ -723,10 +723,10 @@ export class GitService {
     if (paths.length === 0) return [];
 
     const git = cwd ? createGit(cwd) : this.git;
-    const CHUNK_SIZE = 100;
+    const chunkSize = 100;
     const results = await Promise.all(
-      Array.from({ length: Math.ceil(paths.length / CHUNK_SIZE) }, (_, i) =>
-        checkIgnoredChunk(git, paths.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE))
+      Array.from({ length: Math.ceil(paths.length / chunkSize) }, (_, i) =>
+        checkIgnoredChunk(git, paths.slice(i * chunkSize, (i + 1) * chunkSize))
       )
     );
     return results.flat();

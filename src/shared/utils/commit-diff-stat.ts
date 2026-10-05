@@ -6,7 +6,7 @@ export interface DiffFileStat {
 const FILE_HEADER_PATTERN = /^diff --git a\/(.+?) b\/(.+)$/;
 const DOCS_ONLY_FILE_PATTERN = /(^|\/)README(\..+)?$|(^|\/)docs\/|\.md$/i;
 const CONVENTIONAL_TYPE_PATTERN = /^(?:[A-Z][A-Z0-9]*-\d+:\s*)?([a-z]+)(?:\([^)]+\))?:/;
-const DOCS_ONLY_COMMIT_TYPES = new Set(['docs', 'style', 'chore']);
+const docsOnlyCommitTypes = new Set(['docs', 'style', 'chore']);
 
 const splitDiffIntoFileSections = (diff: string): Map<string, string> => {
   const sections = new Map<string, string>();
@@ -140,5 +140,5 @@ export const extractConventionalType = (message: string): string | null =>
 
 export const declaresDocsOnlyType = (message: string): boolean => {
   const type = extractConventionalType(message);
-  return type !== null && DOCS_ONLY_COMMIT_TYPES.has(type);
+  return type !== null && docsOnlyCommitTypes.has(type);
 };

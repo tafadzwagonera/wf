@@ -11,8 +11,8 @@ export const ISSUE_COMMAND_DOC_NAMES = [
   'issue:implement',
 ] as const;
 
-const GENERATED_BLOCK_START = (commandName: string): string => `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`;
-const GENERATED_BLOCK_END = (commandName: string): string => `<!-- END GENERATED COMMAND DOCS: ${commandName} -->`;
+const generatedBlockStart = (commandName: string): string => `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`;
+const generatedBlockEnd = (commandName: string): string => `<!-- END GENERATED COMMAND DOCS: ${commandName} -->`;
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -55,7 +55,7 @@ export const renderGeneratedCommandDocs = (commandName: string, entry: CommandHe
     .filter(section => section.length > 0)
     .join('\n\n');
 
-  return [GENERATED_BLOCK_START(commandName), sections, GENERATED_BLOCK_END(commandName)].join('\n');
+  return [generatedBlockStart(commandName), sections, generatedBlockEnd(commandName)].join('\n');
 };
 
 const getHeadingLine = (entry: CommandHelpEntry): string => `#### \`${entry.usage.replace(/ \[options\]$/, '')}\``;
@@ -80,7 +80,7 @@ const applyGeneratedBlockForCommand = (
 ): string => {
   const generatedBlock = renderGeneratedCommandDocs(commandName, entry);
   const blockPattern = new RegExp(
-    `${escapeRegExp(GENERATED_BLOCK_START(commandName))}[\\s\\S]*?${escapeRegExp(GENERATED_BLOCK_END(commandName))}`
+    `${escapeRegExp(generatedBlockStart(commandName))}[\\s\\S]*?${escapeRegExp(generatedBlockEnd(commandName))}`
   );
 
   return blockPattern.test(readmeContent)

@@ -250,13 +250,13 @@ describe('implement verification helpers', () => {
   });
 
   describe('resolveVerificationSummary', () => {
-    const REPO_DIR = '/projects/my-repo';
-    const TICKET = 'WBP-99';
+    const repoDir = '/projects/my-repo';
+    const ticket = 'WBP-99';
 
     const validRunFile = JSON.stringify({
       run: {
-        ticketKey: TICKET,
-        repoDir: REPO_DIR,
+        ticketKey: ticket,
+        repoDir: repoDir,
         backendConfigured: 'anthropic-agent',
         backendSelected: 'anthropic-agent',
         provider: 'anthropic',
@@ -265,7 +265,7 @@ describe('implement verification helpers', () => {
       },
       attempts: [
         {
-          ticketKey: TICKET,
+          ticketKey: ticket,
           attemptNumber: 1,
           backend: 'anthropic-agent',
           command: 'yarn test',
@@ -290,7 +290,7 @@ describe('implement verification helpers', () => {
     beforeEach(() => {
       mockGetWfStateDir.mockReturnValue('/state');
       mockFs.existsSync.mockReturnValue(true);
-      mockFs.readdirSync.mockReturnValue([`${TICKET}-2026-01-01T00-00-00-000Z.json`] as unknown as ReturnType<typeof fs.readdirSync>);
+      mockFs.readdirSync.mockReturnValue([`${ticket}-2026-01-01T00-00-00-000Z.json`] as unknown as ReturnType<typeof fs.readdirSync>);
       mockFs.statSync.mockReturnValue({ mtimeMs: 1000 } as fs.Stats);
       mockFs.readFileSync.mockReturnValue(validRunFile);
     });
@@ -300,10 +300,10 @@ describe('implement verification helpers', () => {
     });
 
     it('returns a formatted summary from the cached run file when attempts exist', () => {
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('Prior implement run');
-      expect(result).toContain(TICKET);
+      expect(result).toContain(ticket);
       expect(result).toContain('1 attempt(s)');
       expect(result).toContain('passed');
       expect(result).toContain('yarn test');
@@ -313,21 +313,21 @@ describe('implement verification helpers', () => {
       const emptyAttempts = JSON.stringify({ ...JSON.parse(validRunFile), attempts: [] });
       mockFs.readFileSync.mockReturnValue(emptyAttempts);
 
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('no verification attempts recorded');
     });
 
     it('reads the most recently modified matching file when several exist', () => {
       mockFs.readdirSync.mockReturnValue([
-        `${TICKET}-older.json`,
-        `${TICKET}-newer.json`,
+        `${ticket}-older.json`,
+        `${ticket}-newer.json`,
       ] as unknown as ReturnType<typeof fs.readdirSync>);
       mockFs.statSync
         .mockReturnValueOnce({ mtimeMs: 500 } as fs.Stats)
         .mockReturnValueOnce({ mtimeMs: 2000 } as fs.Stats);
 
-      resolveVerificationSummary(REPO_DIR, TICKET);
+      resolveVerificationSummary(repoDir, ticket);
 
       expect(mockFs.readFileSync).toHaveBeenCalledWith(expect.stringContaining('newer'), 'utf-8');
     });
@@ -336,7 +336,7 @@ describe('implement verification helpers', () => {
       mockFs.existsSync.mockReturnValue(false);
       mockExecSync.mockReturnValue('4 files changed, 20 insertions');
 
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('4 files changed');
     });
@@ -345,7 +345,7 @@ describe('implement verification helpers', () => {
       mockFs.readdirSync.mockReturnValue([] as unknown as ReturnType<typeof fs.readdirSync>);
       mockExecSync.mockReturnValue('2 files changed');
 
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('2 files changed');
     });
@@ -356,14 +356,14 @@ describe('implement verification helpers', () => {
         throw new Error('not a repo');
       });
 
-      expect(resolveVerificationSummary(REPO_DIR, TICKET)).toBe('');
+      expect(resolveVerificationSummary(repoDir, ticket)).toBe('');
     });
 
     it('falls back to git diff --stat when the cached file fails to parse', () => {
       mockFs.readFileSync.mockReturnValue('INVALID_JSON');
       mockExecSync.mockReturnValue('1 file changed');
 
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('1 file changed');
     });
@@ -372,7 +372,7 @@ describe('implement verification helpers', () => {
       mockFs.readdirSync.mockReturnValue(['OTHER-1-2026.json'] as unknown as ReturnType<typeof fs.readdirSync>);
       mockExecSync.mockReturnValue('');
 
-      const result = resolveVerificationSummary(REPO_DIR, TICKET);
+      const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(mockFs.readFileSync).not.toHaveBeenCalled();
       expect(result).toBe('');

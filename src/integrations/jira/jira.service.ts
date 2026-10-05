@@ -9,7 +9,7 @@ import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-confi
 import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
 import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
 
-const DEFAULT_SEARCH_FIELDS = [
+const defaultSearchFields = [
   'assignee',
   'components',
   'created',
@@ -139,7 +139,7 @@ const assembleOptionalCreateFields = (
 const buildSearchPayload = (request: JiraSearchRequest) => ({
   jql: request.jql,
   maxResults: request.maxResults || 50,
-  fields: request.fields || [...DEFAULT_SEARCH_FIELDS],
+  fields: request.fields || [...defaultSearchFields],
 });
 
 /**
@@ -329,7 +329,7 @@ interface BuildCreatePayloadOptions {
   priorityName?: string | null;
 }
 
-const PRIORITY_ALIAS_NAMES = {
+const priorityAliasNames = {
   highest: ['Highest', 'Blocker', 'Critical'],
   high: ['High', 'Major'],
   medium: ['Medium', 'Minor'],
@@ -604,7 +604,7 @@ export class JiraService {
       return exactMatch.name;
     }
 
-    const aliasNames = PRIORITY_ALIAS_NAMES[lowerRequestedPriority as keyof typeof PRIORITY_ALIAS_NAMES] ?? [];
+    const aliasNames = priorityAliasNames[lowerRequestedPriority as keyof typeof priorityAliasNames] ?? [];
     const lowerAliasNames = new Set(aliasNames.map((aliasName: string) => aliasName.toLowerCase()));
     return allowedPriorities.find(priority => lowerAliasNames.has(priority.name.toLowerCase()))?.name;
   }

@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ConfigurationError } from '../shared/errors/app.error';
 
-const REPO_FLAGS = new Set(['-r', '--repos']);
+const repoFlags = new Set(['-r', '--repos']);
 
 const resolvePath = (candidate: string): string | null => {
   if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
@@ -49,7 +49,7 @@ const resolveOrThrow = (repo: string, currentCwd: string): string => {
 const findRepoFlag = (argv: string[]): string | null => {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (REPO_FLAGS.has(arg)) {
+    if (repoFlags.has(arg)) {
       const repo = argv[index + 1];
       if (repo && !repo.startsWith('-')) return repo;
       continue;

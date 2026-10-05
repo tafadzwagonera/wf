@@ -48,7 +48,7 @@ const MOCK_AI_RESPONSE = [
 
 const { counts, pass, fail } = createReporter();
 
-const CONFIG_LINES = [
+const configLines = [
   'module.exports = {',
   '  ai: [',
   '    {',
@@ -73,7 +73,7 @@ const CONFIG_LINES = [
 ];
 
 function buildConfigContent(): string {
-  return CONFIG_LINES.join('\n');
+  return configLines.join('\n');
 }
 
 function writeConfigFile(repoRoot: string): void {

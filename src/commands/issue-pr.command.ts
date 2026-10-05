@@ -30,7 +30,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   }
 };
 
-const VALID_ACTIONS = ['feature', 'fix', 'investigate'] as const;
+const validActions = ['feature', 'fix', 'investigate'] as const;
 
 /**
  * Command to create a pull request from a plan artifact.
@@ -205,7 +205,7 @@ export class IssuePrCommand extends CommandRunner {
    * @returns Absolute path to the plan file, or null if not found
    */
   private findPlanArtifact(trackerDir: string, ticketKey: string, action?: string): string | null {
-    const candidates: string[] = action ? [action, ...VALID_ACTIONS.filter(a => a !== action)] : [...VALID_ACTIONS];
+    const candidates: string[] = action ? [action, ...validActions.filter(a => a !== action)] : [...validActions];
 
     for (const a of candidates) {
       const candidate = path.join(trackerDir, `${ticketKey}-plan-${a}.json`);

@@ -18,7 +18,7 @@ export type {
   PlanVerificationConfig,
 } from '../types/verification.types';
 
-const VALID_POLICIES = new Set<string>(verificationPolicySchema.options);
+const validPolicies = new Set<string>(verificationPolicySchema.options);
 
 const extractStepFields = (rawStep: Record<string, unknown>) => ({
   id: typeof rawStep.id === 'string' ? rawStep.id.trim() : '',
@@ -35,7 +35,7 @@ const requireStepField = (value: string, label: string, filePath: string): void 
 };
 
 const validateStepPolicy = (policy: unknown, filePath: string): void => {
-  if (typeof policy === 'string' && VALID_POLICIES.has(policy)) return;
+  if (typeof policy === 'string' && validPolicies.has(policy)) return;
   throw new ValidationError(`Verification step has an invalid policy: ${filePath}`);
 };
 
@@ -126,14 +126,14 @@ export const filterVerificationStepsForRepo = (
   return { kept, dropped };
 };
 
-const DEPRECATED_FLAG_REWRITES: [RegExp, string][] = [
+const deprecatedFlagRewrites: [RegExp, string][] = [
   [/--testPathPattern(?==|\s)/g, '--testPathPatterns'],
   [/--forceExit(?=\s|$)/g, '--forceExit'],
 ];
 
 export const normalizeTargetedStepCommand = (command: string): string => {
   let result = command;
-  for (const [pattern, replacement] of DEPRECATED_FLAG_REWRITES) {
+  for (const [pattern, replacement] of deprecatedFlagRewrites) {
     result = result.replace(pattern, replacement);
   }
   // --testPathPatterns is a yargs array-type flag: a preceding `-- `

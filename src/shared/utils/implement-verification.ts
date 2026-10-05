@@ -28,23 +28,23 @@ export type {
   ImplementProgressStreamEvent,
 } from '../types/implement-verification.types';
 
-const SYNTAX_ERROR_PATTERNS: Array<RegExp> = [
+const syntaxErrorPatterns: Array<RegExp> = [
   /SyntaxError/i,
   /unterminated template literal/i,
   /['"`}] expected/i,
   /unexpected token/i,
 ];
 
-const LINT_ERROR_PATTERNS: Array<RegExp> = [/eslint/i, /no-unused-vars/i, /prettier/i, /code style/i, /lint/i];
+const lintErrorPatterns: Array<RegExp> = [/eslint/i, /no-unused-vars/i, /prettier/i, /code style/i, /lint/i];
 
-const TYPECHECK_ERROR_PATTERNS: Array<RegExp> = [
+const typecheckErrorPatterns: Array<RegExp> = [
   /\bTS\d{4}\b/i,
   /cannot find name/i,
   /property .* does not exist on type/i,
   /type .* is not assignable to type/i,
 ];
 
-const TEST_RUNTIME_PATTERNS: Array<RegExp> = [
+const testRuntimePatterns: Array<RegExp> = [
   /\bexpect\(/i,
   /\breceived\b/i,
   /\bexpected\b/i,
@@ -53,7 +53,7 @@ const TEST_RUNTIME_PATTERNS: Array<RegExp> = [
 
 const DIAGNOSTIC_FILE_PATTERN
   = /(?:[A-Za-z]:)?(?:\.{0,2}\/)?[A-Za-z0-9_./-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|yml|yaml|txt)/g;
-const ERROR_CLASS_SEVERITY: Record<string, number> = {
+const errorClassSeverity: Record<string, number> = {
   syntax: 6,
   module: 5,
   reference: 5,
@@ -154,7 +154,7 @@ interface ProgressSignalParams {
   changedFilesSinceLastVerification: string[];
 }
 
-const VERIFICATION_COMPLETE_SIGNAL: ImplementProgressSignal = {
+const verificationCompleteSignal: ImplementProgressSignal = {
   score: 10,
   verdict: 'complete',
   reasons: ['verification passed'],
@@ -240,7 +240,7 @@ const resolveProgressVerdict = (score: number): ImplementProgressVerdict => {
   return 'regress';
 };
 
-const PROGRESS_NEXT_ACTIONS: Record<ImplementProgressVerdict, string> = {
+const progressNextActions: Record<ImplementProgressVerdict, string> = {
   complete: 'Stop and summarize the finished changes.',
   continue: 'Keep editing the most recently changed files and rerun verification.',
   revisit: 'Narrow the next pass to the latest changed files before verifying again.',
@@ -248,7 +248,7 @@ const PROGRESS_NEXT_ACTIONS: Record<ImplementProgressVerdict, string> = {
 };
 
 export const buildVerificationProgressSignal = (params: ProgressSignalParams): ImplementProgressSignal => {
-  if (params.currentSnapshot.exitCode === 0) return VERIFICATION_COMPLETE_SIGNAL;
+  if (params.currentSnapshot.exitCode === 0) return verificationCompleteSignal;
 
   const { score, reasons } = computeProgressScore(params);
   const verdict = resolveProgressVerdict(score);
@@ -257,7 +257,7 @@ export const buildVerificationProgressSignal = (params: ProgressSignalParams): I
     score,
     verdict,
     reasons: reasons.length > 0 ? reasons : ['no meaningful convergence signal'],
-    nextAction: PROGRESS_NEXT_ACTIONS[verdict],
+    nextAction: progressNextActions[verdict],
   };
 };
 
@@ -273,7 +273,7 @@ export const countDiagnosticLines = (stdout?: string, stderr?: string): number =
     .filter(Boolean).length;
 };
 
-const ERROR_CLASS_PATTERNS: Array<[string, RegExp]> = [
+const errorClassPatterns: Array<[string, RegExp]> = [
   ['format', /prettier|format|code style/],
   ['lint', /eslint|lint|no-[a-z-]+/],
   ['syntax', /syntaxerror|parsing error|unexpected token|ts1005/],
@@ -286,7 +286,7 @@ const ERROR_CLASS_PATTERNS: Array<[string, RegExp]> = [
 export const extractVerificationErrorClasses = (stdout?: string, stderr?: string): Set<string> => {
   const diagnosticText = [stdout, stderr].filter(Boolean).join('\n').toLowerCase();
   const errorClasses = new Set(
-    ERROR_CLASS_PATTERNS.filter(([, pattern]) => pattern.test(diagnosticText)).map(([errorClass]) => errorClass)
+    errorClassPatterns.filter(([, pattern]) => pattern.test(diagnosticText)).map(([errorClass]) => errorClass)
   );
 
   if (errorClasses.size === 0 && diagnosticText.trim()) {
@@ -320,20 +320,20 @@ export const formatImplementProgressSignal = (signal: ImplementProgressSignal): 
   return `progress: ${signal.verdict} (score ${signal.score})${suffix}`;
 };
 
-const VERIFICATION_SIGNAL_RULES: Array<{
+const verificationSignalRules: Array<{
   matches: (lowerCommand: string, output: string) => boolean;
   signal: VerificationSignal;
 }> = [
   {
-    matches: (_lowerCommand, output) => matchesAny(output, SYNTAX_ERROR_PATTERNS),
+    matches: (_lowerCommand, output) => matchesAny(output, syntaxErrorPatterns),
     signal: { category: 'parse', rootSignal: 'syntax-error', strategy: 'surgical', confidence: 'high' },
   },
   {
-    matches: (lowerCommand, output) => matchesAny(output, LINT_ERROR_PATTERNS) || lowerCommand.includes('lint'),
+    matches: (lowerCommand, output) => matchesAny(output, lintErrorPatterns) || lowerCommand.includes('lint'),
     signal: { category: 'lint', rootSignal: 'lint-diagnostic', strategy: 'surgical', confidence: 'high' },
   },
   {
-    matches: (lowerCommand, output) => matchesAny(output, TYPECHECK_ERROR_PATTERNS) || lowerCommand.includes('typecheck'),
+    matches: (lowerCommand, output) => matchesAny(output, typecheckErrorPatterns) || lowerCommand.includes('typecheck'),
     signal: { category: 'typecheck', rootSignal: 'type-diagnostic', strategy: 'paired-files', confidence: 'high' },
   },
   {
@@ -341,12 +341,12 @@ const VERIFICATION_SIGNAL_RULES: Array<{
     signal: { category: 'build', rootSignal: 'build-command', strategy: 'broad-context', confidence: 'medium' },
   },
   {
-    matches: (lowerCommand, output) => matchesAny(output, TEST_RUNTIME_PATTERNS) || lowerCommand.includes('test'),
+    matches: (lowerCommand, output) => matchesAny(output, testRuntimePatterns) || lowerCommand.includes('test'),
     signal: { category: 'test-runtime', rootSignal: 'test-diagnostic', strategy: 'paired-files', confidence: 'medium' },
   },
 ];
 
-const UNKNOWN_VERIFICATION_SIGNAL: VerificationSignal = {
+const unknownVerificationSignal: VerificationSignal = {
   category: 'unknown',
   rootSignal: 'unclassified',
   strategy: 'broad-context',
@@ -355,8 +355,8 @@ const UNKNOWN_VERIFICATION_SIGNAL: VerificationSignal = {
 
 const detectVerificationSignal = (command: string, output: string): VerificationSignal => {
   const lowerCommand = command.toLowerCase();
-  const rule = VERIFICATION_SIGNAL_RULES.find(candidate => candidate.matches(lowerCommand, output));
-  return rule?.signal ?? UNKNOWN_VERIFICATION_SIGNAL;
+  const rule = verificationSignalRules.find(candidate => candidate.matches(lowerCommand, output));
+  return rule?.signal ?? unknownVerificationSignal;
 };
 
 const extractDiagnosticFiles = (output: string): string[] => {
@@ -372,7 +372,7 @@ const matchesAny = (value: string, patterns: RegExp[]): boolean => patterns.some
 
 const getHighestErrorSeverity = (errorClasses: Set<string>): number =>
   [...errorClasses].reduce(
-    (highestSeverity, errorClass) => Math.max(highestSeverity, ERROR_CLASS_SEVERITY[errorClass] ?? 0),
+    (highestSeverity, errorClass) => Math.max(highestSeverity, errorClassSeverity[errorClass] ?? 0),
     0
   );
 

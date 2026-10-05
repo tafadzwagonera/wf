@@ -17,7 +17,7 @@ const setListField = (data: Partial<UniversalTicket>, value: string, key: 'label
   if (value && value !== 'None') data[key] = value.split(',').map(v => v.trim());
 };
 
-const METADATA_FIELD_SETTERS: Record<string, (data: Partial<UniversalTicket>, value: string) => void> = {
+const metadataFieldSetters: Record<string, (data: Partial<UniversalTicket>, value: string) => void> = {
   type: (data, value) => { data.type = value.toLowerCase() as TicketType; },
   status: (data, value) => { data.status = value; },
   priority: (data, value) => { data.priority = value.toLowerCase() as TicketPriority; },
@@ -131,6 +131,6 @@ export class MarkdownConverter implements FormatConverter {
 
     const field = metadataMatch[1].trim().toLowerCase();
     const value = metadataMatch[2].trim();
-    METADATA_FIELD_SETTERS[field]?.(data, value);
+    metadataFieldSetters[field]?.(data, value);
   }
 }

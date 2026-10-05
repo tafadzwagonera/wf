@@ -7,14 +7,14 @@ import type { VerificationCommandResult } from './review-verification.types';
 
 const hasPackageJson = (repoDir: string): boolean => fs.existsSync(path.join(repoDir, 'package.json'));
 
-const INSTALL_COMMANDS: Record<PackageManager, string> = {
+const installCommands: Record<PackageManager, string> = {
   bun: 'bun install',
   pnpm: 'pnpm install --frozen-lockfile',
   yarn: 'yarn install --frozen-lockfile',
   npm: 'npm ci',
 };
 
-const INSTALL_ARGUMENTS: Record<PackageManager, string[]> = {
+const installArguments: Record<PackageManager, string[]> = {
   bun: ['install'],
   pnpm: ['install', '--frozen-lockfile'],
   yarn: ['install', '--frozen-lockfile'],
@@ -76,7 +76,7 @@ export const installDependencies = async (repoDir: string): Promise<DependencyIn
     };
   }
 
-  return runInstall(packageManager, INSTALL_COMMANDS[packageManager], repoDir);
+  return runInstall(packageManager, installCommands[packageManager], repoDir);
 };
 
 const boundedOutput = (value: string | Buffer | undefined, maxOutputBytes: number): string | undefined => {
@@ -135,7 +135,7 @@ export const runDependencyInstallForVerification = (
   repoDir: string, options: VerificationCommandOptions
 ): VerificationDependencyInstallResult => {
   const packageManager = detectPackageManager(repoDir);
-  const command = `${packageManager} ${INSTALL_ARGUMENTS[packageManager].join(' ')}`;
+  const command = `${packageManager} ${installArguments[packageManager].join(' ')}`;
 
   if (!hasPackageJson(repoDir)) return skippedVerificationInstallResult(packageManager, command);
 
@@ -145,6 +145,6 @@ export const runDependencyInstallForVerification = (
     return unavailableInstallResult(packageManager, command, startedAt, availability, options.maxOutputBytes);
   }
   const installStartedAt = Date.now();
-  const install = spawnSync(packageManager, INSTALL_ARGUMENTS[packageManager], commandOptions(repoDir, options));
+  const install = spawnSync(packageManager, installArguments[packageManager], commandOptions(repoDir, options));
   return installResult(packageManager, command, installStartedAt, install, options.maxOutputBytes);
 };

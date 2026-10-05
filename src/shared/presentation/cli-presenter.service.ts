@@ -8,14 +8,14 @@ interface SummaryEntry {
   value: string;
 }
 
-const OUTCOME_STYLES: Record<OutcomeType, { icon: string; color: (message: string) => string }> = {
+const outcomeStyles: Record<OutcomeType, { icon: string; color: (message: string) => string }> = {
   success: { icon: '✔', color: chalk.green },
   warning: { icon: '⚠', color: chalk.yellow },
   skip: { icon: '↷', color: chalk.yellow },
   error: { icon: '✖', color: chalk.red },
 };
 
-const STAGE_ICONS: Record<number, string> = {
+const stageIcons: Record<number, string> = {
   1: '📋',
   2: '🤖',
   3: '🔧',
@@ -26,7 +26,7 @@ const STAGE_ICONS: Record<number, string> = {
 @Injectable()
 export class CliPresenter {
   stageHeader(stage: number, title: string): void {
-    const icon = STAGE_ICONS[stage];
+    const icon = stageIcons[stage];
     console.log(chalk.bold.yellow(`\n${icon ? `${icon} ` : ''}STAGE ${stage}: ${title}`));
   }
 
@@ -39,7 +39,7 @@ export class CliPresenter {
   }
 
   outcome(type: OutcomeType, message: string): void {
-    const style = OUTCOME_STYLES[type];
+    const style = outcomeStyles[type];
     console.log(style.color(`${style.icon} ${message}`));
   }
 

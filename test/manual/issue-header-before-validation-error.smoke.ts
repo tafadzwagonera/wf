@@ -27,7 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
 
 const DIST_MAIN = path.join(__dirname, '../../dist/main.js');
-const CONFLICTING_ARGS = ['issue', 'some-plan.json', '--session-id', '550e8400-e29b-41d4-a716-446655440000'];
+const conflictingArgs = ['issue', 'some-plan.json', '--session-id', '550e8400-e29b-41d4-a716-446655440000'];
 
 const { counts, pass, fail } = createReporter();
 
@@ -80,8 +80,8 @@ function checkSilentValidationError(combined: string, status: number): void {
 }
 
 function runAllChecks(scratchDir: string): void {
-  const result = runCli(CONFLICTING_ARGS, scratchDir);
-  const silentResult = runCli([...CONFLICTING_ARGS, '--silent'], scratchDir);
+  const result = runCli(conflictingArgs, scratchDir);
+  const silentResult = runCli([...conflictingArgs, '--silent'], scratchDir);
   checkNonZeroExit(result.status);
   checkSummaryLine(result.stdout);
   checkValidationError(result.stdout + result.stderr);

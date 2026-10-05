@@ -1042,15 +1042,15 @@ describe('detectRepoConventions — designSystem.interactionPatterns', () => {
     jest.restoreAllMocks();
   });
 
-  const APP_DIR = path.join(REPO_DIR, 'app');
+  const appDir = path.join(REPO_DIR, 'app');
 
   const mockVueFile = (name: string): fs.Dirent => ({ name, isDirectory: () => false }) as fs.Dirent;
 
   // No top-level src/ (the Nuxt convention) — exercises the fallback root resolution.
   const mockSingleFileAppDir = (fileName: string): void => {
-    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === APP_DIR);
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === appDir);
     mockReaddirSync.mockImplementation((dir: fs.PathLike) =>
-      String(dir) === APP_DIR ? [mockVueFile(fileName)] : ([] as fs.Dirent[]));
+      String(dir) === appDir ? [mockVueFile(fileName)] : ([] as fs.Dirent[]));
   };
 
   it('finds the stretched-link card pattern via a real file', () => {
@@ -1190,14 +1190,14 @@ describe('detectRepoConventions — designSystem.classConventions', () => {
     jest.restoreAllMocks();
   });
 
-  const APP_DIR_E = path.join(REPO_DIR, 'app');
+  const appDirE = path.join(REPO_DIR, 'app');
 
   const mockVueFileE = (name: string): fs.Dirent => ({ name, isDirectory: () => false }) as fs.Dirent;
 
   const mockAppDirFiles = (files: Array<{ name: string; content: string }>): void => {
-    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === APP_DIR_E);
+    mockExistsSync.mockImplementation((p: fs.PathLike) => String(p) === appDirE);
     mockReaddirSync.mockImplementation((dir: fs.PathLike) =>
-      String(dir) === APP_DIR_E ? files.map(f => mockVueFileE(f.name)) : ([] as fs.Dirent[]));
+      String(dir) === appDirE ? files.map(f => mockVueFileE(f.name)) : ([] as fs.Dirent[]));
     mockReadFileSync.mockImplementation((p: fs.PathOrFileDescriptor) => {
       const file = files.find(f => String(p).endsWith(f.name));
       return file ? file.content : '{}';

@@ -94,7 +94,7 @@ const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
 const OPENAI_STAGE_MAX_TURNS = 16;
 const OPENAI_CHAT_MAX_TURNS = 8;
-const ANTHROPIC_STAGE_TOOLS = ['Read', 'Glob', 'Grep', 'Bash'] as const;
+const anthropicStageTools = ['Read', 'Glob', 'Grep', 'Bash'] as const;
 const allowedReadOnlyCommandPrefixes = [
   'pwd',
   'ls',
@@ -488,7 +488,7 @@ type AnthropicStageOpts = {
 };
 
 export const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
-  const tools = opts.repoDir ? [...ANTHROPIC_STAGE_TOOLS] : [];
+  const tools = opts.repoDir ? [...anthropicStageTools] : [];
   return {
     canUseTool: anthropicReadOnlyToolGuard,
     cwd: opts.repoDir ?? process.cwd(), model: opts.model, tools, allowedTools: tools,
@@ -964,7 +964,7 @@ const extractAnthropicResultMessage = (
   return extractAnthropicResultContent(result);
 };
 
-const STAGE_RESPONSE_SCHEMAS: Partial<Record<AgentStageName, string>> = {
+const stageResponseSchemas: Partial<Record<AgentStageName, string>> = {
   plan: buildSanitisedJsonSchema(z.toJSONSchema(resolutionPlanSchema)),
   review: buildSanitisedJsonSchema(z.toJSONSchema(codeReviewSchema)),
   generate: buildSanitisedJsonSchema(z.toJSONSchema(generateTicketSchema)),
@@ -1012,7 +1012,7 @@ const resolveStageZodIssues = (stage: AgentStageName, content: string): string |
   }
 };
 
-const STAGE_PARSE_ERROR_LABELS: Partial<Record<AgentStageName, string>> = {
+const stageParseErrorLabels: Partial<Record<AgentStageName, string>> = {
   plan: 'resolution plan',
   review: 'code review',
   generate: 'ticket',
@@ -1021,7 +1021,7 @@ const STAGE_PARSE_ERROR_LABELS: Partial<Record<AgentStageName, string>> = {
 const buildStageParseErrorMessage = (
   stage: AgentStageName, content: string, zodIssues: string | undefined, label?: string
 ): string => {
-  const responseLabel = label ?? STAGE_PARSE_ERROR_LABELS[stage] ?? 'resolution plan';
+  const responseLabel = label ?? stageParseErrorLabels[stage] ?? 'resolution plan';
   const baseMessage = `Failed to parse ${responseLabel} from agent response`;
   return zodIssues ? `${baseMessage}\n${zodIssues}` : baseMessage;
 };
@@ -1039,7 +1039,7 @@ const throwStageParseFailure = (
 };
 
 const buildCodexSchemaSection = (stage: AgentStageName): string => {
-  const schemaJson = STAGE_RESPONSE_SCHEMAS[stage];
+  const schemaJson = stageResponseSchemas[stage];
   if (!schemaJson) return '';
   return `\n\nOutput contract — your response MUST be a JSON object that validates against this schema:\n${schemaJson}`;
 };
@@ -1054,10 +1054,10 @@ type CodexPassBase = {
   jsonSchema?: string;
 };
 
-const NON_RETRYABLE_CODEX_ERROR_CATEGORIES = new Set(['stall', 'truncation']);
+const nonRetryableCodexErrorCategories = new Set(['stall', 'truncation']);
 
 const isNonRetryableCodexError = (error: unknown): boolean =>
-  isAiProviderErrorLike(error) && NON_RETRYABLE_CODEX_ERROR_CATEGORIES.has(error.category ?? '');
+  isAiProviderErrorLike(error) && nonRetryableCodexErrorCategories.has(error.category ?? '');
 
 const throwCodexParseError = (
   stage: AgentStageName, content: string, zodIssues: string, sessionId: string | undefined,
@@ -1356,7 +1356,7 @@ export class StageAgentService {
   }
 
   private resolveStageJsonSchema(stage: AgentStageName): string | undefined {
-    return STAGE_RESPONSE_SCHEMAS[stage];
+    return stageResponseSchemas[stage];
   }
 
   logResolvedStageTarget(stage: AgentStageName): void {
@@ -1953,7 +1953,7 @@ export class StageAgentService {
     passBase: CodexPassBase, sessionId: string | undefined,
     pass1: { content: string; sessionId?: string; costUsd?: number },
   ): Promise<{ content: string; sessionId?: string; costUsd?: number }> {
-    if ((!passBase.jsonSchema && !opts.responseValidator) || !STAGE_RESPONSE_SCHEMAS[opts.stage]) return pass1;
+    if ((!passBase.jsonSchema && !opts.responseValidator) || !stageResponseSchemas[opts.stage]) return pass1;
     const issues1 = resolveResponseIssues(opts.stage, pass1.content, opts.responseValidator);
     if (!issues1) return { content: pass1.content, sessionId, costUsd: pass1.costUsd };
     if (!sessionId) return throwCodexParseError(

@@ -37,7 +37,7 @@ function buildSessionState(ticketKey: string): SessionState {
   };
 }
 
-const FAKE_PLAN = {
+const fakePlan = {
   action: 'fix',
   summary: 'Smoke plan with model',
   steps: [],
@@ -48,7 +48,7 @@ const FAKE_PLAN = {
 
 function buildFakePlanArtifact() {
   return {
-    plan: FAKE_PLAN,
+    plan: fakePlan,
     action: 'fix' as const,
     path: '/tmp/smoke-plan-model.md',
     sessionId: 'plan-sid-for-model-test',

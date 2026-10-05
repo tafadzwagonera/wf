@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
 
-const DOCS_ONLY_TYPES = new Set(['docs', 'style', 'chore']);
+const docsOnlyTypes = new Set(['docs', 'style', 'chore']);
 
 const BILLING_V2 = [
   'export const chargeCard = (amount: number) => {',
@@ -59,7 +59,7 @@ async function runMixedDiff(
 
 function checkMixedCommitType(mixedMessage: string): void {
   const mixedType = extractConventionalType(mixedMessage);
-  if (mixedType && !DOCS_ONLY_TYPES.has(mixedType)) {
+  if (mixedType && !docsOnlyTypes.has(mixedType)) {
     pass(`mixed-file commit type is "${mixedType}", not docs/style/chore: "${mixedMessage}"`);
   } else {
     fail('mixed-file commit type incorrectly resolved to docs/style/chore', mixedMessage);

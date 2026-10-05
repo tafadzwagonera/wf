@@ -62,7 +62,7 @@ const makeParams = () => ({
   trackedFilePaths: [],
 });
 
-const DIAGNOSTIC_MESSAGES: Record<string, unknown>[] = [
+const diagnosticMessages: Record<string, unknown>[] = [
   { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/repo/src/new-file.ts' } }] } },
   { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/existing.ts' } }] } },
   { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/repo/package.json' } }] } },
@@ -129,7 +129,7 @@ function checkMetaLogs(lines: string[], noSessionLines: string[]): void {
 
 async function main(): Promise<void> {
   console.log(chalk.bold('\nCLI diagnostic logging smoke test\n'));
-  const lines = await runWithMessages(DIAGNOSTIC_MESSAGES);
+  const lines = await runWithMessages(diagnosticMessages);
   const noSessionLines = await runWithMessages([{ type: 'result', result: 'done', num_turns: 1, total_cost_usd: 0.01 }]);
   checkToolUseLogs(lines);
   checkMetaLogs(lines, noSessionLines);

@@ -19,7 +19,7 @@ export type PullStepAssessmentParams = {
 const PULL_STEP_ASSESSOR_SYSTEM_PROMPT
   = 'You are a meticulous implementation auditor with read-only access to the repository. Inspect the repository before judging any step. Output ONLY valid JSON.';
 
-const PULL_STATUS_RULES = [
+const pullStatusRules = [
   '## Status rules',
   '- done: fully implemented in the repository state you inspected',
   '- partially-done: started but incomplete (requires missing field)',
@@ -29,7 +29,7 @@ const PULL_STATUS_RULES = [
   '- Paths under another repository prefix are outside this assessment; judge only the current repository portion.',
 ];
 
-const PULL_EVIDENCE_INSTRUCTIONS = (baseRef: string): string[] => [
+const pullEvidenceInstructions = (baseRef: string): string[] => [
   '## How to gather evidence',
   `- First run \`git diff ${baseRef} --stat\` to enumerate every changed file.`,
   `- For each step, inspect relevant changes with \`git diff ${baseRef} -- <path>\` and read the files themselves.`,
@@ -37,7 +37,7 @@ const PULL_EVIDENCE_INSTRUCTIONS = (baseRef: string): string[] => [
   '- Inspect before judging. Do not assume changes you have not seen.',
 ];
 
-const PULL_RESPONSE_INSTRUCTIONS = [
+const pullResponseInstructions = [
   'Index each step ONLY by its [Plan step N] tag.',
   'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
   '{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}',
@@ -49,11 +49,11 @@ export const buildPullStepAssessorPrompt = (steps: AssessableStep[], baseRef: st
     '## Steps to assess',
     numbered,
     '',
-    ...PULL_EVIDENCE_INSTRUCTIONS(baseRef),
+    ...pullEvidenceInstructions(baseRef),
     '',
-    ...PULL_STATUS_RULES,
+    ...pullStatusRules,
     '',
-    ...PULL_RESPONSE_INSTRUCTIONS,
+    ...pullResponseInstructions,
   ].join('\n');
 };
 

@@ -39,7 +39,7 @@ function tokenizeFilename(filename: string): string[] {
     .filter(t => t.length >= MIN_TOKEN_LENGTH && !stopwords.has(t));
 }
 
-const UI_SCAN_DIRS = ['app/components', 'app/composables'];
+const uiScanDirs = ['app/components', 'app/composables'];
 
 function matchFileToTokens(
   filePath: string,
@@ -79,7 +79,7 @@ export function detectReuseCandidates(
   const ticketTokens = tokenizeText(ticketContent);
   if (ticketTokens.size === 0) return undefined;
   const skipDirs = buildSkipDirs(repoDir);
-  const candidates = UI_SCAN_DIRS.flatMap(scanDir =>
+  const candidates = uiScanDirs.flatMap(scanDir =>
     scanDirForCandidates(path.join(repoDir, scanDir), repoDir, ticketTokens, skipDirs),
   );
   return candidates.length > 0 ? { candidates } : undefined;

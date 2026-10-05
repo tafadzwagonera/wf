@@ -1,6 +1,6 @@
 import { ExecutionError } from '../errors/app.error';
 
-const TRANSIENT_PATTERNS = [
+const transientPatterns = [
   'Premature close',
   'ECONNRESET',
   'socket hang up',
@@ -16,7 +16,7 @@ const TRANSIENT_PATTERNS = [
  */
 export const isTransientNetworkError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return TRANSIENT_PATTERNS.some(pattern => message.includes(pattern));
+  return transientPatterns.some(pattern => message.includes(pattern));
 };
 
 export interface RetryOnTransientOptions {

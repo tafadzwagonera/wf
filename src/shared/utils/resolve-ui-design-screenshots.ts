@@ -4,13 +4,13 @@ import { appendToLogFile } from '../logger/log-file-writer';
 import { FileSystemError } from '../errors/app.error';
 import { resolveCustomArtifactDir } from '../../agents/utils';
 
-const VALID_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.svg']);
+const validExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.svg']);
 
 const LOG_CONTEXT = 'ui-design-screenshots';
 
 function filterAndMapImages(dir: string, entries: string[]): string[] {
   return entries
-    .filter(e => VALID_EXTENSIONS.has(path.extname(e).toLowerCase()))
+    .filter(e => validExtensions.has(path.extname(e).toLowerCase()))
     .map(e => path.join(dir, e));
 }
 
@@ -31,7 +31,7 @@ function resolveSingleDirMode(resolved: string): string[] {
 function validateAndCollect(p: string, result: string[]): void {
   if (!fs.existsSync(p)) throw new FileSystemError(`ui-design-screenshots: file not found — ${p}`);
   const ext = path.extname(p).toLowerCase();
-  if (!VALID_EXTENSIONS.has(ext)) {
+  if (!validExtensions.has(ext)) {
     appendToLogFile('WARN', `ui-design-screenshots: unsupported extension ${ext} — ${p} skipped.`, LOG_CONTEXT);
     return;
   }

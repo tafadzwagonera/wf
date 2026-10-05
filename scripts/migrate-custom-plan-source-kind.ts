@@ -2,8 +2,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { readPlanArtifactManifest, writePlanArtifactManifest } from '../src/shared/utils/plan-artifact';
+import type { PlanArtifactManifest } from '../src/shared/utils/plan-artifact';
 
-const KNOWN_TRACKER_DIRS = new Set(['jira', 'bitbucket']);
+const knownTrackerDirs = new Set(['jira', 'bitbucket']);
 const PLAN_MANIFEST_SUFFIX = '.sources.json';
 
 interface MigrationOptions {
@@ -34,19 +35,11 @@ interface MigrationDetail {
 const walkFiles = (dirPath: string): string[] => {
   if (!fs.existsSync(dirPath)) return [];
 
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
+  return fs.readdirSync(dirPath, { withFileTypes: true }).flatMap(entry => {
     const childPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walkFiles(childPath));
-      continue;
-    }
-    if (entry.isFile()) {
-      files.push(childPath);
-    }
-  }
-  return files;
+    if (entry.isDirectory()) return walkFiles(childPath);
+    return entry.isFile() ? [childPath] : [];
+  });
 };
 
 /**
@@ -65,8 +58,37 @@ const isUnderTrackerDir = (manifestPath: string, rootDir: string): boolean => {
   const relative = path.relative(rootDir, manifestPath);
   const segments = relative.split(path.sep);
   // segments: [<repo>, <trackerOrFile>, ...] or [<repo>, <tracker>, <file>]
-  return segments.length >= 3 && KNOWN_TRACKER_DIRS.has(segments[1]);
+  return segments.length >= 3 && knownTrackerDirs.has(segments[1]);
 };
+
+const toCustomManifest = (manifest: PlanArtifactManifest): PlanArtifactManifest => ({
+  ...manifest,
+  sourceKind: 'custom',
+  ticketKey: undefined,
+  customArtifactName: manifest.sourceName,
+});
+
+const migrateManifest = (manifestPath: string, dryRun: boolean): MigrationDetail => {
+  const manifest = readPlanArtifactManifest(manifestPath);
+  if (!manifest) return { manifestPath, status: 'skipped', reason: 'unreadable or invalid manifest' };
+  if (manifest.sourceKind === 'custom') return { manifestPath, status: 'already_correct' };
+  if (manifest.sourceKind !== 'ticket') {
+    return { manifestPath, status: 'skipped', reason: `unexpected sourceKind: ${manifest.sourceKind}` };
+  }
+  if (!dryRun) writePlanArtifactManifest(toCustomManifest(manifest));
+  return { manifestPath, status: 'updated' };
+};
+
+const migrateManifestSafely = (manifestPath: string, dryRun: boolean): MigrationDetail => {
+  try {
+    return migrateManifest(manifestPath, dryRun);
+  } catch (error) {
+    return { manifestPath, status: 'failed', reason: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+const countByStatus = (details: MigrationDetail[], status: MigrationDetail['status']): number =>
+  details.filter(detail => detail.status === status).length;
 
 /**
  * Migrate custom plan manifests that were incorrectly stamped with
@@ -83,69 +105,22 @@ const isUnderTrackerDir = (manifestPath: string, rootDir: string): boolean => {
  */
 const runMigration = (options: MigrationOptions = {}): MigrationSummary => {
   const rootDir = options.rootDir ?? path.join(os.homedir(), '.wf');
-  const summary: MigrationSummary = {
-    updatedCount: 0,
-    skippedCount: 0,
-    alreadyCorrectCount: 0,
-    failedCount: 0,
-    details: [],
+  const details = walkFiles(rootDir)
+    .filter(filePath => filePath.endsWith(PLAN_MANIFEST_SUFFIX) && !isUnderTrackerDir(filePath, rootDir))
+    .map(manifestPath => migrateManifestSafely(manifestPath, options.dryRun ?? false));
+  return {
+    updatedCount: countByStatus(details, 'updated'),
+    skippedCount: countByStatus(details, 'skipped'),
+    alreadyCorrectCount: countByStatus(details, 'already_correct'),
+    failedCount: countByStatus(details, 'failed'),
+    details,
   };
-
-  const manifestPaths = walkFiles(rootDir).filter(
-    filePath => filePath.endsWith(PLAN_MANIFEST_SUFFIX) && !isUnderTrackerDir(filePath, rootDir),
-  );
-
-  for (const manifestPath of manifestPaths) {
-    try {
-      const manifest = readPlanArtifactManifest(manifestPath);
-      if (!manifest) {
-        summary.skippedCount += 1;
-        summary.details.push({ manifestPath, status: 'skipped', reason: 'unreadable or invalid manifest' });
-        continue;
-      }
-
-      if (manifest.sourceKind === 'custom') {
-        summary.alreadyCorrectCount += 1;
-        summary.details.push({ manifestPath, status: 'already_correct' });
-        continue;
-      }
-
-      if (manifest.sourceKind !== 'ticket') {
-        summary.skippedCount += 1;
-        summary.details.push({ manifestPath, status: 'skipped', reason: `unexpected sourceKind: ${manifest.sourceKind}` });
-        continue;
-      }
-
-      const corrected = {
-        ...manifest,
-        sourceKind: 'custom' as const,
-        ticketKey: undefined,
-        customArtifactName: manifest.sourceName,
-      };
-
-      if (!options.dryRun) {
-        writePlanArtifactManifest(corrected);
-      }
-
-      summary.updatedCount += 1;
-      summary.details.push({ manifestPath, status: 'updated' });
-    } catch (error) {
-      summary.failedCount += 1;
-      summary.details.push({
-        manifestPath,
-        status: 'failed',
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return summary;
 };
 
 if (require.main === module) {
   const rootArgIndex = process.argv.indexOf('--root');
-  const rootDir =
-    rootArgIndex >= 0 && process.argv[rootArgIndex + 1]
+  const rootDir
+    = rootArgIndex >= 0 && process.argv[rootArgIndex + 1]
       ? process.argv[rootArgIndex + 1]
       : undefined;
   const dryRun = process.argv.includes('--dry-run');

@@ -24,13 +24,13 @@ const throwUnknownSkillError = (id: string): never => {
 };
 
 const resolveUnknownSkillInteractively = async (id: string): Promise<SkillDefinition | null> => {
-  const SKIP_CHOICE = 'Skip (no skill)';
+  const skipChoice = 'Skip (no skill)';
   const { correctedId } = await inquirer.prompt<{ correctedId: string }>([{
     type: 'list', name: 'correctedId',
     message: `Unknown skill "${id}". Select a replacement or skip:`,
-    choices: [...Array.from(knownSkills.keys()), SKIP_CHOICE], prefix: ' ',
+    choices: [...Array.from(knownSkills.keys()), skipChoice], prefix: ' ',
   }]);
-  return correctedId === SKIP_CHOICE ? null : knownSkills.get(correctedId) ?? null;
+  return correctedId === skipChoice ? null : knownSkills.get(correctedId) ?? null;
 };
 
 type ResolveSkillsOpts = { interactive: boolean; stage?: SkillStage };

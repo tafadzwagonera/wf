@@ -199,8 +199,8 @@ const BRACE_POS_UNREPAIRABLE = -2;
 /**
  * Detect the character position of a JSON syntax failure caused by an excess closing brace.
  * @param content Raw JSON string to probe
- * @returns Positive failure position when repairable, {@link BRACE_POS_VALID} when content
- *          parses successfully, or {@link BRACE_POS_UNREPAIRABLE} when the error is not a
+ * @returns Positive failure position when repairable, {@link bracePosValid} when content
+ *          parses successfully, or {@link bracePosUnrepairable} when the error is not a
  *          brace-repair candidate.
  */
 const detectBraceFailurePos = (content: string): number => {

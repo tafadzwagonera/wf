@@ -31,7 +31,7 @@ import { createReporter, summarise } from './support/reporter';
 const { counts, pass, fail } = createReporter();
 
 const MOCK_TICKET_CONTENT = '# WBP-TEST: Silent mode test\n\nDescription here.';
-const MOCK_PLAN = {
+const mockPlan = {
   action: 'fix',
   summary: 'Fix the silent mode',
   estimatedComplexity: 'low',
@@ -83,7 +83,7 @@ async function setupTestEnv(): Promise<TestEnv> {
   const ticketPath = path.join(platformDir, 'WBP-TEST.md');
   fs.writeFileSync(ticketPath, MOCK_TICKET_CONTENT, 'utf-8');
   const planPath = path.join(platformDir, 'WBP-TEST-plan-fix.json');
-  fs.writeFileSync(planPath, JSON.stringify(MOCK_PLAN), 'utf-8');
+  fs.writeFileSync(planPath, JSON.stringify(mockPlan), 'utf-8');
   return { app, tmpDir, wfDir, ticketPath, planPath };
 }
 
@@ -117,7 +117,7 @@ async function checkPlannerExecuteSilent(app: any, ticketPath: string, planPath:
   const planner = app.get(PlannerAgent);
   const origCreate = PlanStageService.prototype.createPlanArtifact;
   (PlanStageService.prototype as any).createPlanArtifact
-    = async () => ({ plan: MOCK_PLAN, action: 'fix', path: planPath, fromCache: false });
+    = async () => ({ plan: mockPlan, action: 'fix', path: planPath, fromCache: false });
   const ticket = { ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath };
   const cap = captureConsole();
   try {
@@ -133,7 +133,7 @@ async function checkPlannerLoadFromDiskSilent(app: any, ticketPath: string, plan
   const planner = app.get(PlannerAgent);
   const origLoad = PlanStageService.prototype.loadPlanArtifact;
   (PlanStageService.prototype as any).loadPlanArtifact
-    = async () => ({ plan: MOCK_PLAN, action: 'fix', path: planPath, fromCache: false });
+    = async () => ({ plan: mockPlan, action: 'fix', path: planPath, fromCache: false });
   const cap = captureConsole();
   try {
     await planner.loadFromDisk(ticketPath, 'fix', true);

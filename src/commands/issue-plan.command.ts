@@ -97,7 +97,7 @@ const describesExpectedFailure = (value?: string): boolean =>
  * @param command - Verification command text
  * @returns True when the command appears to assert on failure conditions
  */
-const ASSERTION_WRAPPER_PATTERNS: string[] = [
+const assertionWrapperPatterns: string[] = [
   String.raw`(?:^|[ (])!`,
   String.raw`\|\|`,
   '&&',
@@ -113,7 +113,7 @@ const ASSERTION_WRAPPER_PATTERNS: string[] = [
   String.raw`\bzsh\s+-c\b`,
 ];
 
-const ASSERTION_WRAPPER_REGEX = new RegExp(ASSERTION_WRAPPER_PATTERNS.join('|'));
+const ASSERTION_WRAPPER_REGEX = new RegExp(assertionWrapperPatterns.join('|'));
 
 const usesAssertionWrapper = (command?: string): boolean =>
   ASSERTION_WRAPPER_REGEX.test(command ?? '');

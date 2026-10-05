@@ -1,4 +1,4 @@
-        ---
+---
 name: coding-style
 description: Coding style conventions — naming, control flow, types, documentation. Use when writing, editing, or reviewing code.
 ---
@@ -41,7 +41,9 @@ description: Coding style conventions — naming, control flow, types, documenta
 - Prefix mocks with `mock` and create matching factories, e.g., `mockEvent`, `createMockEvent`.
 
 ## Naming
-- Use `SCREAMING_SNAKE_CASE` only for literals.
+- Use `SCREAMING_SNAKE_CASE` for symbolic constants: module-scoped `const`s holding a fixed primitive value — magic numbers, strings (direct literals or computed-but-fixed, e.g. `path.join(...)`, template literals, values derived from other constants), booleans, and regex patterns — whether exported or not.
+- Name structured module-scoped constants in `camelCase`: arrays, objects, Sets, Maps, lookup tables, and arrow functions. `as const` is a type-level device, not a naming signal.
+- Name all function-scoped constants in `camelCase`, even fixed primitives — symbolic-constant casing is reserved for module scope.
 - Use descriptive `camelCase` names with unit suffixes where relevant, e.g., `amountInCents`, `expiryInMs`, `meanTemperatureInCelsius`, `precipitationPeakInMm`, and `ttlInSecs`.
 
 ## Regular expressions

@@ -2,7 +2,7 @@ import { ValidationError } from '../../shared/utils/errors';
 
 const GIT_COMMAND_PREFIX_PATTERN = /^git\s+(?:checkout\s+-b|switch\s+-c)\s+/;
 
-const VALID_BRANCH_NAME_PATTERNS = [/^[a-z]+\/[\w-]+$/, /^[A-Z]+-\d+__[\w-]+$/, /^[\w-]+$/];
+const validBranchNamePatterns = [/^[a-z]+\/[\w-]+$/, /^[A-Z]+-\d+__[\w-]+$/, /^[\w-]+$/];
 
 const gitRefConventionRules: ReadonlyArray<{ pattern: RegExp; reason: string }> = [
   { pattern: /\.\./, reason: 'Branch names cannot contain ".."' },
@@ -39,7 +39,7 @@ export function sanitizeBranchNameInput(input: string): string {
  * @returns True when the name matches an accepted pattern
  */
 export function isValidBranchName(name: string): boolean {
-  return VALID_BRANCH_NAME_PATTERNS.some(pattern => pattern.test(name));
+  return validBranchNamePatterns.some(pattern => pattern.test(name));
 }
 
 /**

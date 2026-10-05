@@ -12,8 +12,8 @@ import { hasProviderUsageIntent, extractStageProviders } from './provider-intent
 import { classifyAiSdkError } from './ai-provider-error.classify';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
+import { DEFAULT_DEEPSEEK_MODEL } from '../../../common/constant';
 
-const DEFAULT_MODEL = 'deepseek-reasoner';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
 
 /**
@@ -128,7 +128,7 @@ const buildSingleTurnMessages = (
 @Injectable()
 export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
   private client?: OpenAI;
-  private model = DEFAULT_MODEL;
+  private model: string = DEFAULT_DEEPSEEK_MODEL;
   private readonly maxTokens = 4096;
   private contextConfig = '';
   private didWarnMissingConfig = false;
@@ -167,7 +167,7 @@ export class DeepSeekAdapter implements LlmAdapter, OnModuleInit {
       return;
     }
     this.client = new OpenAI(buildDeepSeekClientConfig(apiKey));
-    this.model = this.configService.get<string>('ai.model') || DEFAULT_MODEL;
+    this.model = this.configService.get<string>('ai.model') || DEFAULT_DEEPSEEK_MODEL;
     this.logger.debug(`Initialized DeepSeek adapter with model: ${this.model}`);
   }
 

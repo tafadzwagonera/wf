@@ -23,8 +23,8 @@ type ReadUiDesignFn = typeof readUiDesignScreenshotsFromPlanArtifact;
 const mockReadUiDesignScreenshots = readUiDesignScreenshotsFromPlanArtifact as jest.MockedFunction<ReadUiDesignFn>;
 const mockAppendToLogFile = appendToLogFile as jest.MockedFunction<typeof appendToLogFile>;
 
-const PNG_BUFFER = Buffer.from('fakepng');
-const PNG_BASE64 = PNG_BUFFER.toString('base64');
+const pngBuffer = Buffer.from('fakepng');
+const PNG_BASE64 = pngBuffer.toString('base64');
 
 async function buildService(): Promise<UiDesignScreenshotsStageService> {
   const module: TestingModule = await Test.createTestingModule({
@@ -51,7 +51,7 @@ describe('UiDesignScreenshotsStageService', () => {
 
     it('encodes a valid PNG file and returns correct mediaType and base64', () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(PNG_BUFFER);
+      mockReadFileSync.mockReturnValue(pngBuffer);
 
       const result = service.encodeFromPaths(['/tmp/a.png']);
 
@@ -66,7 +66,7 @@ describe('UiDesignScreenshotsStageService', () => {
 
     it('encodes a JPEG file with correct mediaType', () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(PNG_BUFFER);
+      mockReadFileSync.mockReturnValue(pngBuffer);
 
       const result = service.encodeFromPaths(['/tmp/photo.jpg']);
 
@@ -96,7 +96,7 @@ describe('UiDesignScreenshotsStageService', () => {
     it('encodes files from paths stored in the artifact', async () => {
       mockReadUiDesignScreenshots.mockReturnValue(['/tmp/design.png']);
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(PNG_BUFFER);
+      mockReadFileSync.mockReturnValue(pngBuffer);
 
       const result = await service.resolveIfEnabled({ artifactPath: '/plan.json' });
 

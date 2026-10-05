@@ -64,7 +64,7 @@ const restoreFile = ({ path: filePath, existed, content }: BackupEntry): void =>
   fs.writeFileSync(filePath, content ?? '', 'utf-8');
 };
 
-const PROVIDERS = [
+const providers = [
   { provider: 'anthropic', apiKey: 'anthropic-test-key', model: 'claude-sonnet-4-20250514', default: true },
   { provider: 'openai', apiKey: 'openai-test-key' },
   { provider: 'deepseek', apiKey: 'deepseek-test-key', model: 'deepseek-reasoner' },
@@ -83,7 +83,7 @@ const TEST_CONFIG = [
 
 function buildMockConfigService(): ConfigService {
   const values: Record<string, unknown> = {
-    'ai.providers': PROVIDERS,
+    'ai.providers': providers,
     'ai.anthropicApiKey': 'anthropic-test-key',
     'ai.openaiApiKey': 'openai-test-key',
     'ai.geminiApiKey': undefined,

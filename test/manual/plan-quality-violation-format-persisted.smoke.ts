@@ -47,7 +47,7 @@ const makePlanAttempt = () => ({
   modelUsed: 'claude-haiku-4-5-20251001',
 });
 
-const VIOLATIONS = [
+const sampleViolations = [
   '[rename-target-required] Step 1 must state the replacement target explicitly.',
   '[no-inline-test-run] Verification command must use a package-manager script, not inline runner.',
 ];
@@ -119,7 +119,7 @@ const assertRisksUpdated = (result: RiskHolder, originalAttempt: RiskHolder): vo
 
 const runScenario = (service: PlanStageService): void => {
   const attempt = makePlanAttempt();
-  const violations = [...VIOLATIONS];
+  const violations = [...sampleViolations];
   const { lines, restore } = interceptConsole();
   let result: ReturnType<typeof makePlanAttempt>;
   try {

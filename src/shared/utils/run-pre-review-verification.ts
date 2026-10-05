@@ -7,7 +7,7 @@ import { runDependencyInstallForVerification } from './install-dependencies';
 import { cleanStaleVerificationWorktrees, createVerificationSnapshot } from './verification-snapshot';
 import type { ReviewVerification, VerificationCommandResult } from './review-verification.types';
 
-const VERIFY_SCRIPT_NAMES = ['lint', 'typecheck', 'test'];
+const verifyScriptNames = ['lint', 'typecheck', 'test'];
 const COMMAND_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_OUTPUT_BYTES = 16 * 1024;
 
@@ -30,7 +30,7 @@ const availableScripts = (repoDir: string): string[] => {
     const pkg = JSON.parse(fs.readFileSync(`${repoDir}/package.json`, 'utf-8')) as {
       scripts?: Record<string, string>;
     };
-    return VERIFY_SCRIPT_NAMES.filter(name => Boolean(pkg.scripts?.[name]));
+    return verifyScriptNames.filter(name => Boolean(pkg.scripts?.[name]));
   } catch {
     return [];
   }

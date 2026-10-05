@@ -39,7 +39,7 @@ import {
 } from './shared-routing';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 
-const CLAUDE_CODE_TOOLS = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
+const claudeCodeTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const MAX_CONTINUATION_PASSES = 15;
 const MAX_CONSECUTIVE_IDLE_PASSES = 3;
@@ -310,7 +310,7 @@ const buildSdkOptions = (params: SdkOptionsParams) => {
   const { allowedCommands, activityState } = params;
   return {
     cwd: repoDir, model,
-    tools: [...CLAUDE_CODE_TOOLS], allowedTools: [...CLAUDE_CODE_TOOLS],
+    tools: [...claudeCodeTools], allowedTools: [...claudeCodeTools],
     permissionMode: 'acceptEdits' as const, agentProgressSummaries: true,
     settingSources: ['project'] as SettingSource[], settings: buildClaudeCodeSettings(repoDir),
     systemPrompt: buildSdkSystemPrompt(priorStageSummary, claudeContext, systemPromptBody),

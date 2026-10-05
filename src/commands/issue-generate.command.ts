@@ -51,7 +51,7 @@ const SLACK_CHANNEL_HISTORY_LIMIT = 50;
 const SLACK_THREAD_PATH = /^\/archives\/([A-Z0-9]+)\/p(\d{10})(\d{6})$/i;
 const SLACK_CHANNEL_PATH = /^\/archives\/([A-Z0-9]+)\/?$/i;
 const JIRA_BROWSE_PATH = /^\/browse\/([A-Z]+-\d+)\/?$/i;
-const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
+const contractionMap: ReadonlyMap<string, string> = new Map([
   ['don\'t', 'do not'],
   ['can\'t', 'cannot'],
   ['won\'t', 'will not'],
@@ -98,7 +98,7 @@ const CONTRACTION_MAP: ReadonlyMap<string, string> = new Map([
 ]);
 
 const CONTRACTION_PATTERN = new RegExp(
-  Array.from(CONTRACTION_MAP.keys())
+  Array.from(contractionMap.keys())
     .map(k => k.replaceAll('\'', '[\'\u2019]'))
     .join('|'),
   'gi'
@@ -1561,7 +1561,7 @@ export class IssueGenerateCommand extends CommandRunner {
   private expandContractions(text: string): string {
     return text.replace(CONTRACTION_PATTERN, match => {
       const key = match.replaceAll('\u2019', '\'').toLowerCase();
-      const expansion = CONTRACTION_MAP.get(key) ?? match;
+      const expansion = contractionMap.get(key) ?? match;
       const isCapitalized = match.startsWith(match[0].toUpperCase());
       return isCapitalized ? expansion[0].toUpperCase() + expansion.slice(1) : expansion;
     });

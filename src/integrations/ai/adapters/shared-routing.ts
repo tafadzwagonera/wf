@@ -43,7 +43,7 @@ const mechanicalSemanticPatterns = [
   /same way|same approach/i,
 ];
 
-const CREATIVE_SEMANTIC_PATTERNS = [
+const creativeSemanticPatterns = [
   /design|architect/i,
   /analyze|investigate/i,
   /implement new|implement novel/i,
@@ -57,7 +57,7 @@ const countPatternMatches = (steps: string[], patterns: RegExp[]): number =>
 
 const countSemanticSignals = (steps: string[]): { mechanical: number; creative: number } => ({
   mechanical: countPatternMatches(steps, mechanicalSemanticPatterns),
-  creative: countPatternMatches(steps, CREATIVE_SEMANTIC_PATTERNS),
+  creative: countPatternMatches(steps, creativeSemanticPatterns),
 });
 
 const matchMechanicalKeyword = (steps: string[]): RegExp | null => {
