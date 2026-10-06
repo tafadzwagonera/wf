@@ -85,7 +85,7 @@ export const wfPlanStepVerificationConfigSchema = z
   .superRefine((value, ctx) => {
     if (!value.provider || value.model) return;
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       message: "'model' is required when 'provider' is set",
       path: ['model'],
     });
@@ -105,7 +105,7 @@ export const validatePullStepVerificationProvider = (
   const provider = verification?.provider ?? value.provider;
   if (verification?.mode !== 'pull' || provider === 'anthropic' || provider === 'openai') return;
   ctx.addIssue({
-    code: z.ZodIssueCode.custom,
+    code: 'custom',
     message: "planStepVerification.mode 'pull' requires an anthropic or openai provider",
     path: verification.provider ? ['planStepVerification', 'provider'] : ['provider'],
   });

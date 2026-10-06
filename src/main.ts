@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createRequire } from 'module';
+import { createRequire } from 'node:module';
 import { CommandFactory } from 'nest-commander';
 import { resolveConfigCwd } from './bootstrap/resolve-config-cwd';
 import { isHelpInvocation } from './bootstrap/is-help-invocation';

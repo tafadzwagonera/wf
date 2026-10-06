@@ -11,7 +11,7 @@ export const stepAssessmentSchema = z
   .superRefine((v, ctx) => {
     if ((v.status === 'partially-done' || v.status === 'not-done' || v.status === 'unverifiable') && !v.missing) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: 'custom',
         message: `'missing' is required when status is '${v.status}'`,
         path: ['missing'],
       });

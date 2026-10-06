@@ -1,4 +1,4 @@
-import { createRequire } from 'module';
+import { createRequire } from 'node:module';
 
 const SKIP_CONFIG_BOOTSTRAP_ENV = 'WF_SKIP_CONFIG_BOOTSTRAP';
 const moduleRequire = createRequire(__filename);

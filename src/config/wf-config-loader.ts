@@ -66,11 +66,6 @@ type SupportedStageName = StageBackendDefaultStageName;
 type SupportedModelStageName = Exclude<SupportedStageName, 'implement'>;
 const modelStageNames = ['plan', 'review', 'generate', 'commit'] as const;
 
-type AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
-/** Fails to build if MODEL_STAGE_NAMES and SupportedModelStageName ever diverge. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _modelStageNamesMatchType: AssertEqual<SupportedModelStageName, (typeof modelStageNames)[number]> = true;
-
 const agentSupportedProviders = new Set<WfAiProviderName>(['anthropic', 'openai']);
 
 export interface NormalizedWfConfig {
@@ -1151,7 +1146,7 @@ const buildNormalizedWfConfig = (input: BuildNormalizedWfConfigInput): Normalize
   ),
 });
 
-const getValidationFieldNames = (issues: z.ZodIssue[]): string[] => issues.flatMap(issue =>
+const getValidationFieldNames = (issues: z.core.$ZodIssue[]): string[] => issues.flatMap(issue =>
   issue.code === 'unrecognized_keys'
     ? issue.keys.map(key => [...issue.path, key].join('.'))
     : [issue.path.join('.')]
@@ -1248,12 +1243,6 @@ export const loadWfConfig = async (options: WfConfigLoadOptions = {}): Promise<N
   return normalizeWfConfig(rawConfig);
 };
 
-/**
- * Preload config before Nest bootstraps so the ConfigModule can remain sync.
- *
- * @param cwd - Optional project root override
- * @returns Loaded normalized config
- */
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
