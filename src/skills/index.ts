@@ -5,3 +5,4 @@ import './writing-plans.skill';
 
 export { knownSkills, resolveSkills, collectQualityRules } from './skill-registry';
 export { readSkillContent, buildSkillPromptFragment } from './skill-content';
+export { skillTaxonomy } from './skill-taxonomy';

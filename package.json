@@ -32,6 +32,7 @@
     "help:catalog": "ts-node -r tsconfig-paths/register scripts/generate-help-catalog.ts",
     "docs:sync": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts",
     "docs:check": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts --check",
+    "skills:sync": "ts-node -r tsconfig-paths/register scripts/sync-interactive-skills.ts",
     "generated-docs:sync": "yarn help:catalog && yarn docs:sync",
     "generated-docs:check": "yarn generated-docs:sync && git diff --exit-code -- README.md docs/commands-help.catalog.json",
     "format": "yarn lint:fix",
