@@ -66,6 +66,10 @@ const commandEvidenceRules = [
   '- Stage-and-commit step with a blocked commit policy and staged or working-tree changes: mark done'
   + ' — the implement stage intentionally leaves work staged; this satisfies the step',
   '- Never mark a policy-blocked commit step as not-done or unverifiable',
+  '- Hand-off step (run lint or smokes, check git status or git diff --cached, commit or PR message wording):'
+  + ' judge only the parts the evidence shows; parts backed by a matched passed outcome count as done',
+  '- Unregistered commands, git-state checks, and commit or PR message or trailer wording that the evidence'
+  + ' cannot show: mark not-applicable, not partially-done',
 ];
 
 const verificationPromptFooter = [

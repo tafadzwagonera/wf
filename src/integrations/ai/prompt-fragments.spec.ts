@@ -2,7 +2,23 @@ import {
   formatUiDesignScreenshotsPlanPromptSection,
   buildUiDesignComplianceSystemPromptSection,
   planFileListingInstructions,
+  planStepPrinciples,
 } from './prompt-fragments';
+
+describe('planStepPrinciples', () => {
+  it('directs commands to verification.targeted and forbids hand-off steps', () => {
+    expect(planStepPrinciples).toContain('verification.targeted');
+    expect(planStepPrinciples).toContain('Do not write plan steps that run verification commands');
+  });
+
+  it('no longer asks for staged-state verification before handoff', () => {
+    expect(planStepPrinciples).not.toContain('staged state before handoff');
+  });
+
+  it('keeps the first principle bullet intact', () => {
+    expect(planStepPrinciples).toContain('Be explicit about before and after');
+  });
+});
 
 describe('formatUiDesignScreenshotsPlanPromptSection', () => {
   afterEach(() => {

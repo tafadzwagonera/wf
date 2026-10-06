@@ -21,7 +21,10 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      call-site options, and test assertions should exercise the strongest viable positive check
      (not just "no throw").
    - Surface hidden gaps: note dead code after removals, cover error-swallowing paths with tests,
-     run or explicitly defer smoke tests, and verify both working-tree and staged state before handoff.
+     register smoke tests under \`verification.targeted\` or explicitly defer them.
+   - Do not write plan steps that run verification commands, check \`git status\` or \`git diff --cached\`,
+     stage, commit, or dictate commit/PR message wording or trailers. Declare commands in
+     \`verification.targeted\` so the tool runs and records them; commit handling is managed by the tool.
    - When "Known UI interaction patterns" or "Element class conventions" are listed under
      repository conventions, cite and match the referenced file or convention before proposing
      a new approach to the same interaction or choosing a Tailwind class (duplicate links,

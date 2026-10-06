@@ -638,6 +638,44 @@ describe('PlanStepVerificationService', () => {
     expect(prompt).not.toContain('## Command execution evidence');
   });
 
+  it('includes hand-off rules alongside the failed-outcome rule under a blocked policy with outcomes', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams({
+      verificationOutcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+      commitPolicy: { allowsCommit: false, complexity: 'medium' },
+    }));
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('- Hand-off step (run lint or smokes');
+    expect(prompt).toContain('mark not-applicable, not partially-done');
+    expect(prompt).toContain('Matched command step with failed outcome: mark not-done');
+  });
+
+  it('omits hand-off rules when there are no outcomes and no commit policy', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams());
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).not.toContain('- Hand-off step (run lint or smokes');
+    expect(prompt).not.toContain('mark not-applicable, not partially-done');
+  });
+
+  it('renders an allowed commit policy without blocked wording when outcomes exist', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams({
+      verificationOutcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+      commitPolicy: { allowsCommit: true, complexity: 'low' },
+    }));
+
+    const prompt = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('Commit policy: allowed');
+    expect(prompt).not.toContain('Commit policy: blocked');
+    expect(prompt).toContain('- Hand-off step (run lint or smokes');
+  });
+
   it('omits commits line from prompt when commitPolicy is set but no baseRef', async () => {
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
 
