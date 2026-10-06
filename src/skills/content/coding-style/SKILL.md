@@ -29,11 +29,10 @@ description: Coding style conventions — naming, control flow, types, documenta
 - Prefer precise types; `any` undermines type safety and masks bugs at call sites.
 
 ## Documentation
-- Never write code comments. No inline comments, no trailing comments, no block comments inside implementation, and no commented-out code.
-- Never write banner or section-divider comments, e.g. `// ===== Helpers =====`, `/* --- Types --- */`, or `// #region`.
-- JSDoc blocks on exported symbols are the only permitted comment form; machine-read directives (`eslint-disable-*`, `@ts-expect-error`) are directives, not comments.
-- When code needs explaining, rename it, extract it, or type it — do not annotate it.
-- The ban applies to comments you author. Preexisting comments may stay: revise one when your change makes it stale or wrong, and leave the rest alone rather than stripping them.
+- The global no-new-comments rule covers every authored form: inline, trailing, and block comments, commented-out code, and banner or section-divider comments, e.g. `// ===== Helpers =====`, `/* --- Types --- */`, or `// #region`.
+- Restrict JSDoc to exported symbols. Machine-read directives (`eslint-disable-*`, `@ts-expect-error`) are directives, not comments, and stay allowed.
+- Refactoring code until it is self-explanatory means rename it, extract it, or type it.
+- Preserving existing comments means revising one when your change makes it stale or wrong, and leaving the rest alone rather than stripping them.
 - Keep `swagger.yml` and `README.md` aligned with Zod schemas as the source of truth.
 
 ## Testing
