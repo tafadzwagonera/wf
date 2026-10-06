@@ -16,6 +16,8 @@ import {
   resolvePlanArtifactReference,
   writePlanArtifactManifest,
 } from '../../shared/utils/plan-artifact';
+import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
+import type { PlanRisk } from '../../shared/types/ai.types';
 import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../../shared/utils/extract-figma-links';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
 import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
@@ -58,6 +60,11 @@ interface GeneratePlanOptions {
   resumeProviderSessionId?: string;
   testInfra?: TestInfraContext;
 }
+
+const toQualityRisk = (violation: string): PlanRisk => ({
+  description: `[plan-quality] ${violation}`,
+  severity: 'medium',
+});
 
 @Injectable()
 export class PlanStageService {
@@ -322,7 +329,7 @@ export class PlanStageService {
     if (violations.length === 0) return;
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
     console.log(formatPlanQualityViolations(formatted, 'Plan quality violations (loaded plan)'));
-    plan.risks = [...(plan.risks ?? []), ...formatted.map(v => `[plan-quality] ${v}`)];
+    plan.risks = [...(plan.risks ?? []), ...formatted.map(toQualityRisk)];
   }
 
   /**
@@ -411,10 +418,11 @@ export class PlanStageService {
   private applyQualityViolationsToRisks(attempt: PlanResult, violations: string[]): PlanResult {
     console.log(formatPlanQualityViolations(violations, 'Plan quality violations persisted after retry'));
     const existingRisks = attempt.plan.risks ?? [];
-    const qualityRisks = violations.map(v => `[plan-quality] ${v}`);
+    const risks = [...existingRisks, ...violations.map(toQualityRisk)];
+    const plan = { ...attempt.plan, risks };
     return {
       ...attempt,
-      plan: { ...attempt.plan, risks: [...existingRisks, ...qualityRisks] },
+      plan: { ...plan, estimatedComplexity: estimatePlanComplexity(plan) },
     };
   }
 

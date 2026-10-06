@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../shared/utils/errors';
+import { formatPlanRisks } from '../../../shared/utils/plan-risk';
 import {
   Agent,
   MaxTurnsExceededError,
@@ -1296,7 +1297,7 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
-  planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
+  planRisks: formatPlanRisks(params.planArtifact.plan.risks), contextFiles: params.contextFiles,
   figmaContextSection: params.figmaContextSection,
   phases: params.planArtifact.plan.phases ?? undefined,
 });

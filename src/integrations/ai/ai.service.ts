@@ -50,10 +50,12 @@ import type {
   FindingsDocument,
   FileEntry,
   ResolutionPlan,
+  PlanModelOutput,
 } from '../../shared/types/ai.types';
 import type { CodeReview } from '../../shared/types/review.types';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
+import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
+import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
 import type { ResolutionAction, StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
@@ -86,6 +88,7 @@ export type {
   FileStatus,
   FileEntry,
   ResolutionPlan,
+  PlanModelOutput,
 } from '../../shared/types/ai.types';
 export type { CodeIssue, CodeReview } from '../../shared/types/review.types';
 export { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../../shared/types/review.types';
@@ -638,7 +641,7 @@ const buildPlanOutputSchema = (
   packageManager: PackageManager = 'npm',
 ): string => {
   return `Return ONLY a valid JSON object. Reference:
-{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
@@ -1369,7 +1372,7 @@ export class AiService {
    */
   private parsePlanResponse(response: AIResponse): ResolutionPlan {
     try {
-      const parsedPlan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+      const parsedPlan = parseJsonResponse<PlanModelOutput & { repositoriesAffected?: string[] }>(
         requireAiResponseContent(response, 'AI provider returned an empty plan response')
       );
       const plan = this.parsePlanContent(parsedPlan);
@@ -1382,8 +1385,10 @@ export class AiService {
     }
   }
 
-  private parsePlanContent(parsedPlan: ResolutionPlan & { repositoriesAffected?: string[] }): ResolutionPlan {
-    return this.applyRepositoriesAffected(resolutionPlanSchema.parse(parsedPlan), parsedPlan.repositoriesAffected);
+  private parsePlanContent(parsedPlan: PlanModelOutput & { repositoriesAffected?: string[] }): ResolutionPlan {
+    const base = planModelOutputSchema.parse(parsedPlan);
+    const plan = { ...base, estimatedComplexity: estimatePlanComplexity(base) };
+    return this.applyRepositoriesAffected(plan, parsedPlan.repositoriesAffected);
   }
 
   /**
@@ -1450,7 +1455,7 @@ export class AiService {
 
   private parsePlanValidationContent(content: string): ResolutionPlan {
     return this.parsePlanContent(
-      parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(content)
+      parseJsonResponse<PlanModelOutput & { repositoriesAffected?: string[] }>(content)
     );
   }
 

@@ -17,7 +17,8 @@ import {
   resolvePlanToken,
   readUiDesignScreenshotsFromPlanArtifact,
 } from './plan-artifact';
-import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError } from '../errors/app.error';
+import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, WorkflowParseError } from '../errors/app.error';
+import { formatPlanRisk } from './plan-risk';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
 
 describe('parsePlanArtifact', () => {
@@ -129,6 +130,67 @@ describe('parsePlanArtifact', () => {
 
     expect(plan.phases).toHaveLength(1);
     expect(plan.phases[0].label).toBe('Valid');
+  });
+});
+
+describe('parsePlanArtifact markdown risks and complexity', () => {
+  const markdown = (options: { complexity?: string; risks: string[] }): string =>
+    [
+      '# Implementation Plan',
+      '',
+      '**Action:** fix',
+      ...(options.complexity ? [`**Complexity:** ${options.complexity}`] : []),
+      '',
+      '## Summary',
+      '',
+      'Tiny change',
+      '',
+      '## Steps',
+      '',
+      '1. Do it',
+      '',
+      '## Risks',
+      '',
+      ...options.risks.map(risk => `- ${risk}`),
+      '',
+    ].join('\n');
+
+  it('keeps explicit complexity and loads plain bullets as medium risks', () => {
+    const plan = parsePlanArtifact(markdown({ complexity: 'high', risks: ['plain risk'] }), '/tmp/plan.md');
+
+    expect(plan.estimatedComplexity).toBe('high');
+    expect(plan.risks).toEqual([{ description: 'plain risk', severity: 'medium' }]);
+  });
+
+  it('computes complexity from the estimator when the markdown omits it', () => {
+    const plan = parsePlanArtifact(markdown({ risks: [] }), '/tmp/plan.md');
+
+    expect(plan.estimatedComplexity).toBe('low');
+  });
+
+  it('lifts computed complexity with a high severity risk', () => {
+    const plan = parsePlanArtifact(markdown({ risks: ['[high] dangerous'] }), '/tmp/plan.md');
+
+    expect(plan.estimatedComplexity).toBe('high');
+  });
+
+  it('restores severity prefixes written by formatPlanRisk', () => {
+    const risks = [
+      { description: 'dangerous', severity: 'high' as const },
+      { description: '[plan-quality] [rename-target-required] x', severity: 'medium' as const },
+    ];
+    const plan = parsePlanArtifact(
+      markdown({ complexity: 'medium', risks: risks.map(formatPlanRisk) }),
+      '/tmp/plan.md'
+    );
+
+    expect(plan.risks).toEqual(risks);
+  });
+
+  it('still rejects an invalid explicit complexity', () => {
+    expect(() => parsePlanArtifact(markdown({ complexity: 'extreme', risks: [] }), '/tmp/plan.md')).toThrow(
+      WorkflowParseError
+    );
   });
 });
 

@@ -817,6 +817,35 @@ describe('IssuePlanCommand', () => {
     exitSpy.mockRestore();
   });
 
+  it('recomputes estimatedComplexity from the final validated plan before saving', async () => {
+    const { command, fetchStageService, planStageService } = await buildCommand();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    fetchStageService.fetchArtifact.mockResolvedValue({
+      ticketKey: 'WBP-1',
+      content: '# WBP-1: Fix login\n\n## Description\n\nRestore auth flow',
+      path: '/tmp/.wf/repo-a/jira/WBP-1.md',
+    });
+    planStageService.generatePlan.mockResolvedValue({
+      plan: {
+        action: 'fix',
+        summary: 'Fix login',
+        estimatedComplexity: 'high',
+        steps: ['Update the login handler in repo-a/src/auth.ts.'],
+        affectedFiles: ['repo-a/src/auth.ts'],
+        affectedRepositories: ['repo-a'],
+      },
+    } as any);
+
+    const writeFileSpy = jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
+
+    await command.run([], { action: 'fix', ticketKey: 'WBP-1', repos: ['repo-a'] });
+
+    const savedPlan = JSON.parse(writeFileSpy.mock.calls[0][1] as string);
+    expect(savedPlan.estimatedComplexity).toBe('low');
+  });
+
   it('rejects rename steps that omit the replacement target', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -849,7 +878,7 @@ describe('IssuePlanCommand', () => {
     const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
     const savedPlan = JSON.parse(savedPlanContent);
     expect(savedPlan.risks).toBeDefined();
-    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*rename-target-required/.test(r))).toBe(true);
+    expect(savedPlan.risks.some((r: { description: string }) => /\[plan-quality\].*rename-target-required/.test(r.description))).toBe(true);
 
     consoleLogSpy.mockRestore();
     exitSpy.mockRestore();
@@ -896,7 +925,7 @@ describe('IssuePlanCommand', () => {
     const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
     const savedPlan = JSON.parse(savedPlanContent);
     expect(savedPlan.risks).toBeDefined();
-    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*verification-allowlist/.test(r))).toBe(true);
+    expect(savedPlan.risks.some((r: { description: string }) => /\[plan-quality\].*verification-allowlist/.test(r.description))).toBe(true);
 
     consoleLogSpy.mockRestore();
     exitSpy.mockRestore();
@@ -947,7 +976,7 @@ describe('IssuePlanCommand', () => {
     const savedPlanContent = writeFileSpy.mock.calls[0][1] as string;
     const savedPlan = JSON.parse(savedPlanContent);
     expect(savedPlan.risks).toBeDefined();
-    expect(savedPlan.risks.some((r: string) => /\[plan-quality\].*mock-cleanup-convention/.test(r))).toBe(true);
+    expect(savedPlan.risks.some((r: { description: string }) => /\[plan-quality\].*mock-cleanup-convention/.test(r.description))).toBe(true);
 
     consoleLogSpy.mockRestore();
     exitSpy.mockRestore();

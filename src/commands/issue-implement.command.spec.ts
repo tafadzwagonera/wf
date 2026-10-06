@@ -68,6 +68,7 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
 import { AmbiguousPlanArtifactError } from '../shared/utils/errors';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 import { initializeWfConfig } from '../config/wf-config-loader';
@@ -132,6 +133,14 @@ describe('IssueImplementCommand', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     jest.restoreAllMocks();
+  });
+
+  it('documents in the help catalog that plan complexity is computed deterministically', () => {
+    const catalogPath = path.join(__dirname, '..', '..', 'docs', 'commands-help.catalog.json');
+    const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf-8')) as Record<string, { description: string }>;
+
+    expect(catalog['issue:implement'].description).toContain('Plan complexity is computed deterministically');
+    expect(catalog['issue:implement'].description).toContain('highest model-assessed risk severity');
   });
 
   it('prints the command header when --silent is not set', async () => {

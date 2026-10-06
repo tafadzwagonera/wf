@@ -75,21 +75,31 @@ export const planPhaseSchema = z.object({
   verifyAfter: z.array(z.string()).optional(),
 });
 
-export const resolutionPlanSchema = z.object({
+export const planComplexitySchema = z.enum(['low', 'medium', 'high']);
+
+export const planRiskSchema = z.object({
+  description: z.string(),
+  severity: planComplexitySchema,
+});
+
+export const planModelOutputSchema = z.object({
   action: z.enum(['fix', 'feature', 'investigate']),
   summary: z.string(),
   steps: z.array(z.string()),
-  estimatedComplexity: z.enum(['low', 'medium', 'high']),
   affectedFiles: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
   affectedFilesContext: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
   affectedRepositories: nullableOptional(z.array(z.string())),
   newRepositories: nullableOptional(z.array(z.string())),
-  risks: nullableOptional(z.array(z.string())),
+  risks: nullableOptional(z.array(planRiskSchema)),
   verification: nullableOptional(planVerificationConfigSchema),
   provider: z.string().optional(),
   source: z.string().optional(),
   timestamp: z.string().optional(),
   phases: nullableOptional(z.array(planPhaseSchema)),
+});
+
+export const resolutionPlanSchema = planModelOutputSchema.extend({
+  estimatedComplexity: planComplexitySchema,
 });
 
 // Re-export review schemas used in AI context

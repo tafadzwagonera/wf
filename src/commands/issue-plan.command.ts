@@ -7,6 +7,9 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ValidationError } from '../shared/utils/errors';
+import type { PlanComplexity, PlanModelOutput, PlanRisk } from '../shared/types/ai.types';
+import { estimatePlanComplexity } from '../shared/utils/estimate-plan-complexity';
+import { formatPlanRisks } from '../shared/utils/plan-risk';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import type { planVerificationConfigSchema } from '../shared/schemas/verification.schema';
 import type { z } from 'zod';
@@ -57,6 +60,11 @@ interface IssuePlanOptions {
 }
 
 interface RepoAwarePlan {
+  steps: string[];
+  estimatedComplexity?: PlanComplexity;
+  risks?: PlanRisk[];
+  phases?: PlanModelOutput['phases'];
+  newRepositories?: string[];
   affectedFiles?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   affectedFilesContext?: (string | import('../integrations/ai/ai.service').FileEntry)[];
   affectedRepositories?: string[];
@@ -587,7 +595,7 @@ export class IssuePlanCommand extends CommandRunner {
     this.dryRunPreview.previewApiCall({
       method: 'POST', endpoint: this.aiService.getProviderEndpoint('plan'), platform: this.aiService.getProviderDisplayName('plan'),
       description: 'Generate ' + action + ' plan',
-      estimatedResponse: '{\n  "action": "' + action + '",\n  "estimatedComplexity": "medium",'
+      estimatedResponse: '{\n  "action": "' + action + '",'
         + '\n  "steps": ["<step 1>", "..."],\n  "affectedFiles": ["<file>", "..."]\n}',
     });
   }
@@ -678,7 +686,7 @@ export class IssuePlanCommand extends CommandRunner {
     md += this.formatBulletSection('## Files for Context (Read-Only)', plan.affectedFilesContext?.map(resolveFileLabel));
     md += this.formatBulletSection('## Affected Repositories', plan.affectedRepositories);
     md += this.formatVerificationSection(plan.verification);
-    md += this.formatBulletSection('## Risks', plan.risks);
+    md += this.formatBulletSection('## Risks', formatPlanRisks(plan.risks));
     return md;
   }
 
@@ -854,6 +862,7 @@ export class IssuePlanCommand extends CommandRunner {
     this.validateVerificationEcosystems(plan, testInfra);
     this.validateVerificationSemantics(plan, selectedRepoDir);
     this.validatePlanQualityRules(plan, repos, testInfra, packageManager);
+    plan.estimatedComplexity = estimatePlanComplexity(plan);
   }
 
   private validatePlanMetadata(
@@ -1000,7 +1009,7 @@ export class IssuePlanCommand extends CommandRunner {
 
     const formatted = violations.map(v => `[${v.ruleId}] ${v.message}`);
     console.log(formatPlanQualityViolations(formatted, 'Plan quality violations'));
-    const existingRisks = (plan as RepoAwarePlan & { risks?: string[] }).risks ?? [];
-    (plan as RepoAwarePlan & { risks?: string[] }).risks = [...existingRisks, ...formatted.map(v => `[plan-quality] ${v}`)];
+    const qualityRisks = formatted.map((v): PlanRisk => ({ description: `[plan-quality] ${v}`, severity: 'medium' }));
+    plan.risks = [...(plan.risks ?? []), ...qualityRisks];
   }
 }

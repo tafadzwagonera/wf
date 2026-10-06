@@ -7,6 +7,9 @@ import type {
   fileStatusSchema,
   fileEntrySchema,
   resolutionPlanSchema,
+  planComplexitySchema,
+  planRiskSchema,
+  planModelOutputSchema,
 } from '../schemas/ai.schema';
 
 export type AIRequest = z.infer<typeof aiRequestSchema>;
@@ -16,3 +19,6 @@ export type FindingsDocument = z.infer<typeof findingsDocumentSchema>;
 export type FileStatus = z.infer<typeof fileStatusSchema>;
 export type FileEntry = z.infer<typeof fileEntrySchema>;
 export type ResolutionPlan = z.infer<typeof resolutionPlanSchema>;
+export type PlanComplexity = z.infer<typeof planComplexitySchema>;
+export type PlanRisk = z.infer<typeof planRiskSchema>;
+export type PlanModelOutput = z.infer<typeof planModelOutputSchema>;

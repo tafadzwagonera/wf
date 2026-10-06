@@ -65,6 +65,40 @@ describe('ClaudeCliAdapter', () => {
     expect(mockBuildCliArgs.mock.calls[0][0].appendSystemPrompt).toContain('Repository conventions (repo):');
   });
 
+  it('renders object plan risks with severity prefixes in the task brief', async () => {
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0.01 };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'high',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [{ description: 'Shared module change', severity: 'high' }],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      conventionsSection: 'conventions',
+    } as never);
+
+    expect(mockSpawnCli.mock.calls[0][2]).toContain('[high] Shared module change');
+  });
+
   describe('errored result reporting', () => {
     const runWith = async (
       resultMessage: Record<string, unknown>,

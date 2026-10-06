@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError } from '../../../shared/utils/errors';
+import { formatPlanRisks } from '../../../shared/utils/plan-risk';
 import {
   type CanUseTool,
   type SDKResultMessage,
@@ -18,7 +19,7 @@ import type {
   VerificationOutcome,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
-import { buildSkillPromptFragment } from '../../../skills/skill-content';
+import { buildSkillPromptFragment } from '../../../skills';
 import { resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
 import {
   DEFAULT_ANTHROPIC_MODEL,
@@ -715,7 +716,7 @@ const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: 
   repoFiles: s.params.repoFiles, contextFiles: s.params.contextFiles,
   trackedFilePaths: s.params.trackedFilePaths, verificationScripts: s.params.verificationScripts,
   planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
-  planRisks: s.params.planArtifact.plan.risks, planAction: s.params.planArtifact.plan.action,
+  planRisks: formatPlanRisks(s.params.planArtifact.plan.risks), planAction: s.params.planArtifact.plan.action,
   skillFragment: skillFragment.length > 0 ? skillFragment : undefined,
   figmaContextSection: s.params.figmaContextSection,
   phases: s.params.planArtifact.plan.phases,

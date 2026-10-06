@@ -1,4 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
+import type { PlanRisk } from '../shared/types/ai.types';
+import { formatPlanRisk } from '../shared/utils/plan-risk';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext, WorkflowStage as ConvWorkflowStage } from '../integrations/ai/conversation/interfaces';
@@ -892,7 +894,7 @@ export class IssueCommand extends CommandRunner {
     this.dryRunPreview.previewApiCall({
       method: 'POST', endpoint, platform,
       description: `Generate ${action} plan`,
-      estimatedResponse: `{\n  "action": "${action}",\n  "estimatedComplexity": "medium",\n  "steps": ["<step 1>", "..."],\n  "affectedFiles": ["<file>", "..."]\n}`,
+      estimatedResponse: `{\n  "action": "${action}",\n  "steps": ["<step 1>", "..."],\n  "affectedFiles": ["<file>", "..."]\n}`,
     });
   }
 
@@ -1024,7 +1026,7 @@ export class IssueCommand extends CommandRunner {
     let wfSessionId: string | undefined = options.sessionId;
     ({ sessionState, wfSessionId } = await this.loadRequestedSession(sessionState, wfSessionId));
     this.validateSessionOwnership(sessionState, wfSessionId, ticketKey);
-    ({ sessionState, wfSessionId } = this.dropExpiredSession(sessionState, wfSessionId));
+    ({ sessionState } = this.dropExpiredSession(sessionState, wfSessionId));
     sessionState ||= await this.createNewSession(ctx);
     this.printSessionId(sessionState.sessionId, options?.silent);
     return sessionState;
@@ -1432,7 +1434,7 @@ export class IssueCommand extends CommandRunner {
           fs.existsSync(path.join(r.dir, `wf.config${ext}`))
         );
         if (dirExists && configExists) return null;
-        return `${r.name} (${!dirExists ? 'directory not found' : 'wf.config.* not found'}: ${r.dir})`;
+        return `${r.name} (${dirExists ? 'wf.config.* not found' : 'directory not found'}: ${r.dir})`;
       })
       .filter((entry): entry is string => entry !== null);
     if (missing.length === 0) return;
@@ -1493,7 +1495,7 @@ export class IssueCommand extends CommandRunner {
     implementerResult: ImplementerResult | undefined;
     earlyReturn: boolean;
     primaryRepoSessionId?: string;
-    sessionState?: SessionState | undefined;
+    sessionState: SessionState | undefined;
   }> {
     const isMultiRepo = repos.length > 1;
     let implementerResult: ImplementerResult | undefined;
@@ -1918,7 +1920,7 @@ export class IssueCommand extends CommandRunner {
     const formatStep = (s: string, i: number): string => '  ' + (i + 1) + '. ' + s;
     const resolveFilePath = (f: any): string => typeof f === 'string' ? f : f.filePath;
     const formatFile = (f: any): string => '  - ' + resolveFilePath(f);
-    const formatRisk = (r: string): string => '  - ' + r;
+    const formatRisk = (r: PlanRisk): string => '  - ' + formatPlanRisk(r);
 
     const steps = plan.steps.map(formatStep).join('\n');
     const files = plan.affectedFiles

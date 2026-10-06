@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import * as path from 'node:path';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ExecutionError } from '../../../shared/utils/errors';
+import { formatPlanRisks } from '../../../shared/utils/plan-risk';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -38,7 +39,7 @@ import {
   spawnCli,
   type ClaudeCliMessage,
 } from './claude-cli-runner';
-import { buildSkillPromptFragment } from '../../../skills/skill-content';
+import { buildSkillPromptFragment } from '../../../skills';
 
 const CLI_ADAPTER_LABEL = 'claude-cli';
 const implementTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
@@ -390,7 +391,7 @@ const buildCliTaskBriefParams = (
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
   verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
-  planRisks: params.planArtifact.plan.risks ?? undefined, contextFiles: params.contextFiles,
+  planRisks: formatPlanRisks(params.planArtifact.plan.risks), contextFiles: params.contextFiles,
   skillFragment: skillFragment.length > 0 ? skillFragment : undefined, figmaContextSection: params.figmaContextSection,
   phases: params.planArtifact.plan.phases ?? undefined,
 });

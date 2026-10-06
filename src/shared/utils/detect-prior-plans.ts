@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { formatPlanRisks } from './plan-risk';
 import type {
   PlanCorrelationMatch,
   PlanCorrelationResult,
@@ -84,7 +85,8 @@ export const extractContentKeywords = (text: string): string[] => {
  */
 export const extractPlanKeywords = (plan: ResolutionPlan): string[] => {
   const affectedFilePaths = extractAffectedFilePaths(plan.affectedFiles);
-  const combined = [plan.summary, ...(plan.steps ?? []), ...affectedFilePaths, ...(plan.risks ?? [])]
+  const riskDescriptions = (plan.risks ?? []).map(r => r.description);
+  const combined = [plan.summary, ...(plan.steps ?? []), ...affectedFilePaths, ...riskDescriptions]
     .join(' ')
     .slice(0, EXTRACT_MAX_CHARS);
 
@@ -218,7 +220,7 @@ const loadPlanDetails = (plan: PriorPlanSummary, repoDir: string, opts: LoadPlan
     const { snippets, totalChars } = readSourceSnippets(affectedFiles, repoDir, opts);
     return {
       affectedFiles, affectedFilesContext: parsed.affectedFilesContext as string[] | undefined,
-      risks: parsed.risks, verification: parsed.verification, sourceSnippets: snippets, totalChars,
+      risks: formatPlanRisks(parsed.risks), verification: parsed.verification, sourceSnippets: snippets, totalChars,
     };
   } catch {
     return { sourceSnippets: [], totalChars: opts.currentTotalChars };

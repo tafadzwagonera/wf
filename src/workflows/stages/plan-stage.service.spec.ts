@@ -60,7 +60,7 @@ describe('PlanStageService', () => {
         },
       ],
     },
-    risks: ['Regression in login flow'],
+    risks: [{ description: 'Regression in login flow', severity: 'medium' }],
   };
 
   const buildService = async (agentEnabled: boolean = false) => {
@@ -622,11 +622,15 @@ describe('PlanStageService', () => {
     (aiService.generatePlan as jest.Mock)
       .mockResolvedValueOnce({
         ...mockPlan,
+        estimatedComplexity: 'low',
+        risks: [],
         steps: ['Rename AuthService in repo-a/src/auth.ts.'],
         affectedRepositories: ['repo-a'],
       })
       .mockResolvedValueOnce({
         ...mockPlan,
+        estimatedComplexity: 'low',
+        risks: [],
         steps: ['Rename AuthService in repo-a/src/auth.ts.'],
         affectedRepositories: ['repo-a'],
       });
@@ -643,7 +647,30 @@ describe('PlanStageService', () => {
 
     expect(result.plan.risks).toBeDefined();
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    expect(result.plan.risks!.some(r => r.includes('[plan-quality]'))).toBe(true);
+    expect(result.plan.risks!.some(r => r.description.includes('[plan-quality]'))).toBe(true);
+    expect(result.plan.estimatedComplexity).toBe('medium');
+  });
+
+  it('applyQualityViolationsToRisks returns a new plan without mutating the attempt or the violations', async () => {
+    const { service } = await buildService();
+    jest.spyOn(console, 'log').mockImplementation();
+    const attempt = {
+      plan: { ...mockPlan, estimatedComplexity: 'low', risks: [{ description: 'Prior risk', severity: 'medium' }] },
+      sessionId: 'session-1',
+      modelUsed: 'model-1',
+    };
+    const violations = ['[rename-target-required] Step 1 must name the target.'];
+
+    const result = (service as any).applyQualityViolationsToRisks(attempt, violations);
+
+    expect(attempt.plan.risks).toEqual([{ description: 'Prior risk', severity: 'medium' }]);
+    expect(attempt.plan.estimatedComplexity).toBe('low');
+    expect(violations).toEqual(['[rename-target-required] Step 1 must name the target.']);
+    expect(result.plan.risks).toEqual([
+      { description: 'Prior risk', severity: 'medium' },
+      { description: '[plan-quality] [rename-target-required] Step 1 must name the target.', severity: 'medium' },
+    ]);
+    expect(result.sessionId).toBe('session-1');
   });
 
   it('accepts repo-local verification commands without triggering a corrective retry', async () => {
@@ -1086,7 +1113,7 @@ describe('PlanStageService', () => {
         { action: 'fix', skipExisting: true }
       );
 
-      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*rename-target-required/)]));
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.objectContaining({ description: expect.stringMatching(/\[plan-quality\].*rename-target-required/), severity: 'medium' })]));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('rename-target-required'));
     });
 
@@ -1129,7 +1156,7 @@ describe('PlanStageService', () => {
         { action: 'fix', skipExisting: true }
       );
 
-      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*verification-allowlist/)]));
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.objectContaining({ description: expect.stringMatching(/\[plan-quality\].*verification-allowlist/), severity: 'medium' })]));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('verification-allowlist'));
     });
 
@@ -1150,6 +1177,8 @@ describe('PlanStageService', () => {
       const planPath = path.join(tempDir, planFilename);
       const invalidPlan = {
         ...mockPlan,
+        estimatedComplexity: 'low',
+        risks: [],
         action: 'fix',
         steps: ['Rename AuthService in src/auth.ts'],
         affectedRepositories: ['repo-a'],
@@ -1161,8 +1190,9 @@ describe('PlanStageService', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const result = await service.loadPlanArtifact(ticketPath);
 
-      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*rename-target-required/)]));
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.objectContaining({ description: expect.stringMatching(/\[plan-quality\].*rename-target-required/), severity: 'medium' })]));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('rename-target-required'));
+      expect(result.plan.estimatedComplexity).toBe('low');
     });
 
     it('loadPlanArtifact downgrades violations to risks on loaded plan with disallowed verification commands', async () => {
@@ -1201,7 +1231,7 @@ describe('PlanStageService', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const result = await service.loadPlanArtifact(ticketPath);
 
-      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.stringMatching(/\[plan-quality\].*verification-allowlist/)]));
+      expect(result.plan.risks).toEqual(expect.arrayContaining([expect.objectContaining({ description: expect.stringMatching(/\[plan-quality\].*verification-allowlist/), severity: 'medium' })]));
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('verification-allowlist'));
     });
 

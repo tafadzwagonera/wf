@@ -45,7 +45,7 @@ const createMockPlanJson = (overrides: Record<string, unknown> = {}) => ({
   steps: ['Inspect PricingService', 'Patch BookingController timeout handling'],
   estimatedComplexity: 'medium',
   affectedFiles: ['src/pricing/pricing.service.ts'],
-  risks: ['ECONNREFUSED can still surface during timeout spikes'],
+  risks: [{ description: 'ECONNREFUSED can still surface during timeout spikes', severity: 'medium' }],
   ...overrides,
 });
 
@@ -86,7 +86,7 @@ describe('extractPlanKeywords', () => {
       createMockPlanJson({
         affectedFiles: ['src/pricing/pricing.service.ts'],
         steps: ['Inspect PricingService and BookingController'],
-        risks: ['Timeout can still throw ECONNREFUSED'],
+        risks: [{ description: 'Timeout can still throw ECONNREFUSED', severity: 'medium' }],
       }) as any
     );
 
@@ -113,7 +113,7 @@ describe('extractPlanKeywords', () => {
         summary: 'PricingService timeout',
         steps: ['Inspect PricingService'],
         affectedFiles: ['src/pricing/pricing.service.ts', 'src/pricing/pricing.service.ts'],
-        risks: ['timeout'],
+        risks: [{ description: 'timeout', severity: 'medium' }],
       }) as any
     );
 

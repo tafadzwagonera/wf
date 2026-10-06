@@ -50,10 +50,12 @@ import {
   requireAiResponseContent,
   requireReviewResponseContent,
   ResolutionPlan,
+  PlanModelOutput,
   sanitizeCodeReviewTrace,
 } from './ai.service';
 import type { AIRequest } from '../../shared/types/ai.types';
-import { resolutionPlanSchema } from '../../shared/schemas/ai.schema';
+import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
+import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
 import { codeReviewSchema } from '../../shared/schemas/review.schema';
 import { generateTicketSchema } from '../../shared/schemas/generate-ticket.schema';
 import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
@@ -85,7 +87,7 @@ import {
 } from '../../shared/utils/detect-reuse-candidates';
 import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
-import { buildSkillPromptFragment } from '../../skills/skill-content';
+import { buildSkillPromptFragment } from '../../skills';
 import { estimateLlmCostUsd } from './llm-cost';
 import { buildSanitisedJsonSchema, normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './schema/openai-json-schema';
 export { buildSanitisedJsonSchema } from './schema/openai-json-schema';
@@ -405,7 +407,7 @@ ${planFileListingInstructions}`;
 
 const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
 Return ONLY a valid JSON object. Reference:
-{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"estimatedComplexity":"medium","affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":["Renaming may break downstream consumers"],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(opts.packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(opts.packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
@@ -587,7 +589,8 @@ const extractCodexMessageError = (message: CodexCliMessage): string | undefined 
   if (typeof message.message === 'string' && message.message.trim()) return message.message.trim();
   const errorDetail = extractCodexErrorField(message['error']);
   if (errorDetail) return errorDetail;
-  return `Codex CLI returned ${message.type}${message.subtype ? ` (${message.subtype})` : ''}.`;
+  const subtypeSuffix = message.subtype ? ` (${message.subtype})` : '';
+  return `Codex CLI returned ${message.type}${subtypeSuffix}.`;
 };
 
 const throwCodexMessageError = (message: CodexCliMessage, stage: AgentStageName): never => {
@@ -965,13 +968,13 @@ const extractAnthropicResultMessage = (
 };
 
 const stageResponseSchemas: Partial<Record<AgentStageName, string>> = {
-  plan: buildSanitisedJsonSchema(z.toJSONSchema(resolutionPlanSchema)),
+  plan: buildSanitisedJsonSchema(z.toJSONSchema(planModelOutputSchema)),
   review: buildSanitisedJsonSchema(z.toJSONSchema(codeReviewSchema)),
   generate: buildSanitisedJsonSchema(z.toJSONSchema(generateTicketSchema)),
 };
 
 const stageZodSchemas: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
-  plan: resolutionPlanSchema,
+  plan: planModelOutputSchema,
   review: codeReviewSchema,
   generate: generateTicketSchema,
 };
@@ -1019,7 +1022,7 @@ const stageParseErrorLabels: Partial<Record<AgentStageName, string>> = {
 };
 
 const buildStageParseErrorMessage = (
-  stage: AgentStageName, content: string, zodIssues: string | undefined, label?: string
+  stage: AgentStageName, _content: string, zodIssues: string | undefined, label?: string
 ): string => {
   const responseLabel = label ?? stageParseErrorLabels[stage] ?? 'resolution plan';
   const baseMessage = `Failed to parse ${responseLabel} from agent response`;
@@ -1088,7 +1091,8 @@ const applySchemaRetry = (
 
 const appendAgentSdkScreenshotPaths = (prompt: string, screenshots: UiDesignScreenshot[] | undefined): string => {
   if (!screenshots?.length) return prompt;
-  return `${prompt}\n\nDesign screenshots (accessible via filesystem):\n${screenshots.map(s => `- ${s.path}`).join('\n')}`;
+  const screenshotLines = screenshots.map(s => '- ' + s.path);
+  return [prompt, '', 'Design screenshots (accessible via filesystem):', ...screenshotLines].join('\n');
 };
 
 @Injectable()
@@ -1154,7 +1158,7 @@ export class StageAgentService {
   }
 
   private parsePlanContent(response: string): ResolutionPlan {
-    const parsedPlan = parseJsonResponse<ResolutionPlan & { repositoriesAffected?: string[] }>(
+    const parsedPlan = parseJsonResponse<PlanModelOutput & { repositoriesAffected?: string[] }>(
       requireAiResponseContent(
         {
           content: response,
@@ -1164,7 +1168,9 @@ export class StageAgentService {
         'AI provider returned an empty plan response'
       )
     );
-    return this.applyRepositoriesAffected(resolutionPlanSchema.parse(parsedPlan), parsedPlan.repositoriesAffected);
+    const base = planModelOutputSchema.parse(parsedPlan);
+    const plan = { ...base, estimatedComplexity: estimatePlanComplexity(base) };
+    return this.applyRepositoriesAffected(plan, parsedPlan.repositoriesAffected);
   }
 
   private applyPlanMetadata(plan: ResolutionPlan, modelUsed?: string): ResolutionPlan {

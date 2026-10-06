@@ -34,19 +34,15 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
      checkpoints using the \`phases\` array.`;
 
-export const planFileListingInstructions = `3. Estimated complexity (low/medium/high). Base this on risk plus size: targeted writes
-   are the concrete files in affectedFiles, not the read-only affectedFilesContext entries. A low complexity
-   plan should have few targeted writes and a small plan step count; use medium or high when targeted writes
-   or plan step count grow enough that post-implementation verification should run.
-4. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
+export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files or "to-create" for new files.
    Verify each path exists with tools before listing it — hallucinated paths cause the implementer to stall.
-5. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
+4. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
    All context files must have status "found". Verify each path exists before listing it.
-6. Potential risks or considerations
-7. Repositories that will be affected (if known)
-8. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
+5. Potential risks or considerations — objects with "description" and "severity" (low/medium/high). Judge severity by blast radius: shared modules, nullable fields, config surfaces, and migration danger. The tool computes the final plan complexity from the highest risk severity plus plan size, so do not estimate complexity yourself.
+6. Repositories that will be affected (if known)
+7. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
 export const planMinimalChangePrinciple = `Minimal-change principle: propose the smallest effective change scoped to the ticket. Limit verification to files edited by this plan. Prefer changes that are replaceable or deletable without cascading effects.`;
 
@@ -85,7 +81,7 @@ export const buildPlanVerificationBlock = (hasNodeInfra: boolean): string => {
   const shellSafety = hasNodeInfra
     ? `\n   - Keep inline \`node -e\` commands shell-safe (single-quoted JS or escaped backticks).`
     : '';
-  return `9. Verification principles — include only when the plan introduces testable behavior:
+  return `8. Verification principles — include only when the plan introduces testable behavior:
    - Write commands that verify the specific behavior this plan introduces, not the entire test suite.
      A good verification command is copy-paste-runnable from the repo root, exits 0 on success,
      and references real scripts from "Available test infrastructure."
@@ -145,7 +141,8 @@ function formatNodeHeader(node: FigmaNodeLayout, indent: string): string {
   const attrs: string[] = [];
   if (node.layoutMode) attrs.push(node.layoutMode.toLowerCase());
   if (node.primaryAxisAlign) attrs.push(node.primaryAxisAlign.toLowerCase().replace('_', '-'));
-  return `${indent}${node.name}${dims}${attrs.length ? ` [${attrs.join(' | ')}]` : ''}`;
+  const attrsSuffix = attrs.length ? ' [' + attrs.join(' | ') + ']' : '';
+  return `${indent}${node.name}${dims}${attrsSuffix}`;
 }
 
 function formatNodeProps(node: FigmaNodeLayout): string[] {

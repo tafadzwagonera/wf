@@ -51,11 +51,9 @@ describe('buildUiDesignComplianceSystemPromptSection', () => {
 });
 
 describe('planFileListingInstructions', () => {
-  it('defines complexity using targeted writes from affectedFiles and step count', () => {
-    expect(planFileListingInstructions).toContain('targeted writes');
-    expect(planFileListingInstructions).toContain('affectedFiles');
-    expect(planFileListingInstructions).toContain('affectedFilesContext');
-    expect(planFileListingInstructions).toContain('plan step count');
-    expect(planFileListingInstructions).toContain('low complexity');
+  it('asks for risk severity and does not ask the model to estimate complexity', () => {
+    expect(planFileListingInstructions).toContain('"severity" (low/medium/high)');
+    expect(planFileListingInstructions).toContain('do not estimate complexity yourself');
+    expect(planFileListingInstructions).not.toContain('Estimated complexity');
   });
 });

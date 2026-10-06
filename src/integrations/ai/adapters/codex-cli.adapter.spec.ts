@@ -81,6 +81,41 @@ describe('CodexCliAdapter', () => {
     expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toContain('Formatter: prettier');
   });
 
+  it('builds the initial prompt when the plan carries object risks', async () => {
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 'codex-session', num_turns: 1, total_cost_usd: 0.01 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'high',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [{ description: 'Shared module change', severity: 'high' }],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      conventionsSection: 'conventions',
+    });
+
+    expect(mockBuildCodexCliArgs).toHaveBeenCalledTimes(1);
+    expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toContain('conventions');
+  });
+
   const createBaseParams = () => ({
     ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
     planArtifact: {

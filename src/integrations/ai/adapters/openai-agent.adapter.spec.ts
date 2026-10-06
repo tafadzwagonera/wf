@@ -631,6 +631,28 @@ describe('OpenAIAgentAdapter', () => {
   });
 
   describe('model routing in generateAndVerify', () => {
+    it('renders object plan risks with severity prefixes in the prompt', async () => {
+      const repoDir = createManagedTempDir('openai-plan-risks');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+
+      const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+      mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const params = makeParams(repoDir);
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...params,
+        planArtifact: {
+          ...params.planArtifact,
+          plan: { ...params.planArtifact.plan, risks: [{ description: 'Shared module change', severity: 'high' }] },
+        },
+      });
+
+      const runInputs = (mockRun.mock.calls as unknown as unknown[][]).map(call => JSON.stringify(call[1]));
+      expect(runInputs.some(input => input.includes('[high] Shared module change'))).toBe(true);
+    });
+
     it('uses mechanical model when --model-routing=mechanical', async () => {
       const repoDir = createManagedTempDir('openai-routing-mech');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });

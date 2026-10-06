@@ -2,7 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
-import { planPhaseSchema } from '../schemas/ai.schema';
+import { planComplexitySchema, planPhaseSchema } from '../schemas/ai.schema';
+import type { PlanComplexity } from '../types/ai.types';
+import { estimatePlanComplexity } from './estimate-plan-complexity';
+import { formatPlanRisk, normalizePlanRisks } from './plan-risk';
 import type { ResolutionAction, TicketArtifact } from '../types/agent.types';
 import { resolveCustomArtifactDir } from '../../agents/utils';
 import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
@@ -20,7 +23,6 @@ export const deriveReviewArtifactPath = (ticketPath: string, repoScope?: string)
 };
 
 const validActions: Set<string> = new Set(['feature', 'fix', 'investigate']);
-const validComplexities = ['low', 'medium', 'high'] as const;
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
 const planArtifactExtensions = ['json', 'md', 'yaml', 'yml'] as const;
 export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
@@ -28,7 +30,6 @@ const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(value.replace(/\.[^.]+$/, ''));
 
-type PlanComplexity = (typeof validComplexities)[number];
 type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 export type PlanArtifactSourceKind = 'ticket' | 'custom';
@@ -452,7 +453,6 @@ const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: str
   action: normalizeAction(rawPlan.action, filePath),
   summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
   steps: normalizeStringList(rawPlan.steps),
-  estimatedComplexity: normalizeComplexity(rawPlan.estimatedComplexity, filePath),
   affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
   affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
 });
@@ -460,7 +460,7 @@ const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: str
 const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
   affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
   newRepositories: normalizeOptionalStringList(rawPlan.newRepositories),
-  risks: normalizeOptionalStringList(rawPlan.risks),
+  risks: normalizePlanRisks(rawPlan.risks),
   verification: normalizePlanVerification(rawPlan.verification, filePath),
   provider: typeof rawPlan.provider === 'string' ? rawPlan.provider : undefined,
   source: typeof rawPlan.source === 'string' ? rawPlan.source : undefined,
@@ -473,7 +473,10 @@ const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
     throw new WorkflowParseError(`Plan file is not valid: ${filePath}`);
   }
   const rawPlan = value as Record<string, unknown>;
-  return { ...normalizeCorePlanFields(rawPlan, filePath), ...normalizeExtraPlanFields(rawPlan, filePath) };
+  const base = { ...normalizeCorePlanFields(rawPlan, filePath), ...normalizeExtraPlanFields(rawPlan, filePath) };
+  const explicitComplexity = normalizeComplexity(rawPlan.estimatedComplexity, filePath);
+  const estimatedComplexity = explicitComplexity ?? estimatePlanComplexity(base);
+  return { ...base, estimatedComplexity };
 };
 
 interface ParsedMarkdownPlan {
@@ -540,13 +543,14 @@ const normalizeAction = (value: unknown, filePath: string): ResolutionAction => 
   throw new WorkflowParseError(`Plan file has an invalid action: ${filePath}`);
 };
 
-const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity => {
+const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity | undefined => {
   if (value === undefined || value === null || value === '') {
-    return 'medium';
+    return undefined;
   }
 
-  if (typeof value === 'string' && validComplexities.includes(value as PlanComplexity)) {
-    return value as PlanComplexity;
+  const parsed = planComplexitySchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
   }
 
   throw new WorkflowParseError(`Plan file has an invalid complexity: ${filePath}`);
@@ -667,7 +671,7 @@ const buildSyntheticRisksSection = (plan: ResolutionPlan): string[] => [
   '## Risks',
   '',
   ...((plan.risks ?? []).length > 0
-    ? (plan.risks ?? []).map(risk => `- ${risk}`)
+    ? (plan.risks ?? []).map(risk => `- ${formatPlanRisk(risk)}`)
     : ['- Synthetic execution context derived from custom plan artifact']),
 ];
 

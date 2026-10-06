@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
+import { z } from 'zod';
+import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
 import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
 import * as logFileWriter from '../../shared/logger/log-file-writer';
 
@@ -305,6 +307,24 @@ describe('StageAgentService', () => {
     });
   });
 
+  it('ignores a model-supplied estimatedComplexity and computes it from plan size and risk severity', async () => {
+    const service = new StageAgentService(createConfigService());
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix',
+        summary: 'Small change with a dangerous risk',
+        steps: ['step 1'],
+        estimatedComplexity: 'low',
+        affectedFiles: ['repo/src/a.ts'],
+        risks: [{ description: 'Touches a shared module', severity: 'high' }],
+      }),
+    });
+
+    const result = await service.generatePlan({ action: 'fix', issueContent: 'Fix callback handling' });
+
+    expect(result.plan.estimatedComplexity).toBe('high');
+  });
+
   it('forwards onProgress callback to runStagePrompt when generating a plan', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({
@@ -428,14 +448,14 @@ describe('StageAgentService', () => {
       jest.restoreAllMocks();
     });
 
-    it('rejects a plan payload that passes JSON parsing but fails resolutionPlanSchema', async () => {
+    it('rejects a plan payload that passes JSON parsing but fails planModelOutputSchema', async () => {
       const service = new StageAgentService(createConfigService());
       const mockRunStagePrompt = jest.fn().mockResolvedValue({
         content: JSON.stringify({
           action: 'fix',
           summary: 'Invalid plan',
           steps: ['Step 1'],
-          estimatedComplexity: 'unexpected',
+          risks: [{ description: 'x', severity: 'urgent' }],
         }),
         sessionId: undefined,
       });
@@ -4072,5 +4092,22 @@ describe('StageAgentService', () => {
         }),
       );
     });
+  });
+});
+
+describe('plan model output JSON schema', () => {
+  const jsonSchema: { properties: Record<string, unknown> } = JSON.parse(
+    buildSanitisedJsonSchema(z.toJSONSchema(planModelOutputSchema)) ?? '{}'
+  );
+
+  it('does not ask the model for estimatedComplexity', () => {
+    expect(jsonSchema.properties.estimatedComplexity).toBeUndefined();
+  });
+
+  it('describes risks as description and severity objects', () => {
+    const riskItems = JSON.stringify(jsonSchema.properties.risks);
+
+    expect(riskItems).toContain('"description"');
+    expect(riskItems).toContain('"severity"');
   });
 });

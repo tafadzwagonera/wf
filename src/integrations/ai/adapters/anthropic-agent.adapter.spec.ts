@@ -533,6 +533,24 @@ describe('AnthropicAgentAdapter', () => {
   });
 
   describe('generateAndVerify', () => {
+    it('renders object plan risks with severity prefixes in the initial prompt', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      const params = makeParams();
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...params,
+        planArtifact: {
+          ...params.planArtifact,
+          plan: { ...params.planArtifact.plan, risks: [{ description: 'Shared module change', severity: 'high' }] },
+        },
+      });
+
+      const initialPrompt = (mockQuery.mock.calls[0][0] as { prompt: string }).prompt;
+      expect(initialPrompt).toContain('[high] Shared module change');
+    });
+
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
       mockLoadAnthropicAgentSdk.mockResolvedValue({

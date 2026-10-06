@@ -165,6 +165,30 @@ describe('AiService', () => {
       ).rejects.toThrow(/provider and model overrides must be supplied together/i);
     });
 
+    it('ignores a model-supplied estimatedComplexity and computes it from plan size and risk severity', async () => {
+      const adapter = {
+        execute: jest.fn().mockResolvedValue({
+          content: JSON.stringify({
+            action: 'fix',
+            summary: 'Small change with a dangerous risk',
+            steps: ['Edit one file'],
+            estimatedComplexity: 'low',
+            affectedFiles: ['repo-a/src/a.ts'],
+            affectedRepositories: ['repo-a'],
+            risks: [{ description: 'Touches a shared module', severity: 'high' }],
+          }),
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+        executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+      } as unknown as jest.Mocked<LlmAdapter>;
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# WBP-123: Fix', { affectedRepositories: ['repo-a'] });
+
+      expect(plan.estimatedComplexity).toBe('high');
+    });
+
     it('requests and preserves plan-level verification policies when generating plans', async () => {
       const adapter = {
         execute: jest.fn().mockResolvedValue({
@@ -175,7 +199,7 @@ describe('AiService', () => {
             estimatedComplexity: 'medium',
             affectedFiles: ['repo-a/src/commands/issue-review.command.ts'],
             affectedRepositories: ['repo-a'],
-            risks: ['Path resolution regressions'],
+            risks: [{ description: 'Path resolution regressions', severity: 'medium' }],
             verification: {
               targeted: [
                 {
@@ -318,13 +342,12 @@ describe('AiService', () => {
         '{"action":"fix","summary":"Extract shared auth guard into a reusable middleware.",',
         '"steps":["Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts",',
         '"Update all import paths in repo-a/src/controllers/"],',
-        '"estimatedComplexity":"medium",',
         '"affectedFiles":[{"filePath":"repo-a/src/auth/guard.ts","status":"found"},',
         '{"filePath":"repo-a/src/middleware/auth.middleware.ts","status":"to-create"}],',
         '"affectedFilesContext":[{"filePath":"repo-a/package.json","status":"found"}],',
         '"affectedRepositories":["repo-a"],',
         '"newRepositories":[],',
-        '"risks":["Renaming may break downstream consumers"],',
+        '"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],',
         '"verification":{"targeted":[{"id":"manual-review","run":"npm run test:manual -- test-auth-guard","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}',
       ].join('');
 
@@ -1848,7 +1871,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         action: 'fix',
         summary: 'Broken plan',
         steps: ['Step 1'],
-        estimatedComplexity: 'urgent',
+        risks: [{ description: 'bad', severity: 'urgent' }],
       });
 
       const plan = await service.validatePlanJson(rawJson);
@@ -1865,7 +1888,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         action: 'fix',
         summary: 'Still broken',
         steps: ['Step 1'],
-        estimatedComplexity: 'urgent',
+        risks: [{ description: 'bad', severity: 'urgent' }],
       });
       adapter.execute.mockResolvedValue({
         content: stillInvalidJson,

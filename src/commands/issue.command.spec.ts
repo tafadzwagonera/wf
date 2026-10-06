@@ -2677,6 +2677,21 @@ describe('IssueCommand', () => {
     });
   });
 
+  describe('buildPlanPromptSuffix risks', () => {
+    it('renders object risks with severity prefixes', async () => {
+      const command = await buildCommand();
+      const suffix: string = (command as any).buildPlanPromptSuffix({
+        action: 'fix',
+        summary: 'Test',
+        steps: ['Step 1'],
+        estimatedComplexity: 'high',
+        risks: [{ description: 'Shared module change', severity: 'high' }],
+      });
+
+      expect(suffix).toContain('Risks:\n  - [high] Shared module change');
+    });
+  });
+
   describe('assertBranchNamePatternFlag', () => {
     it('throws a clear error when --branch-name-pattern is an invalid regex', async () => {
       const command = await buildCommand();
