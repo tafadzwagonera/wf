@@ -362,8 +362,8 @@ const openaiPricing: Record<string, OpenAiModelPricing> = {
   'o4-mini': { inputPerMToken: 1.1, cachedInputPerMToken: 0.275, outputPerMToken: 4.4 },
   'gpt-4o': { inputPerMToken: 2.5, cachedInputPerMToken: 1.25, outputPerMToken: 10 },
   'gpt-4o-mini': { inputPerMToken: 0.15, cachedInputPerMToken: 0.075, outputPerMToken: 0.6 },
-  'gpt-5-mini': { inputPerMToken: 1, cachedInputPerMToken: 0.25, outputPerMToken: 4 },
-  'gpt-5.1-codex-mini': { inputPerMToken: 0.5, cachedInputPerMToken: 0.125, outputPerMToken: 2 },
+  'gpt-5-mini': { inputPerMToken: 0.25, cachedInputPerMToken: 0.025, outputPerMToken: 2 },
+  'gpt-5.1-codex-mini': { inputPerMToken: 0.25, cachedInputPerMToken: 0.025, outputPerMToken: 2 },
 };
 
 export const estimateOpenAiCostUsd = (

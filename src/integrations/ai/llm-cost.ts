@@ -1,6 +1,6 @@
 const anthropicPricing: Array<{ prefix: string; inputPerMTok: number; outputPerMTok: number }> = [
   { prefix: 'claude-haiku-4-5', inputPerMTok: 1, outputPerMTok: 5 },
-  { prefix: 'claude-sonnet-5', inputPerMTok: 3, outputPerMTok: 15 },
+  { prefix: 'claude-sonnet-5', inputPerMTok: 2, outputPerMTok: 10 },
   { prefix: 'claude-sonnet-4', inputPerMTok: 3, outputPerMTok: 15 },
   { prefix: 'claude-opus-5', inputPerMTok: 5, outputPerMTok: 25 },
 ];
@@ -14,8 +14,8 @@ const openaiPricing: Record<string, OpenAiModelPricing> = {
   'o4-mini': { inputPerMToken: 1.1, outputPerMToken: 4.4 },
   'gpt-4o': { inputPerMToken: 2.5, outputPerMToken: 10 },
   'gpt-4o-mini': { inputPerMToken: 0.15, outputPerMToken: 0.6 },
-  'gpt-5-mini': { inputPerMToken: 1, outputPerMToken: 4 },
-  'gpt-5.1-codex-mini': { inputPerMToken: 0.5, outputPerMToken: 2 },
+  'gpt-5-mini': { inputPerMToken: 0.25, outputPerMToken: 2 },
+  'gpt-5.1-codex-mini': { inputPerMToken: 0.25, outputPerMToken: 2 },
 };
 
 const estimateOpenAiCost = (model: string, inputTokens: number, outputTokens: number): number | null => {

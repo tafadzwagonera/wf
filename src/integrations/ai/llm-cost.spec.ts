@@ -43,9 +43,9 @@ describe('estimateLlmCostUsd', () => {
       expect(cost).toBeCloseTo(18, 5);
     });
 
-    it('prices claude-sonnet-5 at $3/$15 per MTok', () => {
+    it('prices claude-sonnet-5 at $2/$10 per MTok', () => {
       const cost = estimateLlmCostUsd('anthropic', 'claude-sonnet-5', { inputTokens: 2_000_000, outputTokens: 1_000_000 });
-      expect(cost).toBeCloseTo(21, 5);
+      expect(cost).toBeCloseTo(14, 5);
     });
 
     it('prices claude-opus-5 at $5/$25 per MTok', () => {
@@ -55,7 +55,7 @@ describe('estimateLlmCostUsd', () => {
 
     it('prefix ordering: claude-sonnet-5-dated does not fall through to claude-sonnet-4 entry', () => {
       const cost = estimateLlmCostUsd('anthropic', 'claude-sonnet-5-20261001', { inputTokens: 1_000_000, outputTokens: 0 });
-      expect(cost).toBeCloseTo(3, 5);
+      expect(cost).toBeCloseTo(2, 5);
     });
   });
 
