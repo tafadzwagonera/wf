@@ -198,8 +198,8 @@ function checkTest2Results(output: string, implementerCalled: boolean): void {
   else fail('output missing unresolvable repo error', output.slice(-400));
   if (output.includes('newRepositories')) pass('error suggests adding to newRepositories');
   else fail('error missing newRepositories suggestion');
-  if (!implementerCalled) pass('implementer was NOT called');
-  else fail('implementer should not have been called');
+  if (implementerCalled) fail('implementer should not have been called');
+  else pass('implementer was NOT called');
 }
 
 async function runTest2RejectsUnresolvableRepos(command: IssueImplementCommand,

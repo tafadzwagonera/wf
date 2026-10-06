@@ -184,10 +184,10 @@ describe('getHelpText', () => {
       expect(() => getHelpText(['--help'])).not.toThrow();
       expect(getHelpText(['--help'])).toContain('issue');
     } finally {
-      if (existingCatalog !== null) {
-        fs.writeFileSync(distCatalogPath, existingCatalog, 'utf8');
-      } else {
+      if (existingCatalog === null) {
         fs.unlinkSync(distCatalogPath);
+      } else {
+        fs.writeFileSync(distCatalogPath, existingCatalog, 'utf8');
       }
     }
   });

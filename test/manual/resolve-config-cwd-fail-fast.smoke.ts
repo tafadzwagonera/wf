@@ -54,10 +54,10 @@ const runCli = (args: string, cwd: string): CliResult => {
 };
 
 function checkCaseAExitAndMessage(result: CliResult): void {
-  if (result.exitCode !== 0) {
-    pass('Case A: exits with non-zero code');
-  } else {
+  if (result.exitCode === 0) {
     fail('Case A: expected non-zero exit code', `got ${result.exitCode}`);
+  } else {
+    pass('Case A: exits with non-zero code');
   }
   if (result.stderr.includes("Repository 'nonexistent-repo' not found")) {
     pass('Case A: stderr contains "not found" message');
@@ -96,10 +96,10 @@ function checkCaseA(result: CliResult, tempRoot: string): void {
 }
 
 function checkCaseB(result: CliResult): void {
-  if (result.exitCode !== 0) {
-    pass('Case B: --repos= inline form exits with non-zero code');
-  } else {
+  if (result.exitCode === 0) {
     fail('Case B: expected non-zero exit code for --repos= form', `got ${result.exitCode}`);
+  } else {
+    pass('Case B: --repos= inline form exits with non-zero code');
   }
   if (result.stderr.includes("Repository 'nonexistent-repo' not found")) {
     pass('Case B: --repos= inline form stderr contains "not found" message');

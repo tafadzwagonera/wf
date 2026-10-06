@@ -60,18 +60,18 @@ function checkSkipMessageContent(plain: string): void {
   } else {
     fail('message says "not in plan\'s affected or new repositories"');
   }
-  if (!plain.includes("not in plan's affected repositories")) {
-    pass('old message fragment absent');
-  } else {
+  if (plain.includes("not in plan's affected repositories")) {
     fail('old message fragment absent');
+  } else {
+    pass('old message fragment absent');
   }
 }
 
 function checkBrandNewServiceSkipless(plain: string): void {
-  if (!plain.includes('brand-new-service')) {
-    pass('no skip message for brand-new-service');
-  } else {
+  if (plain.includes('brand-new-service')) {
     fail('no skip message for brand-new-service');
+  } else {
+    pass('no skip message for brand-new-service');
   }
 }
 
@@ -81,10 +81,10 @@ function checkNewRepositoryIsKept(result: string[], plain: string): void {
   } else {
     fail('brand-new-service kept in result');
   }
-  if (!result.includes('repo-b')) {
-    pass('repo-b removed from result');
-  } else {
+  if (result.includes('repo-b')) {
     fail('repo-b removed from result');
+  } else {
+    pass('repo-b removed from result');
   }
   checkBrandNewServiceSkipless(plain);
 }

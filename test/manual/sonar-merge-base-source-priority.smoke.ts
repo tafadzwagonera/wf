@@ -84,10 +84,10 @@ function computeMergeBases(repoDir: string): { expectedDevelopMergeBase: string;
 }
 
 function checkTestSetupValid(expectedReleaseMergeBase: string, expectedDevelopMergeBase: string): void {
-  if (expectedReleaseMergeBase !== expectedDevelopMergeBase) {
-    pass('Test setup valid: develop and release/2026 have different merge-bases with the feature branch');
-  } else {
+  if (expectedReleaseMergeBase === expectedDevelopMergeBase) {
     fail('Test setup invalid: develop and release/2026 share a merge-base with the feature branch — cannot distinguish');
+  } else {
+    pass('Test setup valid: develop and release/2026 have different merge-bases with the feature branch');
   }
 }
 

@@ -197,10 +197,10 @@ async function checkTest7(command: IssueCommand): Promise<void> {
   const fixtures = makeFixtures({ ticketKey: 'TEST-7', action: 'fix' });
   const output = await runTestScenario(command, fixtures, { ticketKey: 'TEST-7', from: 'implement', to: 'implement', action: 'fix' });
   const commanderRequiredError = output.includes('required option') && output.includes('--repos');
-  if (!commanderRequiredError) {
-    pass('Omitting --repos does not produce a "required" error');
-  } else {
+  if (commanderRequiredError) {
     fail(`Test 7: got required-option error. Output:\n${output}`);
+  } else {
+    pass('Omitting --repos does not produce a "required" error');
   }
 }
 

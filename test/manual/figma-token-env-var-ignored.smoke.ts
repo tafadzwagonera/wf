@@ -54,10 +54,10 @@ function assertResultAndFetch(result: unknown[], fetchCalled: boolean): void {
   } else {
     fail('expected [] but got frames', JSON.stringify(result));
   }
-  if (!fetchCalled) {
-    pass('fetch was not called — env var did not enable frame fetching');
-  } else {
+  if (fetchCalled) {
     fail('fetch was called unexpectedly — env var fallback may have been reintroduced');
+  } else {
+    pass('fetch was not called — env var did not enable frame fetching');
   }
 }
 

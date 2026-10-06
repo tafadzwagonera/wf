@@ -86,10 +86,10 @@ function checkMismatchedKey(tmpDir: string, git: (cmd: string) => void): void {
   stageMismatchedChange(tmpDir, git);
   const mismatchResult = runCli('issue:commit -k WBP-9999 -m "x"', tmpDir);
   const mismatchOutput = mismatchResult.stdout + mismatchResult.stderr;
-  if (mismatchResult.exitCode !== 0) {
-    pass('genuinely different key WBP-9999 still triggers the mismatch path');
-  } else {
+  if (mismatchResult.exitCode === 0) {
     fail('WBP-9999 should have mismatched against branch key WBP-4061', `exit code ${mismatchResult.exitCode}`);
+  } else {
+    pass('genuinely different key WBP-9999 still triggers the mismatch path');
   }
   if (mismatchOutput.includes('WBP-9999') && mismatchOutput.includes('WBP-4061')) {
     pass('mismatch output names both the explicit key and the branch key');

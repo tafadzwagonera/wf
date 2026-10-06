@@ -28,8 +28,8 @@ async function checkNormalizeWfConfigOmitsState(): Promise<void> {
   try {
     const { normalizeWfConfig } = require('../../src/config/wf-config-loader');
     const config = normalizeWfConfig({});
-    if (!('state' in config)) pass('normalizeWfConfig omits `state`');
-    else fail('normalizeWfConfig still includes `state` property');
+    if ('state' in config) fail('normalizeWfConfig still includes `state` property');
+    else pass('normalizeWfConfig omits `state`');
   } catch (err: any) {
     fail(`Error: ${err.message}`);
   }
@@ -40,8 +40,8 @@ async function checkLoggingOmitsDirectory(): Promise<void> {
   try {
     const { normalizeWfConfig } = require('../../src/config/wf-config-loader');
     const config = normalizeWfConfig({});
-    if (!('directory' in config.logging || 'directory' in config.log)) pass('logging and log omit `directory`');
-    else fail('logging or log still has `directory` field');
+    if ('directory' in config.logging || 'directory' in config.log) fail('logging or log still has `directory` field');
+    else pass('logging and log omit `directory`');
   } catch (err: any) {
     fail(`Error: ${err.message}`);
   }
@@ -51,8 +51,8 @@ function checkResolveWfPathRemoved(): void {
   console.log(chalk.bold('Test 3: resolveWfPath is removed'));
   try {
     const wfPaths = require('../../src/shared/utils/wf-paths');
-    if (!('resolveWfPath' in wfPaths)) pass('resolveWfPath is no longer exported');
-    else fail('resolveWfPath is still exported from wf-paths');
+    if ('resolveWfPath' in wfPaths) fail('resolveWfPath is still exported from wf-paths');
+    else pass('resolveWfPath is no longer exported');
   } catch (err: any) {
     fail(`Error: ${err.message}`);
   }
@@ -94,8 +94,8 @@ function checkWfPathHelpers(): void {
     const expectedState = path.join(os.homedir(), '.wf', 'state');
     const expectedLog = path.join(os.homedir(), '.wf', 'logs');
     if (getWfStateDir() !== expectedState) fail(`getWfStateDir returned ${getWfStateDir()}, expected ${expectedState}`);
-    else if (getWfLogDir() !== expectedLog) fail(`getWfLogDir returned ${getWfLogDir()}, expected ${expectedLog}`);
-    else pass('wf-paths helpers return correct hardcoded paths');
+    else if (getWfLogDir() === expectedLog) pass('wf-paths helpers return correct hardcoded paths');
+    else fail(`getWfLogDir returned ${getWfLogDir()}, expected ${expectedLog}`);
   } catch (err: any) {
     fail(`Error: ${err.message}`);
   }

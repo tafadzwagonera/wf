@@ -64,10 +64,10 @@ function setupTestRepo(repoDir: string): void {
 function checkTestSetupValidity(repoDir: string): { expectedReleaseMergeBase: string } {
   const expectedDevelopMergeBase = git(repoDir, ['merge-base', 'develop', 'fix/my-custom-plan']);
   const expectedReleaseMergeBase = git(repoDir, ['merge-base', 'release/2026', 'fix/my-custom-plan']);
-  if (expectedReleaseMergeBase !== expectedDevelopMergeBase) {
-    pass('Test setup valid: develop and release/2026 have different merge-bases with fix/my-custom-plan');
-  } else {
+  if (expectedReleaseMergeBase === expectedDevelopMergeBase) {
     fail('Test setup invalid: develop and release/2026 share a merge-base with fix/my-custom-plan — cannot distinguish');
+  } else {
+    pass('Test setup valid: develop and release/2026 have different merge-bases with fix/my-custom-plan');
   }
   return { expectedReleaseMergeBase };
 }

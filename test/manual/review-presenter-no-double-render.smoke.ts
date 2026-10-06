@@ -36,8 +36,8 @@ function checkPresenterInstance(
   const key = Object.keys(a).find(
     k => (a as unknown as Record<string, unknown>)[k] instanceof ReviewPresenter,
   );
-  if (!key) pass('ReviewerAgent holds no ReviewPresenter instance');
-  else fail(`ReviewerAgent has ReviewPresenter instance on key "${key}"`, '');
+  if (key) fail(`ReviewerAgent has ReviewPresenter instance on key "${key}"`, '');
+  else pass('ReviewerAgent holds no ReviewPresenter instance');
 }
 
 function testAgent(a: ReviewerAgent, pass: (msg: string) => void, fail: any): void {

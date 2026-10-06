@@ -537,7 +537,7 @@ describe('validatePlanQuality — terraform-fmt-scope', () => {
   ): Parameters<typeof validatePlanQuality>[0] => ({
     plan: {
       verification: { targeted: [{ id: 'tf-fmt', run, policy: 'enforced' }] },
-      ...(affectedFiles !== undefined ? { affectedFiles } : {}),
+      ...(affectedFiles === undefined ? {} : { affectedFiles }),
     },
     affectedRepositories: repos,
     testInfra: terraformTestInfra,

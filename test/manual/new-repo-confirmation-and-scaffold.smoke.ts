@@ -355,8 +355,8 @@ async function checkDeclinedExpansion(command: IssueCommand, appDir: string): Pr
   const declinedDir = path.resolve(appDir, '..', 'declined-svc');
   if (result.includes('declined-svc')) fail('declined-svc should not be in returned repos');
   else pass('declined-svc is NOT in returned repos');
-  if (!result.includes(undefined)) fail('original repos missing from result');
-  else pass('original repos preserved');
+  if (result.includes(undefined)) pass('original repos preserved');
+  else fail('original repos missing from result');
   if (fs.existsSync(declinedDir)) fail('declined-svc should not exist');
   else pass('declined-svc was NOT scaffolded');
 }

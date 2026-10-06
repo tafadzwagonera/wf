@@ -47,10 +47,10 @@ function setupRepo(tmpDir: string): void {
 }
 
 function checkMismatchExitCode(result: CliResult): void {
-  if (result.exitCode !== 0) {
-    pass('mismatched -k exits with a non-zero code instead of silently committing');
-  } else {
+  if (result.exitCode === 0) {
     fail('mismatched -k should have exited non-zero', `exit code ${result.exitCode}`);
+  } else {
+    pass('mismatched -k exits with a non-zero code instead of silently committing');
   }
 }
 
@@ -67,10 +67,10 @@ function checkMismatchNoCommit(tmpDir: string): void {
   try {
     logAfterMismatch = execSync('git log --oneline -1', { cwd: tmpDir, encoding: 'utf-8' });
   } catch { /* no commits yet, expected */ }
-  if (!logAfterMismatch.includes('WBP-2')) {
-    pass('no commit was created under the mismatched ticket key');
-  } else {
+  if (logAfterMismatch.includes('WBP-2')) {
     fail('a commit was created despite the mismatch', logAfterMismatch);
+  } else {
+    pass('no commit was created under the mismatched ticket key');
   }
 }
 

@@ -236,10 +236,10 @@ function validateExplicitPlanArtifact(trackerDir: string, repoDir: string): void
 
 function validateNoTicketScanDir(wfHomeDir: string, repoBasename: string): void {
   const ticketScanDir = path.join(wfHomeDir, repoBasename, 'WBP-778');
-  if (!fs.existsSync(ticketScanDir)) {
-    pass('explicit-path run does not look under $WF_HOME/<repo>/WBP-778/ for the named files');
-  } else {
+  if (fs.existsSync(ticketScanDir)) {
     fail('explicit-path run should not create/use $WF_HOME/<repo>/WBP-778/', fs.readdirSync(ticketScanDir).join(', '));
+  } else {
+    pass('explicit-path run does not look under $WF_HOME/<repo>/WBP-778/ for the named files');
   }
 }
 

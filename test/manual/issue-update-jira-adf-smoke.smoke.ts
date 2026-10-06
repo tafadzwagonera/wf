@@ -110,9 +110,9 @@ async function handleLiveUpdate(args: any, dependencies: any, description: strin
 async function getDependencies(
   app: any
 ): Promise<{ adapter: JiraAdapter; jiraService: JiraService }> {
-  return app !== null
-    ? { adapter: app.get(JiraAdapter), jiraService: app.get(JiraService) }
-    : createPreviewDependencies();
+  return app === null
+    ? createPreviewDependencies()
+    : { adapter: app.get(JiraAdapter), jiraService: app.get(JiraService) };
 }
 
 async function runPreview(args: any, dependencies: any): Promise<any> {

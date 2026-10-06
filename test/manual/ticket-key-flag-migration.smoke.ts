@@ -121,8 +121,8 @@ async function test4(planCmd: IssuePlanCommand): Promise<void> {
   const err = errCap.restore();
   logCap.restore();
 
-  if (code !== 1) pass('Does not exit with code 1 (dry-run accepted)');
-  else fail('Exited with code 1 unexpectedly', err.slice(0, 200));
+  if (code === 1) fail('Exited with code 1 unexpectedly', err.slice(0, 200));
+  else pass('Does not exit with code 1 (dry-run accepted)');
 }
 
 async function test5(reviewCmd: IssueReviewCommand): Promise<void> {

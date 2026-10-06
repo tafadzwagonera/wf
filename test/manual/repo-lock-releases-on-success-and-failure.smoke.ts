@@ -67,10 +67,10 @@ function checkSuccessCommit(result: ReturnType<typeof runCommit>, wfHome: string
 }
 
 function checkFailureCommit(result: ReturnType<typeof runCommit>, wfHome: string): void {
-  if (result.status !== 0) {
-    pass('Commit against a repo with nothing staged exits non-zero');
-  } else {
+  if (result.status === 0) {
     fail('Expected a non-zero exit code for the failure case');
+  } else {
+    pass('Commit against a repo with nothing staged exits non-zero');
   }
   if (countLockFiles(wfHome) === 0) {
     pass('No lock file remains after a failed commit');

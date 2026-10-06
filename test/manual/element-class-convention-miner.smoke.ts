@@ -176,10 +176,10 @@ function checkVariantCGapOnly(conv: ClassConvention | undefined): void {
   const hasNonGapToken = (conv?.modalClasses?.includes('grid-cols-3') ?? false)
     || (conv?.modalClasses?.includes('grid ') ?? false)
     || conv?.modalClasses === 'grid';
-  if (!hasNonGapToken) {
-    pass('Variant C: modalClasses contains only gap-* token (no "grid" or "grid-cols-3")');
-  } else {
+  if (hasNonGapToken) {
     fail('Variant C: modalClasses contains non-gap tokens', conv?.modalClasses);
+  } else {
+    pass('Variant C: modalClasses contains only gap-* token (no "grid" or "grid-cols-3")');
   }
 }
 

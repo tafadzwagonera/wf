@@ -227,8 +227,8 @@ function checkRunBResults(runB: { status: number | null; firstPrompt: string }):
   else fail('run B (--replace-criteria) should exit 0', runB.firstPrompt);
   if (runB.firstPrompt.includes(CUSTOM_GUIDELINE)) pass('run B prompt contains the custom guideline text');
   else fail('run B prompt should contain the custom guideline text', runB.firstPrompt.slice(0, 800));
-  if (!runB.firstPrompt.includes(DEFAULT_GUIDELINE)) pass('run B prompt does not contain the built-in default guideline (replace drops defaults)');
-  else fail('run B prompt should not contain the built-in default guideline', runB.firstPrompt.slice(0, 800));
+  if (runB.firstPrompt.includes(DEFAULT_GUIDELINE)) fail('run B prompt should not contain the built-in default guideline', runB.firstPrompt.slice(0, 800));
+  else pass('run B prompt does not contain the built-in default guideline (replace drops defaults)');
 }
 
 function checkDistExists(): void {

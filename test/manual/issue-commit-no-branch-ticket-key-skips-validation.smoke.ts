@@ -60,10 +60,10 @@ function checkExitSucceeds(result: CliResult, defaultBranch: string): void {
 }
 
 function checkNoMismatchWarning(output: string): void {
-  if (!/does not match/i.test(output)) {
-    pass('no mismatch warning printed when the branch has no parseable ticket key');
-  } else {
+  if (/does not match/i.test(output)) {
     fail('unexpected mismatch warning on a branch with no ticket key', output.slice(0, 500));
+  } else {
+    pass('no mismatch warning printed when the branch has no parseable ticket key');
   }
 }
 

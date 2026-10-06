@@ -62,10 +62,10 @@ function checkExitSucceeds(result: CliResult): void {
 }
 
 function checkNoMismatchWarning(output: string): void {
-  if (!/does not match/i.test(output)) {
-    pass('no mismatch warning printed for the case-insensitive match');
-  } else {
+  if (/does not match/i.test(output)) {
     fail('unexpected mismatch warning for a case-insensitive match', output.slice(0, 500));
+  } else {
+    pass('no mismatch warning printed for the case-insensitive match');
   }
 }
 

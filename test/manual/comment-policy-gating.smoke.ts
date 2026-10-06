@@ -32,8 +32,8 @@ async function checkForceFalse(service: CommentPolicyStageService, configService
 
 async function checkForceTrue(service: CommentPolicyStageService): Promise<void> {
   const result = await service.scanIfEnabled({ diff: SAMPLE_DIFF, force: true });
-  if (!result?.findings) fail('Expected CommentPolicyResult', `got ${JSON.stringify(result)}`);
-  else pass('Returns CommentPolicyResult when force is true');
+  if (result?.findings) pass('Returns CommentPolicyResult when force is true');
+  else fail('Expected CommentPolicyResult', `got ${JSON.stringify(result)}`);
 }
 
 async function checkConfigTrue(service: CommentPolicyStageService, configService: ConfigService): Promise<void> {
@@ -42,8 +42,8 @@ async function checkConfigTrue(service: CommentPolicyStageService, configService
     key === 'stages.review.commentPolicy' ? true : orig(key, ...rest);
   const result = await service.scanIfEnabled({ diff: SAMPLE_DIFF });
   (configService as any).get = orig;
-  if (!result?.findings) fail('Expected CommentPolicyResult', `got ${JSON.stringify(result)}`);
-  else pass('Returns CommentPolicyResult when config is true');
+  if (result?.findings) pass('Returns CommentPolicyResult when config is true');
+  else fail('Expected CommentPolicyResult', `got ${JSON.stringify(result)}`);
 }
 
 async function main(): Promise<void> {

@@ -73,10 +73,10 @@ function checkDryRunMention(output: string): void {
 }
 
 function checkNoCommitCreated(log: string): void {
-  if (!log.includes('WBP-2')) {
-    pass('no commit was created by the --dry-run invocation');
-  } else {
+  if (log.includes('WBP-2')) {
     fail('a commit was unexpectedly created during --dry-run', log);
+  } else {
+    pass('no commit was created by the --dry-run invocation');
   }
 }
 
