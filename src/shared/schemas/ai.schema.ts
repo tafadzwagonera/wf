@@ -72,7 +72,7 @@ export const fileEntrySchema = z.object({
 export const planPhaseSchema = z.object({
   label: z.string(),
   stepIndices: z.array(z.number().int().min(0)),
-  verifyAfter: z.array(z.string()).optional(),
+  verifyAfter: nullableOptional(z.array(z.string())),
 });
 
 export const planComplexitySchema = z.enum(['low', 'medium', 'high']);
@@ -92,9 +92,9 @@ export const planModelOutputSchema = z.object({
   newRepositories: nullableOptional(z.array(z.string())),
   risks: nullableOptional(z.array(planRiskSchema)),
   verification: nullableOptional(planVerificationConfigSchema),
-  provider: z.string().optional(),
-  source: z.string().optional(),
-  timestamp: z.string().optional(),
+  provider: nullableOptional(z.string()),
+  source: nullableOptional(z.string()),
+  timestamp: nullableOptional(z.string()),
   phases: nullableOptional(z.array(planPhaseSchema)),
 });
 

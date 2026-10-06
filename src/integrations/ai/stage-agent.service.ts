@@ -1029,16 +1029,24 @@ const buildStageParseErrorMessage = (
   return zodIssues ? `${baseMessage}\n${zodIssues}` : baseMessage;
 };
 
+const surfaceStageParseFailure = (
+  stage: AgentStageName, sessionId: string | undefined, message: string
+): void => {
+  console.log(chalk.red(message));
+  appendToLogFile(
+    'ERROR',
+    `stage.parse_failure stage=${stage} session=${sessionId ?? 'none'} ${message.replaceAll('\n', ' | ')}`,
+    'stage-agent'
+  );
+};
+
 const throwStageParseFailure = (
   stage: AgentStageName, response: string, sessionId: string | undefined, error: unknown
 ): never => {
   const zodIssues = resolveStageZodIssues(stage, response);
-  throw new AiProviderError(
-    buildStageParseErrorMessage(stage, response, zodIssues),
-    { response, error, sessionId, zodIssues },
-    true,
-    'parse'
-  );
+  const message = buildStageParseErrorMessage(stage, response, zodIssues);
+  surfaceStageParseFailure(stage, sessionId, message);
+  throw new AiProviderError(message, { response, error, sessionId, zodIssues }, true, 'parse');
 };
 
 const buildCodexSchemaSection = (stage: AgentStageName): string => {

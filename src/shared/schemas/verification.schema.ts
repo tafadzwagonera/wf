@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nullableOptional } from './review.schema';
 
 export const verificationPolicySchema = z.enum(['enforced', 'best_effort', 'override']);
 
@@ -15,11 +16,11 @@ export const verificationStepSchema = z.object({
   id: z.string(),
   run: z.string(),
   policy: verificationPolicySchema,
-  reason: z.string().optional(),
-  earlyExitPattern: z.string().min(1).refine(isValidRegexPattern, {
+  reason: nullableOptional(z.string()),
+  earlyExitPattern: nullableOptional(z.string().min(1).refine(isValidRegexPattern, {
     message: 'must be a valid regular expression',
-  }).optional(),
-  repo: z.string().optional().describe(
+  })),
+  repo: nullableOptional(z.string()).describe(
     'Repo name this verification step applies to (must match an entry in affectedRepositories). Required whenever affectedRepositories has more than one entry.'
   ),
 });
@@ -35,8 +36,8 @@ export const verificationManifestSchema = z.object({
 });
 
 export const planVerificationConfigSchema = z.object({
-  targeted: z.array(verificationStepSchema).optional(),
-  waivers: z.array(verificationWaiverSchema).optional(),
+  targeted: nullableOptional(z.array(verificationStepSchema)),
+  waivers: nullableOptional(z.array(verificationWaiverSchema)),
 });
 
 export const verificationOutcomeSchema = z.object({

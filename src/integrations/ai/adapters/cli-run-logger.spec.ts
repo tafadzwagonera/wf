@@ -132,6 +132,18 @@ describe('cli-run-logger', () => {
       expect(spy).toHaveBeenCalledWith('WARN', expect.stringContaining('reason=inactivity'), 'claude-cli');
     });
 
+    it('skips the log entirely when the kill reason is cleanup', () => {
+      const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      logCliKill({
+        runId: 'abc12345',
+        reason: 'cleanup',
+        elapsedMs: 100,
+        inactivityTimeoutMs: 120000,
+        timeoutMs: 1800000,
+      });
+      expect(spy).not.toHaveBeenCalled();
+    });
+
     it('logs cli.sigkill at WARN', () => {
       const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       logCliSigkillEscalation({ runId: 'abc12345', reason: 'inactivity' });
@@ -144,6 +156,16 @@ describe('cli-run-logger', () => {
       expect(spy).toHaveBeenCalledWith('ERROR', expect.stringContaining('cli.spawn_error'), 'claude-cli');
     });
 
+    it('JSON-quotes the spawn-error message field', () => {
+      const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      logCliSpawnError({ runId: 'abc12345', error: new Error('spawn claude ENOENT: no such file') });
+      expect(spy).toHaveBeenCalledWith(
+        'ERROR',
+        expect.stringContaining('message="spawn claude ENOENT: no such file"'),
+        'claude-cli',
+      );
+    });
+
     it('logs a clean cli.done (no kill reason, no stderr) at DEBUG', () => {
       const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       logCliRunSummary({
@@ -151,6 +173,18 @@ describe('cli-run-logger', () => {
         messageCount: 37,
         elapsedMs: 120210,
         killReason: undefined,
+        stderr: createBoundedStderr(),
+      });
+      expect(spy).toHaveBeenCalledWith('DEBUG', expect.stringContaining('cli.done'), 'claude-cli');
+    });
+
+    it('logs a cleanup-killed cli.done at DEBUG, not WARN', () => {
+      const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      logCliRunSummary({
+        runId: 'abc12345',
+        messageCount: 37,
+        elapsedMs: 120210,
+        killReason: 'cleanup',
         stderr: createBoundedStderr(),
       });
       expect(spy).toHaveBeenCalledWith('DEBUG', expect.stringContaining('cli.done'), 'claude-cli');

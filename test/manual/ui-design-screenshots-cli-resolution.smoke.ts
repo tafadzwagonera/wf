@@ -285,10 +285,10 @@ function verifyNoFlagStatus(noFlagResult: SpawnResult, noFlagOutput: string): vo
 }
 
 function verifyNoFlagLog(agentLog: string, noFlagOutput: string): void {
-  if (!agentLog.includes('scan directory not found') && !noFlagOutput.includes('scan directory not found')) {
-    pass('no missing scan-directory WARN when the flag is absent');
-  } else {
+  if (agentLog.includes('scan directory not found') || noFlagOutput.includes('scan directory not found')) {
     fail('flag-absent run should not log a missing scan-directory WARN', agentLog.slice(0, 500));
+  } else {
+    pass('no missing scan-directory WARN when the flag is absent');
   }
 }
 

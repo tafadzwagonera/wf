@@ -664,6 +664,29 @@ describe('AiService', () => {
       expect(plan.source).toBe('5.4');
     });
 
+    it('falls back to stage-resolved metadata when the response carries provider without model', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({
+        content: JSON.stringify({
+          action: 'fix',
+          summary: 'Partial response metadata',
+          steps: ['Step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: ['repo/src/file.ts'],
+          affectedRepositories: ['repo'],
+        }),
+        provider: 'google',
+      });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# Fix partial metadata', {
+        affectedRepositories: ['repo'],
+      });
+
+      expect(plan.provider).toBe('openai');
+      expect(plan.source).toBe('5.4');
+    });
+
     it('retries once when the first plan response is blank and returns the second JSON response', async () => {
       const adapter = createAdapter();
       adapter.execute
@@ -2197,6 +2220,46 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       const response = await service.execute({ prompt: 'assess', provider: 'openai', model: 'invalid-model', structuredOutput });
 
       expect(JSON.parse(response.content)).toEqual({ statuses: [{ index: 0, status: 'done' }] });
+    });
+
+    it('logs the model fallback before the denormalization entry on a fallback retry', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({ content: JSON.stringify(payloadWithNull), provider: 'openai', model: 'gpt-5.4' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+
+      await service.execute({ prompt: 'assess', provider: 'openai', model: 'invalid-model', structuredOutput });
+
+      const messages = mockAppendToLogFile.mock.calls.map((call: unknown[]) => String(call[1]));
+      const fallbackIndex = messages.findIndex((message: string) => message.includes('ai.model.fallback'));
+      const denormalizeIndex = messages.findIndex(
+        (message: string) => message.includes('ai.structured-output.denormalize')
+      );
+      expect(fallbackIndex).toBeGreaterThanOrEqual(0);
+      expect(denormalizeIndex).toBeGreaterThan(fallbackIndex);
+    });
+
+    it('leaves a model-fallback retry response untouched when it comes from anthropic', async () => {
+      const adapter = createAdapter();
+      adapter.execute
+        .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
+        .mockResolvedValueOnce({
+          content: JSON.stringify(payloadWithNull), provider: 'anthropic', model: 'claude-sonnet-4-6',
+        });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+
+      const response = await service.execute({
+        prompt: 'assess', provider: 'openai', model: 'invalid-model', structuredOutput,
+      });
+
+      expect(response.content).toBe(JSON.stringify(payloadWithNull));
+      const messages = mockAppendToLogFile.mock.calls.map((call: unknown[]) => String(call[1]));
+      expect(messages.join('\n')).not.toContain('ai.structured-output.denormalize');
     });
 
     it('logs stripped paths to the llm-adapter log file', async () => {

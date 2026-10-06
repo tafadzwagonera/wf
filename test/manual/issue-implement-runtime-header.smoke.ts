@@ -54,10 +54,10 @@ function checkImplementExamples(withHeader: string): void {
 }
 
 function checkSilentSuppressesHeader(silent: string): void {
-  if (!silent.includes('Carry out an implementation plan') && !silent.includes('Examples:')) {
-    pass('--silent suppresses the summary and Examples: section');
-  } else {
+  if (silent.includes('Carry out an implementation plan') || silent.includes('Examples:')) {
     fail('--silent did not suppress the header', silent.slice(0, 300));
+  } else {
+    pass('--silent suppresses the summary and Examples: section');
   }
 }
 

@@ -1047,6 +1047,29 @@ describe('StageAgentService', () => {
       logSpy.mockRestore();
     });
 
+    it('logs a successful pass as cli.pass_outcome at DEBUG with no cli.pass_unusable line', async () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
+      async function* fakeSpawn() {
+        yield { type: 'result', subtype: 'success', result: validResult, session_id: 'sess_pass_level' };
+      }
+      spawnCli.mockReturnValue(fakeSpawn());
+
+      const service = new StageAgentService(createCliConfigService());
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys' });
+
+      const passCalls = appendSpy.mock.calls.filter(call => String(call[1]).startsWith('cli.pass_'));
+      expect(passCalls.length).toBeGreaterThanOrEqual(1);
+      expect(passCalls.every(call => call[0] === 'DEBUG' && String(call[1]).startsWith('cli.pass_outcome'))).toBe(true);
+
+      appendSpy.mockRestore();
+      jest.restoreAllMocks();
+    });
+
     it('accepts result on pass 1 without retry', async () => {
       const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
@@ -2598,6 +2621,10 @@ describe('StageAgentService', () => {
   });
 
   describe('parse error diagnostics', () => {
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
     afterEach(() => {
       jest.restoreAllMocks();
     });
@@ -2622,6 +2649,44 @@ describe('StageAgentService', () => {
           zodIssues: expect.stringContaining("Field: 'steps'"),
         }),
       });
+    });
+
+    it('prints the pretty-formatted parse failure to the terminal before throwing', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const wrongShapeResponse = JSON.stringify({ action: 'fix', summary: 's' });
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: wrongShapeResponse,
+        sessionId: 'sess_terminal_surface',
+      });
+
+      await expect(service.generatePlan({ action: 'fix', issueContent: 'Test' })).rejects.toThrow();
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      const errorBlock = printed.find(line => line.includes('Failed to parse resolution plan from agent response'));
+      expect(errorBlock).toContain("[Field: 'steps'");
+    });
+
+    it('appends the parse failure as a single-line ERROR entry to the daily log file', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const wrongShapeResponse = JSON.stringify({ action: 'fix', summary: 's' });
+      const service = new StageAgentService(createConfigService());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = jest.fn().mockResolvedValue({
+        content: wrongShapeResponse,
+        sessionId: 'sess_log_surface',
+      });
+
+      await expect(service.generatePlan({ action: 'fix', issueContent: 'Test' })).rejects.toThrow();
+
+      const entry = appendSpy.mock.calls.find(call => String(call[1]).startsWith('stage.parse_failure'));
+      expect(entry).toBeDefined();
+      expect(entry?.[0]).toBe('ERROR');
+      expect(entry?.[1]).toContain('stage=plan');
+      expect(entry?.[1]).toContain('session=sess_log_surface');
+      expect(entry?.[1]).toContain("[Field: 'steps'");
+      expect(entry?.[1]).not.toContain('\n');
+      expect(entry?.[2]).toBe('stage-agent');
     });
 
     it('omits zodIssues from the plan parse error when response is not JSON', async () => {
@@ -3539,6 +3604,31 @@ describe('StageAgentService', () => {
       const target = svc.resolveTargetForStage('implement');
       expect(target.provider).toBe('anthropic');
       expect(target.model.length).toBeGreaterThan(0);
+    });
+
+    it('logResolvedStageTarget writes the resolved line to the terminal and the log file', () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(
+        { get: (key: string) => {
+          if (key === 'stages.implement.provider') return 'anthropic';
+          if (key === 'stages.implement.model') return 'claude-sonnet-4-6';
+          return undefined;
+        } } as unknown as ConfigService,
+      );
+
+      svc.logResolvedStageTarget('implement');
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line =>
+        line.includes('llm.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6')
+      )).toBe(true);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'INFO',
+        'llm.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6',
+        'llm-adapter',
+      );
     });
   });
 

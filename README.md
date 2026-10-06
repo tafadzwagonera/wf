@@ -1491,7 +1491,7 @@ IssueCommand.run()
                      └─ PlanStageService fallback → AiService.generatePlan()
 ```
 
-Each extraction path logs `[claude-cli] Result extracted via <source> (pass N)` so the active path is always visible. The four observed modes:
+Each extraction path logs `[claude-cli] Result extracted via <source> (pass N)` so the active path is always visible. When the extracted content still fails stage parsing, the formatted Zod error is printed to the terminal and recorded as a single-line `stage.parse_failure` ERROR entry (with stage and provider session ID) in the daily `~/.wf/logs/agent-YYYY-MM-DD.log`, so parse failures are observable even when a downstream repair or fallback later succeeds. The four observed modes:
 
 | # | `structured_output` | `result` | `assistant_text` | Outcome |
 |---|---------------------|----------|-------------------|---------|
@@ -1501,6 +1501,8 @@ Each extraction path logs `[claude-cli] Result extracted via <source> (pass N)` 
 | 4 | — | — | — | Stall detection → AiProviderError → PlanStageService fallback |
 
 **Root cause**: `ToolSearch` → `StructuredOutput` competes with `Read`, `Glob`, `Grep`, `Bash` for the model's tool-call budget. In multi-turn exploration conversations, the model non-deterministically skips the `StructuredOutput` call.
+
+**Strict-output nulls**: strict-mode schema normalization rewrites optional properties as required-but-nullable, so CLI structured output legitimately fills optional fields with `null`. Every plan-facing optional field — including nested `verification` step fields, `phases[].verifyAfter`, and the metadata fields stamped after parsing (`provider`, `source`, `timestamp`) — absorbs those nulls at the Zod boundary via `nullableOptional`, so a null-laden pass 1 parses directly instead of triggering the completions validation-correction fallback (previously one extra billed provider call on every plan generation).
 
 **Monitoring**: When future CLI versions adopt native API structured output (not the deferred tool), `structured_output` should become the consistent primary path and the `result` / `assistant_text` fallbacks should stop appearing in logs.
 
