@@ -30,17 +30,22 @@ const deriveCreatedAt = (filePath: string, content: { createdAt?: unknown }): st
   return fs.statSync(filePath).mtime.toISOString();
 };
 
+const skip = (fileName: string, reason: string): MigrationOutcome => {
+  console.warn(`Skipped ${fileName}: ${reason}`);
+  return 'skipped';
+};
+
 const migrateFile = (rootDir: string, fileName: string, dryRun: boolean | undefined): MigrationOutcome => {
   const sourcePath = path.join(rootDir, fileName);
   const content = JSON.parse(fs.readFileSync(sourcePath, 'utf-8'));
   const identity = sessionIdentitySchema.safeParse(content);
-  if (!identity.success) return 'skipped';
+  if (!identity.success) return skip(fileName, 'missing ticketKey or sessionId');
 
   const targetName = buildSessionFileName({ ...identity.data, createdAt: deriveCreatedAt(sourcePath, content) });
   if (targetName === fileName) return 'unchanged';
 
   const targetPath = path.join(rootDir, targetName);
-  if (fs.existsSync(targetPath)) return 'skipped';
+  if (fs.existsSync(targetPath)) return skip(fileName, `${targetName} already exists`);
   if (!dryRun) fs.renameSync(sourcePath, targetPath);
   return 'converted';
 };

@@ -96,6 +96,17 @@ describe('SessionService', () => {
       expect(fs.readdirSync(tmpDir)).toEqual(['2026-10-06-WBP-417-sid-3.json']);
     });
 
+    it('keeps files that belong to other sessions when saving', async () => {
+      fs.writeFileSync(path.join(tmpDir, '2026-10-06-WBP-417-other.json'), '{}');
+
+      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-3', createdAt }));
+
+      expect(fs.readdirSync(tmpDir).sort()).toEqual([
+        '2026-10-06-WBP-417-other.json',
+        '2026-10-06-WBP-417-sid-3.json',
+      ]);
+    });
+
     it('findByTicketKey matches date-prefixed files without matching a longer ticket key', async () => {
       await service.save(createMockSessionState({ ticketKey: 'WBP-4176', sessionId: 'sid-4', createdAt }));
       await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-5', createdAt }));

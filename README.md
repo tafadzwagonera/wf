@@ -1188,7 +1188,7 @@ wf/
 
 Session continuity enables context awareness across workflow stages. It operates at two levels with distinct session identity semantics:
 
-- **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, AI-generated summaries, and saved workflow defaults such as `ticketKey`, `from`, `to`, `action`, and source metadata. Persisted to `~/.wf/state/sessions/<date>-<ticketKey>-<sessionId>.json` (date from the session's `createdAt`).
+- **wf sessions** are workflow-level UUIDs managed by the orchestrator command (`wf issue`). They track per-stage fingerprints (`{provider, backend}`), provider session IDs, AI-generated summaries, and saved workflow defaults such as `ticketKey`, `from`, `to`, `action`, and source metadata. Persisted to `~/.wf/state/sessions/<date>-<ticketKey>-<sessionId>.json` (date from the session's `createdAt`). To rename session files created before the date prefix was introduced, run `yarn ts-node -r tsconfig-paths/register scripts/migrate-session-filenames.ts --dry-run` to preview, then rerun without `--dry-run`; `--root <dir>` targets a different sessions directory.
 - **Provider sessions** are agent SDK or CLI session identifiers (e.g. Anthropic `sess_abc123`, Codex CLI session IDs). Standalone commands pass these directly to the backend for conversation resumption.
 
 For CLI-backed review sessions, `wf issue:review` first parses the structured review payload, then sends a final summary-only epilogue turn. Claude CLI forks that epilogue session so the original review session stays intact; Codex CLI resumes the same session because its JSON exec path does not expose a fork flag.

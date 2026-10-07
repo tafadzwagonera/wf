@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
+import { buildSessionFileName } from '../../src/shared/utils/session-file-name';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifest,
@@ -58,11 +59,16 @@ const runPriorCompatibleSessionScenario = (): void => {
   }
 };
 
+const seededCreatedAt = new Date().toISOString();
+
 type ScenarioPaths = { homeDir: string; repoDir: string; binDir: string; statePath: string; invocationPath: string };
 
 const createScenarioPaths = (tempRoot: string): ScenarioPaths => ({
   homeDir: path.join(tempRoot, 'home'), repoDir: path.join(tempRoot, 'repo'), binDir: path.join(tempRoot, 'bin'),
-  statePath: path.join(tempRoot, 'home/.wf/state/sessions/RESUME-1-wf-session.json'),
+  statePath: path.join(
+    tempRoot, 'home/.wf/state/sessions',
+    buildSessionFileName({ ticketKey: 'RESUME-1', sessionId: 'wf-session', createdAt: seededCreatedAt })
+  ),
   invocationPath: path.join(tempRoot, 'invocations.log'),
 });
 
@@ -94,7 +100,7 @@ const setupSessionState = (paths: ScenarioPaths): void => {
   fs.writeFileSync(path.join(paths.repoDir, 'wf.config.js'), "module.exports={ai:[{provider:'anthropic',model:'claude-sonnet-4-6',default:true,apiKey:'test-key'}],stages:{review:{provider:'anthropic',backend:'cli'}}};\n");
   fs.writeFileSync(paths.statePath, JSON.stringify({
     sessionId: 'wf-session', ticketKey: 'RESUME-1', toStage: 'review', action: 'fix', sourceType: 'ticket',
-    customPlanRef: null, sourceBranch: 'main', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null,
+    customPlanRef: null, sourceBranch: 'main', createdAt: seededCreatedAt, updatedAt: new Date().toISOString(), completedAt: null,
     stages: { implement: { config: { provider: 'anthropic', backend: 'cli' }, model: 'claude', modelsUsed: [], providerSessionId: 'stale-session', summary: null, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() } },
   }));
 };
@@ -102,7 +108,7 @@ const setupSessionState = (paths: ScenarioPaths): void => {
 const setupPriorCompatibleSession = (paths: ScenarioPaths): void => {
   fs.writeFileSync(paths.statePath, JSON.stringify({
     sessionId: 'wf-session', ticketKey: 'RESUME-1', toStage: 'review', action: 'fix', sourceType: 'ticket',
-    customPlanRef: null, sourceBranch: 'main', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), completedAt: null,
+    customPlanRef: null, sourceBranch: 'main', createdAt: seededCreatedAt, updatedAt: new Date().toISOString(), completedAt: null,
     stages: {
       plan: createCompletedStage('anthropic', 'cli', 'plan-session'),
       implement: createCompletedStage('openai', 'agent', 'implement-session'),
