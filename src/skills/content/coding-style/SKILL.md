@@ -7,6 +7,7 @@ description: Coding style conventions — naming, control flow, types, documenta
 
 ## Control flow
 - Favor flat control flow — ternaries for expressions, switches for multiple branches, early returns to reduce nesting.
+- Extract branch-specific logic into small, single-purpose helper functions rather than inlining nested branching in one function.
 - Avoid nesting template literals and ternary operators.
 - Do not use a boolean flag parameter to switch a method's internal behavior; split into separate, clearly named methods instead.
 - Do not wrap a `try`/`catch` around code purely to catch an exception the same function throws itself; restructure with a guard clause or early return instead.
