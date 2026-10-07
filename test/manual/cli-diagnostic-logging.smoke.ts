@@ -121,10 +121,10 @@ function checkToolUseLogs(lines: string[]): void {
 function checkMetaLogs(lines: string[], noSessionLines: string[]): void {
   assert('Read tool_use logs tool activity', lines.some(l => /Read.*package\.json/.test(l)), `no match in: ${lines.filter(l => /Read/.test(l)).join(' | ') || '(none)'}`);
   assert('rate_limit_event logs via SDK-compatible path', lines.some(l => /Rate limit/.test(l)), `no match in: ${lines.filter(l => /[Rr]ate/.test(l)).join(' | ') || '(none)'}`);
-  assert('Result logs turn count', lines.some(l => /Completed in 5 turn/.test(l)), `no match in: ${lines.filter(l => /turn/.test(l)).join(' | ') || '(none)'}`);
+  assert('Result logs turn count', lines.some(l => /Agent completed in 5 turn/.test(l)), `no match in: ${lines.filter(l => /turn/.test(l)).join(' | ') || '(none)'}`);
   assert('Result logs cost', lines.some(l => /Cost.*\$0\.1200/.test(l)), `no match in: ${lines.filter(l => /Cost/.test(l)).join(' | ') || '(none)'}`);
   assert('Result logs session ID', lines.some(l => /Provider session:.*s1/.test(l)), `no match in: ${lines.filter(l => /[Ss]ession/.test(l)).join(' | ') || '(none)'}`);
-  assert('No Session: line when session_id is absent', !noSessionLines.some(l => /Session:/.test(l)), `unexpected match in: ${noSessionLines.filter(l => /Session/.test(l)).join(' | ')}`);
+  assert('No Session: line when session_id is absent', noSessionLines.filter(l => /Session:/.test(l)).length === 0, `unexpected match in: ${noSessionLines.filter(l => /Session/.test(l)).join(' | ')}`);
 }
 
 async function main(): Promise<void> {

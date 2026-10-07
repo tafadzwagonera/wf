@@ -19,6 +19,7 @@ import {
   buildVerificationFixPrompt, runProgrammaticVerification,
   checkVerificationStall, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
+import { logFileSummary } from './file-summary';
 
 const CODEX_ADAPTER_LABEL = 'codex-cli';
 
@@ -271,12 +272,6 @@ const resolveCodexModel = (
   return result.model;
 };
 
-const logTouchedFiles = (touchedFiles: Set<string>): void => {
-  if (touchedFiles.size === 0) return;
-  console.log(chalk.bold(`\n  Files touched (${touchedFiles.size}):`));
-  for (const f of touchedFiles) console.log(chalk.gray(`    ${f}`));
-};
-
 type RunCodexStreamResult = { sessionId: string | undefined; touchedFiles: Set<string> };
 
 const buildStreamContext = async (
@@ -354,7 +349,7 @@ export class CodexCliAdapter implements ImplementerBackend {
   }
 
   private logSessionSummary(touchedFiles: Set<string>, sessionId: string | undefined): void {
-    logTouchedFiles(touchedFiles);
+    logFileSummary(touchedFiles);
     if (sessionId) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] Provider session: ${sessionId}`));
   }
 
@@ -439,11 +434,15 @@ export class CodexCliAdapter implements ImplementerBackend {
     };
   }
 
+  private resolveStallThreshold(): number {
+    return this.configService.get<number>('stages.implement.stallThresholdForVerificationFix', STALL_THRESHOLD);
+  }
+
   private shouldRunFixIteration(state: VerificationFixState): boolean {
     return !state.exhausted
       && state.codeFailures.length > 0
       && state.sessionId !== undefined
-      && state.readOnly < STALL_THRESHOLD;
+      && state.readOnly < this.resolveStallThreshold();
   }
 
   private async applySuccessfulFix(
@@ -454,7 +453,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     state.outcomes = next.outcomes;
     state.codeFailures = next.codeFailures;
     state.stalled = checkVerificationStall(
-      state.codeFailures.length, state.prevFails, state.stalled, CODEX_ADAPTER_LABEL
+      state.codeFailures.length, state.prevFails, state.stalled, CODEX_ADAPTER_LABEL, this.resolveStallThreshold()
     );
     if (state.stalled < 0) state.exhausted = true;
     state.prevFails = state.codeFailures.length;

@@ -313,6 +313,16 @@ export function buildVerificationFixPrompt(failures: VerificationOutcome[], scop
 export const STALL_THRESHOLD = 2;
 
 /**
+ * Classifies verification output as passed or failed from an explicit error flag or outcome
+ * keywords in the text; returns null when neither signal is present.
+ */
+export const detectVerificationStatus = (content: string, isError?: boolean): 'failed' | 'passed' | null => {
+  if (isError || /(?:failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content)) return 'failed';
+  if (/(?:passed|success|succeeded|completed successfully|exit code 0)/i.test(content)) return 'passed';
+  return null;
+};
+
+/**
  * Checks whether the verification failure count is decreasing.
  * Returns -1 to signal the loop should stop (stalled for `threshold` consecutive passes).
  *

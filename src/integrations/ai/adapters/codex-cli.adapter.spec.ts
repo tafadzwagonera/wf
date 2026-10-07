@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { CodexCliAdapter } from './codex-cli.adapter';
+import { STALL_THRESHOLD } from './verification-report';
 import * as codexRunner from './codex-cli-runner';
 import * as skillContent from '../../../skills/skill-content';
 
@@ -23,8 +24,8 @@ const mockGetCodexCliVersion = codexRunner.getCodexCliVersion as jest.MockedFunc
   typeof codexRunner.getCodexCliVersion
 >;
 
-const createMockConfigService = (): Pick<ConfigService, 'get'> => ({
-  get: jest.fn(() => undefined),
+const createMockConfigService = (overrides: Record<string, unknown> = {}): Pick<ConfigService, 'get'> => ({
+  get: jest.fn((key: string, fallback?: unknown) => (key in overrides ? overrides[key] : fallback)),
 });
 
 describe('CodexCliAdapter', () => {
@@ -310,6 +311,49 @@ describe('CodexCliAdapter', () => {
     const result = await adapter.generateAndVerify(createBaseParams());
 
     expect(result.modelsUsed).toEqual([expect.any(String)]);
+  });
+
+  describe('implement stage stall threshold', () => {
+    const makeState = (readOnly: number) => ({
+      outcomes: [], codeFailures: [{}], sessionId: 's1',
+      prevFails: Infinity, stalled: 0, readOnly, passNumber: 1, exhausted: false,
+    });
+
+    it('resolves stages.implement.stallThresholdForVerificationFix from config', () => {
+      const adapter = new CodexCliAdapter(
+        createMockConfigService({ 'stages.implement.stallThresholdForVerificationFix': 5 }) as ConfigService
+      );
+      expect((adapter as any).resolveStallThreshold()).toBe(5);
+    });
+
+    it('falls back to STALL_THRESHOLD when stallThresholdForVerificationFix is unset', () => {
+      const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+      expect((adapter as any).resolveStallThreshold()).toBe(STALL_THRESHOLD);
+    });
+
+    it('gates fix iterations on the configured cap instead of the hardcoded default', () => {
+      const adapter = new CodexCliAdapter(
+        createMockConfigService({ 'stages.implement.stallThresholdForVerificationFix': 4 }) as ConfigService
+      );
+      expect((adapter as any).shouldRunFixIteration(makeState(3))).toBe(true);
+      expect((adapter as any).shouldRunFixIteration(makeState(4))).toBe(false);
+    });
+  });
+
+  it('logs the File summary no-changes line when no files were touched', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's', num_turns: 1 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify(createBaseParams());
+
+    const lines = logSpy.mock.calls.map(([message]) => String(message));
+    expect(lines).toContain('\n  File summary: no file changes were made.');
+    logSpy.mockRestore();
   });
 
   it('injects skill SKILL.md content into the implement prompt when skillNames is set', async () => {

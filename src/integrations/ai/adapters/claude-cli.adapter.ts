@@ -15,8 +15,9 @@ import type {
 import {
   printVerificationReport, getEnforcedFailures,
   buildVerificationFixPrompt, runProgrammaticVerification,
-  checkVerificationStall, partitionFailures, STALL_THRESHOLD,
+  checkVerificationStall, detectVerificationStatus, partitionFailures, STALL_THRESHOLD,
 } from './verification-report';
+import { logFileSummary } from './file-summary';
 import {
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
@@ -30,7 +31,9 @@ import {
   buildInitialUserPrompt,
   type BuildPlanContextParams,
 } from './shared-routing';
-import { buildSystemPrompt, formatProgressMessage, formatActivityMessages } from './anthropic-agent.adapter';
+import {
+  buildSystemPrompt, computeStallThreshold, formatProgressMessage, formatActivityMessages, resolveProgressColor,
+} from './anthropic-agent.adapter';
 import {
   assertClaudeCliAvailable,
   buildCliArgs,
@@ -182,13 +185,13 @@ const logCliResult = (message: ClaudeCliMessage, sessionId: string | undefined):
   if (message.is_error) throw new AiProviderError(`Claude CLI failed: ${describeCliFailure(message)}`);
   logCliResultSummary(message);
   if (message.num_turns) {
-    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Completed in ${message.num_turns} turn(s).`));
+    console.log(chalk.green(`  [${CLI_ADAPTER_LABEL}] Agent completed in ${message.num_turns} turn(s).`));
   }
   if (message.total_cost_usd && message.total_cost_usd > 0) {
     console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Cost: $${message.total_cost_usd.toFixed(4)} USD`));
   }
   if (sessionId) {
-    console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Provider session: ${sessionId}`));
+    console.log(chalk.gray(`  [${CLI_ADAPTER_LABEL}] Provider session: ${sessionId}`));
   }
 };
 
@@ -239,15 +242,19 @@ const logContinuationPassResult = (passNumber: number, message: ClaudeCliMessage
   }
 };
 
+type StallCheckParams = {
+  previousWorkload: number;
+  stalledPasses: number;
+  currentUnvisited: string[];
+  threshold: number;
+};
+
 const checkStallCondition = (
-  currentWorkload: number,
-  previousWorkload: number,
-  stalledPasses: number,
-  currentUnvisited: string[]
+  { previousWorkload, stalledPasses, currentUnvisited, threshold }: StallCheckParams
 ): number => {
-  const updated = currentWorkload < previousWorkload ? 0 : stalledPasses + 1;
-  if (updated < 2) return updated;
-  console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after 2 passes — stopping`));
+  const updated = currentUnvisited.length < previousWorkload ? 0 : stalledPasses + 1;
+  if (updated < threshold) return updated;
+  console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Workload not decreasing after ${threshold} passes — stopping`));
   const remaining = `  [${CLI_ADAPTER_LABEL}] Remaining: ${currentUnvisited.length} planned file(s) not touched: ${currentUnvisited.join(', ')}`;
   console.log(chalk.yellow(remaining));
   return -1;
@@ -257,10 +264,7 @@ const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   const progressLine = formatProgressMessage(message as never);
   if (!progressLine) return false;
   const label = progressLine.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`);
-  const isWarning
-    = (message.type === 'system' && message.subtype === 'api_retry')
-      || (message.type === 'system' && message.subtype === 'status');
-  console.log(isWarning ? chalk.yellow(label) : chalk.cyan(label));
+  console.log(resolveProgressColor(message as never)(label));
   for (const line of formatActivityMessages(message as never, repoDir, activityState)) {
     console.log(chalk.cyan(line.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`)));
   }
@@ -315,12 +319,6 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
   if (!target) return;
   const short = target.length > 60 ? `${target.slice(0, 57)}...` : target;
   console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
-};
-
-const detectVerificationStatus = (content: string, isError: boolean | undefined): 'failed' | 'passed' | undefined => {
-  if (isError || /(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(content)) return 'failed';
-  if (/(passed|success|succeeded|completed successfully|exit code 0)/i.test(content)) return 'passed';
-  return undefined;
 };
 
 const logToolResultVerification = (
@@ -537,19 +535,10 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
   }> {
     const { sessionId, passCount } = await this.runContinuationLoop(p);
-    this.logFileSummary(p.touchedFiles);
+    logFileSummary(p.touchedFiles);
     const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop(p, sessionId);
     printVerificationReport(outcomes);
     return { sessionId, verificationOutcomes: outcomes, passCount, verificationPassCount };
-  }
-
-  private logFileSummary(touchedFiles: Set<string>): void {
-    if (touchedFiles.size > 0) {
-      console.log(chalk.bold('\n  File summary:'));
-      for (const f of [...touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
-    } else {
-      console.log(chalk.gray('\n  File summary: no file changes were made.'));
-    }
   }
 
   private async runVerificationFixPass(
@@ -662,12 +651,12 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   private async runContinuationLoop(
     p: ContinuationLoopParams,
   ): Promise<{ sessionId: string | undefined; passCount: number }> {
-    let previousWorkload = Infinity, stalledPasses = 0, passNumber = 0;
-    let sessionId = p.sessionId;
+    let previousWorkload = Infinity, stalledPasses = 0, passNumber = 0, sessionId = p.sessionId;
+    const threshold = computeStallThreshold(p.repoFiles.filter(f => !isGlobPattern(f)).length);
     while (sessionId) {
       const currentUnvisited = computeUnvisitedFiles(p.repoFiles, p.repoName, p.touchedFiles);
       if (currentUnvisited.length === 0) break;
-      stalledPasses = checkStallCondition(currentUnvisited.length, previousWorkload, stalledPasses, currentUnvisited);
+      stalledPasses = checkStallCondition({ previousWorkload, stalledPasses, currentUnvisited, threshold });
       if (stalledPasses === -1) break;
       previousWorkload = currentUnvisited.length;
       sessionId = await this.executePassAndDiscover(p, ++passNumber, sessionId, currentUnvisited);

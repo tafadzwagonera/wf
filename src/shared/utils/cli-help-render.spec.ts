@@ -120,7 +120,7 @@ describe('renderExamplesSection', () => {
 
   it('emits no comment line for an example without a comment', () => {
     const lines = renderExamplesSection(examples.slice(1, 2));
-    expect(lines.some(l => l.trimStart().startsWith('#'))).toBe(false);
+    expect(lines.filter(l => l.trimStart().startsWith('#'))).toEqual([]);
   });
 
   it('wraps a long comment across multiple gray lines within MAX_HELP_WIDTH', () => {

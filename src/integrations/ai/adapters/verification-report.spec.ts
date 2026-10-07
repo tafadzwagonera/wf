@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
-import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, STALL_THRESHOLD, buildVerificationFixPrompt, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
+import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, STALL_THRESHOLD, buildVerificationFixPrompt, detectVerificationStatus, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 
@@ -168,6 +168,24 @@ describe('checkVerificationStall', () => {
     const stopped = checkVerificationStall(5, 5, 2, 'test-adapter', 3);
     expect(stopped).toBe(-1);
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('after 3 passes'));
+  });
+});
+
+describe('detectVerificationStatus', () => {
+  it('returns failed when the error flag is set even without failure keywords', () => {
+    expect(detectVerificationStatus('command terminated', true)).toBe('failed');
+  });
+
+  it('returns failed on failure keywords', () => {
+    expect(detectVerificationStatus('Tests failed with exit code 1')).toBe('failed');
+  });
+
+  it('returns passed on success keywords', () => {
+    expect(detectVerificationStatus('All tests passed')).toBe('passed');
+  });
+
+  it('returns null when neither keywords nor the error flag indicate an outcome', () => {
+    expect(detectVerificationStatus('running checks')).toBeNull();
   });
 });
 

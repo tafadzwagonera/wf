@@ -460,7 +460,7 @@ describe('codex-cli-runner', () => {
       const messages: CodexCliMessage[] = [];
       for await (const msg of gen) messages.push(msg);
 
-      expect(messages.some(m => m.subtype === 'no_progress')).toBe(false);
+      expect(messages.filter(m => m.subtype === 'no_progress')).toEqual([]);
       expect(messages).toHaveLength(19);
     });
 

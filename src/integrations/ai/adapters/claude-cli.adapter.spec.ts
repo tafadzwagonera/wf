@@ -65,6 +65,42 @@ describe('ClaudeCliAdapter', () => {
     expect(mockBuildCliArgs.mock.calls[0][0].appendSystemPrompt).toContain('Repository conventions (repo):');
   });
 
+  it('logs completion with the Agent completed wording shared by the agent adapters', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0.01 };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: ['step 1'],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const lines = logSpy.mock.calls.map(([message]) => String(message));
+    expect(lines).toContain('  [claude-cli] Agent completed in 1 turn(s).');
+    logSpy.mockRestore();
+  });
+
   it('renders object plan risks with severity prefixes in the task brief', async () => {
     mockSpawnCli.mockReturnValue(
       (async function* () {
@@ -215,6 +251,40 @@ describe('ClaudeCliAdapter', () => {
       const adapter = new ClaudeCliAdapter(createMockConfigService({ 'stages.implement.stallThresholdForVerificationFix': 4 }) as any);
       expect((adapter as any).shouldRunFixIteration(makeState(3))).toBe(true);
       expect((adapter as any).shouldRunFixIteration(makeState(4))).toBe(false);
+    });
+
+    it('scales the continuation stall threshold with the planned file count', async () => {
+      const mockStream = () =>
+        (async function* () {
+          yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0.01 };
+        })();
+      mockSpawnCli.mockImplementation(() => mockStream());
+
+      const repoFiles = Array.from({ length: 20 }, (_, i) => `repo/src/file-${i}.ts`);
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      await adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature',
+            summary: 'test',
+            steps: ['step 1'],
+            estimatedComplexity: 'low',
+            affectedFiles: [],
+            affectedRepositories: [],
+            risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles,
+        repoName: 'repo',
+        trackedFilePaths: repoFiles,
+      });
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -467,7 +537,7 @@ describe('ClaudeCliAdapter', () => {
     });
 
     const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
-    expect(logCalls.some(l => /Session:/.test(l))).toBe(false);
+    expect(logCalls.filter(l => /Session:/.test(l))).toEqual([]);
 
     consoleSpy.mockRestore();
   });
@@ -667,7 +737,7 @@ describe('ClaudeCliAdapter', () => {
     });
 
     const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
-    expect(logCalls.some(l => /Skill:/.test(l))).toBe(false);
+    expect(logCalls.filter(l => /Skill:/.test(l))).toEqual([]);
 
     consoleSpy.mockRestore();
   });
@@ -747,7 +817,7 @@ describe('ClaudeCliAdapter', () => {
     });
 
     const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
-    expect(logCalls.some(l => /Skill:/.test(l))).toBe(false);
+    expect(logCalls.filter(l => /Skill:/.test(l))).toEqual([]);
 
     consoleSpy.mockRestore();
   });

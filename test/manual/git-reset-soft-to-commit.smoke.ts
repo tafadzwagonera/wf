@@ -83,13 +83,13 @@ async function checkScenario1Reset(
 async function checkScenario2Idempotent(
   gitService: GitService, dir: string, git: (cmd: string) => string, baselineSha: string, staged: string
 ): Promise<void> {
-  let threw = false;
+  let secondResetSucceeded = true;
   try {
     await gitService.resetSoftToCommit(baselineSha, dir);
   } catch {
-    threw = true;
+    secondResetSucceeded = false;
   }
-  assert('second call on already-reset ref does not throw', !threw);
+  assert('second call on already-reset ref does not throw', secondResetSucceeded);
   const stagedAfterSecond = git('git diff --cached --name-only');
   assert('staged index unchanged after second call', stagedAfterSecond === staged, stagedAfterSecond);
 }

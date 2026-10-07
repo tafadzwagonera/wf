@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n  coding-style skill registration smoke test\n'));
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   try {
-    assert('bootstrap succeeds', !!app);
+    assert('bootstrap succeeds', app !== undefined);
     checkKnownSkillsRegistered();
     await checkResolveForImplement();
     await checkRejectsForPlan();

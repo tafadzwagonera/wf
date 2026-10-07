@@ -20,7 +20,8 @@ import type {
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import { buildSkillPromptFragment } from '../../../skills';
-import { resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
+import { detectVerificationStatus, resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
+import { logFileSummary } from './file-summary';
 import {
   DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_ANTHROPIC_MECHANICAL_MODEL,
@@ -149,18 +150,6 @@ const extractVerificationCommand = (summary: string, fallbackCommand?: string): 
   return fallbackCommand ?? FALLBACK_VERIFICATION_LABEL;
 };
 
-const extractVerificationOutcome = (summary: string): 'passed' | 'failed' | null => {
-  if (/(failed|failure|exit code [1-9]\d*|non-zero exit|error\b|errors\b)/i.test(summary)) {
-    return 'failed';
-  }
-
-  if (/(passed|success|succeeded|completed successfully|exit code 0)/i.test(summary)) {
-    return 'passed';
-  }
-
-  return null;
-};
-
 const formatFilesPersistedMessages = (
   message: Extract<SystemMessage, { subtype: 'files_persisted' }>,
   repoDir: string
@@ -174,7 +163,7 @@ const formatToolUseSummaryMessage = (
   message: Extract<SDKMessage, { type: 'tool_use_summary' }>,
   activityState: ActivityState
 ): string[] => {
-  const outcome = extractVerificationOutcome(message.summary);
+  const outcome = detectVerificationStatus(message.summary);
   if (!outcome) return [];
   const command = extractVerificationCommand(message.summary, activityState.lastVerificationCommand);
   activityState.lastVerificationCommand = command;
@@ -196,11 +185,19 @@ export const formatActivityMessages = (
 const isWarningMessage = (message: SDKMessage): boolean =>
   message.type === 'system' && (message.subtype === 'api_retry' || message.subtype === 'status');
 
+const isTaskProgressMessage = (message: SDKMessage): boolean =>
+  message.type === 'system' && message.subtype === 'task_progress';
+
+export const resolveProgressColor = (message: SDKMessage): typeof chalk.cyan => {
+  if (isWarningMessage(message)) return chalk.yellow;
+  if (isTaskProgressMessage(message)) return chalk.gray;
+  return chalk.cyan;
+};
+
 const logProgressMessage = (message: SDKMessage): boolean => {
   const formattedMessage = formatProgressMessage(message);
   if (!formattedMessage) return false;
-  const colorize = isWarningMessage(message) ? chalk.yellow : chalk.cyan;
-  console.log(colorize(formattedMessage));
+  console.log(resolveProgressColor(message)(formattedMessage));
   return true;
 };
 
@@ -325,7 +322,7 @@ const trackVerificationOutcome = (message: SDKMessage, activityState: ActivitySt
   if (message.type !== 'tool_use_summary') return;
   if (!activityState.verificationOutcomes) return;
   const summary = (message as { summary?: string }).summary ?? '';
-  const status = extractVerificationOutcome(summary);
+  const status = detectVerificationStatus(summary);
   if (!status) return;
   const command = activityState.lastVerificationCommand ?? 'unknown command';
   const script = activityState.verificationScripts?.find(
@@ -397,16 +394,11 @@ const logSdkSummaryAndFiles = (result: SDKResultMessage, touchedFiles: Set<strin
       if (line.trim()) console.log(chalk.cyan(`    ${line}`));
     }
   }
-  if (touchedFiles.size > 0) {
-    console.log(chalk.bold('\n  File summary:'));
-    for (const f of [...touchedFiles].sort((a, b) => a.localeCompare(b))) console.log(chalk.cyan(`    - updated: ${f}`));
-  } else {
-    console.log(chalk.gray('\n  File summary: no file changes were made.'));
-  }
+  logFileSummary(touchedFiles);
 };
 
 const logSdkCompletion = (result: SDKResultMessage, touchedFiles: Set<string>): void => {
-  console.log(chalk.green(`  [claude-agent-sdk] Agent completed in ${result.num_turns} turn(s).`));
+  console.log(chalk.green(`  [${ANTHROPIC_AGENT_LABEL}] Agent completed in ${result.num_turns} turn(s).`));
   logSdkUsage(result);
   logSdkSummaryAndFiles(result, touchedFiles);
 };
@@ -503,7 +495,7 @@ const runContinuationPass = async (p: ContinuationPassParams): Promise<Continuat
 const computeUnvisited = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
   repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
 
-const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
+export const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
   configOverride ?? Math.max(STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
 
 const logStallWarning = (currentUnvisited: string[], threshold: number): void => {

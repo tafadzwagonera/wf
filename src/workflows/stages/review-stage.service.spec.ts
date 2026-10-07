@@ -861,7 +861,7 @@ describe('ReviewStageService', () => {
       await service.reviewDiff('diff --git a/file b/file', { context: 'ctx', commentPolicyEnabled: true });
 
       const guidelines: string[] = (aiService.reviewCode as jest.Mock).mock.calls[0][1];
-      expect(guidelines.some(g => g.startsWith('Comments:'))).toBe(false);
+      expect(guidelines.filter(g => g.startsWith('Comments:'))).toEqual([]);
       expect(guidelines.some(g => g.startsWith('Clarity:'))).toBe(true);
       expect(guidelines.length).toBeGreaterThan(0);
     });
