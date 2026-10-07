@@ -30,6 +30,7 @@ import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/
 import { resolveCustomArtifactDir } from '../../src/agents/utils';
 
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -154,19 +155,17 @@ async function checkSonarScopeResolution(
 function setupEnv(
   prefix: string,
   homePrefix: string,
-): { repoDir: string; wfHome: string; originalWfHome: string | undefined } {
+): { repoDir: string; wfHome: string } {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
-  return { repoDir, wfHome, originalWfHome };
+  withEnv({ WF_HOME: wfHome });
+  return { repoDir, wfHome };
 }
 
-function cleanupEnv(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+function cleanupEnv(repoDir: string, wfHome: string): void {
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+  restoreEnv();
 }
 
 function setupScenario(repoDir: string): { expectedReleaseMergeBase: string } {
@@ -189,12 +188,12 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
-  const { repoDir, wfHome, originalWfHome } = setupEnv('sonar-custom-session-', 'sonar-custom-session-home-');
+  const { repoDir, wfHome } = setupEnv('sonar-custom-session-', 'sonar-custom-session-home-');
   const { expectedReleaseMergeBase } = setupScenario(repoDir);
   await saveCustomPlanSession(sessionService);
   await checkSessionLookup(sessionService);
   await checkSonarScopeResolution(sonarStageService, repoDir, expectedReleaseMergeBase);
-  cleanupEnv(repoDir, wfHome, originalWfHome);
+  cleanupEnv(repoDir, wfHome);
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   await app.close();
   summarise(counts);

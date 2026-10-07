@@ -27,6 +27,7 @@ import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
 import { resolveArtifactDir } from '../../src/agents/utils';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -36,7 +37,6 @@ const git = (dir: string, args: string[]): string =>
 type WfEnvironmentSetup = {
   repoDir: string;
   wfHome: string;
-  originalWfHome: string | undefined;
 };
 
 function setupWfEnvironment(
@@ -45,16 +45,14 @@ function setupWfEnvironment(
 ): WfEnvironmentSetup {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
-  return { repoDir, wfHome, originalWfHome };
+  withEnv({ WF_HOME: wfHome });
+  return { repoDir, wfHome };
 }
 
-function cleanupWfEnvironment(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+function cleanupWfEnvironment(repoDir: string, wfHome: string): void {
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+  restoreEnv();
 }
 
 function initializeRepoWithBase(repoDir: string): void {
@@ -256,9 +254,9 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
-  const { repoDir, wfHome, originalWfHome } = setupWfEnvironment('sonar-session-priority-', 'sonar-session-priority-home-');
+  const { repoDir, wfHome } = setupWfEnvironment('sonar-session-priority-', 'sonar-session-priority-home-');
   await setupAndRunTests(sonarStageService, sessionService, repoDir);
-  cleanupWfEnvironment(repoDir, wfHome, originalWfHome);
+  cleanupWfEnvironment(repoDir, wfHome);
   await app.close();
   summarise(counts);
 }

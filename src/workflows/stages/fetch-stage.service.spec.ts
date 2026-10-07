@@ -9,7 +9,6 @@ import * as path from 'path';
 import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 describe('FetchStageService', () => {
-  let originalHome: string | undefined;
   const testHomeDir = path.join(os.tmpdir(), 'wf-fetch-home');
   const mockTicket = {
     key: 'WBP-123',
@@ -59,11 +58,6 @@ describe('FetchStageService', () => {
   };
 
   afterEach(() => {
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
     jest.restoreAllMocks();
     if (fs.existsSync(testHomeDir)) {
       fs.rmSync(testHomeDir, { recursive: true, force: true });

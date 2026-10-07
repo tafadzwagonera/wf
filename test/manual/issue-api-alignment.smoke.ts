@@ -24,6 +24,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -83,18 +84,17 @@ const captureStdout = async (fn: () => Promise<void>): Promise<string> => {
 
 function applyTmpEnv(
   ticketKey: string,
-): { cleanup: () => void; originalCwd: string; originalHome: string | undefined } {
+): { cleanup: () => void; originalCwd: string } {
   const { tmpRoot, homeDir, cleanup } = makeArtifactFixture(ticketKey);
   const originalCwd = process.cwd();
-  const originalHome = process.env.HOME;
   process.chdir(tmpRoot);
-  process.env.HOME = homeDir;
-  return { cleanup, originalCwd, originalHome };
+  withEnv({ HOME: homeDir });
+  return { cleanup, originalCwd };
 }
 
-function teardownTmpEnv(originalCwd: string, originalHome: string | undefined, cleanup: () => void): void {
+function teardownTmpEnv(originalCwd: string, cleanup: () => void): void {
   process.chdir(originalCwd);
-  process.env.HOME = originalHome;
+  restoreEnv();
   cleanup();
 }
 
@@ -103,14 +103,14 @@ async function runWithTmpEnv(
   ticketKey: string,
   opts: Record<string, any>,
 ): Promise<{ output: string; error?: Error }> {
-  const { cleanup, originalCwd, originalHome } = applyTmpEnv(ticketKey);
+  const { cleanup, originalCwd } = applyTmpEnv(ticketKey);
   try {
     const output = await captureStdout(() => command.run([], { ticketKey, ...opts } as any));
     return { output };
   } catch (err: any) {
     return { output: '', error: err };
   } finally {
-    teardownTmpEnv(originalCwd, originalHome, cleanup);
+    teardownTmpEnv(originalCwd, cleanup);
   }
 }
 

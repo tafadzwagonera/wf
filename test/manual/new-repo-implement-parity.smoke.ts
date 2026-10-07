@@ -18,20 +18,9 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
-
-const overrideHomeDir = (nextHomeDir: string): (() => void) => {
-  const previousHome = process.env.HOME;
-  process.env.HOME = nextHomeDir;
-  return () => {
-    if (previousHome === undefined) {
-      delete process.env.HOME;
-      return;
-    }
-    process.env.HOME = previousHome;
-  };
-};
 
 function makeWriteCapture(
   orig: (...args: unknown[]) => unknown,
@@ -119,23 +108,22 @@ const makeCustomPlanFixtures = (opts: {
 function setupImplementTest(
   tmpRoot: string,
   appDir: string,
-): { originalCwd: () => string; restoreHome: () => void } {
+): { originalCwd: () => string } {
   const originalCwd = process.cwd.bind(process);
-  const restoreHome = overrideHomeDir(path.join(tmpRoot, 'home'));
+  withEnv({ HOME: path.join(tmpRoot, 'home') });
   (process as any).cwd = () => appDir;
-  return { originalCwd, restoreHome };
+  return { originalCwd };
 }
 
 function teardownImplementTest(
   implementer: { execute: (...args: unknown[]) => unknown },
   origExecute: (...args: unknown[]) => unknown,
   originalCwd: () => string,
-  restoreHome: () => void,
   cleanup: () => void,
 ): void {
   implementer.execute = origExecute;
   (process as any).cwd = originalCwd;
-  restoreHome();
+  restoreEnv();
   cleanup();
 }
 
@@ -181,7 +169,7 @@ async function runTest1IsNewRepoPropagates(command: IssueImplementCommand,
   implementer: { execute: (...args: unknown[]) => unknown }): Promise<void> {
   console.log('\nTest 1: standalone implement propagates isNewRepo from plan\n' + '-'.repeat(60));
   const { tmpRoot, appDir, cleanup } = makeCustomPlanFixtures({ planName: 'extract-lib', affectedRepositories: ['consumer-app', 'new-lib'], newRepositories: ['new-lib'] });
-  const { originalCwd, restoreHome } = setupImplementTest(tmpRoot, appDir);
+  const { originalCwd } = setupImplementTest(tmpRoot, appDir);
   const capturedOptions: ImplementerOptions[] = [];
   const origExecute = implementer.execute.bind(implementer);
   implementer.execute = makeCapturingMock(capturedOptions, 'fix/extract-lib');
@@ -189,7 +177,7 @@ async function runTest1IsNewRepoPropagates(command: IssueImplementCommand,
     const { output } = await captureOutput(() => command.run(['extract-lib-fix.json'], { repos: ['consumer-app'], silent: true }));
     checkTest1Results(appDir, capturedOptions, output);
   } finally {
-    teardownImplementTest(implementer, origExecute, originalCwd, restoreHome, cleanup);
+    teardownImplementTest(implementer, origExecute, originalCwd, cleanup);
   }
 }
 
@@ -206,7 +194,7 @@ async function runTest2RejectsUnresolvableRepos(command: IssueImplementCommand,
   implementer: { execute: (...args: unknown[]) => unknown }): Promise<void> {
   console.log('\nTest 2: standalone implement rejects unresolvable repos not in newRepositories\n' + '-'.repeat(60));
   const { tmpRoot, appDir, cleanup } = makeCustomPlanFixtures({ planName: 'typo-plan', affectedRepositories: ['consumer-app', 'typo-repo'], newRepositories: [] });
-  const { originalCwd, restoreHome } = setupImplementTest(tmpRoot, appDir);
+  const { originalCwd } = setupImplementTest(tmpRoot, appDir);
   const origExecute = implementer.execute.bind(implementer);
   const mock = makeCalledTrackingMock('fix/typo');
   implementer.execute = mock.fn;
@@ -214,7 +202,7 @@ async function runTest2RejectsUnresolvableRepos(command: IssueImplementCommand,
     const { output } = await captureOutput(() => command.run(['typo-plan-fix.json'], { repos: ['consumer-app'], silent: true }));
     checkTest2Results(output, mock.wasCalled());
   } finally {
-    teardownImplementTest(implementer, origExecute, originalCwd, restoreHome, cleanup);
+    teardownImplementTest(implementer, origExecute, originalCwd, cleanup);
   }
 }
 
@@ -230,7 +218,7 @@ async function runTest3NoScaffoldingWithoutNewRepositories(command: IssueImpleme
   implementer: { execute: (...args: unknown[]) => unknown }): Promise<void> {
   console.log('\nTest 3: no scaffolding when plan has no newRepositories\n' + '-'.repeat(60));
   const { tmpRoot, appDir, cleanup } = makeCustomPlanFixtures({ planName: 'no-new-repos', affectedRepositories: ['consumer-app'] });
-  const { originalCwd, restoreHome } = setupImplementTest(tmpRoot, appDir);
+  const { originalCwd } = setupImplementTest(tmpRoot, appDir);
   const capturedOptions: ImplementerOptions[] = [];
   const origExecute = implementer.execute.bind(implementer);
   implementer.execute = makeCapturingMock(capturedOptions, 'fix/no-new');
@@ -238,7 +226,7 @@ async function runTest3NoScaffoldingWithoutNewRepositories(command: IssueImpleme
     const { output } = await captureOutput(() => command.run(['no-new-repos-fix.json'], { repos: ['consumer-app'], silent: true }));
     checkTest3Results(output, capturedOptions);
   } finally {
-    teardownImplementTest(implementer, origExecute, originalCwd, restoreHome, cleanup);
+    teardownImplementTest(implementer, origExecute, originalCwd, cleanup);
   }
 }
 

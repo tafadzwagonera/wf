@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -32,20 +33,6 @@ const captureStdout = (): { restore: () => string } => {
       process.stdout.write = originalWrite;
       return output;
     },
-  };
-};
-
-const overrideHomeDir = (nextHomeDir: string): (() => void) => {
-  const previousHome = process.env.HOME;
-  process.env.HOME = nextHomeDir;
-
-  return () => {
-    if (previousHome === undefined) {
-      delete process.env.HOME;
-      return;
-    }
-
-    process.env.HOME = previousHome;
   };
 };
 
@@ -92,10 +79,10 @@ async function executeTest1(cmd: IssueImplementCommand, planPath: string, cap: a
   await assertTest1(cap, stdout.restore(), planPath);
 }
 
-function cleanupTest1(impl: any, origCwd: any, restoreHome: any, tmpBaseDir: string, origExec: any): void {
+function cleanupTest1(impl: any, origCwd: any, tmpBaseDir: string, origExec: any): void {
   impl.execute = origExec;
   (process as any).cwd = origCwd;
-  restoreHome();
+  restoreEnv();
   fs.rmSync(tmpBaseDir, { recursive: true, force: true });
 }
 
@@ -104,7 +91,6 @@ interface Test1Env {
   cap: any;
   origExec: any;
   planPath: string;
-  restoreHome: () => void;
   origCwd: any;
 }
 
@@ -112,18 +98,18 @@ function setupTest1Environment(command: IssueImplementCommand, tmpBaseDir: strin
   const impl = (command as any).orchestrator.implementer;
   const { cap, origExec } = setupImplementerMock(impl);
   const planPath = setupTest1Dirs(tmpBaseDir);
-  const restoreHome = overrideHomeDir(tmpBaseDir);
+  withEnv({ HOME: tmpBaseDir });
   const origCwd = process.cwd.bind(process);
-  return { impl, cap, origExec, planPath, restoreHome, origCwd };
+  return { impl, cap, origExec, planPath, origCwd };
 }
 
 async function runTest1(command: IssueImplementCommand): Promise<void> {
   const tmpBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-implement-'));
-  const { impl, cap, origExec, planPath, restoreHome, origCwd } = setupTest1Environment(command, tmpBaseDir);
+  const { impl, cap, origExec, planPath, origCwd } = setupTest1Environment(command, tmpBaseDir);
   try {
     await executeTest1(command, planPath, cap, tmpBaseDir);
   } finally {
-    cleanupTest1(impl, origCwd, restoreHome, tmpBaseDir, origExec);
+    cleanupTest1(impl, origCwd, tmpBaseDir, origExec);
   }
 }
 
@@ -164,13 +150,13 @@ async function executeTest2(command: IssueImplementCommand, trackedFile: string,
 async function runTest2(command: IssueImplementCommand): Promise<void> {
   const tmpBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-custom-implement-'));
   const { trackedFile } = setupTest2Dirs(tmpBaseDir);
-  const restoreHome = overrideHomeDir(tmpBaseDir);
+  withEnv({ HOME: tmpBaseDir });
   const originalCwd = process.cwd.bind(process);
   try {
     await executeTest2(command, trackedFile, tmpBaseDir);
   } finally {
     (process as any).cwd = originalCwd;
-    restoreHome();
+    restoreEnv();
     fs.rmSync(tmpBaseDir, { recursive: true, force: true });
   }
 }

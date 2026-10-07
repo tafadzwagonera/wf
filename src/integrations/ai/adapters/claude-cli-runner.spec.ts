@@ -8,6 +8,7 @@ import {
   spawnCli,
 } from './claude-cli-runner';
 import * as logFileWriter from '../../../shared/logger/log-file-writer';
+import { restoreEnv, withEnv } from '../../../shared/testing/env';
 import { execSync, spawn } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 
@@ -44,10 +45,12 @@ const createMockChildProcess = () => {
 
 describe('claude-cli-runner', () => {
   describe('assertClaudeCliAvailable', () => {
+    beforeEach(() => withEnv({ WF_SKIP_CLI_VERSION_CHECK: undefined }));
+
     afterEach(() => {
+      restoreEnv();
       jest.restoreAllMocks();
       mockExecSync.mockReset();
-      delete process.env['WF_SKIP_CLI_VERSION_CHECK'];
     });
 
     it('does not throw when claude is available', () => {
@@ -100,7 +103,7 @@ describe('claude-cli-runner', () => {
     });
 
     it('skips version check when WF_SKIP_CLI_VERSION_CHECK=1', () => {
-      process.env['WF_SKIP_CLI_VERSION_CHECK'] = '1';
+      withEnv({ WF_SKIP_CLI_VERSION_CHECK: '1' });
       mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/claude'));
       expect(() => assertClaudeCliAvailable()).not.toThrow();
       expect(mockExecSync).toHaveBeenCalledTimes(1);

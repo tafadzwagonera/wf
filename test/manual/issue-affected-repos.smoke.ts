@@ -18,6 +18,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -110,15 +111,14 @@ const captureOutput = async (fn: () => Promise<void>): Promise<{ output: string 
 async function runTestScenario(command: IssueCommand, fixtures: TestFixtures,
   runOptions: Record<string, any>): Promise<string> {
   const originalCwd = process.cwd();
-  const originalHome = process.env.HOME;
   process.chdir(fixtures.tmpRoot);
-  process.env.HOME = fixtures.homeDir;
+  withEnv({ HOME: fixtures.homeDir });
   try {
     const { output } = await captureOutput(() => command.run([], runOptions as any));
     return output;
   } finally {
     process.chdir(originalCwd);
-    process.env.HOME = originalHome;
+    restoreEnv();
     fixtures.cleanup();
   }
 }

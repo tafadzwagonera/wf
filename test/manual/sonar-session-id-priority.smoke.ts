@@ -25,6 +25,7 @@ import { SonarStageService } from '../../src/review/sonar-stage.service';
 import { SessionService } from '../../src/shared/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -34,19 +35,17 @@ const git = (dir: string, args: string[]): string =>
 function setupWfEnvironment(
   prefix: string,
   homePrefix: string,
-): { repoDir: string; wfHome: string; originalWfHome: string | undefined } {
+): { repoDir: string; wfHome: string } {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
-  return { repoDir, wfHome, originalWfHome };
+  withEnv({ WF_HOME: wfHome });
+  return { repoDir, wfHome };
 }
 
-function cleanupWfEnvironment(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+function cleanupWfEnvironment(repoDir: string, wfHome: string): void {
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+  restoreEnv();
 }
 
 function initGitRepo(repoDir: string): void {
@@ -206,12 +205,12 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const sonarStageService = app.get(SonarStageService);
   const sessionService = app.get(SessionService);
-  const { repoDir, wfHome, originalWfHome } = setupWfEnvironment('sonar-session-id-', 'sonar-session-id-home-');
+  const { repoDir, wfHome } = setupWfEnvironment('sonar-session-id-', 'sonar-session-id-home-');
   setupSessionPriorityRepo(repoDir);
   const { expectedReleaseMergeBase } = computeAndValidateMergeBases(repoDir);
   await setupSessionsAndCheckTest1(sessionService);
   await runAndCheckTest2Bypass(sonarStageService, repoDir, expectedReleaseMergeBase);
-  cleanupWfEnvironment(repoDir, wfHome, originalWfHome);
+  cleanupWfEnvironment(repoDir, wfHome);
   await app.close();
   summarise(counts);
 }

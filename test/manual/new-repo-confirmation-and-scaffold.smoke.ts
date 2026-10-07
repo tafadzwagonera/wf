@@ -22,6 +22,7 @@ import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -146,16 +147,6 @@ function overrideCwd(appDir: string): { restoreCwd: () => void } {
   };
 }
 
-function overrideHome(homeDir: string): { restoreHome: () => void } {
-  const originalHome = process.env.HOME;
-  process.env.HOME = homeDir;
-  return {
-    restoreHome: () => {
-      process.env.HOME = originalHome;
-    },
-  };
-}
-
 function overrideTTY(): { restoreTTY: () => void } {
   const stdinTTY = process.stdin.isTTY;
   const stdoutTTY = process.stdout.isTTY;
@@ -205,12 +196,11 @@ function teardownTest1(
   implementer: { execute: (...args: unknown[]) => unknown },
   origExecute: (...args: unknown[]) => unknown,
   restoreCwd: () => void,
-  restoreHome: () => void,
   cleanup: () => void,
 ): void {
   implementer.execute = origExecute;
   restoreCwd();
-  restoreHome();
+  restoreEnv();
   cleanup();
 }
 
@@ -218,7 +208,7 @@ async function runTest1SilentAutoScaffold(command: IssueCommand, implementer: Mo
   console.log('\nTest 1: silent mode auto-scaffolds new repos without prompting\n' + '-'.repeat(60));
   const { homeDir, appDir, cleanup } = makeFixtures({ ticketKey: 'NR-1', affectedRepositories: ['primary-app', 'auto-svc'], newRepositories: ['auto-svc'] });
   const { restoreCwd } = overrideCwd(appDir);
-  const { restoreHome } = overrideHome(homeDir);
+  withEnv({ HOME: homeDir });
   const capturedOptions: ImplementerOptions[] = [];
   const origExecute = implementer.execute.bind(implementer);
   implementer.execute = makeImplementerMock(capturedOptions);
@@ -226,7 +216,7 @@ async function runTest1SilentAutoScaffold(command: IssueCommand, implementer: Mo
     await captureOutput(() => command.run([], { ticketKey: 'NR-1', from: 'implement', to: 'implement', action: 'fix', repos: ['primary-app'], silent: true }));
     checkSilentAutoScaffold(appDir, capturedOptions);
   } finally {
-    teardownTest1(implementer, origExecute, restoreCwd, restoreHome, cleanup);
+    teardownTest1(implementer, origExecute, restoreCwd, cleanup);
   }
 }
 

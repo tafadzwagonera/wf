@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -51,20 +52,6 @@ const captureStdout = (): { restore: () => string } => {
   };
 };
 
-const overrideHomeDir = (nextHomeDir: string): (() => void) => {
-  const previousHome = process.env.HOME;
-  process.env.HOME = nextHomeDir;
-
-  return () => {
-    if (previousHome === undefined) {
-      delete process.env.HOME;
-      return;
-    }
-
-    process.env.HOME = previousHome;
-  };
-};
-
 const scaffoldCustomPlan = (tmpDir: string): string => {
   const appBaseName = path.basename(tmpDir);
   const customArtifactDir = path.join(tmpDir, '.wf', appBaseName);
@@ -90,9 +77,9 @@ const setupTmpDir = (): { tmpDir: string; cleanup: () => void } => {
   return { tmpDir, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
 };
 
-const cleanupTest = (origExit: any, restoreHome: () => void, cleanup: () => void): void => {
+const cleanupTest = (origExit: any, cleanup: () => void): void => {
   process.exit = origExit;
-  restoreHome();
+  restoreEnv();
   cleanup();
 };
 
@@ -124,7 +111,7 @@ async function runCommandWithCwd(command: IssueCommand, opts: any, tmpDir: strin
 
 async function testCustomPlanDefaultsToPlan(cmd: IssueCommand, origExit: any): Promise<void> {
   const { tmpDir, cleanup } = setupTmpDir();
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   process.exit = (() => {}) as any;
   const planFileName = scaffoldCustomPlan(tmpDir);
   try {
@@ -132,19 +119,19 @@ async function testCustomPlanDefaultsToPlan(cmd: IssueCommand, origExit: any): P
     if (stderr.includes('--from option is required')) fail('Should not require --from', stderr.slice(0, 300));
     else if (stdout.includes('plan')) pass('--custom-plan without --from bypassed guard (defaults to plan)');
     else fail('Unexpected result', stderr.slice(0, 300));
-  } finally { cleanupTest(origExit, restoreHome, cleanup); }
+  } finally { cleanupTest(origExit, cleanup); }
 }
 
 async function testCustomPlanWithExplicitFrom(cmd: IssueCommand, origExit: any): Promise<void> {
   const { tmpDir, cleanup } = setupTmpDir();
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   process.exit = (() => {}) as any;
   const planFileName = scaffoldCustomPlan(tmpDir);
   try {
     const { stderr } = await runCommandWithCwd(cmd, { customPlan: planFileName, from: 'implement' as const, to: 'implement' as const, dryRun: true }, tmpDir);
     if (stderr.includes('--from option is required')) fail('Explicit --from should not trigger', stderr.slice(0, 300));
     else pass('Explicit --from implement is honoured with --custom-plan');
-  } finally { cleanupTest(origExit, restoreHome, cleanup); }
+  } finally { cleanupTest(origExit, cleanup); }
 }
 
 async function testTicketKeyRequiresFrom(cmd: IssueCommand, origExit: any): Promise<void> {

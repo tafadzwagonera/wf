@@ -1,13 +1,17 @@
 import configuration from './configuration';
 import { normalizeWfConfig } from './wf-config-loader';
+import { restoreEnv, withEnv } from '../shared/testing/env';
 
 describe('configuration defaults', () => {
+  beforeEach(() => withEnv({ WF_SKIP_CONFIG_BOOTSTRAP: undefined }));
+
   afterEach(() => {
-    delete process.env.WF_SKIP_CONFIG_BOOTSTRAP;
+    restoreEnv();
+    jest.restoreAllMocks();
   });
 
   it('returns an empty config when help bootstrap skips preload', () => {
-    process.env.WF_SKIP_CONFIG_BOOTSTRAP = 'true';
+    withEnv({ WF_SKIP_CONFIG_BOOTSTRAP: 'true' });
 
     expect(configuration()).toEqual({});
   });

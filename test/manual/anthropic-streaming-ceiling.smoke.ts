@@ -28,6 +28,7 @@ import { AnthropicAdapter } from '../../src/integrations/ai/adapters/anthropic.a
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import type { AIResponse } from '../../src/shared/types/ai.types';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 type CapturedRequest = {
   pathname: string;
@@ -233,14 +234,6 @@ function formatFatalError(err: unknown): string {
   return `${err.name}: ${err.message}\n${err.stack ?? ''}`;
 }
 
-function restoreEnvVar(key: string, original: string | undefined): void {
-  if (original === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = original;
-  }
-}
-
 function setupTempRepo(repoDir: string, configPath: string): void {
   fs.mkdirSync(repoDir, { recursive: true });
   fs.writeFileSync(
@@ -279,27 +272,20 @@ function teardownSmoke(originalCwd: string, server: http.Server, tempRoot: strin
   process.exit(exitCode);
 }
 
-type EnvSnapshot = { origBaseUrl: string | undefined; origApiKey: string | undefined };
-
-async function setupEnvAndConfig(repoDir: string, baseUrl: string): Promise<EnvSnapshot> {
+async function setupEnvAndConfig(repoDir: string, baseUrl: string): Promise<void> {
   process.chdir(repoDir);
   await initializeWfConfig(repoDir);
-  const origBaseUrl = process.env.ANTHROPIC_BASE_URL;
-  const origApiKey = process.env.ANTHROPIC_API_KEY;
-  process.env.ANTHROPIC_BASE_URL = baseUrl;
-  process.env.ANTHROPIC_API_KEY = 'test-key';
-  return { origBaseUrl, origApiKey };
+  withEnv({ ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: 'test-key' });
 }
 
 async function runWithApp(repoDir: string, baseUrl: string, capturedRequests: CapturedRequest[]): Promise<number> {
-  const { origBaseUrl, origApiKey } = await setupEnvAndConfig(repoDir, baseUrl);
+  await setupEnvAndConfig(repoDir, baseUrl);
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
     return await runTests(app.get(AnthropicAdapter), capturedRequests);
   } finally {
     await app.close();
-    restoreEnvVar('ANTHROPIC_BASE_URL', origBaseUrl);
-    restoreEnvVar('ANTHROPIC_API_KEY', origApiKey);
+    restoreEnv();
   }
 }
 

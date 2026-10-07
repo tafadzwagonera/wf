@@ -26,27 +26,26 @@ import { AppModule } from '../../src/app.module';
 import { SonarStageService } from '../../src/review/sonar-stage.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
 const git = (dir: string, args: string[]): string =>
   execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
 
-type WfEnvironment = { repoDir: string; wfHome: string; originalWfHome: string | undefined };
+type WfEnvironment = { repoDir: string; wfHome: string };
 
 function setupWfEnvironment(prefix: string, homePrefix: string): WfEnvironment {
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), homePrefix));
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
-  return { repoDir, wfHome, originalWfHome };
+  withEnv({ WF_HOME: wfHome });
+  return { repoDir, wfHome };
 }
 
-function cleanupWfEnvironment(repoDir: string, wfHome: string, originalWfHome: string | undefined): void {
+function cleanupWfEnvironment(repoDir: string, wfHome: string): void {
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(wfHome, { recursive: true, force: true });
-  if (originalWfHome === undefined) delete process.env.WF_HOME;
-  else process.env.WF_HOME = originalWfHome;
+  restoreEnv();
 }
 
 function setupSoloRepo(repoDir: string): void {
@@ -133,14 +132,14 @@ async function main(): Promise<void> {
   console.log('Manual smoke: unrecovered source branch WARN log\n');
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const sonarStageService = app.get(SonarStageService);
-  const { repoDir, wfHome, originalWfHome } = setupWfEnvironment('sonar-warn-log-', 'sonar-warn-log-home-');
+  const { repoDir, wfHome } = setupWfEnvironment('sonar-warn-log-', 'sonar-warn-log-home-');
   setupSoloRepo(repoDir);
   const capturedRefs: unknown[] = [];
   const progressMessages: string[] = [];
   const restore = await runAndCapture(sonarStageService, repoDir, progressMessages, capturedRefs);
   restore();
   verifySmoke(capturedRefs, wfHome, progressMessages);
-  cleanupWfEnvironment(repoDir, wfHome, originalWfHome);
+  cleanupWfEnvironment(repoDir, wfHome);
   await app.close();
   summarise(counts);
 }

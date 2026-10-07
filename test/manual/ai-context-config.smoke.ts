@@ -20,6 +20,7 @@ import { DeepSeekAdapter } from '../../src/integrations/ai/adapters/deepseek.ada
 import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const configPath = path.join(process.cwd(), 'wf.config.js');
 const anthropicProjectPath = path.join(process.cwd(), 'CLAUDE.md');
@@ -112,8 +113,8 @@ function prepareFilesystem(): BackupEntry[] {
   return backups;
 }
 
-function restoreFilesystem(originalHome: string | undefined, backups: BackupEntry[]): void {
-  process.env.HOME = originalHome;
+function restoreFilesystem(backups: BackupEntry[]): void {
+  restoreEnv();
   for (const backup of backups.reverse()) restoreFile(backup);
   fs.rmSync(tempHomePath, { recursive: true, force: true });
 }
@@ -161,15 +162,14 @@ function checkOpenAISilent(output: string): void {
 async function main(): Promise<void> {
   console.log('🧪 Testing issue:generate warning gating for AI context files\n');
   const backups = prepareFilesystem();
-  const originalHome = process.env.HOME;
-  process.env.HOME = tempHomePath;
+  withEnv({ HOME: tempHomePath });
   try {
     const output = await runAdaptersAndCaptureWarnings(buildMockConfigService(), buildMockLogger());
     checkAnthropicWarns(output);
     checkDeepSeekSilent(output);
     checkOpenAISilent(output);
   } finally {
-    restoreFilesystem(originalHome, backups);
+    restoreFilesystem(backups);
   }
   summarise(counts);
 }

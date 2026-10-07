@@ -9,13 +9,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
+import { restoreEnv, withEnv } from '../../../shared/testing/env';
 
 describe('ConversationService Integration Tests', () => {
   let service: ConversationService;
   let claudeService: jest.Mocked<AiService>;
   let chatUIService: jest.Mocked<ChatUIService>;
   let loggerService: jest.Mocked<LoggerService>;
-  let originalHome: string | undefined;
   const testTicketKey = 'TEST-INTEGRATION-999';
   const testHomeDir = createManagedTempDir('conv-integration-home');
   const testRepoDir = createManagedTempDir('conv-integration-test-repo');
@@ -36,8 +36,7 @@ describe('ConversationService Integration Tests', () => {
   };
 
   beforeEach(async () => {
-    originalHome = process.env.HOME;
-    process.env.HOME = testHomeDir;
+    withEnv({ HOME: testHomeDir });
 
     // Create mocks
     claudeService = {
@@ -95,12 +94,8 @@ describe('ConversationService Integration Tests', () => {
     if (fs.existsSync(testFilePath)) {
       fs.unlinkSync(testFilePath);
     }
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
-    jest.clearAllMocks();
+    restoreEnv();
+    jest.restoreAllMocks();
   });
 
   afterAll(() => {

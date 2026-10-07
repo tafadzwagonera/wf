@@ -36,6 +36,7 @@ import { AppModule } from '../../src/app.module';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 type CapturedRequest = {
   pathname: string;
@@ -123,32 +124,17 @@ function setupFixtures(paths: Paths): void {
   fs.writeFileSync(paths.agentsPath, ['# AGENTS', '', 'Local smoke test context for the OpenAI adapter.', ''].join('\n'), 'utf-8');
 }
 
-function restoreEnvVars(savedBaseUrl: string | undefined, savedApiKey: string | undefined): void {
-  if (savedBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
-  else process.env.OPENAI_BASE_URL = savedBaseUrl;
-  if (savedApiKey === undefined) delete process.env.OPENAI_API_KEY;
-  else process.env.OPENAI_API_KEY = savedApiKey;
-}
-
-function applyOpenAiEnv(baseUrl: string): { savedBaseUrl: string | undefined; savedApiKey: string | undefined } {
-  const savedBaseUrl = process.env.OPENAI_BASE_URL;
-  const savedApiKey = process.env.OPENAI_API_KEY;
-  process.env.OPENAI_BASE_URL = baseUrl;
-  process.env.OPENAI_API_KEY = 'test-key';
-  return { savedBaseUrl, savedApiKey };
-}
-
 async function runScenario(paths: Paths, baseUrl: string, capturedRequests: CapturedRequest[]): Promise<ScenarioData> {
   process.chdir(paths.repoDir);
   await initializeWfConfig(paths.repoDir);
-  const { savedBaseUrl, savedApiKey } = applyOpenAiEnv(baseUrl);
+  withEnv({ OPENAI_BASE_URL: baseUrl, OPENAI_API_KEY: 'test-key' });
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
     const plan = await app.get(AiService).generatePlan('fix', '# Smoke source', { affectedRepositories: [paths.repoName] }) as Record<string, unknown>;
     return { plan, request: capturedRequests[0] };
   } finally {
     await app.close();
-    restoreEnvVars(savedBaseUrl, savedApiKey);
+    restoreEnv();
   }
 }
 

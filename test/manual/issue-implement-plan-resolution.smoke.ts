@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -34,19 +35,6 @@ function captureStdout(): { restore: () => string } {
   };
 }
 
-function overrideHomeDir(nextHomeDir: string): () => void {
-  const previousHome = process.env.HOME;
-  process.env.HOME = nextHomeDir;
-  return () => {
-    if (previousHome === undefined) {
-      delete process.env.HOME;
-      return;
-    }
-
-    process.env.HOME = previousHome;
-  };
-}
-
 const minimalPlan = JSON.stringify({ action: 'feature', steps: [], affectedFiles: [], affectedRepositories: [] });
 
 async function test1Env(command: IssueImplementCommand, tmpDir: string, expectedPath: string): Promise<void> {
@@ -62,7 +50,7 @@ async function test1Env(command: IssueImplementCommand, tmpDir: string, expected
 
 async function runTest1(command: IssueImplementCommand): Promise<void> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   const customDir = path.join(tmpDir, '.wf', path.basename(tmpDir));
   fs.mkdirSync(customDir, { recursive: true });
   const expectedPath = path.join(customDir, 'my-plan.json');
@@ -70,7 +58,7 @@ async function runTest1(command: IssueImplementCommand): Promise<void> {
   try {
     await test1Env(command, tmpDir, expectedPath);
   } finally {
-    restoreHome();
+    restoreEnv();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
@@ -98,12 +86,12 @@ function setupTest2Env(tmpDir: string): string {
 
 async function runTest2(command: IssueImplementCommand): Promise<void> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   const expectedPath = setupTest2Env(tmpDir);
   try {
     await test2Env(command, tmpDir, expectedPath);
   } finally {
-    restoreHome();
+    restoreEnv();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
@@ -132,12 +120,12 @@ function setupTest3Env(tmpBase: string): { appDir: string; expectedPath: string 
 
 async function runTest3(command: IssueImplementCommand): Promise<void> {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-repos-'));
-  const restoreHome = overrideHomeDir(tmpBase);
+  withEnv({ HOME: tmpBase });
   const { appDir, expectedPath } = setupTest3Env(tmpBase);
   try {
     await test3Env(command, appDir, expectedPath);
   } finally {
-    restoreHome();
+    restoreEnv();
     fs.rmSync(tmpBase, { recursive: true, force: true });
   }
 }

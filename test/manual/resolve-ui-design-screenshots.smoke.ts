@@ -16,6 +16,7 @@ import chalk from 'chalk';
 import { resolveUiDesignScreenshots } from '../../src/shared/utils/resolve-ui-design-screenshots';
 import { FileSystemError } from '../../src/shared/errors/app.error';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -130,25 +131,16 @@ async function runScenario(tmpRoot: string, tmpWfHome: string): Promise<void> {
   checkMissingFileThrows(tmpRoot, artifactDir, identifier);
 }
 
-function restoreEnv(origWfHome: string | undefined): void {
-  if (origWfHome === undefined) {
-    delete process.env.WF_HOME;
-  } else {
-    process.env.WF_HOME = origWfHome;
-  }
-}
-
 async function main(): Promise<void> {
   console.log('Manual smoke: resolveUiDesignScreenshots path-resolution modes\n');
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-resolve-ui-'));
   const tmpWfHome = path.join(tmpRoot, 'wfhome');
-  const origWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = tmpWfHome;
+  withEnv({ WF_HOME: tmpWfHome });
   try {
     await runScenario(tmpRoot, tmpWfHome);
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
-    restoreEnv(origWfHome);
+    restoreEnv();
   }
   summarise(counts);
 }

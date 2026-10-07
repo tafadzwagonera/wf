@@ -1,27 +1,17 @@
+import { restoreEnv, withEnv } from './shared/testing/env';
+
 describe('run-manual-test bootstrap', () => {
   const originalArgv = process.argv;
-  const originalLoadedConfig = process.env.WF_MANUAL_TEST_CONFIG_LOADED;
-  const originalManualModuleLoaded = process.env.WF_MANUAL_TEST_MODULE_LOADED;
 
   beforeEach(() => {
     jest.resetModules();
     process.argv = ['node', 'run-manual-test', 'test-issue-review'];
-    delete process.env.WF_MANUAL_TEST_CONFIG_LOADED;
-    delete process.env.WF_MANUAL_TEST_MODULE_LOADED;
+    withEnv({ WF_MANUAL_TEST_CONFIG_LOADED: undefined, WF_MANUAL_TEST_MODULE_LOADED: undefined });
   });
 
   afterEach(() => {
     process.argv = originalArgv;
-    if (originalLoadedConfig === undefined) {
-      delete process.env.WF_MANUAL_TEST_CONFIG_LOADED;
-    } else {
-      process.env.WF_MANUAL_TEST_CONFIG_LOADED = originalLoadedConfig;
-    }
-    if (originalManualModuleLoaded === undefined) {
-      delete process.env.WF_MANUAL_TEST_MODULE_LOADED;
-    } else {
-      process.env.WF_MANUAL_TEST_MODULE_LOADED = originalManualModuleLoaded;
-    }
+    restoreEnv();
     jest.restoreAllMocks();
     jest.resetModules();
   });

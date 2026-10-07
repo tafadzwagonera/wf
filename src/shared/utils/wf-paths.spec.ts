@@ -8,25 +8,24 @@ import {
   resetWfPathOverrides,
   setWfPathOverrides,
 } from './wf-paths';
+import { restoreEnv, withEnv } from '../testing/env';
 
 describe('wf path resolution', () => {
-  const originalWfHome = process.env['WF_HOME'];
-
   afterEach(() => {
     resetWfPathOverrides();
-    if (originalWfHome === undefined) delete process.env['WF_HOME'];
-    else process.env['WF_HOME'] = originalWfHome;
+    restoreEnv();
+    jest.restoreAllMocks();
   });
 
   it('defaults to ~/.wf when nothing overrides it', () => {
-    delete process.env['WF_HOME'];
+    withEnv({ WF_HOME: undefined });
 
     expect(getWfHomeDir()).toBe(path.join(os.homedir(), '.wf'));
     expect(getWfLogDir()).toBe(path.join(os.homedir(), '.wf', 'logs'));
   });
 
   it('relocates the whole tree via WF_HOME so a test run cannot write to the real home', () => {
-    process.env['WF_HOME'] = '/tmp/wf-home';
+    withEnv({ WF_HOME: '/tmp/wf-home' });
 
     expect(getWfHomeDir()).toBe('/tmp/wf-home');
     expect(getWfLogDir()).toBe(path.join('/tmp/wf-home', 'logs'));
@@ -43,7 +42,7 @@ describe('wf path resolution', () => {
   });
 
   it('prefers a configured directory over WF_HOME', () => {
-    process.env['WF_HOME'] = '/tmp/wf-home';
+    withEnv({ WF_HOME: '/tmp/wf-home' });
     setWfPathOverrides({ logDir: '/var/log/wf' });
 
     expect(getWfLogDir()).toBe('/var/log/wf');
@@ -57,7 +56,7 @@ describe('wf path resolution', () => {
   });
 
   it('restores the defaults on reset', () => {
-    delete process.env['WF_HOME'];
+    withEnv({ WF_HOME: undefined });
     setWfPathOverrides({ logDir: '/var/log/wf' });
     resetWfPathOverrides();
 

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { restoreEnv, withEnv } from '../testing/env';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifestFilename,
@@ -815,12 +816,10 @@ describe('resolvePlanToken cross-directory resolution', () => {
   let repoBaseDir: string;
   let trackerDir: string;
   let customDir: string;
-  let originalWfHome: string | undefined;
 
   beforeEach(() => {
     wfHomeDir = createManagedTempDir('wf-home');
-    originalWfHome = process.env.WF_HOME;
-    process.env.WF_HOME = wfHomeDir;
+    withEnv({ WF_HOME: wfHomeDir });
 
     repoBaseDir = createManagedTempDir('repo-base');
     trackerDir = path.join(wfHomeDir, 'tracker');
@@ -830,8 +829,7 @@ describe('resolvePlanToken cross-directory resolution', () => {
   });
 
   afterEach(() => {
-    if (originalWfHome === undefined) delete process.env.WF_HOME;
-    else process.env.WF_HOME = originalWfHome;
+    restoreEnv();
     jest.restoreAllMocks();
   });
 

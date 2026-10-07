@@ -6,6 +6,7 @@ import {
   resetCodexCliVersionCache, spawnCodex, type CodexCliMessage,
 } from './codex-cli-runner';
 import { execSync, spawn } from 'child_process';
+import { restoreEnv, withEnv } from '../../../shared/testing/env';
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),
@@ -38,11 +39,13 @@ const createMockCodexProcess = () => {
 };
 
 describe('codex-cli-runner', () => {
+  beforeEach(() => withEnv({ WF_SKIP_CLI_VERSION_CHECK: undefined }));
+
   afterEach(() => {
+    restoreEnv();
     jest.restoreAllMocks();
     mockExecSync.mockReset();
     resetCodexCliVersionCache();
-    delete process.env['WF_SKIP_CLI_VERSION_CHECK'];
   });
 
   describe('buildCodexStdinPrompt', () => {
@@ -223,7 +226,7 @@ describe('codex-cli-runner', () => {
     });
 
     it('skips version check when WF_SKIP_CLI_VERSION_CHECK=1', () => {
-      process.env['WF_SKIP_CLI_VERSION_CHECK'] = '1';
+      withEnv({ WF_SKIP_CLI_VERSION_CHECK: '1' });
       mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/codex'));
       expect(() => assertCodexCliAvailable()).not.toThrow();
       expect(mockExecSync).toHaveBeenCalledTimes(1);
@@ -255,7 +258,7 @@ describe('codex-cli-runner', () => {
     });
 
     it('returns undefined when version check is skipped', () => {
-      process.env['WF_SKIP_CLI_VERSION_CHECK'] = '1';
+      withEnv({ WF_SKIP_CLI_VERSION_CHECK: '1' });
       mockExecSync.mockReturnValueOnce(Buffer.from('/usr/local/bin/codex'));
       assertCodexCliAvailable();
       expect(getCodexCliVersion()).toBeUndefined();

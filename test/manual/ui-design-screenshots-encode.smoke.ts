@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { UiDesignScreenshotsStageService } from '../../src/review/ui-design-screenshots-stage.service';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
@@ -141,13 +142,9 @@ function runTest9(service: UiDesignScreenshotsStageService): void {
   }
 }
 
-function cleanupEnv(tmpRoot: string, origWfHome: string | undefined): void {
+function cleanupEnv(tmpRoot: string): void {
   fs.rmSync(tmpRoot, { recursive: true, force: true });
-  if (origWfHome === undefined) {
-    delete process.env.WF_HOME;
-  } else {
-    process.env.WF_HOME = origWfHome;
-  }
+  restoreEnv();
 }
 
 function testAllExtensions(service: UiDesignScreenshotsStageService, tmpRoot: string): void {
@@ -167,12 +164,11 @@ function runAllTests(service: UiDesignScreenshotsStageService, tmpRoot: string, 
   runTest9(service);
 }
 
-function setupTestEnv(): { tmpRoot: string; tmpWfHome: string; origWfHome: string | undefined } {
+function setupTestEnv(): { tmpRoot: string; tmpWfHome: string } {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-encode-ui-'));
   const tmpWfHome = path.join(tmpRoot, 'wfhome');
-  const origWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = tmpWfHome;
-  return { tmpRoot, tmpWfHome, origWfHome };
+  withEnv({ WF_HOME: tmpWfHome });
+  return { tmpRoot, tmpWfHome };
 }
 
 function logTestResults(): void {
@@ -182,11 +178,11 @@ function logTestResults(): void {
 
 async function main(): Promise<void> {
   console.log('Manual smoke: UiDesignScreenshotsStageService encodes files with correct mediaType\n');
-  const { tmpRoot, tmpWfHome, origWfHome } = setupTestEnv();
+  const { tmpRoot, tmpWfHome } = setupTestEnv();
   try {
     runAllTests(new UiDesignScreenshotsStageService(), tmpRoot, tmpWfHome);
   } finally {
-    cleanupEnv(tmpRoot, origWfHome);
+    cleanupEnv(tmpRoot);
   }
   if (counts.failed > 0) process.exit(1);
   logTestResults();

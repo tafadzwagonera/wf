@@ -10,6 +10,7 @@
 
 import chalk from 'chalk';
 import { FigmaRestClient } from '../../src/integrations/figma/figma-rest.client';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
@@ -75,7 +76,7 @@ function assertOutputMessages(output: string): void {
 }
 
 async function runEnvVarIgnoredCase(): Promise<void> {
-  process.env.FIGMA_TOKEN = 'sentinel-env-token';
+  withEnv({ FIGMA_TOKEN: 'sentinel-env-token' });
   const client = buildClient(undefined);
   let fetchCalled = false;
   (global as any).fetch = async () => {
@@ -91,7 +92,7 @@ async function runEnvVarIgnoredCase(): Promise<void> {
 }
 
 async function runConfigTokenCase(): Promise<void> {
-  delete process.env.FIGMA_TOKEN;
+  withEnv({ FIGMA_TOKEN: undefined });
   const client = buildClient('config-tok');
   let capturedHeader: string | undefined;
   (global as any).fetch = async (url: string, init: RequestInit) => {
@@ -106,13 +107,9 @@ async function runConfigTokenCase(): Promise<void> {
   }
 }
 
-function restoreGlobals(origToken: string | undefined, origFetch: typeof global.fetch): void {
+function restoreGlobals(origFetch: typeof global.fetch): void {
   global.fetch = origFetch;
-  if (origToken === undefined) {
-    delete process.env.FIGMA_TOKEN;
-  } else {
-    process.env.FIGMA_TOKEN = origToken;
-  }
+  restoreEnv();
 }
 
 function reportResults(): void {
@@ -123,7 +120,6 @@ function reportResults(): void {
 
 async function main(): Promise<void> {
   console.log('Manual smoke: FigmaRestClient ignores FIGMA_TOKEN env var; uses figma.token config only\n');
-  const origToken = process.env.FIGMA_TOKEN;
   const origFetch = global.fetch;
   try {
     console.log(chalk.bold.cyan(TEST1_LABEL));
@@ -131,7 +127,7 @@ async function main(): Promise<void> {
     console.log(chalk.bold.cyan(TEST2_LABEL));
     await runConfigTokenCase();
   } finally {
-    restoreGlobals(origToken, origFetch);
+    restoreGlobals(origFetch);
   }
   reportResults();
 }

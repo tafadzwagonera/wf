@@ -22,6 +22,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -52,19 +53,6 @@ function captureStderr(): { restore: () => string } {
       process.stderr.write = orig;
       return out;
     },
-  };
-}
-
-function overrideHomeDir(nextHomeDir: string): () => void {
-  const previousHome = process.env.HOME;
-  process.env.HOME = nextHomeDir;
-  return () => {
-    if (previousHome === undefined) {
-      delete process.env.HOME;
-      return;
-    }
-
-    process.env.HOME = previousHome;
   };
 }
 
@@ -158,9 +146,9 @@ function captureOutputs(): { restore: () => string } {
   return { restore: () => stdout.restore() + stderr.restore() };
 }
 
-function teardown(tmpDir: string, restoreCwd: () => void, restoreHome: () => void): void {
+function teardown(tmpDir: string, restoreCwd: () => void): void {
   restoreCwd();
-  restoreHome();
+  restoreEnv();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
@@ -192,13 +180,13 @@ function shuffleManifestForTest2(planPath: string): void {
 async function runTest1(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 1: manifest-based resolution in trackerDir\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   scaffoldTrackerDir(tmpDir);
   const restoreCwd = mockCwd(tmpDir);
   const stdoutCapture = captureStdout();
   await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
   const output = stdoutCapture.restore();
-  teardown(tmpDir, restoreCwd, restoreHome);
+  teardown(tmpDir, restoreCwd);
   if (output.includes(ticketKey)) pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
   else fail('Dry-run output does not contain resolved ticket key', `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`);
 }
@@ -206,14 +194,14 @@ async function runTest1(command: IssueCommand): Promise<void> {
 async function runTest2(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   const { planPath } = scaffoldTrackerDir(tmpDir);
   shuffleManifestForTest2(planPath);
   const restoreCwd = mockCwd(tmpDir);
   const stdoutCapture = captureStdout();
   await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
   const output = stdoutCapture.restore();
-  teardown(tmpDir, restoreCwd, restoreHome);
+  teardown(tmpDir, restoreCwd);
   if (output.includes(ticketKey)) pass(`Dry-run resolved plan token to ticket key: ${ticketKey}`);
   else fail('Dry-run output does not contain resolved ticket key', `expected: ${ticketKey}\noutput: ${output.slice(0, 500)}`);
 }
@@ -232,13 +220,13 @@ function verifyTest3Output(output: string): void {
 async function runTest3(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 3: customDir fallback when trackerDir has no match\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   scaffoldCustomDir(tmpDir);
   const restoreCwd = mockCwd(tmpDir);
   const stdoutCapture = captureStdout();
   await command.run([planFilename], { from: 'implement', to: 'implement', tracker: 'jira', dryRun: true });
   const output = stdoutCapture.restore();
-  teardown(tmpDir, restoreCwd, restoreHome);
+  teardown(tmpDir, restoreCwd);
   verifyTest3Output(output);
 }
 
@@ -253,7 +241,7 @@ function checkTest4Result(combined: string, exitCode: number | undefined): void 
 async function runTest4(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 4: missing plan token throws ValidationError\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  const restoreHome = overrideHomeDir(tmpDir);
+  withEnv({ HOME: tmpDir });
   fs.mkdirSync(path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira'), { recursive: true });
   const restoreCwd = mockCwd(tmpDir);
   const exitMock = mockProcessExit();
@@ -261,7 +249,7 @@ async function runTest4(command: IssueCommand): Promise<void> {
   await command.run(['nonexistent-plan.json'], { from: 'implement', to: 'implement', tracker: 'jira' });
   const combined = outputCapture.restore();
   const exitCode = exitMock.restore();
-  teardown(tmpDir, restoreCwd, restoreHome);
+  teardown(tmpDir, restoreCwd);
   checkTest4Result(combined, exitCode);
 }
 

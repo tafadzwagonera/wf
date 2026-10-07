@@ -31,6 +31,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
@@ -81,15 +82,6 @@ function createReviewArtifact(tmpRepo: string, trackerName: string, ticketKey: s
   return reviewPath;
 }
 
-function setWfHome(tmpWfHome: string): () => void {
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = tmpWfHome;
-  return () => {
-    if (originalWfHome) process.env.WF_HOME = originalWfHome;
-    else delete process.env.WF_HOME;
-  };
-}
-
 function setupTempDirectories(prefix1: string, prefix2: string): [string, string] {
   const tmpWfHome = fs.mkdtempSync(path.join(os.tmpdir(), prefix1));
   const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), prefix2));
@@ -101,8 +93,8 @@ async function setupScenarioFixtures(tmpRepo: string, trackerName: string, ticke
   return createReviewArtifact(tmpRepo, trackerName, ticketKey);
 }
 
-function cleanupScenarioFixtures(tmpWfHome: string, tmpRepo: string, restoreWfHome: () => void): void {
-  restoreWfHome();
+function cleanupScenarioFixtures(tmpWfHome: string, tmpRepo: string): void {
+  restoreEnv();
   fs.rmSync(tmpWfHome, { recursive: true, force: true });
   fs.rmSync(tmpRepo, { recursive: true, force: true });
 }
@@ -195,12 +187,12 @@ async function runScenario(
   trackerName: string,
 ): Promise<void> {
   const [tmpWfHome, tmpRepo] = setupTempDirectories('wf-standalone-review-home-', 'wf-standalone-review-repo-');
-  const restoreWfHome = setWfHome(tmpWfHome);
+  withEnv({ WF_HOME: tmpWfHome });
   try {
     const reviewPath = await setupScenarioFixtures(tmpRepo, trackerName, ticketKey);
     await executeRuns(commitCmd, getCaptured, tmpRepo, reviewPath, buildScenarioOpts(ticketKey, tmpRepo, trackerName));
   } finally {
-    cleanupScenarioFixtures(tmpWfHome, tmpRepo, restoreWfHome);
+    cleanupScenarioFixtures(tmpWfHome, tmpRepo);
   }
 }
 

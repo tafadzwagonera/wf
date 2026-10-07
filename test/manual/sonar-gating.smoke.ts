@@ -26,6 +26,7 @@ import { runSonarScan } from '../../src/review/sonar-scanner';
 import { ConfigurationError } from '../../src/shared/errors/app.error';
 import chalk from 'chalk';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -109,15 +110,14 @@ function handlePreflightResult(error: unknown): void {
 
 async function checkPreflightError(tempDir: string): Promise<void> {
   console.log(chalk.bold.cyan('\nTest 3: preflight check when sonar CLI not available'));
-  const originalPath = process.env.PATH;
-  process.env.PATH = '';
+  withEnv({ PATH: '' });
   try {
     await runSonarScan({ repoDir: tempDir, scope: { kind: 'staged' } });
     fail('Expected ConfigurationError when sonar is not on PATH');
   } catch (error) {
     handlePreflightResult(error);
   } finally {
-    process.env.PATH = originalPath;
+    restoreEnv();
   }
 }
 

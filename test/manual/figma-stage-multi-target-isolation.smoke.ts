@@ -13,6 +13,7 @@ import * as os from 'node:os';
 import { FigmaStageService } from '../../src/review/figma-stage.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -41,20 +42,19 @@ function warnCount(text: string): number {
   return (text.match(/\[WARN\].*no Figma links were captured/g) ?? []).length;
 }
 
-function setupTempDirs(): { wfHome: string; repoA: string; repoB: string; origWfHome: string | undefined } {
+function setupTempDirs(): { wfHome: string; repoA: string; repoB: string } {
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-multi-'));
   const repoA = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-repo-a-'));
   const repoB = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-repo-b-'));
-  const origWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
-  return { wfHome, repoA, repoB, origWfHome };
+  withEnv({ WF_HOME: wfHome });
+  return { wfHome, repoA, repoB };
 }
 
-function cleanupTempDirs(wfHome: string, repoA: string, repoB: string, origWfHome: string | undefined): void {
+function cleanupTempDirs(wfHome: string, repoA: string, repoB: string): void {
   fs.rmSync(wfHome, { recursive: true, force: true });
   fs.rmSync(repoA, { recursive: true, force: true });
   fs.rmSync(repoB, { recursive: true, force: true });
-  process.env.WF_HOME = origWfHome;
+  restoreEnv();
 }
 
 function buildServiceBundle(wfHome: string): ServiceBundle {
@@ -119,7 +119,7 @@ function reportResults(): void {
 
 async function main(): Promise<void> {
   console.log('Manual smoke: FigmaStageService isolates WARN per target across multi-target review\n');
-  const { wfHome, repoA, repoB, origWfHome } = setupTempDirs();
+  const { wfHome, repoA, repoB } = setupTempDirs();
   try {
     const bundle = buildServiceBundle(wfHome);
     await runFirstTargetA(bundle, repoA);
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     await runDuplicateTargetA(bundle, repoA);
     await runDuplicateTargetB(bundle, repoB);
   } finally {
-    cleanupTempDirs(wfHome, repoA, repoB, origWfHome);
+    cleanupTempDirs(wfHome, repoA, repoB);
   }
   reportResults();
 }

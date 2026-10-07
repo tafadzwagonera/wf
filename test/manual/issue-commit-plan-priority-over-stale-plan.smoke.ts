@@ -34,6 +34,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const TICKET_KEY = 'WBP-9001';
 const TRACKER_NAME = 'jira';
@@ -91,15 +92,6 @@ function buildFreshPlanArtifact(artifactDir: string): PlanArtifact {
     action: 'fix',
     path: path.join(artifactDir, '2026-08-21-bbb222-fix-plan.json'),
     plan: { action: 'fix', summary: 'FRESH PLAN SUMMARY', steps: [], estimatedComplexity: 'low' },
-  };
-}
-
-function setWfHome(tmpWfHome: string): () => void {
-  const originalWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = tmpWfHome;
-  return () => {
-    if (originalWfHome) process.env.WF_HOME = originalWfHome;
-    else delete process.env.WF_HOME;
   };
 }
 
@@ -173,11 +165,11 @@ async function executeScenario(
 ): Promise<{ consoleOutput: string; gitLog: string; capturedOptions: any }> {
   const tmpWfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-priority-home-'));
   const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-priority-repo-'));
-  const restoreWfHome = setWfHome(tmpWfHome);
+  withEnv({ WF_HOME: tmpWfHome });
   try {
     return await runScenarioBody(command, tmpWfHome, tmpRepo, getCaptured);
   } finally {
-    restoreWfHome();
+    restoreEnv();
     fs.rmSync(tmpWfHome, { recursive: true, force: true });
     fs.rmSync(tmpRepo, { recursive: true, force: true });
   }

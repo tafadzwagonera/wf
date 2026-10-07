@@ -16,6 +16,7 @@ import { FigmaStageService } from '../../src/review/figma-stage.service';
 import { LoggerService } from '../../src/shared/logger/logger.service';
 import { getWfLogDir } from '../../src/shared/utils/wf-paths';
 import { createReporter } from './support/reporter';
+import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -50,14 +51,13 @@ function interceptWarnMessages(logger: LoggerService): string[] {
 
 function setupSmokeEnv() {
   const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-fail-'));
-  const origWfHome = process.env.WF_HOME;
-  process.env.WF_HOME = wfHome;
+  withEnv({ WF_HOME: wfHome });
   const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-repo-'));
-  return { wfHome, origWfHome, repoDir };
+  return { wfHome, repoDir };
 }
 
-function teardownSmokeEnv(wfHome: string, origWfHome: string | undefined, repoDir: string): void {
-  process.env.WF_HOME = origWfHome ?? undefined;
+function teardownSmokeEnv(wfHome: string, repoDir: string): void {
+  restoreEnv();
   fs.rmSync(wfHome, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
 }
@@ -104,14 +104,14 @@ async function runTest3WarnDegenerateGuard(repoDir: string, fakeLinks: string[])
 
 async function main(): Promise<void> {
   console.log('Manual smoke: FigmaStageService WARN when all frame fetches fail\n');
-  const { wfHome, origWfHome, repoDir } = setupSmokeEnv();
+  const { wfHome, repoDir } = setupSmokeEnv();
   const fakeLinks = ['https://figma.com/design/abc/Page?node-id=1-2'];
   try {
     await runTest1AllFramesFail(repoDir, fakeLinks);
     await runTest2PartialSuccessNoWarn(repoDir, fakeLinks);
     await runTest3WarnDegenerateGuard(repoDir, fakeLinks);
   } finally {
-    teardownSmokeEnv(wfHome, origWfHome, repoDir);
+    teardownSmokeEnv(wfHome, repoDir);
   }
   console.log(`\n${counts.passed} passed, ${counts.failed} failed`);
   if (counts.failed > 0) process.exit(1);
