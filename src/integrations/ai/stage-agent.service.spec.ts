@@ -3648,6 +3648,95 @@ describe('StageAgentService', () => {
         'llm-adapter',
       );
     });
+
+    const createImplementAnthropicConfigService = (): ConfigService =>
+      ({ get: (key: string) => {
+        if (key === 'stages.implement.provider') return 'anthropic';
+        if (key === 'stages.implement.model') return 'claude-sonnet-4-6';
+        return undefined;
+      } } as unknown as ConfigService);
+
+    it('logResolvedStageTarget logs the provider and model overrides to both sinks', () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createImplementAnthropicConfigService());
+
+      svc.logResolvedStageTarget('implement', { provider: 'openai', model: 'gpt-x' });
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=openai resolved-model=gpt-x')))
+        .toBe(true);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'INFO',
+        'llm.adapter resolved-provider=openai resolved-model=gpt-x',
+        'llm-adapter',
+      );
+    });
+
+    it('logResolvedStageTarget keeps the stage provider when only the model is overridden', () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createImplementAnthropicConfigService());
+
+      svc.logResolvedStageTarget('implement', { model: 'gpt-x' });
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=anthropic resolved-model=gpt-x')))
+        .toBe(true);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'INFO',
+        'llm.adapter resolved-provider=anthropic resolved-model=gpt-x',
+        'llm-adapter',
+      );
+    });
+  });
+
+  describe('start llm.adapter line names the dispatched target', () => {
+    const createGenerateCliConfigService = (provider: string): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.generate.backend': 'cli',
+            'stages.generate.provider': provider,
+            'stages.generate.model': 'stage-model',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('emits the start line with the override model when modelOverride is set', async () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createGenerateCliConfigService('openai'));
+      jest.spyOn(svc as any, 'codexCliChatTurn').mockResolvedValue({ content: 'ok' });
+
+      await svc.chatTurn({ stage: 'generate', systemPrompt: 'sys', userMessage: 'hi', modelOverride: 'gpt-x' });
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=openai resolved-model=gpt-x')))
+        .toBe(true);
+    });
+
+    it('emits the start line naming the override provider when providerOverride is set', async () => {
+      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createGenerateCliConfigService('anthropic'));
+      jest.spyOn(svc as any, 'codexCliChatTurn').mockResolvedValue({ content: 'ok' });
+
+      await svc.chatTurn({ stage: 'generate', systemPrompt: 'sys', userMessage: 'hi', providerOverride: 'openai' });
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=openai resolved-model=stage-model')))
+        .toBe(true);
+    });
   });
 
   describe('anthropicChatTurn cost plumbing', () => {
@@ -3826,6 +3915,24 @@ describe('StageAgentService', () => {
       expect(runOnceSpy).toHaveBeenCalledTimes(2);
       expect(runOnceSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelOverride: 'gpt-5.4-mini' }));
       expect(result.content).toBe('generated content');
+    });
+
+    it('logs a start line naming the fallback model when generateFromPrompt retries', async () => {
+      const logFileWriter = require('../../shared/logger/log-file-writer');
+      jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'dispatchToBackend')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'ok' });
+
+      await svc.generateFromPrompt('Summarise this');
+
+      const printed = consoleSpy.mock.calls.map(call => String(call[0]));
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=openai resolved-model=gpt-4-turbo')))
+        .toBe(true);
+      expect(printed.some(line => line.includes('llm.adapter resolved-provider=openai resolved-model=gpt-5.4-mini')))
+        .toBe(true);
     });
 
     it('re-throws when no same-backend alternative model is available', async () => {

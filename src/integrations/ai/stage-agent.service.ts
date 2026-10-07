@@ -1373,15 +1373,17 @@ export class StageAgentService {
     return stageResponseSchemas[stage];
   }
 
-  logResolvedStageTarget(stage: AgentStageName): void {
-    const { provider, model } = this.resolveTargetForStage(stage);
+  logResolvedStageTarget(stage: AgentStageName, overrides?: { provider?: string; model?: string }): void {
+    const target = this.resolveTargetForStage(stage);
+    const provider = overrides?.provider ?? target.provider;
+    const model = overrides?.model ?? target.model;
     const message = `llm.adapter resolved-provider=${provider} resolved-model=${model}`;
     console.log(chalk.blue(`ℹ ${message}`));
     appendToLogFile('INFO', message, 'llm-adapter');
   }
 
   private async runStagePromptOnce(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
-    if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
+    this.logResolvedStageTarget(params.stage, { ...(params.modelOverride && { model: params.modelOverride }) });
     try {
       return await this.dispatchToBackend(params);
     } catch (error) {
@@ -1577,7 +1579,10 @@ export class StageAgentService {
   private async chatTurnOnce(params: ChatTurnParams): Promise<AgentChatTurnResult> {
     const backend = params.backendOverride ?? this.resolveStageBackend(params.stage);
     const provider = params.providerOverride ?? this.resolveStageProvider(params.stage);
-    if (!params.modelOverride) this.logResolvedStageTarget(params.stage);
+    this.logResolvedStageTarget(params.stage, {
+      ...(params.providerOverride && { provider: params.providerOverride }),
+      ...(params.modelOverride && { model: params.modelOverride }),
+    });
     if (backend === 'cli') {
       return provider === 'openai' ? this.codexCliChatTurn(params) : this.cliChatTurn(params);
     }
