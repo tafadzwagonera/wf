@@ -12,6 +12,7 @@ import type {
   SessionValidationResult,
 } from '../types/session.types';
 import { getWfSessionDir } from '../utils/wf-paths';
+import { buildSessionFileName, stripSessionDatePrefix } from '../utils/session-file-name';
 import { appendToLogFile } from '../logger/log-file-writer';
 
 const stageOrder = ['plan', 'implement', 'review', 'commit'];
@@ -140,10 +141,18 @@ export class SessionService {
   async save(state: SessionState): Promise<void> {
     const dir = this.getSessionDir();
     fs.mkdirSync(dir, { recursive: true });
-    const filePath = path.join(dir, `${state.ticketKey}-${state.sessionId}.json`);
+    const fileName = buildSessionFileName(state);
+    const filePath = path.join(dir, fileName);
     const tmpPath = `${filePath}.tmp.${crypto.randomUUID()}`;
     fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
     fs.renameSync(tmpPath, filePath);
+    this.removeSupersededSessionFiles(dir, state.sessionId, fileName);
+  }
+
+  private removeSupersededSessionFiles(dir: string, sessionId: string, keepFileName: string): void {
+    const superseded = this.listSessionFiles(dir)
+      .filter(file => file !== keepFileName && file.endsWith(`-${sessionId}.json`));
+    for (const file of superseded) fs.unlinkSync(path.join(dir, file));
   }
 
   async load(sessionId: string): Promise<SessionState | null> {
@@ -160,7 +169,10 @@ export class SessionService {
     const dir = this.getSessionDir();
     if (!fs.existsSync(dir)) return null;
 
-    return this.findActiveSession(this.listSessionFiles(dir).filter(file => file.startsWith(`${ticketKey}-`)));
+    const prefix = `${ticketKey}-`;
+    const matches = this.listSessionFiles(dir)
+      .filter(file => file.startsWith(prefix) || stripSessionDatePrefix(file).startsWith(prefix));
+    return this.findActiveSession(matches);
   }
 
   /**

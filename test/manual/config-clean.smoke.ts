@@ -14,6 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { createReporter, summarise } from './support/reporter';
+import { buildSessionFileName } from '../../src/shared/utils/session-file-name';
 
 const SESSION_DIR = path.join(os.homedir(), '.wf', 'state', 'sessions');
 
@@ -67,7 +68,7 @@ const buildSessionObject = (now: string, overrides: {
 
 const writeSessionFile = (session: any): void => {
   fs.mkdirSync(SESSION_DIR, { recursive: true });
-  const filePath = path.join(SESSION_DIR, `${session.ticketKey}-${session.sessionId}.json`);
+  const filePath = path.join(SESSION_DIR, buildSessionFileName(session));
   fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
 };
 

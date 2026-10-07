@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createTempDir as createManagedTempDir } from '../testing/temp-dir';
+import { buildSessionFileName } from '../utils/session-file-name';
 
 const createMockSessionState = (overrides?: Partial<SessionState>): SessionState => ({
   sessionId: 'test-session-id',
@@ -70,6 +71,39 @@ describe('SessionService', () => {
     expect(loaded?.updatedAt).toBe(session.updatedAt);
     expect(loaded?.completedAt).toBe(session.completedAt);
     expect(loaded?.stages).toEqual(session.stages);
+  });
+
+  describe('session file naming', () => {
+    const createdAt = '2026-10-06T10:00:00.000Z';
+
+    it('writes a ticket session under a date-prefixed file name', async () => {
+      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-1', createdAt }));
+
+      expect(fs.readdirSync(tmpDir)).toEqual(['2026-10-06-WBP-417-sid-1.json']);
+    });
+
+    it('does not double-prefix an already-dated custom stem', async () => {
+      await service.save(createMockSessionState({ ticketKey: '2026-10-05-my-plan', sessionId: 'sid-2', createdAt }));
+
+      expect(fs.readdirSync(tmpDir)).toEqual(['2026-10-05-my-plan-sid-2.json']);
+    });
+
+    it('removes a legacy-named file for the same sessionId on save', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'WBP-417-sid-3.json'), '{}');
+
+      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-3', createdAt }));
+
+      expect(fs.readdirSync(tmpDir)).toEqual(['2026-10-06-WBP-417-sid-3.json']);
+    });
+
+    it('findByTicketKey matches date-prefixed files without matching a longer ticket key', async () => {
+      await service.save(createMockSessionState({ ticketKey: 'WBP-4176', sessionId: 'sid-4', createdAt }));
+      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-5', createdAt }));
+
+      const found = await service.findByTicketKey('WBP-417');
+
+      expect(found?.sessionId).toBe('sid-5');
+    });
   });
 
   it('findByTicketKey returns the active session', async () => {
@@ -405,7 +439,7 @@ describe('SessionService', () => {
       },
     };
     fs.writeFileSync(
-      path.join(tmpDir, `${legacySession.ticketKey}-${legacySession.sessionId}.json`),
+      path.join(tmpDir, buildSessionFileName(legacySession)),
       JSON.stringify(legacySession, null, 2)
     );
 
