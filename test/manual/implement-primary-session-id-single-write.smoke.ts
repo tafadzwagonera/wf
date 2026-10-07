@@ -10,6 +10,9 @@
  */
 
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
@@ -20,8 +23,11 @@ import type { SessionState } from '../../src/shared/types/session.types';
 
 const { counts, pass, fail } = createReporter();
 
-const PRIMARY_REPO = '/tmp/wf-smoke-primary' as const;
-const SECONDARY_REPO = '/tmp/wf-smoke-secondary' as const;
+const smokeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-smoke-impl-sid-'));
+const PRIMARY_REPO = path.join(smokeRoot, 'primary');
+const SECONDARY_REPO = path.join(smokeRoot, 'secondary');
+fs.mkdirSync(PRIMARY_REPO);
+fs.mkdirSync(SECONDARY_REPO);
 const primarySessionId = `primary-sess-${crypto.randomUUID().slice(0, 8)}`;
 const secondarySessionId = `secondary-sess-${crypto.randomUUID().slice(0, 8)}`;
 const MODEL_USED = 'claude-sonnet-4-6' as const;
@@ -133,6 +139,14 @@ function checkFinalSessionState(finalState: SessionState | undefined): void {
   }
 }
 
+const checkAll = (recordCalls: RecordCall[], finalState: SessionState | undefined): void => {
+  checkSingleWrite(recordCalls);
+  checkPrimarySessionId(recordCalls);
+  checkFinalSessionState(finalState);
+};
+
+const removeSmokeRoot = (): void => fs.rmSync(smokeRoot, { recursive: true, force: true });
+
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\nSmoke test: implement stage records primary session ID exactly once\n'));
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
@@ -140,11 +154,10 @@ async function main(): Promise<void> {
     const command = app.get(IssueCommand);
     const sessionService = app.get(SessionService);
     const { recordCalls, finalState } = await runScenario(command, sessionService);
-    checkSingleWrite(recordCalls);
-    checkPrimarySessionId(recordCalls);
-    checkFinalSessionState(finalState);
+    checkAll(recordCalls, finalState);
   } finally {
     await app.close();
+    removeSmokeRoot();
   }
   summarise(counts);
 }
