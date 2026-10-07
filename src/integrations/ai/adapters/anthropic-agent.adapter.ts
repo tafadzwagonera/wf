@@ -35,7 +35,7 @@ import {
   discoverChangedFiles,
   buildBehavioralContext,
   buildTaskBrief,
-  buildInitialUserPrompt,
+  resolveInitialUserPrompt,
   buildImplementerRulesSection,
   type BuildTaskBriefParams,
 } from './shared-routing';
@@ -682,7 +682,7 @@ const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultM
   const resumeOption = p.resumeSessionId ? { resume: p.resumeSessionId } : {};
   console.log(chalk.bold.cyan(`\n  [claude-agent-sdk] Running agent loop in ${p.repoDir}...`));
   const sessionOptions = { ...p.sdkOptions, ...resumeOption };
-  const prompt = p.promptOverride ?? buildInitialUserPrompt(p.taskBriefParams);
+  const prompt = resolveInitialUserPrompt(p.promptOverride, p.taskBriefParams);
   const session = p.query({ prompt, options: sessionOptions });
   const finalResult = await runSdkSession(session, p.repoDir, p.touchedFiles, p.activityState);
   // Supplement files_persisted tracking with git-based discovery since

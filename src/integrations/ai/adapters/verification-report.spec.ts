@@ -222,6 +222,17 @@ describe('buildVerificationFixPrompt', () => {
     expect(result).toBe(buildVerificationFixPrompt([createMockOutcome({ status: 'failed' })]));
     expect(result).not.toContain('Only modify files within this task');
   });
+
+  it('appends a provided skill fragment after the instruction body', () => {
+    const fragment = '\n\n## Skill: test-driven-development\nContent';
+    const result = buildVerificationFixPrompt([createMockOutcome({ status: 'failed' })], undefined, fragment);
+    expect(result.endsWith(fragment)).toBe(true);
+    expect(result.indexOf('Do not output any text')).toBeLessThan(result.indexOf('## Skill:'));
+  });
+
+  it('returns empty string for no failures even with a fragment', () => {
+    expect(buildVerificationFixPrompt([], undefined, '\n\n## Skill: x\n')).toBe('');
+  });
 });
 
 describe('runProgrammaticVerification', () => {

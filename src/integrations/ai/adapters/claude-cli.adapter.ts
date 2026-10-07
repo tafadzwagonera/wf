@@ -28,7 +28,7 @@ import {
   loadClaudeContext,
   discoverChangedFiles,
   buildTaskBrief,
-  buildInitialUserPrompt,
+  resolveInitialUserPrompt,
   type BuildPlanContextParams,
 } from './shared-routing';
 import {
@@ -356,7 +356,7 @@ const toScreenshot = (imgPath: string): UiDesignScreenshot => ({
 
 const buildImplementCliArgs = (p: CliSessionParams) =>
   buildCliArgs({
-    prompt: p.options.initialPromptOverride ?? buildInitialUserPrompt(p.taskBriefParams),
+    prompt: resolveInitialUserPrompt(p.options.initialPromptOverride, p.taskBriefParams),
     appendSystemPrompt: p.appendSystemPrompt,
     model: p.model,
     cwd: p.repoDir,
@@ -509,7 +509,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
-    const prompt = p.options.initialPromptOverride ?? buildInitialUserPrompt(p.taskBriefParams);
+    const prompt = resolveInitialUserPrompt(p.options.initialPromptOverride, p.taskBriefParams);
     return spawnCli(buildImplementCliArgs(p), p.repoDir, prompt, undefined, timeoutMs, inactivityTimeoutMs);
   }
 
@@ -546,7 +546,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
   ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     const result = await this.runSinglePass({
       passNumber: 100 + passNumber, sessionId, currentUnvisited: [],
-      promptOverride: buildVerificationFixPrompt(codeFailures, p.repoFiles),
+      promptOverride: buildVerificationFixPrompt(codeFailures, p.repoFiles, p.taskBriefParams.skillFragment),
       appendSystemPrompt: undefined, model: p.model,
       repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
       touchedFiles: p.touchedFiles, activityState: p.activityState,

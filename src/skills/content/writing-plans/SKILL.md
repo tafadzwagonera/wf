@@ -11,6 +11,8 @@ The plan output is a single JSON object. Required fields are marked **required**
 
 ```json
 {
+  "action": "fix",
+  "summary": "one-sentence description of the plan",
   "steps": ["string — one literal change per step"],
   "phases": [
     { "label": "string", "stepIndices": [0, 1], "verifyAfter": ["yarn test ..."] }
@@ -27,9 +29,7 @@ The plan output is a single JSON object. Required fields are marked **required**
         "id": "unique-id",
         "run": "yarn test src/path/to/file.spec.ts",
         "policy": "enforced",
-        "reason": "why this command verifies this plan",
-        "earlyExitPattern": null,
-        "repo": null
+        "reason": "why this command verifies this plan"
       }
     ],
     "waivers": [
@@ -40,16 +40,18 @@ The plan output is a single JSON object. Required fields are marked **required**
 ```
 
 Field notes:
+- `action` — **required**. One of `"fix" | "feature" | "investigate"`.
+- `summary` — **required**. One-sentence description of the plan.
 - `steps` — **required**. One literal change per step.
 - `phases` — optional. Groups steps into named phases with optional post-phase verification commands.
 - `affectedFiles` — optional. Files changed by the plan. Valid `status` values: `"found"` for existing files, `"to-create"` for new files, `"not-found"` when a file was searched for but does not exist. All listed paths must be verified to exist before listing them with `"found"`.
 - `affectedFilesContext` — optional. Files read for context but not modified.
-- `verification.targeted` — **required**. Commands wf runs to verify plan completion.
+- `verification.targeted` — optional. Commands wf runs to verify plan completion. Omit `verification` entirely when no targeted checks or waivers apply. Omit optional fields instead of setting them to `null`.
 - `verification.waivers` — optional. Entries that suppress a specific verification command by id. Use when a command cannot run in this context; include a clear reason.
 
 ## Step Quality Rules
 
-Two validators run on every plan. The first is enforced by `writing-plans.skill.ts`'s `getQualityRules()` when the plan is generated. The second is re-assessed by `plan-step-verification.service.ts` when each step is verified.
+Two checks apply to plan steps. Only `no-placeholders` is supplied by `writing-plans.skill.ts`'s `getQualityRules()`. `rename-target-required` is enforced unconditionally by `src/shared/utils/plan-quality.ts`, independent of this skill, and is not re-assessed by `plan-step-verification.service.ts`.
 
 **(1) no-placeholders** — Step text must not match the `PLACEHOLDER_PATTERN` regex defined in `src/skills/writing-plans.skill.ts`. Write the actual before-and-after code change, not a description of intent. A step saying "add appropriate error handling" is rejected. A step saying "wrap the `readFile` call in a `try`/`catch` that returns `null` on `ENOENT`" is accepted.
 

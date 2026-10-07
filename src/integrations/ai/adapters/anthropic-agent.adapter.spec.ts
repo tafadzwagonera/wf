@@ -11,6 +11,7 @@ import {
   formatProgressMessage,
 } from './anthropic-agent.adapter';
 import { detectMechanicalTask } from './shared-routing';
+import * as skillContent from '../../../skills/skill-content';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
 import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
@@ -1176,6 +1177,30 @@ describe('AnthropicAgentAdapter', () => {
 
     const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string };
     expect(queryArgs.prompt).toBe('custom override');
+  });
+
+  it('keeps the skill fragment on the initialPromptOverride turn', async () => {
+    const fragment = '\n\n## Skill: test-driven-development\nContent';
+    jest.spyOn(skillContent, 'buildSkillPromptFragment').mockResolvedValue(fragment);
+    const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+    mockLoadAnthropicAgentSdk.mockResolvedValue({
+      query: mockQuery,
+    } as never);
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+
+    const adapter = new AnthropicAgentAdapter(makeConfigService());
+    const params = {
+      ...makeParams(),
+      skillNames: ['test-driven-development'],
+      options: {
+        ...makeParams().options,
+        initialPromptOverride: 'custom override',
+      },
+    };
+    await adapter.generateAndVerify(params);
+
+    const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string };
+    expect(queryArgs.prompt).toBe(`custom override${fragment}`);
   });
 
   describe('buildSystemPrompt', () => {

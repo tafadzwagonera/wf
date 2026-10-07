@@ -1,12 +1,20 @@
 import { ClaudeCliAdapter } from './claude-cli.adapter';
 import * as cliRunner from './claude-cli-runner';
-import { STALL_THRESHOLD } from './verification-report';
+import * as skillContent from '../../../skills/skill-content';
+import { STALL_THRESHOLD, runProgrammaticVerification } from './verification-report';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({ __esModule: true }));
 jest.mock('./claude-cli-runner');
+jest.mock('./verification-report', () => ({
+  ...jest.requireActual<typeof import('./verification-report')>('./verification-report'),
+  runProgrammaticVerification: jest.fn(),
+}));
 
 const mockAssert = cliRunner.assertClaudeCliAvailable as jest.MockedFunction<typeof cliRunner.assertClaudeCliAvailable>;
 const mockBuildCliArgs = cliRunner.buildCliArgs as jest.MockedFunction<typeof cliRunner.buildCliArgs>;
+const mockRunProgrammaticVerification = runProgrammaticVerification as jest.MockedFunction<
+  typeof runProgrammaticVerification
+>;
 const mockSpawnCli = cliRunner.spawnCli as jest.MockedFunction<typeof cliRunner.spawnCli>;
 
 const createMockConfigService = (overrides: Record<string, unknown> = {}) => ({
@@ -20,6 +28,9 @@ const createMockConfigService = (overrides: Record<string, unknown> = {}) => ({
 describe('ClaudeCliAdapter', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockRunProgrammaticVerification.mockImplementation(
+      jest.requireActual<typeof import('./verification-report')>('./verification-report').runProgrammaticVerification,
+    );
     mockAssert.mockImplementation(() => undefined);
     mockBuildCliArgs.mockReturnValue(['-p', '--output-format', 'stream-json']);
   });
@@ -769,6 +780,83 @@ describe('ClaudeCliAdapter', () => {
     } as never);
 
     expect(mockBuildCliArgs.mock.calls[0][0].prompt).toBe('custom override');
+  });
+
+  it('keeps the skill fragment on the initialPromptOverride turn', async () => {
+    const fragment = '\n\n## Skill: test-driven-development\nContent';
+    jest.spyOn(skillContent, 'buildSkillPromptFragment').mockResolvedValue(fragment);
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1 } as never;
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+          affectedFiles: [], affectedRepositories: [], risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo', initialPromptOverride: 'custom override' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      conventionsSection: 'conventions',
+      skillNames: ['test-driven-development'],
+    } as never);
+
+    expect(mockBuildCliArgs.mock.calls[0][0].prompt).toBe(`custom override${fragment}`);
+  });
+
+  it('includes the skill fragment in the verification fix-pass prompt', async () => {
+    const fragment = '\n\n## Skill: test-driven-development\nContent';
+    jest.spyOn(skillContent, 'buildSkillPromptFragment').mockResolvedValue(fragment);
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    mockRunProgrammaticVerification
+      .mockResolvedValueOnce([{ id: 'lint', command: 'yarn lint', policy: 'enforced', status: 'failed', output: 'lint error' }] as never)
+      .mockResolvedValueOnce([{ id: 'lint', command: 'yarn lint', policy: 'enforced', status: 'passed' }] as never);
+    let streamCount = 0;
+    mockSpawnCli.mockImplementation(() => {
+      const filename = `file-${streamCount++}.ts`;
+      return (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: `/repo/${filename}` } }] },
+        } as never;
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1 } as never;
+      })();
+    });
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+          affectedFiles: [], affectedRepositories: [], risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [{ id: 'lint', command: 'yarn lint', policy: 'enforced' }],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+      conventionsSection: 'conventions',
+      skillNames: ['test-driven-development'],
+    } as never);
+
+    const prompts = mockBuildCliArgs.mock.calls.map(([args]) => args.prompt);
+    const fixPrompt = prompts.find(prompt => prompt?.includes('enforced verification commands failed'));
+    expect(fixPrompt).toContain('## Skill: test-driven-development');
+    expect(mockRunProgrammaticVerification).toHaveBeenCalledTimes(2);
   });
 
   it('does not log Skill when summary is empty', async () => {

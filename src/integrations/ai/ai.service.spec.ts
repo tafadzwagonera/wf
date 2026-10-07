@@ -340,9 +340,11 @@ describe('AiService', () => {
       const expectedPlanSchema = [
         'Return ONLY a valid JSON object. Reference:\n',
         '{"action":"fix","summary":"Extract shared auth guard into a reusable middleware.",',
-        '"steps":["Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts",',
+        '"steps":["Write a failing spec in repo-a/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests",',
+        '"Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts",',
         '"Update all import paths in repo-a/src/controllers/"],',
         '"affectedFiles":[{"filePath":"repo-a/src/auth/guard.ts","status":"found"},',
+        '{"filePath":"repo-a/src/auth/shared-auth-guard.spec.ts","status":"to-create"},',
         '{"filePath":"repo-a/src/middleware/auth.middleware.ts","status":"to-create"}],',
         '"affectedFilesContext":[{"filePath":"repo-a/package.json","status":"found"}],',
         '"affectedRepositories":["repo-a"],',

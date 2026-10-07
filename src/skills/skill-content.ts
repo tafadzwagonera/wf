@@ -3,6 +3,13 @@ import * as path from 'path';
 import { ConfigurationError } from '../shared/errors/app.error';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 
+export const TDD_SKILL_ID = 'test-driven-development';
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export const fragmentIncludesSkill = (fragment: string | undefined, skillId: string): boolean =>
+  fragment !== undefined && new RegExp(`^## Skill: ${escapeRegExp(skillId)}$`, 'm').test(fragment);
+
 /** Returns the raw SKILL.md content for the given skill, or null if the bundled file cannot be read. */
 export const readSkillContent = async (skillId: string): Promise<string | null> => {
   try {

@@ -2273,6 +2273,27 @@ describe('OpenAIAgentAdapter', () => {
       expect(mockRun).toHaveBeenCalledWith(expect.anything(), 'custom override', expect.anything());
     });
 
+    it.each([
+      ['test-driven-development', true, false],
+      ['coding-style', false, true],
+    ])('selects the implement tail for skill %s (red-green: %s, legacy: %s)', async (skillName, hasRedGreenTail, hasLegacyTail) => {
+      const repoDir = createManagedTempDir('openai-prompt-tail');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+
+      const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+      mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({ ...makeParams(repoDir), skillNames: [skillName] });
+
+      const prompt = (mockRun.mock.calls[0] as unknown[])[1] as string;
+      expect(prompt.includes('confirm it fails')).toBe(hasRedGreenTail);
+      expect(prompt.includes('After ALL edits are complete')).toBe(hasLegacyTail);
+      expect(prompt).toContain('Do not output any text at any point');
+      expect(prompt).toContain('Output text only as the final summary after all work is done.');
+    });
+
     it('resolves with modelsUsed containing the routed model', async () => {
       const repoDir = createManagedTempDir('openai-modelsused');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import { planModelOutputSchema } from '../shared/schemas/ai.schema';
 import { knownSkills } from './skill-registry';
 
 // Import the skill module to trigger registration
@@ -108,5 +111,18 @@ describe('writing-plans skill: no-placeholders quality rule', () => {
     const rule = getRule();
     const violations = rule.validate({ steps: [] });
     expect(violations).toEqual([]);
+  });
+});
+
+describe('writing-plans SKILL.md example', () => {
+  const skillMd = readFileSync(path.join(__dirname, 'content', 'writing-plans', 'SKILL.md'), 'utf-8');
+
+  it('contains a JSON example accepted by planModelOutputSchema', () => {
+    const example = /```json\n([\s\S]*?)\n```/.exec(skillMd)?.[1] ?? '';
+    expect(() => planModelOutputSchema.parse(JSON.parse(example))).not.toThrow();
+  });
+
+  it('does not claim verification.targeted is required', () => {
+    expect(skillMd).not.toMatch(/`verification\.targeted`\s*—\s*\*\*required\*\*/);
   });
 });

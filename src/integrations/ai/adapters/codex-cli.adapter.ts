@@ -10,9 +10,9 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles } from './shared-routing';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles, redGreenWorkflowInstruction } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
-import { buildSkillPromptFragment } from '../../../skills/skill-content';
+import { buildSkillPromptFragment, fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
   printVerificationReport, getEnforcedFailures,
@@ -59,6 +59,7 @@ type CodexVerificationLoopParams = {
   sessionId: string | undefined;
   model: string;
   repoDir: string;
+  skillFragment?: string;
 };
 
 type StreamContext = {
@@ -83,6 +84,12 @@ const buildCodexRawSystemPrompt = (params: GenerateAndVerifyParams, repoDir: str
 const buildCodexSkillFragment = async (params: GenerateAndVerifyParams): Promise<string> =>
   params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames, CODEX_ADAPTER_LABEL, chalk.cyan) : '';
 
+const codexImplementTail
+  = 'Implement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.';
+
+const codexTddImplementTail
+  = `Implement the changes described above now. Read existing files, apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each verification command provided exactly as written, in order. Do not modify or pipe the commands.`;
+
 const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
@@ -90,7 +97,8 @@ const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDi
     ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.uiDesignScreenshotPaths.map(p => `- ${p}`).join('\n')
     : '';
   const skillFragment = await buildCodexSkillFragment(params);
-  return `${preamble}${systemPrompt}${screenshotPaths}${skillFragment}\n\nImplement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.`;
+  const tail = fragmentIncludesSkill(skillFragment, TDD_SKILL_ID) ? codexTddImplementTail : codexImplementTail;
+  return `${preamble}${systemPrompt}${screenshotPaths}${skillFragment}\n\n${tail}`;
 };
 
 const logCommandStarted = (message: CodexCliMessage): boolean => {
@@ -359,8 +367,9 @@ export class CodexCliAdapter implements ImplementerBackend {
   ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; verificationPassCount: number }> {
     this.logSessionSummary(touchedFiles, sessionId);
     const repoDir = params.options.repoDir ?? process.cwd();
+    const skillFragment = await buildCodexSkillFragment(params) || undefined;
     const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop({
-      params, activityState, touchedFiles, sessionId, model, repoDir,
+      params, activityState, touchedFiles, sessionId, model, repoDir, skillFragment,
     });
     printVerificationReport(outcomes);
     return { sessionId, verificationOutcomes: outcomes, verificationPassCount };
@@ -375,10 +384,10 @@ export class CodexCliAdapter implements ImplementerBackend {
 
   private async runCodexFixPass(p: {
     ctx: StreamContext; sessionId: string; model: string;
-    codeFailures: VerificationOutcome[]; passNumber: number; repoFiles: string[];
+    codeFailures: VerificationOutcome[]; passNumber: number; repoFiles: string[]; skillFragment?: string;
   }): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     this.logFixPassStart(p.passNumber, p.codeFailures.length);
-    const fixPrompt = buildVerificationFixPrompt(p.codeFailures, p.repoFiles);
+    const fixPrompt = buildVerificationFixPrompt(p.codeFailures, p.repoFiles, p.skillFragment);
     const fixArgs = buildCodexCliArgs(
       { prompt: fixPrompt, model: p.model, cwd: p.ctx.repoDir, permissionMode: 'full-auto', sessionId: p.sessionId,
         codexVersion: getCodexCliVersion() },
@@ -418,6 +427,7 @@ export class CodexCliAdapter implements ImplementerBackend {
   ): Promise<{ sessionId: string | undefined; wrote: boolean }> {
     const fix = await this.runCodexFixPass({
       ctx, sessionId, model: p.model, codeFailures, passNumber, repoFiles: p.params.repoFiles,
+      skillFragment: p.skillFragment,
     });
     if (!fix.wrote) console.log(chalk.gray(`  [${CODEX_ADAPTER_LABEL}] No files written during fix pass — skipping re-verification`));
     return fix;

@@ -6,7 +6,7 @@
  * Verifies:
  *   1. buildInitialUserPrompt is exported from shared-routing.ts.
  *   2. Neither Anthropic nor CLI adapter defines a local buildInitialUserPrompt.
- *   3. Both adapters import buildInitialUserPrompt from shared-routing.
+ *   3. Both adapters import resolveInitialUserPrompt (which wraps buildInitialUserPrompt) from shared-routing.
  *   4. Live output contains task brief and action instruction, not behavioral context.
  *
  * @returns Promise that resolves when the smoke test completes
@@ -37,10 +37,10 @@ function checkStructuralAssertions(anthropicSource: string, cliSource: string, s
     !anthropicSource.includes('const buildInitialUserPrompt'));
   assert('CLI adapter does NOT define local buildInitialUserPrompt',
     !cliSource.includes('const buildInitialUserPrompt'));
-  assert('Anthropic adapter imports buildInitialUserPrompt from shared-routing',
-    anthropicSource.includes('buildInitialUserPrompt') && anthropicSource.includes("from './shared-routing'"));
-  assert('CLI adapter imports buildInitialUserPrompt from shared-routing',
-    cliSource.includes('buildInitialUserPrompt') && cliSource.includes("from './shared-routing'"));
+  assert('Anthropic adapter imports resolveInitialUserPrompt from shared-routing',
+    anthropicSource.includes('resolveInitialUserPrompt') && anthropicSource.includes("from './shared-routing'"));
+  assert('CLI adapter imports resolveInitialUserPrompt from shared-routing',
+    cliSource.includes('resolveInitialUserPrompt') && cliSource.includes("from './shared-routing'"));
 }
 
 function buildOutputForLiveAssertions(): string {

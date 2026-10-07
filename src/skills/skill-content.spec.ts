@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { readSkillContent, buildSkillPromptFragment } from './skill-content';
+import { readSkillContent, buildSkillPromptFragment, fragmentIncludesSkill, TDD_SKILL_ID } from './skill-content';
 import { ConfigurationError } from '../shared/errors/app.error';
 import * as logFileWriter from '../shared/logger/log-file-writer';
 
@@ -102,5 +102,29 @@ describe('buildSkillPromptFragment', () => {
     ).rejects.toThrow(ConfigurationError);
 
     expect(mockAppendToLogFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('fragmentIncludesSkill', () => {
+  it('returns true when a line is exactly the skill header', () => {
+    expect(fragmentIncludesSkill(`\n\n## Skill: ${TDD_SKILL_ID}\n# body`, TDD_SKILL_ID)).toBe(true);
+  });
+
+  it('returns false for undefined and empty fragments', () => {
+    expect(fragmentIncludesSkill(undefined, TDD_SKILL_ID)).toBe(false);
+    expect(fragmentIncludesSkill('', TDD_SKILL_ID)).toBe(false);
+  });
+
+  it('returns false for another skill fragment', () => {
+    expect(fragmentIncludesSkill('\n\n## Skill: coding-style\n# body', TDD_SKILL_ID)).toBe(false);
+  });
+
+  it('returns false when the id appears mid-line in prose', () => {
+    expect(fragmentIncludesSkill(`see ## Skill: ${TDD_SKILL_ID} for details`, TDD_SKILL_ID)).toBe(false);
+  });
+
+  it('matches regex metacharacters in the id literally', () => {
+    expect(fragmentIncludesSkill('## Skill: a.b', 'a.b')).toBe(true);
+    expect(fragmentIncludesSkill('## Skill: axb', 'a.b')).toBe(false);
   });
 });

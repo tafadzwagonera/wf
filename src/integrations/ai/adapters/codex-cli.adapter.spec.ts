@@ -1,10 +1,14 @@
 import { ConfigService } from '@nestjs/config';
 import { CodexCliAdapter } from './codex-cli.adapter';
-import { STALL_THRESHOLD } from './verification-report';
+import { STALL_THRESHOLD, runProgrammaticVerification } from './verification-report';
 import * as codexRunner from './codex-cli-runner';
 import * as skillContent from '../../../skills/skill-content';
 
 jest.mock('./codex-cli-runner');
+jest.mock('./verification-report', () => ({
+  ...jest.requireActual<typeof import('./verification-report')>('./verification-report'),
+  runProgrammaticVerification: jest.fn(),
+}));
 jest.mock('./shared-routing', () => {
   const actual = jest.requireActual<typeof import('./shared-routing')>('./shared-routing');
   return {
@@ -19,6 +23,9 @@ const mockAssertCodexCliAvailable = codexRunner.assertCodexCliAvailable as jest.
 const mockBuildCodexCliArgs = codexRunner.buildCodexCliArgs as jest.MockedFunction<
   typeof codexRunner.buildCodexCliArgs
 >;
+const mockRunProgrammaticVerification = runProgrammaticVerification as jest.MockedFunction<
+  typeof runProgrammaticVerification
+>;
 const mockSpawnCodex = codexRunner.spawnCodex as jest.MockedFunction<typeof codexRunner.spawnCodex>;
 const mockGetCodexCliVersion = codexRunner.getCodexCliVersion as jest.MockedFunction<
   typeof codexRunner.getCodexCliVersion
@@ -31,6 +38,9 @@ const createMockConfigService = (overrides: Record<string, unknown> = {}): Pick<
 describe('CodexCliAdapter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRunProgrammaticVerification.mockImplementation(
+      jest.requireActual<typeof import('./verification-report')>('./verification-report').runProgrammaticVerification,
+    );
     mockAssertCodexCliAvailable.mockImplementation(() => undefined);
     mockBuildCodexCliArgs.mockImplementation(() => ['codex', 'exec', '--json']);
     mockGetCodexCliVersion.mockReturnValue({ major: 0, minor: 147, patch: 0 });
@@ -369,5 +379,64 @@ describe('CodexCliAdapter', () => {
 
     const builtArgs = mockBuildCodexCliArgs.mock.calls[0][0];
     expect(builtArgs.prompt).toContain('## Skill: coding-style');
+  });
+
+  it('uses the red-green tail when the TDD skill fragment is present', async () => {
+    jest.spyOn(skillContent, 'buildSkillPromptFragment')
+      .mockResolvedValue('\n\n## Skill: test-driven-development\nContent');
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's', num_turns: 1, total_cost_usd: 0 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify({ ...createBaseParams(), skillNames: ['test-driven-development'] });
+
+    const builtArgs = mockBuildCodexCliArgs.mock.calls[0][0];
+    expect(builtArgs.prompt).toContain('confirm it fails');
+    expect(builtArgs.prompt).not.toContain('After ALL edits are complete');
+  });
+
+  it('keeps the legacy tail without the TDD skill fragment', async () => {
+    mockSpawnCodex.mockReturnValue(
+      (async function* () {
+        yield { type: 'result', result: 'done', session_id: 's', num_turns: 1, total_cost_usd: 0 };
+      })()
+    );
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify(createBaseParams());
+
+    expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toContain('After ALL edits are complete');
+  });
+
+  it('includes the skill fragment in the verification fix-pass prompt', async () => {
+    jest.spyOn(skillContent, 'buildSkillPromptFragment')
+      .mockResolvedValue('\n\n## Skill: test-driven-development\nContent');
+    jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    mockRunProgrammaticVerification
+      .mockResolvedValueOnce([{ id: 'lint', command: 'yarn lint', policy: 'enforced', status: 'failed', output: 'lint error' }] as never)
+      .mockResolvedValueOnce([{ id: 'lint', command: 'yarn lint', policy: 'enforced', status: 'passed' }] as never);
+    let streamCount = 0;
+    mockSpawnCodex.mockImplementation(() => {
+      const filename = `file-${streamCount++}.ts`;
+      return (async function* () {
+        yield { type: 'thread.started', thread_id: 'thread-1', files: [{ filename }] };
+        yield { type: 'result', result: 'done', session_id: 's', num_turns: 1, total_cost_usd: 0 };
+      })();
+    });
+
+    const adapter = new CodexCliAdapter(createMockConfigService() as ConfigService);
+    await adapter.generateAndVerify({
+      ...createBaseParams(),
+      skillNames: ['test-driven-development'],
+      verificationScripts: [{ id: 'lint', name: 'lint', command: 'yarn lint', policy: 'enforced', aliases: [] }],
+    });
+
+    const prompts = mockBuildCodexCliArgs.mock.calls.map(([args]) => args.prompt);
+    const fixPrompt = prompts.find(prompt => prompt.includes('enforced verification commands failed'));
+    expect(fixPrompt).toContain('## Skill: test-driven-development');
+    expect(mockRunProgrammaticVerification).toHaveBeenCalledTimes(2);
   });
 });

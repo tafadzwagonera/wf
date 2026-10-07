@@ -70,3 +70,11 @@ Before marking work complete:
 - [ ] Each test failed because the feature was absent (not a typo or import error).
 - [ ] Minimal code was written to make each test pass.
 - [ ] All tests pass with no warnings in the output.
+
+## Planning
+
+When writing a plan, order steps test-first:
+
+- For each behavior, the step that writes its failing spec immediately precedes the step that implements it.
+- Declare each spec's run command under `verification.targeted`.
+- Plan steps never run commands: writing a spec file is a file change; running it belongs in `verification.targeted`.

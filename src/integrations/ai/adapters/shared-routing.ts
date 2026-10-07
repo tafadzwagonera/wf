@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { exec } from 'node:child_process';
 import { ConfigurationError } from '../../../shared/utils/errors';
+import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -368,11 +369,23 @@ ${formatVerificationList(params.verificationScripts)}${formatRisksSection(params
 export const buildPlanContext = (params: BuildPlanContextParams): string =>
   buildBehavioralContext(params.repoDir) + '\n\n' + buildTaskBrief(params);
 
+export const redGreenWorkflowInstruction
+  = 'Work one behavior at a time: write that behavior\'s failing test first, run its matching verification command exactly as written and confirm it fails because the behavior is absent, then implement the minimal change and re-run until it passes.';
+
+const implementTail
+  = 'Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.';
+
+const tddImplementTail
+  = `Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.`;
+
 export const buildInitialUserPrompt = (params: BuildTaskBriefParams): string =>
   [
     buildTaskBrief(params),
-    'Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.',
+    fragmentIncludesSkill(params.skillFragment, TDD_SKILL_ID) ? tddImplementTail : implementTail,
   ].join('\n\n');
+
+export const resolveInitialUserPrompt = (override: string | undefined, params: BuildTaskBriefParams): string =>
+  override == null ? buildInitialUserPrompt(params) : `${override}${params.skillFragment ?? ''}`;
 
 const readOptionalFile = async (filePath: string): Promise<string | null> => {
   try {

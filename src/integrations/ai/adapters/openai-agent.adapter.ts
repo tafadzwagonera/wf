@@ -54,8 +54,10 @@ import {
   buildBehavioralContext,
   buildTaskBrief,
   buildImplementerRulesSection,
+  redGreenWorkflowInstruction,
   type BuildPlanContextParams,
 } from './shared-routing';
+import { TDD_SKILL_ID } from '../../../skills/skill-content';
 import { buildSkillPromptFragment } from '../../../skills';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 import type { ResolutionPlan } from '../ai.service';
@@ -1226,11 +1228,19 @@ const buildPriorStagePreamble = (summary?: string): string =>
     ? `<prior-stage-context>\n${summary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
     : '';
 
-const buildInitialPrompt = (taskBriefParams: BuildPlanContextParams, contextMd: string | null): string =>
+const oaiImplementTail
+  = 'Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.';
+
+const oaiTddImplementTail
+  = `Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.`;
+
+const buildInitialPrompt = (
+  taskBriefParams: BuildPlanContextParams, contextMd: string | null, tail: string,
+): string =>
   [
     contextMd ? contextMd.trimEnd() : '',
     buildTaskBrief(taskBriefParams),
-    'Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.',
+    tail,
   ].filter(Boolean).join('\n\n');
 
 const resolveCompactionThreshold = (stepCount: number): number => {
@@ -1396,8 +1406,9 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const contextMd = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true
     );
+    const tail = params.skillNames?.includes(TDD_SKILL_ID) ? oaiTddImplementTail : oaiImplementTail;
     const prompt = options.initialPromptOverride
-      ?? buildInitialPrompt(buildOaiTaskBriefParams(params, repoDir), contextMd);
+      ?? buildInitialPrompt(buildOaiTaskBriefParams(params, repoDir), contextMd, tail);
     return { agent, prompt };
   }
 

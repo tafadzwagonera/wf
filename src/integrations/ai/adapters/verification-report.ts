@@ -292,18 +292,18 @@ const buildScopeNote = (scopedFiles: string[]): string =>
   + `to this task — report it in your summary as a blocker rather than fixing it, and do not edit files `
   + `outside this list to work around it.\n\n`;
 
-export function buildVerificationFixPrompt(failures: VerificationOutcome[], scopedFiles?: string[]): string {
+export function buildVerificationFixPrompt(
+  failures: VerificationOutcome[], scopedFiles?: string[], skillFragment?: string,
+): string {
   if (failures.length === 0) return '';
   const sections = failures.map(buildFailureSection).join('\n\n');
   const scopeNote = scopedFiles?.length ? buildScopeNote(scopedFiles) : '';
-  return (
-    `The following enforced verification commands failed:\n\n${sections}\n\n`
+  const fragment = skillFragment ?? '';
+  return `The following enforced verification commands failed:\n\n${sections}\n\n`
     + `Read the error output above, identify the root cause of each failure, `
-    + `and fix the code so all listed commands pass. `
-    + scopeNote
+    + `and fix the code so all listed commands pass. ${scopeNote}`
     + `Do not re-run the verification commands yourself — they will be re-run automatically after your changes. `
-    + `Do not output any text or plan before making your first tool call.`
-  );
+    + `Do not output any text or plan before making your first tool call.${fragment}`;
 }
 
 /**

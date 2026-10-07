@@ -1,4 +1,4 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -482,5 +482,69 @@ describe('buildBehavioralContext', () => {
     const result = buildBehavioralContext('/tmp/my-repo');
     expect(result).not.toContain('Ticket key:');
     expect(result).not.toContain('Plan summary:');
+  });
+});
+
+describe('buildInitialUserPrompt', () => {
+  const baseParams = {
+    ticketKey: 'WBP-42',
+    repoName: 'repo-b',
+    repoFiles: ['repo-b/src/widget.ts'],
+    trackedFilePaths: ['repo-b/src/widget.ts'],
+    verificationScripts: [{ id: 'test', command: 'yarn test', policy: 'enforced' }] as VerificationScript[],
+    planSteps: ['Read existing code', 'Apply fix'],
+    planSummary: 'Fix the widget bug',
+    planAction: 'fix' as const,
+  };
+  const tddFragment = '\n\n## Skill: test-driven-development\nContent';
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('keeps the legacy tail without a TDD fragment', () => {
+    expect(buildInitialUserPrompt(baseParams)).toContain('After ALL edits are complete');
+  });
+
+  it('keeps the legacy tail for a non-TDD skill fragment', () => {
+    const result = buildInitialUserPrompt({ ...baseParams, skillFragment: '\n\n## Skill: coding-style\nContent' });
+    expect(result).toContain('After ALL edits are complete');
+  });
+
+  it('uses the red-green tail when the TDD fragment is present', () => {
+    const result = buildInitialUserPrompt({ ...baseParams, skillFragment: tddFragment });
+    expect(result).not.toContain('After ALL edits are complete');
+    expect(result).toContain('failing test');
+    expect(result).toContain('confirm it fails');
+    expect(result).toContain('exactly as written');
+    expect(result).toContain('before making your first tool call');
+  });
+});
+
+describe('resolveInitialUserPrompt', () => {
+  const baseParams = {
+    ticketKey: 'WBP-42',
+    repoName: 'repo-b',
+    repoFiles: ['repo-b/src/widget.ts'],
+    trackedFilePaths: ['repo-b/src/widget.ts'],
+    verificationScripts: [{ id: 'test', command: 'yarn test', policy: 'enforced' }] as VerificationScript[],
+    planSteps: ['Apply fix'],
+    planSummary: 'Fix the widget bug',
+    planAction: 'fix' as const,
+  };
+
+  it('builds the initial prompt when there is no override', () => {
+    expect(resolveInitialUserPrompt(undefined, baseParams)).toBe(buildInitialUserPrompt(baseParams));
+  });
+
+  it('appends the skill fragment to an override', () => {
+    const fragment = '\n\n## Skill: coding-style\nContent';
+    const result = resolveInitialUserPrompt('custom override', { ...baseParams, skillFragment: fragment });
+    expect(result.startsWith('custom override')).toBe(true);
+    expect(result).toContain('## Skill:');
+  });
+
+  it('returns the override exactly when there is no fragment', () => {
+    expect(resolveInitialUserPrompt('custom override', baseParams)).toBe('custom override');
   });
 });

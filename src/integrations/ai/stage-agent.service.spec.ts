@@ -682,6 +682,24 @@ describe('StageAgentService', () => {
     );
   });
 
+  it('uses a test-first plan example that parses against planModelOutputSchema', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({ action: 'fix', issueContent: 'Fix callback handling', affectedRepositories: ['repo-a'] });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    const exampleLine = prompt.split('Return ONLY a valid JSON object. Reference:\n')[1].split('\n')[0];
+    const example = planModelOutputSchema.parse(JSON.parse(exampleLine));
+    expect(example.steps).toHaveLength(3);
+    expect(example.steps[0]).toMatch(/failing spec/i);
+  });
+
   it('includes prior plan context in the generated plan prompt when provided', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({
