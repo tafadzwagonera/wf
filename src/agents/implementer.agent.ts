@@ -57,6 +57,9 @@ interface FileResolution {
   contextFiles: string[];
 }
 
+const toAffectedFilePaths = (affectedFiles?: Parameters<typeof normalizeFileEntries>[0]): string[] =>
+  normalizeFileEntries(affectedFiles ?? []).map(entry => entry.filePath);
+
 type NormalizedEntry = ReturnType<typeof normalizeFileEntries>[number];
 
 type CheckoutFeatureBranchParams = {
@@ -358,6 +361,7 @@ export class ImplementerAgent {
       steps: assessedSteps,
       planSummary: scopedPlan.plan.summary,
       repoDir: options.repoDir ?? process.cwd(),
+      affectedFiles: toAffectedFilePaths(scopedPlan.plan.affectedFiles),
       baseRef: args.baseline?.sha,
       sessionId: args.sessionId,
       stallWindow: args.stallWindow,
@@ -368,8 +372,7 @@ export class ImplementerAgent {
       ...(args.verificationOutcomes.length && { verificationOutcomes: args.verificationOutcomes }),
       commitPolicy: args.commitPolicy, silent: options.silent,
       runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
-      refreshSteps: args.refreshSteps,
-      getSuppressed: args.getSuppressed,
+      refreshSteps: args.refreshSteps, getSuppressed: args.getSuppressed,
     };
   }
 

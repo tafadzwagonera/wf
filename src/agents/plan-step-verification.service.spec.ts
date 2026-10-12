@@ -6,6 +6,8 @@ import {
   buildPlanStepVerificationPrompt,
   collectPushEvidence,
   stripRepoNamePrefix,
+  stripRepoPrefix,
+  type PushEvidence,
 } from './plan-step-verification.service';
 import { PullStepAssessorService } from './pull-step-assessor.service';
 import { AiService } from '../integrations/ai/ai.service';
@@ -27,57 +29,66 @@ jest.mock('node:child_process', () => ({
 
 jest.mock('node:fs', () => ({
   ...jest.requireActual('node:fs'),
-  readFileSync: jest.fn(() => ''),
+  readFileSync: jest.fn(() => Buffer.from('')),
 }));
 
 jest.mock('../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
 
+const createMockEvidence = (overrides: Partial<PushEvidence> = {}): PushEvidence => ({
+  nameStatus: 'M\tsrc/a.ts',
+  fileDiffSections: [],
+  untrackedSections: [],
+  budgetReport: { totalMeasured: 0, budget: 60_000, truncated: [], omitted: [] },
+  sections: [],
+  ...overrides,
+});
+
 describe('buildStepAssessorPrompt', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('numbers steps from 0', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }, { index: 1, text: 'Step B' }], {
-      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
-    });
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }, { index: 1, text: 'Step B' }], createMockEvidence());
     expect(prompt).toContain('[Plan step 0]');
     expect(prompt).toContain('[Plan step 1]');
   });
 
   it('includes not-applicable rule', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
-      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
-    });
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], createMockEvidence());
     expect(prompt).toContain('not-applicable');
   });
 
   it('renders complete names and warns about omitted hunks', () => {
-    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], createMockEvidence({
       nameStatus: 'M\tsrc/a.ts\nM\tsrc/b.ts',
       fileDiffSections: ['### src/a.ts\ndiff a'],
-      untrackedSections: [],
-      omittedPaths: ['src/b.ts'],
-      truncatedUntrackedPaths: [],
-    });
+      budgetReport: { totalMeasured: 9, budget: 5, truncated: [], omitted: ['src/b.ts'] },
+    }));
     expect(prompt).toContain('Changed files (complete list)');
-    expect(prompt).toContain('Changed but their hunks were omitted');
+    expect(prompt).toContain('## Evidence completeness');
     expect(prompt).toContain('src/b.ts');
     expect(prompt).toMatch(/not-done:.*changed-files list/);
     expect(prompt).toMatch(/unverifiable: ONLY/);
+    expect(prompt).toContain('disclosed evidence gap');
+  });
+
+  it('keeps the plain unverifiable rule and no completeness section when evidence has no gaps', () => {
+    const prompt = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], createMockEvidence());
+    expect(prompt).not.toContain('## Evidence completeness');
+    expect(prompt).not.toContain('disclosed evidence gap');
+    expect(prompt).toContain(
+      '- unverifiable: ONLY for temporal, process, or investigation claims that evidence cannot in principle prove or disprove (requires missing field)',
+    );
   });
 
   it('omits execution evidence section when called with two args', () => {
-    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
-      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
-    });
+    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], createMockEvidence());
     expect(result).not.toContain('## Command execution evidence');
   });
 
   it('inserts execution evidence section in order when called with three args', () => {
-    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], {
-      nameStatus: 'M\tsrc/a.ts', fileDiffSections: [], untrackedSections: [], omittedPaths: [], truncatedUntrackedPaths: [],
-    }, {
+    const result = buildStepAssessorPrompt([{ index: 0, text: 'Step A' }], createMockEvidence(), {
       outcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
       stagedFiles: [],
     });
@@ -173,22 +184,40 @@ describe('buildExecutionEvidenceSection', () => {
 describe('collectPushEvidence', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('keeps the full changed-file list while omitting hunk sections over budget', async () => {
+  const mockDiffOutputs = (paths: string[], diffChars: number): jest.Mock => {
     const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
-    const paths = Array.from({ length: 9 }, (_, index) => `src/${index}.ts`);
+    mockExecFile.mockClear();
     mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
-      const key = args.join(' ');
-      if (key === 'diff --name-status HEAD') {
+      if (args.join(' ') === 'diff --name-status HEAD') {
         callback(null, { stdout: paths.map(filePath => `M\t${filePath}`).join('\n') });
         return;
       }
-      callback(null, { stdout: 'x'.repeat(20_000) });
+      callback(null, { stdout: 'x'.repeat(diffChars) });
     });
+    return mockExecFile;
+  };
+
+  it('includes every hunk whole when 180k of diffs fits under the ceiling', async () => {
+    mockDiffOutputs(Array.from({ length: 9 }, (_, index) => `src/${index}.ts`), 20_000);
 
     const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] });
 
     expect(evidence.nameStatus).toContain('src/8.ts');
-    expect(evidence.omittedPaths).toContain('src/8.ts');
+    expect(evidence.budgetReport.omitted).toEqual([]);
+    expect(evidence.budgetReport.truncated).toEqual([]);
+    expect(evidence.fileDiffSections).toHaveLength(9);
+    expect(evidence.fileDiffSections[8]).toBe(`### src/8.ts\n${'x'.repeat(20_000)}`);
+  });
+
+  it('skips git calls and omits files past the fetch ceiling while keeping the full name list', async () => {
+    const paths = Array.from({ length: 40 }, (_, index) => `src/${index}.ts`);
+    const mockExecFile = mockDiffOutputs(paths, 20_000);
+
+    const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] });
+
+    expect(evidence.nameStatus).toContain('src/39.ts');
+    expect(evidence.budgetReport.omitted).toEqual(['src/36.ts', 'src/37.ts', 'src/38.ts', 'src/39.ts']);
+    expect(mockExecFile).toHaveBeenCalledTimes(1 + 36);
   });
 
   it('prioritizes files named in plan steps and throws git failures', async () => {
@@ -209,31 +238,63 @@ describe('collectPushEvidence', () => {
     await expect(collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] })).rejects.toThrow('ENOBUFS');
   });
 
-  it('caps rendered tracked and untracked sections and marks truncation', async () => {
-    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
-    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
-      callback(null, { stdout: args.includes('--name-status') ? 'M\tsrc/a.ts' : 'x'.repeat(20_000) });
-    });
+  it('prioritizes files named in plan affectedFiles', async () => {
+    mockDiffOutputs(Array.from({ length: 3 }, (_, index) => `src/${index}.ts`), 100);
+
     const evidence = await collectPushEvidence({
-      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [], untrackedSections: [`### src/new.ts\n${'u'.repeat(20_000)}`],
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [], affectedFiles: ['src/2.ts'],
     });
-    expect(evidence.untrackedSections[0]).toHaveLength(8_000);
-    expect(evidence.untrackedSections[0]).toContain('[truncated]');
-    expect(evidence.fileDiffSections[0]).toHaveLength(8_000);
-    expect(evidence.fileDiffSections[0]).toContain('[truncated]');
+
+    expect(evidence.fileDiffSections[0]).toContain('src/2.ts');
   });
 
-  it('uses rename destinations and retains untracked evidence before hunks', async () => {
-    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
-    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
-      callback(null, { stdout: args.includes('--name-status') ? 'R100\tsrc/old.ts\tsrc/new.ts' : 'rename diff' });
-    });
+  it('renders 20k tracked and untracked sections whole instead of truncating them', async () => {
+    mockDiffOutputs(['src/a.ts'], 20_000);
+
     const evidence = await collectPushEvidence({
       repoDir: '/repo', baseRef: 'HEAD', stepTexts: [],
-      untrackedSections: Array.from({ length: 8 }, (_, index) => `### src/new-${index}.ts\n${'u'.repeat(8_000)}`),
+      untrackedFiles: [{ path: 'src/new.ts', content: 'u'.repeat(20_000) }],
     });
-    expect(evidence.untrackedSections).toHaveLength(8);
-    expect(evidence.omittedPaths).toContain('src/new.ts');
+
+    expect(evidence.untrackedSections[0]).toBe(`### src/new.ts\n\`\`\`\n${'u'.repeat(20_000)}\n\`\`\``);
+    expect(evidence.fileDiffSections[0]).toHaveLength(`### src/a.ts\n`.length + 20_000);
+    expect(evidence.budgetReport.truncated).toEqual([]);
+  });
+
+  it('orders untracked and tracked evidence by step mention rather than untracked-first', async () => {
+    mockDiffOutputs(['src/tracked.ts'], 100);
+
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: ['Edit src/tracked.ts'],
+      untrackedFiles: [{ path: 'src/new.ts', content: 'u' }],
+    });
+
+    expect(evidence.sections.map(section => section.path)).toEqual(['src/tracked.ts', 'src/new.ts']);
+  });
+
+  it('renders binary untracked files as placeholders and never reports them as gaps', async () => {
+    mockDiffOutputs([], 0);
+
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [],
+      untrackedFiles: [{ path: 'img.png', content: '[binary file, 9 bytes]', binary: true }],
+    });
+
+    expect(evidence.untrackedSections).toEqual(['### img.png\n[binary file, 9 bytes]']);
+    expect(evidence.budgetReport.omitted).toEqual([]);
+  });
+
+  it('assesses only-untracked changes with an empty changed-files list', async () => {
+    mockDiffOutputs([], 0);
+
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: [],
+      untrackedFiles: [{ path: 'src/new.ts', content: 'content' }],
+    });
+
+    expect(evidence.nameStatus).toBe('');
+    expect(evidence.untrackedSections).toHaveLength(1);
+    expect(evidence.budgetReport.budget).toBeGreaterThanOrEqual(7);
   });
 
   it('diffs the destination path for rename entries', async () => {
@@ -243,6 +304,14 @@ describe('collectPushEvidence', () => {
     });
     const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: [] });
     expect(evidence.fileDiffSections[0]).toContain('### src/new.ts');
+  });
+});
+
+describe('stripRepoPrefix', () => {
+  it('strips the repo basename prefix from free text and leaves other text alone', () => {
+    expect(stripRepoPrefix('shop-v1.1/src/a.ts', '/repos/shop-v1.1')).toBe('src/a.ts');
+    expect(stripRepoPrefix('src/a.ts', '/repos/shop-v1.1')).toBe('src/a.ts');
+    expect(stripRepoPrefix('shop-v1.1/src/a.ts', '/')).toBe('shop-v1.1/src/a.ts');
   });
 });
 
@@ -515,24 +584,186 @@ describe('PlanStepVerificationService', () => {
     );
   });
 
-  it('preserves an oversized untracked file and logs its truncated path', async () => {
+  it('includes an oversized untracked file whole when it fits under the ceiling', async () => {
     mockGitGetStatus.mockResolvedValue({ not_added: ['new-file.ts'] });
     const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
-    mockReadFileSync.mockReturnValue('x'.repeat(60_000));
+    mockReadFileSync.mockReturnValue(Buffer.from('x'.repeat(60_000)));
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
     const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+
+    await service.run(makeRunParams());
+
+    const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain(`### new-file.ts\n\`\`\`\n${'x'.repeat(60_000)}\n\`\`\``);
+    expect(prompt).not.toContain('evidence gap');
+    expect(prompt).not.toContain('disclosed evidence gap');
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'INFO', 'step-verify.evidence.budget measured=60000 budget=60000 files=0 untracked=1', 'step-verification',
+    );
+    expect(mockAppendToLogFile).not.toHaveBeenCalledWith('WARN', expect.stringContaining('step-verify.diff.truncated'), expect.anything());
+  });
+
+  it('degrades an over-ceiling single-file group to head and tail slices and warns on unverifiable', async () => {
+    mockGitGetStatus.mockResolvedValue({ not_added: ['new-file.ts'] });
+    const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
+    mockReadFileSync.mockReturnValue(Buffer.from(`HEAD${'m'.repeat(300_000)}TAIL`));
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'unverifiable', missing: 'new-file.ts gap' }] }),
+    });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+
+    await service.run(makeRunParams({ steps: ['Edit new-file.ts'] }));
+
+    const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('HEAD');
+    expect(prompt).toContain('[... evidence gap:');
+    expect(prompt).toContain('## Evidence completeness');
+    expect(prompt).toContain('TAIL\n```');
+    expect(prompt).toMatch(/- unverifiable: ONLY for temporal, process, or investigation claims that evidence cannot in principle prove or disprove, and for steps whose only doubt lies beyond a disclosed evidence gap/);
+    expect(prompt).not.toContain('disprove (requires missing field)\n- Paths');
+    expect(mockAppendToLogFile).not.toHaveBeenCalledWith('INFO', expect.stringContaining('step-verify.assess.phased'), expect.anything());
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', expect.stringContaining('step-verify.diff.truncated paths=new-file.ts'), 'step-verification',
+    );
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', 'step-verify.unverifiable.evidence-gap indices=0 paths=new-file.ts', 'step-verification',
+    );
+  });
+
+  it('logs the evidence budget for an only-untracked change with an empty changed-files list', async () => {
+    mockGitGetStatus.mockResolvedValue({ not_added: ['new-file.ts'] });
+    const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
+    mockReadFileSync.mockReturnValue(Buffer.from('content'));
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams());
 
     expect(mockAiExecute.mock.calls[0][0].prompt).toContain('### new-file.ts');
     expect(mockAppendToLogFile).toHaveBeenCalledWith(
-      'WARN', expect.stringContaining('untracked-truncated=new-file.ts'), 'step-verification',
+      'INFO', 'step-verify.evidence.budget measured=7 budget=60000 files=0 untracked=1', 'step-verification',
     );
+  });
+
+  it('does not emit the evidence-gap warning when unverifiable arrives without evidence gaps', async () => {
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'unverifiable', missing: 'ordering' }] }),
+    });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+
+    await service.run(makeRunParams());
+
+    expect(mockAppendToLogFile).not.toHaveBeenCalledWith(
+      'WARN', expect.stringContaining('step-verify.unverifiable.evidence-gap'), expect.anything(),
+    );
+  });
+
+  it('phases assessment by step groups when evidence exceeds the ceiling', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      if (args.includes('--name-status')) {
+        callback(null, { stdout: 'M\tsrc/a.ts\nM\tsrc/b.ts' });
+        return;
+      }
+      callback(null, { stdout: (args.includes('src/a.ts') ? 'a' : 'b').repeat(150_000) });
+    });
+    mockAiExecute.mockImplementation(({ prompt }: { prompt: string }) => Promise.resolve({
+      content: JSON.stringify({ statuses: [{ index: prompt.includes('[Plan step 0]') ? 0 : 1, status: 'done' }] }),
+    }));
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+
+    const outcome = await service.run(makeRunParams({ steps: ['Edit src/a.ts', 'Edit src/b.ts'] }));
+
+    expect(mockAiExecute).toHaveBeenCalledTimes(2);
+    const [first, second]: string[] = mockAiExecute.mock.calls.map(call => call[0].prompt);
+    expect(first).toContain('[Plan step 0]');
+    expect(first).not.toContain('[Plan step 1]');
+    expect(second).toContain('[Plan step 1]');
+    expect(second).not.toContain('[Plan step 0]');
+    for (const prompt of [first, second]) expect(prompt).toContain('M\tsrc/a.ts\nM\tsrc/b.ts');
+    expect(first).toContain('a'.repeat(150_000));
+    expect(second).toContain('b'.repeat(150_000));
+    expect(first).not.toContain('evidence gap');
+    expect(outcome.summary).toMatchObject({ pending: 0, done: 2 });
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', 'step-verify.assess.phased groups=2', 'step-verification');
+    expect(mockAppendToLogFile).not.toHaveBeenCalledWith('WARN', expect.stringContaining('step-verify.diff.truncated'), expect.anything());
+  });
+
+  it('renders a binary untracked file as a placeholder without reporting a gap', async () => {
+    mockGitGetStatus.mockResolvedValue({ not_added: ['img.png'] });
+    const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
+    mockReadFileSync.mockReturnValue(Buffer.from([1, 0, 2, 3]));
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams());
+
+    const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+    expect(prompt).toContain('### img.png\n[binary file, 4 bytes]');
+    expect(prompt).not.toContain('## Evidence completeness');
+  });
+
+  it('prioritizes plan affectedFiles with the repo prefix stripped when run() collects evidence', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    const diffedPaths: string[] = [];
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      if (args.includes('--name-status')) {
+        callback(null, { stdout: 'M\tsrc/a.ts\nM\tsrc/b.ts' });
+        return;
+      }
+      diffedPaths.push(args.at(-1) ?? '');
+      callback(null, { stdout: 'd' });
+    });
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams({ repoDir: '/repos/shop', affectedFiles: ['shop/src/b.ts'] }));
+
+    expect(diffedPaths).toEqual(['src/b.ts', 'src/a.ts']);
+  });
+
+  it('warns when the assembled prompt exceeds the oversize threshold', async () => {
+    mockGitGetStatus.mockResolvedValue({ not_added: [] });
+    const longStep = 's'.repeat(310_000);
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    mockAppendToLogFile.mockClear();
+
+    await service.run(makeRunParams({ steps: [longStep] }));
+
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'WARN', expect.stringContaining('step-verify.prompt.oversize chars='), 'step-verification',
+    );
+  });
+
+  it('discloses sections that fit no phased group as an evidence gap in each group prompt', async () => {
+    const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
+    mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
+      if (args.includes('--name-status')) {
+        callback(null, { stdout: 'M\tsrc/a.ts\nM\tsrc/b.ts\nM\tsrc/orphan.ts' });
+        return;
+      }
+      callback(null, { stdout: 'z'.repeat(args.includes('src/orphan.ts') ? 100_000 : 150_000) });
+    });
+    mockAiExecute.mockImplementation(({ prompt }: { prompt: string }) => Promise.resolve({
+      content: JSON.stringify({ statuses: [{ index: prompt.includes('[Plan step 0]') ? 0 : 1, status: 'done' }] }),
+    }));
+
+    await service.run(makeRunParams({ steps: ['Edit src/a.ts', 'Edit src/b.ts'] }));
+
+    for (const call of mockAiExecute.mock.calls) {
+      expect(call[0].prompt).toContain('## Evidence completeness');
+      expect(call[0].prompt).toContain('src/orphan.ts');
+      expect(call[0].prompt).toContain('disclosed evidence gap');
+    }
   });
 
   it('logs omitted tracked paths and retries a loud git collection failure', async () => {
     const mockExecFile = jest.requireMock('node:child_process').execFile as jest.Mock;
-    const paths = Array.from({ length: 9 }, (_, index) => `src/${index}.ts`);
+    const paths = Array.from({ length: 40 }, (_, index) => `src/${index}.ts`);
     mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: unknown, callback: ExecCallback) => {
       callback(null, { stdout: args.includes('--name-status') ? paths.map(filePath => `M\t${filePath}`).join('\n') : 'x'.repeat(20_000) });
     });

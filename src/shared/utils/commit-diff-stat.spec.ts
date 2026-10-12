@@ -5,6 +5,7 @@ import {
   isDocsOnlyChangeset,
   extractConventionalType,
   declaresDocsOnlyType,
+  splitDiffIntoFileSections,
 } from './commit-diff-stat';
 
 const buildDiff = (files: { path: string; addedLines: number }[]): string =>
@@ -14,6 +15,21 @@ const buildDiff = (files: { path: string; addedLines: number }[]): string =>
       return `diff --git a/${f.path} b/${f.path}\n--- a/${f.path}\n+++ b/${f.path}\n@@ -0,0 +1,${f.addedLines} @@\n${added}`;
     })
     .join('\n');
+
+describe('splitDiffIntoFileSections', () => {
+  it('maps each destination path to its own diff section', () => {
+    const diff = buildDiff([{ path: 'src/a.ts', addedLines: 1 }, { path: 'src/b.ts', addedLines: 2 }]);
+    const sections = splitDiffIntoFileSections(diff);
+
+    expect([...sections.keys()]).toEqual(['src/a.ts', 'src/b.ts']);
+    expect(sections.get('src/a.ts')).toContain('+line 0');
+    expect(sections.get('src/a.ts')).not.toContain('src/b.ts');
+  });
+
+  it('returns an empty map when the diff has no file headers', () => {
+    expect(splitDiffIntoFileSections('not a real diff').size).toBe(0);
+  });
+});
 
 describe('parseDiffFileStats', () => {
   it('counts added and removed lines per file, excluding +++/--- headers', () => {

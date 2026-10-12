@@ -5,6 +5,7 @@ import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '
 import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 import { ConfigurationError } from '../shared/utils/errors';
+import { unverifiableRule } from './plan-step-evidence-budget';
 import type { AssessableStep } from './step-spec-fidelity.service';
 
 export type PullStepAssessmentParams = {
@@ -25,7 +26,7 @@ const pullStatusRules = [
   '- partially-done: started but incomplete (requires missing field)',
   '- not-done: not implemented, including any named file you could not find after searching (requires missing field)',
   '- not-applicable: step requires no code change or cannot be proven from repository state (e.g. run-the-tests steps, confirm-existing-behavior steps)',
-  '- unverifiable: ONLY for temporal, process, or investigation claims that repository state cannot in principle prove or disprove (requires missing field)',
+  unverifiableRule('repository state'),
   '- Paths under another repository prefix are outside this assessment; judge only the current repository portion.',
 ];
 

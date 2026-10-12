@@ -14,6 +14,13 @@ describe('buildPullStepAssessorPrompt', () => {
     expect(prompt).toMatch(/not-done:.*could not find/);
     expect(prompt).toMatch(/unverifiable: ONLY/);
   });
+
+  it('contains the unverifiable rule line verbatim', () => {
+    const prompt = buildPullStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'abc123');
+    expect(prompt).toContain(
+      '- unverifiable: ONLY for temporal, process, or investigation claims that repository state cannot in principle prove or disprove (requires missing field)',
+    );
+  });
 });
 
 describe('PullStepAssessorService', () => {

@@ -8,7 +8,7 @@ const DOCS_ONLY_FILE_PATTERN = /(^|\/)README(\..+)?$|(^|\/)docs\/|\.md$/i;
 const CONVENTIONAL_TYPE_PATTERN = /^(?:[A-Z][A-Z0-9]*-\d+:\s*)?([a-z]+)(?:\([^)]+\))?:/;
 const docsOnlyCommitTypes = new Set(['docs', 'style', 'chore']);
 
-const splitDiffIntoFileSections = (diff: string): Map<string, string> => {
+export const splitDiffIntoFileSections = (diff: string): Map<string, string> => {
   const sections = new Map<string, string>();
   for (const chunk of diff.split(/(?=^diff --git )/m)) {
     const headerMatch = FILE_HEADER_PATTERN.exec(chunk.split('\n')[0] ?? '');

@@ -5,6 +5,8 @@ import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { stepFidelityResponseJsonSchema } from '../shared/schemas/step-spec-fidelity.schema';
 
+jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+
 const MOCK_DIFF = 'diff --git a/src/foo.ts b/src/foo.ts\n+const x = 1;';
 
 describe('StepSpecFidelityService', () => {
@@ -205,6 +207,70 @@ describe('StepSpecFidelityService', () => {
       );
       const call = mockAiExecute.mock.calls[0][0];
       expect(call).not.toHaveProperty('backend');
+    });
+  });
+
+  describe('diff budget', () => {
+    const buildFileDiff = (filePath: string, body: string): string =>
+      `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${body}`;
+
+    it('passes a diff under the floor through untouched', async () => {
+      const diff = [buildFileDiff('src/a.ts', '+a'), buildFileDiff('src/b.ts', '+b')].join('\n');
+      mockGitService.getDiffFromRef.mockResolvedValue(diff);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll([{ index: 0, text: 'edit src/a.ts' }], '/repo');
+      expect(mockAiExecute.mock.calls[0][0].prompt).toContain(diff);
+    });
+
+    it('adds gap markers and logs the truncated path when the diff exceeds the ceiling', async () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const diff = [
+        buildFileDiff('src/a.ts', 'a'.repeat(100_000)),
+        buildFileDiff('src/b.ts', 'b'.repeat(100_000)),
+      ].join('\n');
+      mockGitService.getDiffFromRef.mockResolvedValue(diff);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll([{ index: 0, text: 'edit something' }], '/repo');
+      const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+      expect(prompt).toContain('evidence gap');
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('step-fidelity.diff.truncated paths='), 'step-verification',
+      );
+    });
+
+    it('keeps a step-mentioned file whole while truncating an unmentioned file', async () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+      const mentioned = buildFileDiff('src/keep.ts', 'k'.repeat(50_000));
+      const diff = [buildFileDiff('src/other.ts', 'o'.repeat(200_000)), mentioned].join('\n');
+      mockGitService.getDiffFromRef.mockResolvedValue(diff);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll([{ index: 0, text: 'edit src/keep.ts' }], '/repo');
+      const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+      expect(prompt).toContain(mentioned);
+      expect(prompt).not.toContain('o'.repeat(200_000));
+      expect(prompt).toContain('evidence gap');
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', 'step-fidelity.diff.truncated paths=src/other.ts', 'step-verification',
+      );
+    });
+  });
+
+  describe('diff budget gaps', () => {
+    it('falls back to a head and tail slice with a gap marker and one log line for an unsectioned diff', async () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+      mockGitService.getDiffFromRef.mockResolvedValue(`HEAD${'m'.repeat(200_000)}TAIL`);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+
+      await service.verifyAll([{ index: 0, text: 'a' }, { index: 1, text: 'b' }], '/repo');
+
+      const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+      expect(prompt).toContain('[... evidence gap:');
+      expect(prompt).toContain('unknown, not absent');
+      expect(prompt).toContain('TAIL');
+      expect(mockAppendToLogFile.mock.calls.filter(call => String(call[1]).includes('step-fidelity.diff.truncated')))
+        .toHaveLength(1);
     });
   });
 

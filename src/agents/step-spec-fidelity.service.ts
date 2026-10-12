@@ -12,10 +12,21 @@ import type {
 } from '../shared/types/step-spec-fidelity.types';
 import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { splitDiffIntoFileSections } from '../shared/utils/commit-diff-stat';
+import {
+  EVIDENCE_FLOOR_CHARS, allocateEvidence, sliceHeadTail, type EvidenceSection,
+} from './plan-step-evidence-budget';
 
 export type AssessableStep = { index: number; text: string };
 
-const MAX_FIDELITY_DIFF_CHARS = 60_000;
+const FIDELITY_CEILING_CHARS = 120_000;
+
+const clampFidelityBudget = (measuredTotal: number): number =>
+  Math.min(FIDELITY_CEILING_CHARS, Math.max(EVIDENCE_FLOOR_CHARS, measuredTotal));
+
+const stripSectionHeading = (rendered: string, filePath: string): string =>
+  rendered.slice(`### ${filePath}\n`.length);
 
 export interface StepSpecFidelityRunParams {
   stepText: string;
@@ -53,8 +64,17 @@ const fidelityTaskInstructions = [
   'Return {"findings":[]} when there are no deviations.',
 ].join('\n');
 
-export const buildSpecFidelityPrompt = (stepText: string, diff: string): string =>
-  `## Plan step\n\n${stepText}\n\n## Changed files diff\n\n${diff}\n\n## Your task\n\n${fidelityTaskInstructions}`;
+const EVIDENCE_GAP_NOTE = [
+  'Note: the diff contains "[... evidence gap: N chars omitted ...]" markers or omitted files.',
+  'Content beyond a gap is unknown, not absent — do not flag claims solely because they sit in a gap.',
+  '',
+  '',
+].join('\n');
+
+export const buildSpecFidelityPrompt = (stepText: string, diff: string): string => {
+  const gapNote = diff.includes('[... evidence gap:') ? EVIDENCE_GAP_NOTE : '';
+  return `## Plan step\n\n${stepText}\n\n## Changed files diff\n\n${gapNote}${diff}\n\n## Your task\n\n${fidelityTaskInstructions}`;
+};
 
 @Injectable()
 export class StepSpecFidelityService {
@@ -92,8 +112,10 @@ export class StepSpecFidelityService {
     assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<void> {
     const { assessorProvider: provider, assessorModel: model, assessorBackend: backend } = assessorTarget ?? {};
+    const loggedGaps = new Set<string>();
     for (const step of steps) {
-      const r = await this.run({ stepText: step.text, diff, provider, model, backend });
+      const stepDiff = this.fitDiffToBudget(diff, step.text, loggedGaps);
+      const r = await this.run({ stepText: step.text, diff: stepDiff, provider, model, backend });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
         result.failures.push({ ...r.failure, stepIndex: step.index });
@@ -130,7 +152,40 @@ export class StepSpecFidelityService {
   }
 
   private async captureDiff(repoDir: string, baseRef: string): Promise<string> {
-    const diff = await this.gitService.getDiffFromRef(baseRef, repoDir);
-    return diff.slice(0, MAX_FIDELITY_DIFF_CHARS);
+    return this.gitService.getDiffFromRef(baseRef, repoDir);
+  }
+
+  private fitDiffToBudget(diff: string, stepText: string, loggedGaps: Set<string>): string {
+    const fileSections = splitDiffIntoFileSections(diff);
+    if (fileSections.size === 0) return this.fitUnsectionedDiff(diff, loggedGaps);
+    const sections: EvidenceSection[] = [...fileSections].map(([filePath, content]) => ({
+      path: filePath, kind: 'tracked', content, mentioned: stepText.includes(filePath),
+    }));
+    const measuredTotal = sections.reduce((sum, section) => sum + section.content.length, 0);
+    const { rendered, report } = allocateEvidence(sections, clampFidelityBudget(measuredTotal));
+    const gapPaths = [...report.truncated.map(t => t.path), ...report.omitted];
+    return gapPaths.length ? this.rejoinTruncated(sections, rendered, gapPaths, loggedGaps) : diff;
+  }
+
+  private rejoinTruncated(
+    sections: EvidenceSection[], rendered: Map<string, string>, gapPaths: string[], loggedGaps: Set<string>,
+  ): string {
+    this.logGapOnce(`paths=${gapPaths.join(',')}`, loggedGaps);
+    return sections
+      .filter(section => rendered.has(section.path))
+      .map(section => stripSectionHeading(rendered.get(section.path) ?? '', section.path))
+      .join('\n');
+  }
+
+  private fitUnsectionedDiff(diff: string, loggedGaps: Set<string>): string {
+    const fitted = sliceHeadTail(diff, clampFidelityBudget(diff.length));
+    if (fitted.length < diff.length) this.logGapOnce('paths=(unsectioned diff)', loggedGaps);
+    return fitted;
+  }
+
+  private logGapOnce(detail: string, loggedGaps: Set<string>): void {
+    if (loggedGaps.has(detail)) return;
+    loggedGaps.add(detail);
+    appendToLogFile('WARN', `step-fidelity.diff.truncated ${detail}`, 'step-verification');
   }
 }
