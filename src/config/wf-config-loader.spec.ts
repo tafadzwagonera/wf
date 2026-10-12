@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { collectDroppedStageFields, discoverWfConfigPath, getLoadedWfConfig, initializeWfConfig, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
 import { ValidationError } from '../shared/utils/errors';
+import { DEFAULT_OPENAI_MODEL } from '../common/constant';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
 
 describe('wf-config-loader', () => {
@@ -18,6 +19,39 @@ describe('wf-config-loader', () => {
     for (const tempRoot of tempRoots) {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  describe('normalizeWfConfig provider defaults', () => {
+    it('marks an unflagged second provider as non-default and fills its default model', () => {
+      const normalized = normalizeWfConfig({
+        ai: [
+          { provider: 'anthropic', apiKey: 'k1', model: 'claude-sonnet-4-6', default: true },
+          { provider: 'openai', apiKey: 'k2' },
+        ],
+      });
+
+      expect(normalized.ai.providers[1]).toMatchObject({ default: false, model: DEFAULT_OPENAI_MODEL });
+    });
+  });
+
+  describe('normalizeWfConfig git and skills', () => {
+    it('carries git.protectedBranches into the normalized config', () => {
+      const normalized = normalizeWfConfig({ git: { protectedBranches: ['release'] } });
+
+      expect(normalized.git.protectedBranches).toEqual(['release']);
+    });
+
+    it('rejects a plan skill outside the allowed enum', () => {
+      const rawConfig = JSON.parse('{"stages":{"plan":{"provider":"anthropic","skills":["typo-skill"]}}}');
+
+      expect(() => normalizeWfConfig(rawConfig)).toThrow(ValidationError);
+    });
+
+    it('rejects an implement skill outside the allowed enum', () => {
+      const rawConfig = JSON.parse('{"stages":{"implement":{"provider":"anthropic","skills":["typo-skill"]}}}');
+
+      expect(() => normalizeWfConfig(rawConfig)).toThrow(ValidationError);
+    });
   });
 
   describe('discoverWfConfigPath', () => {

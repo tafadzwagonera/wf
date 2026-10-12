@@ -42,7 +42,7 @@ export const wfAiProviderConfigSchema = z.object({
 
 export const wfAiStageTargetConfigSchema = z.object({
   provider: wfAiProviderNameSchema,
-  model: z.string().optional(),
+  model: z.string().min(1).optional(),
   backend: wfBackendModeSchema.optional(),
   maxTokens: z.number().int().min(1).optional(),
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
@@ -55,10 +55,14 @@ export const wfPlanStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   skills: z.array(wfPlanSkillNameSchema).optional(),
 });
 
-export const wfVerificationConditionsConfigSchema = z.object({
-  policyFile: z.string().optional(),
-  scripts: z.record(z.string(), z.string()).optional(),
-});
+export const wfVerificationConditionsConfigSchema = z
+  .object({
+    policyFile: z.string().min(1).optional(),
+    scripts: z.record(z.string().min(1), z.string().min(1)).optional(),
+  })
+  .refine(data => data.policyFile || (data.scripts && Object.keys(data.scripts).length > 0), {
+    message: 'verificationConditions must specify policyFile or scripts',
+  });
 
 export const wfImplementStageModelsConfigSchema = z.object({
   default: z.string().optional(),
@@ -68,7 +72,7 @@ export const wfImplementStageModelsConfigSchema = z.object({
 export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
   maxTargetedWritesForDefault: z.number().int().min(1).optional(),
   maxPlanStepsForDefault: z.number().int().min(1).optional(),
-});
+}).strict();
 
 export const wfStepVerificationModeSchema = z.enum(['push', 'pull']);
 
@@ -111,15 +115,19 @@ export const validatePullStepVerificationProvider = (
   });
 };
 
-export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema.extend({
-  figma: z.boolean().optional(),
-  stallThresholdForVerificationFix: z.number().int().min(1).optional(),
-  models: wfImplementStageModelsConfigSchema.optional(),
-  modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
-  skills: z.array(wfImplementSkillNameSchema).optional(),
-  verificationConditions: wfVerificationConditionsConfigSchema.optional(),
-  planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
-}).superRefine(validatePullStepVerificationProvider);
+export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema
+  .omit({ outputFormat: true })
+  .extend({
+    figma: z.boolean().optional(),
+    stallThresholdForVerificationFix: z.number().int().min(1).optional(),
+    models: wfImplementStageModelsConfigSchema.optional(),
+    modelRoutingThresholds: wfImplementStageModelRoutingThresholdsConfigSchema.optional(),
+    skills: z.array(wfImplementSkillNameSchema).optional(),
+    verificationConditions: wfVerificationConditionsConfigSchema.optional(),
+    planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
+  })
+  .strict()
+  .superRefine(validatePullStepVerificationProvider);
 
 export const wfReviewStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   sonar: z.boolean().optional(),
@@ -218,7 +226,7 @@ export const wfConfigSchema = z.object({
       commit: wfAiStageTargetConfigSchema.optional(),
     })
     .optional(),
-});
+}).strict();
 
 export const normalizedAiProviderConfigSchema = wfAiProviderConfigSchema.extend({
   default: z.boolean(),

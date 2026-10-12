@@ -6,7 +6,13 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
-import { isValidRegexPattern, wfPlanStepVerificationConfigSchema, validatePullStepVerificationProvider } from '../shared/schemas/config.schema';
+import {
+  isValidRegexPattern,
+  validatePullStepVerificationProvider,
+  wfImplementSkillNameSchema,
+  wfPlanSkillNameSchema,
+  wfPlanStepVerificationConfigSchema,
+} from '../shared/schemas/config.schema';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
 import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
@@ -115,6 +121,7 @@ export interface NormalizedWfConfig {
       fix: string;
       investigate: string;
     };
+    protectedBranches?: string[];
   };
   state: {
     directory?: string;
@@ -206,7 +213,7 @@ const implementStageSchema = z
     maxTokens: z.number().int().min(1).optional(),
     timeoutMs: z.number().int().min(0).optional(),
     inactivityTimeoutMs: z.number().int().min(0).optional(),
-    skills: z.array(z.string()).optional(),
+    skills: z.array(wfImplementSkillNameSchema).optional(),
     figma: z.boolean().optional(),
     stallThresholdForVerificationFix: z.number().int().min(1).optional(),
     verificationConditions: verificationConditionsSchema.optional(),
@@ -260,6 +267,7 @@ const configSchema = z
             investigate: z.string().optional(),
           })
           .optional(),
+        protectedBranches: z.array(z.string()).optional(),
       })
       .optional(),
     state: z
@@ -294,6 +302,7 @@ const configSchema = z
       .object({
         plan: aiStageTargetSchema.extend({
           figma: z.boolean().optional(),
+          skills: z.array(wfPlanSkillNameSchema).optional(),
         }).optional(),
         implement: implementStageSchema.optional(),
         create: createStageSchema.optional(),
@@ -998,6 +1007,7 @@ const buildGitConfig = (validatedConfig: WfConfig) => ({
     fix: validatedConfig.git?.branchPrefixMapping?.fix ?? 'bugfix',
     investigate: validatedConfig.git?.branchPrefixMapping?.investigate ?? 'chore',
   },
+  protectedBranches: validatedConfig.git?.protectedBranches,
 });
 
 type LoggingSourceConfig = { directory?: string; level?: LogLevel };

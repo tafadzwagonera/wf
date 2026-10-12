@@ -22,6 +22,33 @@ describe('wfConfigSchema git.branchNamePattern', () => {
   });
 });
 
+describe('wfConfigSchema loader parity', () => {
+  it('rejects outputFormat on the implement stage', () => {
+    expect(wfConfigSchema.safeParse({ stages: { implement: { provider: 'anthropic', outputFormat: 'json' } } }).success)
+      .toBe(false);
+  });
+
+  it('rejects an empty stage model', () => {
+    expect(wfConfigSchema.safeParse({ stages: { plan: { provider: 'anthropic', model: '' } } }).success).toBe(false);
+  });
+
+  it('rejects verificationConditions with neither policyFile nor scripts', () => {
+    expect(wfConfigSchema.safeParse({ stages: { create: { verificationConditions: {} } } }).success).toBe(false);
+  });
+
+  it('rejects an unknown top-level key', () => {
+    expect(wfConfigSchema.safeParse({ unknownKey: true }).success).toBe(false);
+  });
+
+  it('rejects an unknown modelRoutingThresholds key', () => {
+    const result = wfConfigSchema.safeParse({
+      stages: { implement: { provider: 'anthropic', modelRoutingThresholds: { unknownThreshold: 1 } } },
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
 describe('wfImplementStageConfigSchema planStepVerification', () => {
   afterEach(() => jest.restoreAllMocks());
 

@@ -22,6 +22,12 @@ describe('configuration defaults', () => {
     expect(config.logging.level).toBe('info');
   });
 
+  it('preserves configured protected branches', () => {
+    const config = normalizeWfConfig({ git: { protectedBranches: ['main', 'release'] } });
+
+    expect(config.git.protectedBranches).toEqual(['main', 'release']);
+  });
+
   it('preserves configured Slack user token settings', () => {
     const config = normalizeWfConfig({
       slack: {
