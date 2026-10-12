@@ -1423,7 +1423,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining('suggest the smallest effective fix'),
+          prompt: expect.stringContaining('suggest the most effective and sustainable fix'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(

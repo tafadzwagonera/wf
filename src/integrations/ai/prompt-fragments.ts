@@ -112,7 +112,7 @@ export const reviewInstructions = `   Review principles — apply judgment to ea
    best-effort when partially visible, unavailable when opaque
 4. Walk the changed code path as a concrete call stack using real identifiers from the diff
 5. Capture variable state transitions between frames to show what moved
-6. For each issue, suggest the smallest effective fix in plain language
+6. For each issue, suggest the most effective and sustainable fix in concise and straightforward language
 7. Offer follow-up suggestions only when they add value beyond the immediate issues
 8. Approve when the changes are sound — reject only with clear justification`;
 
