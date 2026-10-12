@@ -1,4 +1,4 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail } from './shared-routing';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -546,5 +546,81 @@ describe('resolveInitialUserPrompt', () => {
 
   it('returns the override exactly when there is no fragment', () => {
     expect(resolveInitialUserPrompt('custom override', baseParams)).toBe('custom override');
+  });
+});
+
+describe('parseNoChangeDeclarations', () => {
+  it('parses a plain NO-CHANGE line', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: src/app.ts')).toEqual(['src/app.ts']);
+  });
+
+  it('parses bulleted lines with - and *', () => {
+    expect(parseNoChangeDeclarations('- NO-CHANGE: src/a.ts\n* NO-CHANGE: src/b.ts')).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('strips backticks around the path', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: `src/a.ts`')).toEqual(['src/a.ts']);
+  });
+
+  it('strips a leading ./ from the path', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: ./src/a.ts')).toEqual(['src/a.ts']);
+  });
+
+  it('ignores trailing commentary after the path', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: src/a.ts - already satisfies the plan')).toEqual(['src/a.ts']);
+  });
+
+  it('does not match prose mentions of no change', () => {
+    expect(parseNoChangeDeclarations('The file needs no change: src/a.ts is fine.')).toEqual([]);
+  });
+
+  it('returns an empty array for empty text', () => {
+    expect(parseNoChangeDeclarations('')).toEqual([]);
+  });
+});
+
+describe('acceptNoChangeDeclarations', () => {
+  const build = (overrides: Partial<Parameters<typeof acceptNoChangeDeclarations>[0]> = {}) => ({
+    declared: ['src/a.ts'],
+    repoName: 'wf',
+    plannedFiles: ['wf/src/a.ts', 'wf/src/b.ts'],
+    touchedFiles: new Set<string>(),
+    notApplicableFiles: new Set<string>(),
+    ...overrides,
+  });
+
+  it('accepts a planned untouched file and returns the count', () => {
+    const params = build({ declared: ['src/a.ts', 'wf/src/b.ts'] });
+
+    expect(acceptNoChangeDeclarations(params)).toBe(2);
+    expect([...params.notApplicableFiles].sort()).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('rejects glob patterns', () => {
+    const params = build({ declared: ['src/*.ts'], plannedFiles: ['wf/src/*.ts'] });
+
+    expect(acceptNoChangeDeclarations(params)).toBe(0);
+    expect(params.notApplicableFiles.size).toBe(0);
+  });
+
+  it('rejects unplanned files', () => {
+    const params = build({ declared: ['src/other.ts'] });
+
+    expect(acceptNoChangeDeclarations(params)).toBe(0);
+  });
+
+  it('rejects already-touched files', () => {
+    const params = build({ touchedFiles: new Set(['src/a.ts']) });
+
+    expect(acceptNoChangeDeclarations(params)).toBe(0);
+    expect(params.notApplicableFiles.size).toBe(0);
+  });
+});
+
+describe('continuationTail', () => {
+  it('embeds the NO-CHANGE instruction and keeps the take-action phrase', () => {
+    expect(continuationTail).toContain(noChangeInstruction);
+    expect(continuationTail).toContain('Begin by taking action');
+    expect(continuationTail).toContain('declare it NO-CHANGE');
   });
 });

@@ -226,6 +226,45 @@ export const stripRepoPrefix = (filePath: string, repoName: string): string => {
  */
 export const isGlobPattern = (filePath: string): boolean => filePath.includes('*') || filePath.includes('?');
 
+export const noChangeInstruction
+  = 'If a listed file already satisfies the plan and requires no change, do not edit it; '
+    + 'instead include a line `NO-CHANGE: <path>` (one per file) in your final summary.';
+
+export const continuationTail
+  = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
+    + 'After addressing all listed files, run each verification command above exactly as written. '
+    + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
+    + `${noChangeInstruction} `
+    + 'Begin by taking action: read the first listed file and apply its edit or declare it NO-CHANGE. '
+    + 'Save narration for after you\'ve made the changes.';
+
+const NO_CHANGE_LINE_PATTERN = /^\s*(?:[-*]\s+)?\**NO-CHANGE:?\**\s*`?([^`\s]+)`?(?:\s.*)?$/;
+
+export const parseNoChangeDeclarations = (resultText: string): string[] =>
+  resultText
+    .split('\n')
+    .map(line => NO_CHANGE_LINE_PATTERN.exec(line)?.[1])
+    .filter((declared): declared is string => Boolean(declared))
+    .map(declared => declared.replace(/^\.\//, ''));
+
+export type AcceptNoChangeParams = {
+  declared: string[];
+  repoName: string;
+  plannedFiles: string[];
+  touchedFiles: Set<string>;
+  notApplicableFiles: Set<string>;
+};
+
+export const acceptNoChangeDeclarations = (params: AcceptNoChangeParams): number => {
+  const { declared, repoName, plannedFiles, touchedFiles, notApplicableFiles } = params;
+  const planned = new Set(plannedFiles.map(file => stripRepoPrefix(file, repoName)));
+  const accepted = declared
+    .map(file => stripRepoPrefix(file, repoName))
+    .filter(file => planned.has(file) && !isGlobPattern(file) && !touchedFiles.has(file));
+  for (const file of accepted) notApplicableFiles.add(file);
+  return accepted.length;
+};
+
 const formatPlanStepList = (steps: string[]): string =>
   steps.length > 0 ? steps.map((step, i) => `  ${i + 1}. ${step}`).join('\n') : '  (none listed)';
 

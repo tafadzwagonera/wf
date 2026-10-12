@@ -1836,6 +1836,12 @@ describe('OpenAIAgentAdapter', () => {
     });
 
     describe('incomplete-work loop stall detection', () => {
+      const writeExtraFile = async (agent: Record<string, unknown>, repoDir: string, name: string) =>
+        getTool(agent, 'write_file').execute(
+          { path: `src/${name}.ts`, content: 'extra\n' },
+          { context: { repoDir, readRoots: [{ name: path.basename(repoDir), root: repoDir }] } },
+        );
+
       it('skips loop when all planned files touched in initial run', async () => {
         const repoDir = createManagedTempDir('openai-stall-skip');
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
@@ -1878,7 +1884,11 @@ describe('OpenAIAgentAdapter', () => {
         fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
-        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          if (callIndex > 1) await writeExtraFile(agent, repoDir, `extra${callIndex}`);
+          return makeStreamedRun([], 'Done.');
+        });
 
         mockRunner.mockImplementation(() => ({
           run: mockRun,
@@ -1994,7 +2004,8 @@ describe('OpenAIAgentAdapter', () => {
               { context: workspaceContext }
             );
           }
-          // Calls 2 and 3: do nothing — workload stays at 1 (uniqueFailureCount)
+          // Calls 2 and 3: write unrelated files — workload stays at 1 (uniqueFailureCount)
+          if (callIndex > 1) await writeExtraFile(agent, repoDir, `extra${callIndex}`);
 
           return makeStreamedRun([], 'Done.');
         });
@@ -2093,8 +2104,9 @@ describe('OpenAIAgentAdapter', () => {
         fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
 
         // call index: 1=initial, 2=idle continuation, 3+4=non-improving (exhaust stall budget)
-        const mockRun = jest.fn(async () => {
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
           const callIndex = mockRun.mock.calls.length;
+          if (callIndex > 2) await writeExtraFile(agent, repoDir, `extra${callIndex}`);
           return callIndex === 2
             ? makeStreamedRun([], 'Done.', undefined, 1)
             : makeStreamedRun([], 'Done.');
@@ -2112,6 +2124,68 @@ describe('OpenAIAgentAdapter', () => {
         expect(mockRun).toHaveBeenCalledTimes(4);
         const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
         expect(logMessages).toContain('Workload not decreasing');
+      });
+
+      it('stops after 2 consecutive non-idle passes that change no files', async () => {
+        const repoDir = createManagedTempDir('openai-no-write-cutoff');
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        const repoFiles = Array.from({ length: 15 }, (_, i) => `primary/src/file${i}.ts`);
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await adapter.generateAndVerify({ ...makeParams(repoDir), repoFiles });
+
+        expect(mockRun).toHaveBeenCalledTimes(3);
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('No file changes across 2 passes');
+      });
+
+      it('treats a NO-CHANGE declaration as progress and ends the loop', async () => {
+        const repoDir = createManagedTempDir('openai-no-change');
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => {
+          const callIndex = mockRun.mock.calls.length;
+          return makeStreamedRun([], callIndex === 2 ? 'Done.\nNO-CHANGE: src/foo.ts' : 'Done.');
+        });
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await adapter.generateAndVerify({ ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] });
+
+        expect(mockRun).toHaveBeenCalledTimes(2);
+        const logMessages = consoleSpy.mock.calls.map(call => String(call[0])).join('\n');
+        expect(logMessages).toContain('no change required: src/foo.ts');
+      });
+
+      it('accepts NO-CHANGE declarations from a pass that also wrote files', async () => {
+        const repoDir = createManagedTempDir('openai-write-and-declare');
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+        fs.writeFileSync(path.join(repoDir, 'src', 'bar.ts'), 'original\n');
+
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          if (callIndex === 2) await writeExtraFile(agent, repoDir, 'foo');
+          return makeStreamedRun([], callIndex === 2 ? 'Done.\nNO-CHANGE: src/bar.ts' : 'Done.');
+        });
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await adapter.generateAndVerify({
+          ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts', 'primary/src/bar.ts'],
+        });
+
+        expect(mockRun).toHaveBeenCalledTimes(2);
       });
 
       it('stops after 3 consecutive idle passes', async () => {
@@ -2175,7 +2249,11 @@ describe('OpenAIAgentAdapter', () => {
           fs.writeFileSync(path.join(repoDir, 'src', `file${i}.ts`), 'original\n');
         }
 
-        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        const mockRun = jest.fn(async (agent: Record<string, unknown>) => {
+          const callIndex = mockRun.mock.calls.length;
+          if (callIndex > 1) await writeExtraFile(agent, repoDir, `extra${callIndex}`);
+          return makeStreamedRun([], 'Done.');
+        });
         mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
 
         const adapter = new OpenAIAgentAdapter(makeConfigService());
@@ -2207,6 +2285,23 @@ describe('OpenAIAgentAdapter', () => {
         // second call (first continuation): second arg is the prompt string (state is undefined)
         const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
         expect(typeof promptArg === 'string' && promptArg.includes('Progress: 0/1 files modified')).toBe(true);
+      });
+
+      it('tells the agent it may declare NO-CHANGE in the continuation prompt', async () => {
+        const repoDir = createManagedTempDir('openai-prompt-no-change');
+        fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+        const mockRun = jest.fn(async () => makeStreamedRun([], 'Done.'));
+        mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+
+        const adapter = new OpenAIAgentAdapter(makeConfigService());
+        jest.spyOn(console, 'log').mockImplementation(() => {});
+
+        await adapter.generateAndVerify({ ...makeParams(repoDir), repoFiles: ['primary/src/foo.ts'] });
+
+        const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
+        expect(promptArg).toContain('`NO-CHANGE: <path>`');
       });
 
       it('includes plan summary in continuation prompt', async () => {

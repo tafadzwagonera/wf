@@ -29,6 +29,9 @@ import {
   discoverChangedFiles,
   buildTaskBrief,
   resolveInitialUserPrompt,
+  continuationTail,
+  parseNoChangeDeclarations,
+  acceptNoChangeDeclarations,
   type BuildPlanContextParams,
 } from './shared-routing';
 import {
@@ -99,6 +102,7 @@ type ContinuationLoopParams = {
   repoFiles: string[];
   repoName: string;
   touchedFiles: Set<string>;
+  notApplicableFiles: Set<string>;
   appendSystemPrompt: string;
   model: string;
   repoDir: string;
@@ -214,12 +218,6 @@ type CliContinuationPromptParams = {
   taskBriefParams: BuildPlanContextParams;
 };
 
-const cliContinuationTail
-  = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
-    + 'After addressing all listed files, run each verification command above exactly as written. '
-    + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
-    + 'Begin by taking action: read the first listed file and apply its edit. Save narration for after you\'ve made the changes.';
-
 const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.currentUnvisited.length;
   const unvisitedLines = p.currentUnvisited.map(f => `- ${f}`).join('\n');
@@ -227,7 +225,7 @@ const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}`,
-    cliContinuationTail,
+    continuationTail,
   ].join('\n');
 };
 
@@ -259,6 +257,37 @@ const checkStallCondition = (
   console.log(chalk.yellow(remaining));
   return -1;
 };
+
+type ContinuationLoopResult = { sessionId: string | undefined; passCount: number };
+
+type ContinuationPassOutcome = { sessionId: string | undefined; madeProgress: boolean };
+
+type SinglePassResult = { sessionId: string | undefined; wrote: boolean; resultText: string };
+
+const hasReachedNoOpCutoff = (noOpPasses: number): boolean => {
+  if (noOpPasses < STALL_THRESHOLD) return false;
+  console.log(chalk.yellow(`  [${CLI_ADAPTER_LABEL}] No file changes across ${STALL_THRESHOLD} passes — stopping`));
+  return true;
+};
+
+const buildContinuationPassParams = (
+  p: ContinuationLoopParams, pass: Pick<SinglePassParams, 'passNumber' | 'sessionId' | 'currentUnvisited'>,
+): SinglePassParams => ({
+  ...pass,
+  appendSystemPrompt: undefined, model: p.model, repoDir: p.repoDir,
+  additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
+  totalPlanned: p.repoFiles.filter(f => !isGlobPattern(f)).length,
+  taskBriefParams: p.taskBriefParams,
+});
+
+const acceptPassDeclarations = (p: ContinuationLoopParams, resultText: string): number =>
+  acceptNoChangeDeclarations({
+    declared: parseNoChangeDeclarations(resultText),
+    repoName: p.repoName,
+    plannedFiles: p.repoFiles,
+    touchedFiles: p.touchedFiles,
+    notApplicableFiles: p.notApplicableFiles,
+  });
 
 const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
   const progressLine = formatProgressMessage(message as never);
@@ -335,8 +364,12 @@ const logToolResultVerification = (
   activityState.lastVerificationCommand = undefined;
 };
 
-const computeUnvisitedFiles = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
-  repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
+const computeUnvisitedFiles = (
+  repoFiles: string[], repoName: string, touchedFiles: Set<string>, notApplicableFiles: Set<string>,
+): string[] =>
+  repoFiles
+    .map(f => stripRepoPrefix(f, repoName))
+    .filter(f => !touchedFiles.has(f) && !notApplicableFiles.has(f) && !isGlobPattern(f));
 
 const screenshotMediaTypes: Record<string, UiDesignScreenshot['mediaType']> = {
   '.jpg': 'image/jpeg',
@@ -504,7 +537,8 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
   }> {
     await discoverChangedFiles(p.repoDir, touchedFiles);
-    return this.finalizeCliSession({ ...p, sessionId, touchedFiles, activityState });
+    const notApplicableFiles = new Set<string>();
+    return this.finalizeCliSession({ ...p, sessionId, touchedFiles, notApplicableFiles, activityState });
   }
 
   private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
@@ -535,7 +569,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
   }> {
     const { sessionId, passCount } = await this.runContinuationLoop(p);
-    logFileSummary(p.touchedFiles);
+    logFileSummary(p.touchedFiles, p.notApplicableFiles);
     const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop(p, sessionId);
     printVerificationReport(outcomes);
     return { sessionId, verificationOutcomes: outcomes, passCount, verificationPassCount };
@@ -648,35 +682,32 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return { outcomes: state.outcomes, verificationPassCount };
   }
 
-  private async runContinuationLoop(
-    p: ContinuationLoopParams,
-  ): Promise<{ sessionId: string | undefined; passCount: number }> {
-    let previousWorkload = Infinity, stalledPasses = 0, passNumber = 0, sessionId = p.sessionId;
+  private async runContinuationLoop(p: ContinuationLoopParams): Promise<ContinuationLoopResult> {
+    let previousWorkload = Infinity, stalledPasses = 0, passNumber = 0, noOpPasses = 0, sessionId = p.sessionId;
     const threshold = computeStallThreshold(p.repoFiles.filter(f => !isGlobPattern(f)).length);
     while (sessionId) {
-      const currentUnvisited = computeUnvisitedFiles(p.repoFiles, p.repoName, p.touchedFiles);
-      if (currentUnvisited.length === 0) break;
+      const currentUnvisited = computeUnvisitedFiles(p.repoFiles, p.repoName, p.touchedFiles, p.notApplicableFiles);
       stalledPasses = checkStallCondition({ previousWorkload, stalledPasses, currentUnvisited, threshold });
-      if (stalledPasses === -1) break;
+      if (currentUnvisited.length === 0 || stalledPasses === -1) break;
       previousWorkload = currentUnvisited.length;
-      sessionId = await this.executePassAndDiscover(p, ++passNumber, sessionId, currentUnvisited);
+      const pass = await this.executePassAndDiscover(p, ++passNumber, sessionId, currentUnvisited);
+      sessionId = pass.sessionId;
+      noOpPasses = pass.madeProgress ? 0 : noOpPasses + 1;
+      if (hasReachedNoOpCutoff(noOpPasses)) break;
     }
     return { sessionId, passCount: passNumber };
   }
 
   private async executePassAndDiscover(
     p: ContinuationLoopParams, passNumber: number, sessionId: string, currentUnvisited: string[],
-  ): Promise<string | undefined> {
+  ): Promise<ContinuationPassOutcome> {
     console.log(chalk.yellow(`\n  [${CLI_ADAPTER_LABEL}] Pass ${passNumber}: ${currentUnvisited.length} planned file(s) not touched — continuing`));
-    const { sessionId: nextSession } = await this.runSinglePass({
-      passNumber, sessionId, currentUnvisited,
-      appendSystemPrompt: undefined, model: p.model, repoDir: p.repoDir,
-      additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
-      totalPlanned: p.repoFiles.filter(f => !isGlobPattern(f)).length,
-      taskBriefParams: p.taskBriefParams,
-    });
+    const touchedBefore = p.touchedFiles.size;
+    const pass = await this.runSinglePass(buildContinuationPassParams(p, { passNumber, sessionId, currentUnvisited }));
     await discoverChangedFiles(p.repoDir, p.touchedFiles);
-    return nextSession;
+    const accepted = acceptPassDeclarations(p, pass.resultText);
+    const madeProgress = pass.wrote || p.touchedFiles.size > touchedBefore || accepted > 0;
+    return { sessionId: pass.sessionId, madeProgress };
   }
 
   private buildPassPrompt(p: SinglePassParams): string {
@@ -687,20 +718,21 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     });
   }
 
-  private async runSinglePass(p: SinglePassParams): Promise<{ sessionId: string | undefined; wrote: boolean }> {
-    const { passNumber, repoDir, touchedFiles, activityState } = p;
+  private async runSinglePass(p: SinglePassParams): Promise<SinglePassResult> {
     const continuationPrompt = p.promptOverride ?? this.buildPassPrompt(p);
     const continueArgs = buildPassCliArgs(p, continuationPrompt);
-    let sessionId: string | undefined = p.sessionId;
-    let wrote = false;
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
-    const stream = spawnCli(continueArgs, repoDir, continuationPrompt, undefined, timeoutMs, inactivityTimeoutMs);
-    for await (const message of stream) {
-      if (this.logCliMessage(message, repoDir, activityState, touchedFiles)) wrote = true;
-      sessionId = processCliStream(message, repoDir, sessionId, touchedFiles);
-      logContinuationPassResult(passNumber, message);
-    }
-    return { sessionId, wrote };
+    const stream = spawnCli(continueArgs, p.repoDir, continuationPrompt, undefined, timeoutMs, inactivityTimeoutMs);
+    const result: SinglePassResult = { sessionId: p.sessionId, wrote: false, resultText: '' };
+    for await (const message of stream) this.applyPassMessage(p, message, result);
+    return result;
+  }
+
+  private applyPassMessage(p: SinglePassParams, message: ClaudeCliMessage, result: SinglePassResult): void {
+    if (this.logCliMessage(message, p.repoDir, p.activityState, p.touchedFiles)) result.wrote = true;
+    result.sessionId = processCliStream(message, p.repoDir, result.sessionId, p.touchedFiles);
+    logContinuationPassResult(p.passNumber, message);
+    if (message.type === 'result' && !message.is_error) result.resultText = message.result ?? '';
   }
 
   private logCliMessage(

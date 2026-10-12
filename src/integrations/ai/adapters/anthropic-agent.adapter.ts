@@ -37,6 +37,9 @@ import {
   buildTaskBrief,
   resolveInitialUserPrompt,
   buildImplementerRulesSection,
+  continuationTail,
+  parseNoChangeDeclarations,
+  acceptNoChangeDeclarations,
   type BuildTaskBriefParams,
 } from './shared-routing';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
@@ -386,7 +389,7 @@ const logSdkUsage = (result: SDKResultMessage): void => {
   }
 };
 
-const logSdkSummaryAndFiles = (result: SDKResultMessage, touchedFiles: Set<string>): void => {
+const logSdkSummary = (result: SDKResultMessage): void => {
   const summary = result.subtype === 'success' ? result.result.trim() : '';
   if (summary) {
     console.log(chalk.bold('\n  Summary:'));
@@ -394,13 +397,12 @@ const logSdkSummaryAndFiles = (result: SDKResultMessage, touchedFiles: Set<strin
       if (line.trim()) console.log(chalk.cyan(`    ${line}`));
     }
   }
-  logFileSummary(touchedFiles);
 };
 
-const logSdkCompletion = (result: SDKResultMessage, touchedFiles: Set<string>): void => {
+const logSdkCompletion = (result: SDKResultMessage): void => {
   console.log(chalk.green(`  [${ANTHROPIC_AGENT_LABEL}] Agent completed in ${result.num_turns} turn(s).`));
   logSdkUsage(result);
-  logSdkSummaryAndFiles(result, touchedFiles);
+  logSdkSummary(result);
 };
 
 const assertPassSuccess = (result: SDKResultMessage, passLabel: string): void => {
@@ -443,7 +445,7 @@ const buildContinuationPrompt = (p: ContinuationPromptParams): string => {
     buildTaskBrief(p.taskBriefParams),
     p.conventionsSection ? `\n${p.conventionsSection}` : '',
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified (listed in recommended implementation order):\n\n${unvisitedLines}`,
-    `\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. After addressing all listed files, run each verification command above exactly as written. Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. Begin by taking action: read the first listed file and apply its edit. Save narration for after you've made the changes.`,
+    continuationTail,
   ].join('\n');
 };
 
@@ -452,14 +454,17 @@ const logIdlePassDiagnostic = (result: SDKResultMessage, passNumber: number): vo
   console.log(chalk.yellow(`  [${ANTHROPIC_AGENT_LABEL}] Pass ${passNumber} produced no tool calls (idle). AI response: ${text || '(none)'}`));
 };
 
-type ContinuationPassResult = { sessionId: string; numTurns: number };
+type ContinuationPassResult = { sessionId: string; numTurns: number; madeChanges: boolean };
 
 type ContinuationPassParams = {
   query: SdkQueryFn;
   sdkOptions: Record<string, unknown>;
   sessionId: string;
   currentUnvisited: string[];
+  repoFiles: string[];
+  repoName: string;
   touchedFiles: Set<string>;
+  notApplicableFiles: Set<string>;
   activityState: ActivityState;
   passNumber: number;
   totalPlanned: number;
@@ -473,12 +478,21 @@ const buildPassPromptParams = (p: ContinuationPassParams): ContinuationPromptPar
 });
 
 const finalizeContinuationResult = (
-  result: SDKResultMessage | undefined, passNumber: number
+  result: SDKResultMessage | undefined, passNumber: number, madeChanges: boolean,
 ): ContinuationPassResult => {
   if (!result) throw new AiProviderError(`Claude Agent SDK pass ${passNumber} finished without returning a result.`);
   if (result.num_turns !== undefined && result.num_turns <= 1) logIdlePassDiagnostic(result, passNumber);
-  return { sessionId: validateAndLogPassResult(result, passNumber - 1), numTurns: result.num_turns ?? 2 };
+  return { sessionId: validateAndLogPassResult(result, passNumber - 1), numTurns: result.num_turns ?? 2, madeChanges };
 };
+
+const acceptPassDeclarations = (p: ContinuationPassParams, result: SDKResultMessage | undefined): number =>
+  acceptNoChangeDeclarations({
+    declared: parseNoChangeDeclarations(result?.subtype === 'success' ? result.result : ''),
+    repoName: p.repoName,
+    plannedFiles: p.repoFiles,
+    touchedFiles: p.touchedFiles,
+    notApplicableFiles: p.notApplicableFiles,
+  });
 
 const runContinuationPass = async (p: ContinuationPassParams): Promise<ContinuationPassResult> => {
   const repoDir = p.sdkOptions['cwd'] as string;
@@ -487,13 +501,19 @@ const runContinuationPass = async (p: ContinuationPassParams): Promise<Continuat
     prompt: buildContinuationPrompt(buildPassPromptParams(p)),
     options: { ...p.sdkOptions, resume: p.sessionId },
   });
+  const touchedBefore = p.touchedFiles.size;
   const result = await runSdkSession(session, repoDir, p.touchedFiles, p.activityState);
   await discoverChangedFiles(repoDir, p.touchedFiles);
-  return finalizeContinuationResult(result, p.passNumber);
+  const accepted = acceptPassDeclarations(p, result);
+  return finalizeContinuationResult(result, p.passNumber, p.touchedFiles.size > touchedBefore || accepted > 0);
 };
 
-const computeUnvisited = (repoFiles: string[], repoName: string, touchedFiles: Set<string>): string[] =>
-  repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touchedFiles.has(f) && !isGlobPattern(f));
+const computeUnvisited = (
+  repoFiles: string[], repoName: string, touchedFiles: Set<string>, notApplicableFiles: Set<string>,
+): string[] =>
+  repoFiles
+    .map(f => stripRepoPrefix(f, repoName))
+    .filter(f => !touchedFiles.has(f) && !notApplicableFiles.has(f) && !isGlobPattern(f));
 
 export const computeStallThreshold = (concreteFileCount: number, configOverride?: number): number =>
   configOverride ?? Math.max(STALL_THRESHOLD, Math.ceil(concreteFileCount / 5));
@@ -510,7 +530,9 @@ type ContinuationLoopState = {
   passNumber: number;
   sessionId: string;
   lastPassNumTurns?: number;
+  lastPassMadeChanges?: boolean;
   consecutiveIdlePasses: number;
+  consecutiveNoWritePasses: number;
   stallThreshold: number;
 };
 
@@ -521,8 +543,16 @@ const handleIdlePass = (state: ContinuationLoopState): boolean => {
   return false;
 };
 
+const handleNoWritePasses = (state: ContinuationLoopState): boolean => {
+  state.consecutiveNoWritePasses = state.lastPassMadeChanges === false ? state.consecutiveNoWritePasses + 1 : 0;
+  if (state.consecutiveNoWritePasses < STALL_THRESHOLD) return true;
+  console.log(chalk.yellow(`\n  [${ANTHROPIC_AGENT_LABEL}] No file changes across ${STALL_THRESHOLD} passes — stopping`));
+  return false;
+};
+
 const handleActivePass = (state: ContinuationLoopState, currentUnvisited: string[]): boolean => {
   state.consecutiveIdlePasses = 0;
+  if (!handleNoWritePasses(state)) return false;
   state.stalledPasses = currentUnvisited.length < state.previousWorkload ? 0 : state.stalledPasses + 1;
   state.previousWorkload = currentUnvisited.length;
   if (state.stalledPasses < state.stallThreshold) return true;
@@ -545,6 +575,7 @@ type ContinuationLoopParams = {
   repoFiles: string[];
   repoName: string;
   touchedFiles: Set<string>;
+  notApplicableFiles: Set<string>;
   activityState: ActivityState;
   initialSessionId: string;
   taskBriefParams: BuildTaskBriefParams;
@@ -560,12 +591,13 @@ const hasReachedHardCap = (passNumber: number): boolean => {
 
 const initContinuationState = (p: ContinuationLoopParams, stallThreshold: number): ContinuationLoopState => ({
   previousWorkload: Infinity, stalledPasses: 0, passNumber: 0, sessionId: p.initialSessionId,
-  consecutiveIdlePasses: 0, stallThreshold,
+  consecutiveIdlePasses: 0, consecutiveNoWritePasses: 0, stallThreshold,
 });
 
 const applyContinuationPassResult = (state: ContinuationLoopState, result: ContinuationPassResult): void => {
   state.sessionId = result.sessionId;
   state.lastPassNumTurns = result.numTurns;
+  state.lastPassMadeChanges = result.madeChanges;
 };
 
 const buildContinuationPassParams = (
@@ -573,7 +605,8 @@ const buildContinuationPassParams = (
 ): ContinuationPassParams => ({
   query: p.query, sdkOptions: p.sdkOptions,
   sessionId: state.sessionId, currentUnvisited: unvisited,
-  touchedFiles: p.touchedFiles, activityState: p.activityState,
+  repoFiles: p.repoFiles, repoName: p.repoName,
+  touchedFiles: p.touchedFiles, notApplicableFiles: p.notApplicableFiles, activityState: p.activityState,
   passNumber: state.passNumber, totalPlanned: fileCount,
   taskBriefParams: p.taskBriefParams, conventionsSection: p.conventionsSection,
 });
@@ -583,11 +616,12 @@ const runSdkContinuationLoop = async (p: ContinuationLoopParams): Promise<string
   const stallThreshold = computeStallThreshold(fileCount, p.stallThresholdOverride);
   const state = initContinuationState(p, stallThreshold);
   while (!hasReachedHardCap(state.passNumber)) {
-    const unvisited = computeUnvisited(p.repoFiles, p.repoName, p.touchedFiles);
+    const unvisited = computeUnvisited(p.repoFiles, p.repoName, p.touchedFiles, p.notApplicableFiles);
     if (!advanceContinuationState(state, unvisited)) break;
     const passParams = buildContinuationPassParams(p, state, unvisited, fileCount);
     applyContinuationPassResult(state, await runContinuationPass(passParams));
   }
+  logFileSummary(p.touchedFiles, p.notApplicableFiles);
   return state.sessionId;
 };
 
@@ -700,6 +734,7 @@ type AgentSessionParams = {
   params: GenerateAndVerifyParams;
   repoDir: string;
   touchedFiles: Set<string>;
+  notApplicableFiles: Set<string>;
   activityState: ActivityState;
 };
 
@@ -718,7 +753,8 @@ const buildSdkContinuationParams = (
   s: AgentSessionParams, finalResult: SDKResultMessage, taskBriefParams: BuildTaskBriefParams,
 ): ContinuationLoopParams => ({
   query: s.query, sdkOptions: s.sdkOptions, repoFiles: s.params.repoFiles, repoName: s.params.repoName,
-  touchedFiles: s.touchedFiles, activityState: s.activityState, initialSessionId: finalResult.session_id,
+  touchedFiles: s.touchedFiles, notApplicableFiles: s.notApplicableFiles, activityState: s.activityState,
+  initialSessionId: finalResult.session_id,
   taskBriefParams, conventionsSection: s.params.conventionsSection,
 });
 
@@ -732,7 +768,7 @@ const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
     repoDir: s.repoDir, touchedFiles: s.touchedFiles, activityState: s.activityState, taskBriefParams,
     promptOverride: s.params.options.initialPromptOverride,
   });
-  logSdkCompletion(finalResult, s.touchedFiles);
+  logSdkCompletion(finalResult);
   return runSdkContinuationLoop(buildSdkContinuationParams(s, finalResult, taskBriefParams));
 };
 
@@ -766,7 +802,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     const { query } = await loadAnthropicAgentSdk();
     const sessionId = await executeAgentSession({
       query: query as SdkQueryFn, sdkOptions: sdkOptions as Record<string, unknown>,
-      params, repoDir, touchedFiles: new Set<string>(), activityState,
+      params, repoDir, touchedFiles: new Set<string>(), notApplicableFiles: new Set<string>(), activityState,
     });
     return { sessionId, activityState, model };
   }

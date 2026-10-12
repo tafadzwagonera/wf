@@ -105,7 +105,7 @@ function checkDataThreading(src: AdapterSources): void {
   assert('CliSessionParams includes taskBriefParams field', src.cliSource.includes('taskBriefParams: BuildPlanContextParams') && src.cliSource.includes('type CliSessionParams'));
   assert('ContinuationLoopParams includes taskBriefParams', src.cliSource.includes('type ContinuationLoopParams') && src.cliSource.includes('taskBriefParams: BuildPlanContextParams'));
   assert('createCliSessionParams builds taskBriefParams from planArtifact', src.cliSource.includes('planSummary: params.planArtifact.plan.summary') && src.cliSource.includes('planSteps: params.planArtifact.plan.steps'));
-  assert('executePassAndDiscover passes taskBriefParams to runSinglePass', src.cliSource.includes('taskBriefParams: p.taskBriefParams'));
+  assert('continuation pass params pass taskBriefParams to runSinglePass', src.cliSource.includes('taskBriefParams: p.taskBriefParams'));
 }
 
 async function main(): Promise<void> {

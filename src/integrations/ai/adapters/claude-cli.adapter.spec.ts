@@ -267,6 +267,10 @@ describe('ClaudeCliAdapter', () => {
     it('scales the continuation stall threshold with the planned file count', async () => {
       const mockStream = () =>
         (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/repo/src/extra.ts' } }] },
+          };
           yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0.01 };
         })();
       mockSpawnCli.mockImplementation(() => mockStream());
@@ -296,6 +300,112 @@ describe('ClaudeCliAdapter', () => {
       });
 
       expect(mockSpawnCli).toHaveBeenCalledTimes(5);
+    });
+  });
+
+  describe('implement continuation no-op cutoff', () => {
+    const resultOnly = (result = 'done') => (async function* () {
+      yield { type: 'result', result, session_id: 's1', num_turns: 1 } as never;
+    })();
+
+    const writeThenResult = (file: string) => (async function* () {
+      yield {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: `/repo/${file}` } }] },
+      } as never;
+      yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1 } as never;
+    })();
+
+    const run = async (fileCount: number) => {
+      const repoFiles = Array.from({ length: fileCount }, (_, i) => i === 0 ? 'repo/src/app.ts' : `repo/src/file-${i}.ts`);
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      await adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles,
+        repoName: 'repo',
+        trackedFilePaths: repoFiles,
+      } as never);
+    };
+
+    const loggedLines = (spy: jest.SpyInstance): string[] => spy.mock.calls.map(([line]) => String(line));
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('stops after two consecutive passes with no file changes', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockSpawnCli.mockImplementation(() => resultOnly());
+
+      await run(40);
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(3);
+      expect(loggedLines(logSpy).some(line => line.includes('No file changes across 2 passes — stopping'))).toBe(true);
+    });
+
+    it('resets the no-op counter when a pass writes a file', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => writeThenResult('src/extra.ts'))
+        .mockImplementation(() => resultOnly());
+
+      await run(40);
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(5);
+    });
+
+    it('accepts a NO-CHANGE declaration as progress and reports it in the summary', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => resultOnly('All good.\nNO-CHANGE: src/app.ts'))
+        .mockImplementation(() => resultOnly());
+
+      await run(1);
+
+      expect(mockSpawnCli).toHaveBeenCalledTimes(2);
+      expect(loggedLines(logSpy)).toContain('    - no change required (agent-declared): src/app.ts');
+    });
+
+    it('reports a declared-and-edited file as updated only', async () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => (async function* () {
+          yield {
+            type: 'assistant',
+            message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/app.ts' } }] },
+          } as never;
+          yield { type: 'result', result: 'NO-CHANGE: src/app.ts', session_id: 's1', num_turns: 1 } as never;
+        })())
+        .mockImplementation(() => resultOnly());
+
+      await run(1);
+
+      const lines = loggedLines(logSpy);
+      expect(lines).toContain('    - updated: src/app.ts');
+      expect(lines).not.toContain('    - no change required (agent-declared): src/app.ts');
+    });
+
+    it('tells the agent it may declare NO-CHANGE in continuation prompts', async () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      mockSpawnCli.mockImplementation(() => resultOnly());
+
+      await run(1);
+
+      expect(mockBuildCliArgs.mock.calls[1][0].prompt).toContain('NO-CHANGE: <path>');
     });
   });
 

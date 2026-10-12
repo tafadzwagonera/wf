@@ -55,6 +55,9 @@ import {
   buildTaskBrief,
   buildImplementerRulesSection,
   redGreenWorkflowInstruction,
+  noChangeInstruction,
+  parseNoChangeDeclarations,
+  acceptNoChangeDeclarations,
   type BuildPlanContextParams,
 } from './shared-routing';
 import { TDD_SKILL_ID } from '../../../skills/skill-content';
@@ -92,6 +95,7 @@ type ToolMutableState = {
   fileChangeStatus: Map<string, 'created' | 'updated' | 'deleted'>;
   changedFilesSinceLastVerification: Set<string>;
   validationFailures: ValidationFailure[];
+  fileChangeEvents: number;
 };
 
 type VerifyCommandState = {
@@ -124,6 +128,7 @@ type StreamLoopState = {
   lastObservedInputTokens: number;
   consecutiveRateLimitAttempts: number;
   eventsInSegment: number;
+  readonly fileChangeEvents: number;
 };
 
 type StreamRunConfig = {
@@ -605,6 +610,7 @@ const recordFileChange = (
 ): void => {
   mutable.fileChangeStatus.set(rel, status);
   mutable.changedFilesSinceLastVerification.add(rel);
+  mutable.fileChangeEvents++;
   console.log(chalk.gray(`  [openai-agent] File ${status}: ${rel}`));
 };
 
@@ -1009,10 +1015,13 @@ const logCompletion = (
 };
 
 const computeWorkload = (
-  fileChangeStatus: Map<string, string>, repoFiles: string[], repoName: string, failures: ValidationFailure[]
+  fileChangeStatus: Map<string, string>, repoFiles: string[], repoName: string, failures: ValidationFailure[],
+  notApplicableFiles: Set<string>,
 ): { total: number; unvisited: string[]; failureCount: number } => {
   const touched = new Set(fileChangeStatus.keys());
-  const unvisited = repoFiles.map(f => stripRepoPrefix(f, repoName)).filter(f => !touched.has(f) && !isGlobPattern(f));
+  const unvisited = repoFiles
+    .map(f => stripRepoPrefix(f, repoName))
+    .filter(f => !touched.has(f) && !notApplicableFiles.has(f) && !isGlobPattern(f));
   const failureCount = new Set(failures.map(f => `${f.path}:${f.error}`)).size;
   return { total: unvisited.length + failureCount, unvisited, failureCount };
 };
@@ -1058,7 +1067,7 @@ const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
-    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. Do not output any text or plan before calling your first tool.`,
+    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. ${noChangeInstruction} Do not output any text or plan before calling your first tool.`,
   ].join('\n');
 };
 
@@ -1129,6 +1138,7 @@ type ContinuationLoopParams = {
   repoFiles: string[];
   repoName: string;
   failures: ValidationFailure[];
+  notApplicableFiles: Set<string>;
   taskBriefParams: BuildPlanContextParams;
   stallThresholdOverride?: number;
 };
@@ -1139,7 +1149,9 @@ type ContinuationState = {
   passNum: number;
   cur: OaiStreamedRun;
   lastPassTurns?: number;
+  lastPassMadeChanges?: boolean;
   idleCount: number;
+  noWriteCount: number;
   threshold: number;
 };
 
@@ -1150,10 +1162,18 @@ const handleOaiIdlePass = (state: ContinuationState): boolean => {
   return true;
 };
 
+const handleOaiNoWritePasses = (state: ContinuationState): boolean => {
+  state.noWriteCount = state.lastPassMadeChanges === false ? state.noWriteCount + 1 : 0;
+  if (state.noWriteCount < STALL_THRESHOLD) return false;
+  console.log(chalk.yellow(`\n  [openai-agent] No file changes across ${STALL_THRESHOLD} passes — stopping`));
+  return true;
+};
+
 const handleOaiActivePass = (
   wl: { total: number; unvisited: string[]; failureCount: number }, state: ContinuationState
 ): boolean => {
   state.idleCount = 0;
+  if (handleOaiNoWritePasses(state)) return true;
   state.stalled = updateStallCounter(wl.total, state.prev, state.stalled);
   state.prev = wl.total;
   if (state.stalled < state.threshold) return false;
@@ -1176,7 +1196,7 @@ const hasReachedOaiHardCap = (passNum: number): boolean => {
 };
 
 const initOaiContinuationState = (p: ContinuationLoopParams, fileCount: number): ContinuationState => ({
-  prev: Infinity, stalled: 0, passNum: 0, cur: p.run, idleCount: 0,
+  prev: Infinity, stalled: 0, passNum: 0, cur: p.run, idleCount: 0, noWriteCount: 0,
   threshold: computeStallThreshold(fileCount, p.stallThresholdOverride),
 });
 
@@ -1188,16 +1208,28 @@ const buildIterationPrompt = (
   taskBriefParams: p.taskBriefParams,
 });
 
+const acceptPassDeclarations = (p: ContinuationLoopParams, run: OaiStreamedRun): number =>
+  acceptNoChangeDeclarations({
+    declared: parseNoChangeDeclarations(typeof run.finalOutput === 'string' ? run.finalOutput : ''),
+    repoName: p.repoName,
+    plannedFiles: p.repoFiles,
+    touchedFiles: new Set(p.loop.fileChangeStatus.keys()),
+    notApplicableFiles: p.notApplicableFiles,
+  });
+
 const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => {
   const fileCount = p.repoFiles.filter(f => !isGlobPattern(f)).length;
   const s = initOaiContinuationState(p, fileCount);
   while (!hasReachedOaiHardCap(s.passNum)) {
-    const wl = computeWorkload(p.loop.fileChangeStatus, p.repoFiles, p.repoName, p.failures);
+    const wl = computeWorkload(p.loop.fileChangeStatus, p.repoFiles, p.repoName, p.failures, p.notApplicableFiles);
     if (shouldStopContinuation(wl, s)) break;
     s.passNum++;
     logPassStart(s.passNum, wl.unvisited, wl.failureCount);
+    const eventsBefore = p.loop.fileChangeEvents;
     s.cur = await runContinuationPass(s.passNum, s.cur, buildIterationPrompt(p, s, wl, fileCount), p.config, p.loop);
     s.lastPassTurns = s.cur.currentTurn;
+    const accepted = acceptPassDeclarations(p, s.cur);
+    s.lastPassMadeChanges = p.loop.fileChangeEvents > eventsBefore || accepted > 0;
   }
 };
 
@@ -1210,8 +1242,17 @@ const buildFileSummaryLines = (status: Map<string, string>): string[] => [
   ...formatSummarySection('Deleted files', collectSummaryPaths(status, 'deleted'), 'deleted'),
 ];
 
-const logFileSummary = (status: Map<string, string>, scripts: VerificationScript[], allowed: Set<string>): void => {
-  const lines = buildFileSummaryLines(status);
+const buildNotApplicableLines = (status: Map<string, string>, notApplicableFiles: Set<string>): string[] =>
+  formatSummarySection(
+    'No change required (agent-declared)',
+    [...notApplicableFiles].filter(f => !status.has(f)).sort((a, b) => a.localeCompare(b)),
+    'no change required',
+  );
+
+const logFileSummary = (
+  status: Map<string, string>, notApplicableFiles: Set<string>, scripts: VerificationScript[], allowed: Set<string>,
+): void => {
+  const lines = [...buildFileSummaryLines(status), ...buildNotApplicableLines(status, notApplicableFiles)];
   if (lines.length > 0) {
     console.log(chalk.bold('\n  File summary:'));
     for (const l of lines) console.log(chalk.cyan(l));
@@ -1326,8 +1367,11 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   private buildRunResult(
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>,
     verificationScripts: VerificationScript[],
+    notApplicableFiles: Set<string>,
   ): { sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] } {
-    logFileSummary(c.mutable.fileChangeStatus, verificationScripts, buildAllowedCommands(verificationScripts));
+    logFileSummary(
+      c.mutable.fileChangeStatus, notApplicableFiles, verificationScripts, buildAllowedCommands(verificationScripts),
+    );
     const verificationOutcomes = resolveSkippedSteps(verificationScripts, c.vs.verificationOutcomes);
     printVerificationReport(verificationOutcomes);
     return { sessionId: undefined, verificationOutcomes, modelsUsed: [c.model] };
@@ -1340,12 +1384,13 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const run = await runStreamWithRetry(await this.startInitialRun(c), c.config, c.loop, '');
     throwOnRunError(run, '');
     logCompletion(run, c.loop.usageSummary, c.model);
-    const repoDir = params.options.repoDir ?? process.cwd();
+    const notApplicableFiles = new Set<string>();
     await runContinuationLoop({
       run, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
-      failures: c.mutable.validationFailures, taskBriefParams: buildOaiTaskBriefParams(params, repoDir),
+      failures: c.mutable.validationFailures, notApplicableFiles,
+      taskBriefParams: buildOaiTaskBriefParams(params, params.options.repoDir ?? process.cwd()),
     });
-    return this.buildRunResult(c, params.verificationScripts);
+    return this.buildRunResult(c, params.verificationScripts, notApplicableFiles);
   }
 
   private startInitialRun(
@@ -1368,6 +1413,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
   private initMutableState(scripts: VerificationScript[]) {
     const mutable: ToolMutableState = {
       fileChangeStatus: new Map(), changedFilesSinceLastVerification: new Set(), validationFailures: [],
+      fileChangeEvents: 0,
     };
     const vs: VerifyCommandState = {
       verificationCommandOrder: buildVerificationCommandOrder(scripts),
@@ -1446,6 +1492,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       usageSummary: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cachedInputTokens: 0, compacted: false },
       fileChangeStatus: mutable.fileChangeStatus,
       lastObservedInputTokens: 0, consecutiveRateLimitAttempts: 0, eventsInSegment: 0,
+      get fileChangeEvents() { return mutable.fileChangeEvents; },
     };
   }
 }

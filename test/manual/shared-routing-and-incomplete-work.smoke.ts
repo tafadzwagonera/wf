@@ -79,12 +79,21 @@ function checkModelRoutingContinuation(anthropicSource: string, cliSource: strin
   );
 }
 
+type AdapterSources = { openaiSource: string; anthropicSource: string; cliSource: string; codexCliSource: string };
+
+function readAdapterSources(): AdapterSources {
+  const read = (fileName: string): string => fs.readFileSync(path.join(adaptersDir, fileName), 'utf8');
+  return {
+    openaiSource: read('openai-agent.adapter.ts'),
+    anthropicSource: read('anthropic-agent.adapter.ts'),
+    cliSource: read('claude-cli.adapter.ts'),
+    codexCliSource: read('codex-cli.adapter.ts'),
+  };
+}
+
 function main(): void {
   console.log(chalk.bold('\nSmoke test: shared routing and incomplete-work loop\n'));
-  const openaiSource = fs.readFileSync(path.join(adaptersDir, 'openai-agent.adapter.ts'), 'utf8');
-  const anthropicSource = fs.readFileSync(path.join(adaptersDir, 'anthropic-agent.adapter.ts'), 'utf8');
-  const cliSource = fs.readFileSync(path.join(adaptersDir, 'claude-cli.adapter.ts'), 'utf8');
-  const codexCliSource = fs.readFileSync(path.join(adaptersDir, 'codex-cli.adapter.ts'), 'utf8');
+  const { openaiSource, anthropicSource, cliSource, codexCliSource } = readAdapterSources();
   checkMechanicalPatterns(openaiSource, anthropicSource);
   checkCodexCliAdapter(codexCliSource);
   checkIterationPatterns(openaiSource, anthropicSource);
