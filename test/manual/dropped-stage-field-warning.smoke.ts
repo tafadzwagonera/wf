@@ -1,23 +1,17 @@
 /**
- * Manual smoke test: dropped-field audit warns at bootstrap for validated-but-uncarried fields
+ * Manual smoke test: unsupported stage skills are rejected and the dropped-field audit stays quiet otherwise
  *
  * Run: nr test:manual dropped-stage-field-warning.smoke
  *
  * Verifies:
- *   1. initializeWfConfig succeeds with stages.generate.skills (a drop, not a rejection)
- *   2. console.warn fired once naming stages.generate.skills and "will be ignored"
- *   3. The agent log gained a WARN wf-config entry for the dropped field
- *   4. ConfigService.get('stages.generate.skills') returns undefined (the drop is real)
- *   5. Negative: a fully-carried config emits no warning and no WARN log line
- *   6. Intentional drop: implement.model alongside models strips silently, no warning
+ *   1. initializeWfConfig rejects stages.generate.skills with an error naming the field
+ *   2. Negative: a fully-carried config emits no warning and no WARN log line
+ *   3. Intentional drop: implement.model alongside models strips silently, no warning
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { NestFactory } from '@nestjs/core';
-import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import { AppModule } from '../../src/app.module';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { createReporter, summarise } from './support/reporter';
 
@@ -72,28 +66,20 @@ async function loadAndObserve(dir: string): Promise<{ warnings: string[]; newLog
   return { warnings: configAuditWarnings(captured), newLogEntries: readAgentLogFile().slice(logBefore.length) };
 }
 
-async function checkDroppedFieldWarns(tempDirs: string[]): Promise<void> {
-  console.log(chalk.bold('\n  Scenario: stages.generate.skills validates but is dropped\n'));
-  const dir = makeTempConfig('wf-dropped-field-', ["    generate: { provider: 'anthropic', skills: ['writing-plans'] },"]);
+async function checkUnsupportedSkillsRejected(tempDirs: string[]): Promise<void> {
+  console.log(chalk.bold('\n  Scenario: stages.generate.skills is rejected at load\n'));
+  const dir = makeTempConfig('wf-rejected-field-', ["    generate: { provider: 'anthropic', skills: ['writing-plans'] },"]);
   tempDirs.push(dir);
-  const { warnings, newLogEntries } = await loadAndObserve(dir);
-  assert('initializeWfConfig succeeds (drop, not rejection)', true);
-  assert('console.warn fired exactly once for the audit', warnings.length === 1, `got ${warnings.length}: ${warnings.join(' | ')}`);
-  assert('warning names stages.generate.skills', warnings.every(w => w.includes('stages.generate.skills')));
-  assert('warning says the field will be ignored', warnings.every(w => w.includes('will be ignored')));
-  assert('agent log gained WARN wf-config dropped-fields entry', newLogEntries.includes('[WARN] [wf-config] config.normalize dropped-fields stages.generate.skills'));
-  await assertDropIsReal(dir);
-}
-
-async function assertDropIsReal(dir: string): Promise<void> {
-  await initializeWfConfig(dir);
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
-  try {
-    const skills = app.get(ConfigService).get<string[]>('stages.generate.skills');
-    assert('ConfigService.get(stages.generate.skills) returns undefined', skills === undefined, `got: ${JSON.stringify(skills)}`);
-  } finally {
-    await app.close();
-  }
+  const error = await initializeWfConfig(dir).then(
+    () => undefined,
+    (caught: unknown) => caught,
+  );
+  assert('initializeWfConfig rejects the config', error instanceof Error);
+  assert(
+    'error names stages.generate.skills',
+    error instanceof Error && error.message.includes('stages.generate.skills'),
+    String(error),
+  );
 }
 
 async function checkCarriedConfigStaysQuiet(tempDirs: string[]): Promise<void> {
@@ -119,7 +105,7 @@ async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n  Dropped stage field warning smoke test\n'));
   const tempDirs: string[] = [];
   try {
-    await checkDroppedFieldWarns(tempDirs);
+    await checkUnsupportedSkillsRejected(tempDirs);
     await checkCarriedConfigStaysQuiet(tempDirs);
     await checkIntentionalModelStripStaysQuiet(tempDirs);
   } finally {

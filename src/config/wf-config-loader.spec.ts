@@ -52,6 +52,34 @@ describe('wf-config-loader', () => {
 
       expect(() => normalizeWfConfig(rawConfig)).toThrow(ValidationError);
     });
+
+    it.each(['review', 'generate', 'commit'])('rejects skills on the %s stage naming the field', stage => {
+      const rawConfig = JSON.parse(`{"stages":{"${stage}":{"provider":"anthropic","skills":["x"]}}}`);
+
+      const run = () => normalizeWfConfig(rawConfig);
+
+      expect(run).toThrow(ValidationError);
+      expect(run).toThrow(new RegExp(`stages\\.${stage}\\.skills`));
+    });
+
+    it.each(['plan', 'review', 'generate', 'commit'])('rejects an unknown key on the %s stage', stage => {
+      const rawConfig = JSON.parse(`{"stages":{"${stage}":{"provider":"anthropic","unknownKey":true}}}`);
+
+      const run = () => normalizeWfConfig(rawConfig);
+
+      expect(run).toThrow(ValidationError);
+      expect(run).toThrow(new RegExp(`stages\\.${stage}\\.unknownKey`));
+    });
+
+    it.each(['default', 'mechanical'])('rejects an empty implement.models.%s', key => {
+      const rawConfig = JSON.parse(`{"stages":{"implement":{"provider":"anthropic","models":{"${key}":""}}}}`);
+
+      expect(() => normalizeWfConfig(rawConfig)).toThrow(ValidationError);
+    });
+
+    it('rejects an unknown top-level key', () => {
+      expect(() => normalizeWfConfig(JSON.parse('{"unknownKey":true}'))).toThrow(ValidationError);
+    });
   });
 
   describe('discoverWfConfigPath', () => {

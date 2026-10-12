@@ -48,7 +48,7 @@ export const wfAiStageTargetConfigSchema = z.object({
   outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
   timeoutMs: z.number().int().min(0).optional(),
   inactivityTimeoutMs: z.number().int().min(0).optional(),
-});
+}).strict();
 
 export const wfPlanStageConfigSchema = wfAiStageTargetConfigSchema.extend({
   figma: z.boolean().optional(),
@@ -65,8 +65,8 @@ export const wfVerificationConditionsConfigSchema = z
   });
 
 export const wfImplementStageModelsConfigSchema = z.object({
-  default: z.string().optional(),
-  mechanical: z.string().optional(),
+  default: z.string().min(1).optional(),
+  mechanical: z.string().min(1).optional(),
 });
 
 export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
@@ -147,8 +147,8 @@ export const wfConfigSchema = z.object({
   ai: z.array(wfAiProviderConfigSchema).optional(),
   atlassian: z
     .object({
-      baseUrl: z.string().optional(),
-      email: z.string().optional(),
+      baseUrl: z.url().optional(),
+      email: z.email().optional(),
       apiToken: z.string().optional(),
       jira: z
         .object({

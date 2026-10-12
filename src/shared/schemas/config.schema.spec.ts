@@ -47,6 +47,46 @@ describe('wfConfigSchema loader parity', () => {
 
     expect(result.success).toBe(false);
   });
+
+  it('rejects an invalid atlassian.baseUrl', () => {
+    expect(wfConfigSchema.safeParse({ atlassian: { baseUrl: 'not-a-url' } }).success).toBe(false);
+  });
+
+  it('rejects an invalid atlassian.email', () => {
+    expect(wfConfigSchema.safeParse({ atlassian: { email: 'not-an-email' } }).success).toBe(false);
+  });
+
+  it.each(['default', 'mechanical'])('rejects an empty implement.models.%s', key => {
+    const result = wfConfigSchema.safeParse({
+      stages: { implement: { provider: 'anthropic', models: { [key]: '' } } },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each(['review', 'generate', 'commit'])('rejects skills on the %s stage', stage => {
+    const result = wfConfigSchema.safeParse({ stages: { [stage]: { provider: 'anthropic', skills: ['x'] } } });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each(['plan', 'review', 'generate', 'commit'])('rejects an unknown key on the %s stage', stage => {
+    const result = wfConfigSchema.safeParse({ stages: { [stage]: { provider: 'anthropic', unknownKey: true } } });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ['atlassian url and email', { atlassian: { baseUrl: 'https://example.atlassian.net', email: 'dev@example.com' } }],
+    ['plan skills', { stages: { plan: { provider: 'anthropic', skills: ['writing-plans'] } } }],
+    ['plan figma', { stages: { plan: { provider: 'anthropic', figma: true } } }],
+    ['review sonar', { stages: { review: { provider: 'anthropic', sonar: true } } }],
+    ['review maxDiffLength', { stages: { review: { provider: 'anthropic', maxDiffLength: 1000 } } }],
+    ['generate stage', { stages: { generate: { provider: 'anthropic' } } }],
+    ['commit stage', { stages: { commit: { provider: 'anthropic' } } }],
+  ])('accepts %s', (_label, config) => {
+    expect(wfConfigSchema.safeParse(config).success).toBe(true);
+  });
 });
 
 describe('wfImplementStageConfigSchema planStepVerification', () => {

@@ -6,13 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
-import {
-  isValidRegexPattern,
-  validatePullStepVerificationProvider,
-  wfImplementSkillNameSchema,
-  wfPlanSkillNameSchema,
-  wfPlanStepVerificationConfigSchema,
-} from '../shared/schemas/config.schema';
+import { wfConfigSchema } from '../shared/schemas/config.schema';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
 import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
@@ -156,169 +150,6 @@ interface WfConfigLoadOptions extends TypeScriptConfigLoadOptions {
 }
 
 let loadedConfig: NormalizedWfConfig | null = null;
-
-const providerNames = ['anthropic', 'openai', 'google', 'deepseek'] as const;
-const backendModes = ['agent', 'cli', 'standard'] as const;
-
-const providerSchema = z.object({
-  provider: z.enum(providerNames),
-  apiKey: z.string().optional(),
-  model: z.string().optional(),
-  maxTokens: z.number().int().min(1).optional(),
-  default: z.boolean().optional(),
-});
-
-const verificationConditionsSchema = z
-  .object({
-    policyFile: z.string().min(1).optional(),
-    scripts: z.record(z.string().min(1), z.string().min(1)).optional(),
-  })
-  .refine(data => data.policyFile || (data.scripts && Object.keys(data.scripts).length > 0), {
-    message: 'verificationConditions must specify policyFile or scripts',
-  });
-
-const aiStageTargetSchema = z.object({
-  provider: z.enum(providerNames),
-  model: z.string().min(1).optional(),
-  backend: z.enum(backendModes).optional(),
-  maxTokens: z.number().int().min(1).optional(),
-  outputFormat: z.enum(['json', 'md', 'yaml', 'yml']).optional(),
-  timeoutMs: z.number().int().min(0).optional(),
-  inactivityTimeoutMs: z.number().int().min(0).optional(),
-  skills: z.array(z.string()).optional(),
-});
-
-const createStageSchema = z.object({
-  verificationConditions: verificationConditionsSchema.optional(),
-}).strict();
-
-const implementStageSchema = z
-  .object({
-    provider: z.enum(providerNames),
-    model: z.string().min(1).optional(),
-    models: z
-      .object({
-        default: z.string().min(1).optional(),
-        mechanical: z.string().min(1).optional(),
-      })
-      .optional(),
-    modelRoutingThresholds: z
-      .object({
-        maxTargetedWritesForDefault: z.number().int().min(1).optional(),
-        maxPlanStepsForDefault: z.number().int().min(1).optional(),
-      })
-      .strict()
-      .optional(),
-    backend: z.enum(backendModes).optional(),
-    maxTokens: z.number().int().min(1).optional(),
-    timeoutMs: z.number().int().min(0).optional(),
-    inactivityTimeoutMs: z.number().int().min(0).optional(),
-    skills: z.array(wfImplementSkillNameSchema).optional(),
-    figma: z.boolean().optional(),
-    stallThresholdForVerificationFix: z.number().int().min(1).optional(),
-    verificationConditions: verificationConditionsSchema.optional(),
-    planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
-  })
-  .strict()
-  .superRefine(validatePullStepVerificationProvider);
-
-const logLevels = ['error', 'warn', 'info', 'debug'] as const;
-
-const configSchema = z
-  .object({
-    tracker: z.enum(['jira', 'github', 'bitbucket']).optional(),
-    ai: z.array(providerSchema).optional(),
-    atlassian: z
-      .object({
-        baseUrl: z.url().optional(),
-        email: z.email().optional(),
-        apiToken: z.string().optional(),
-        jira: z
-          .object({
-            apiToken: z.string().optional(),
-            defaultProject: z.string().optional(),
-          })
-          .optional(),
-        bitbucket: z
-          .object({
-            workspace: z.string().optional(),
-            apiToken: z.string().optional(),
-          })
-          .optional(),
-      })
-      .optional(),
-    github: z
-      .object({
-        token: z.string().optional(),
-        defaultRepo: z.string().optional(),
-      })
-      .optional(),
-    git: z
-      .object({
-        commitFormat: z.enum(['conventional', 'freeform', 'auto']).optional(),
-        branchNamePattern: z
-          .string()
-          .refine(isValidRegexPattern, { message: 'must be a valid regular expression' })
-          .optional(),
-        branchPrefixMapping: z
-          .object({
-            feature: z.string().optional(),
-            fix: z.string().optional(),
-            investigate: z.string().optional(),
-          })
-          .optional(),
-        protectedBranches: z.array(z.string()).optional(),
-      })
-      .optional(),
-    state: z
-      .object({
-        directory: z.string().optional(),
-      })
-      .optional(),
-    log: z
-      .object({
-        directory: z.string().optional(),
-        level: z.enum(logLevels).optional(),
-      })
-      .optional(),
-    logging: z
-      .object({
-        directory: z.string().optional(),
-        level: z.enum(logLevels).optional(),
-      })
-      .optional(),
-    slack: z
-      .object({
-        botToken: z.string().optional(),
-        userToken: z.string().optional(),
-      })
-      .optional(),
-    figma: z
-      .object({
-        token: z.string().optional(),
-      })
-      .optional(),
-    stages: z
-      .object({
-        plan: aiStageTargetSchema.extend({
-          figma: z.boolean().optional(),
-          skills: z.array(wfPlanSkillNameSchema).optional(),
-        }).optional(),
-        implement: implementStageSchema.optional(),
-        create: createStageSchema.optional(),
-        review: aiStageTargetSchema.extend({
-          sonar: z.boolean().optional(),
-          figma: z.boolean().optional(),
-          maxDiffLength: z.number().int().min(1).optional(),
-          epilogueTimeoutMs: z.number().int().min(0).optional(),
-        }).optional(),
-        generate: aiStageTargetSchema.optional(),
-        fetch: z.string().optional(),
-        commit: aiStageTargetSchema.optional(),
-      })
-      .optional(),
-  })
-  .strict();
 
 const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
   if (provider === 'openai') return DEFAULT_OPENAI_MODEL;
@@ -1169,7 +1000,7 @@ const getValidationFieldNames = (issues: z.core.$ZodIssue[]): string[] => issues
  * @returns Normalized config with defaults applied
  */
 export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig => {
-  const result = configSchema.safeParse(rawConfig);
+  const result = wfConfigSchema.safeParse(rawConfig);
   if (!result.success) {
     const fieldNames = getValidationFieldNames(result.error.issues);
     throw new ValidationError(
@@ -1178,8 +1009,7 @@ export const normalizeWfConfig = (rawConfig: WfConfig = {}): NormalizedWfConfig 
     );
   }
 
-  const validatedConfig = result.data as WfConfig;
-  return normalizeValidatedWfConfig(validatedConfig);
+  return normalizeValidatedWfConfig(result.data);
 };
 
 const intentionalStageFieldDrops = new Set(['implement.model']);
