@@ -44,12 +44,7 @@ function verifyNoOpCutoff(harness: ImplementHarness): void {
   assert('continuation prompt carries the NO-CHANGE instruction', prompt.includes('`NO-CHANGE: <path>`'));
 }
 
-function main(): void {
-  console.log(chalk.bold.cyan('\n  Implement continuation no-op cutoff — live smoke test\n'));
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+function verifyNoOpCutoffRun(): void {
   const harness = setupImplementHarness('wf-noop-cutoff-', 'noop', plannedFiles);
   try {
     verifyNoOpCutoff(harness);
@@ -57,6 +52,17 @@ function main(): void {
     cleanupHarness(harness);
   }
   summarise(counts);
+}
+
+const failMissingDist = (): never => {
+  fail('dist/main.js must exist', 'Run `yarn build` first.');
+  return process.exit(1);
+};
+
+function main(): void {
+  console.log(chalk.bold.cyan('\n  Implement continuation no-op cutoff — live smoke test\n'));
+  const run = fs.existsSync(distMainPath) ? verifyNoOpCutoffRun : failMissingDist;
+  run();
 }
 
 main();

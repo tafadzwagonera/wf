@@ -40,12 +40,7 @@ function verifyPlateau(harness: ImplementHarness): void {
   assert('no-op cutoff did not fire', !output.includes('No file changes across 2 passes'));
 }
 
-function main(): void {
-  console.log(chalk.bold.cyan('\n  Implement productive plateau — live smoke test\n'));
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+function verifyPlateauRun(): void {
   const harness = setupImplementHarness('wf-plateau-', 'writeEachPass', plannedFiles);
   try {
     verifyPlateau(harness);
@@ -53,6 +48,17 @@ function main(): void {
     cleanupHarness(harness);
   }
   summarise(counts);
+}
+
+const failMissingDist = (): never => {
+  fail('dist/main.js must exist', 'Run `yarn build` first.');
+  return process.exit(1);
+};
+
+function main(): void {
+  console.log(chalk.bold.cyan('\n  Implement productive plateau — live smoke test\n'));
+  const run = fs.existsSync(distMainPath) ? verifyPlateauRun : failMissingDist;
+  run();
 }
 
 main();

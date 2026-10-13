@@ -577,6 +577,38 @@ describe('parseNoChangeDeclarations', () => {
   it('returns an empty array for empty text', () => {
     expect(parseNoChangeDeclarations('')).toEqual([]);
   });
+
+  it('strips bold markers wrapping the whole declaration', () => {
+    expect(parseNoChangeDeclarations('**NO-CHANGE: src/a.ts**')).toEqual(['src/a.ts']);
+  });
+
+  it('strips a trailing period from the path', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: src/a.ts.')).toEqual(['src/a.ts']);
+  });
+
+  it('strips double quotes around the path', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: "src/a.ts"')).toEqual(['src/a.ts']);
+  });
+
+  it('strips quotes followed by a trailing period', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: "src/b.ts".')).toEqual(['src/b.ts']);
+  });
+
+  it('matches the keyword case-insensitively', () => {
+    expect(parseNoChangeDeclarations('no-change: src/a.ts')).toEqual(['src/a.ts']);
+  });
+
+  it('rejects comma-separated path lists', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE: src/a.ts, src/b.ts')).toEqual([]);
+  });
+
+  it('rejects a declaration with no colon after the keyword', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE src/a.ts')).toEqual([]);
+  });
+
+  it('rejects a dash separator instead of a colon', () => {
+    expect(parseNoChangeDeclarations('NO-CHANGE - src/a.ts')).toEqual([]);
+  });
 });
 
 describe('acceptNoChangeDeclarations', () => {
@@ -614,6 +646,23 @@ describe('acceptNoChangeDeclarations', () => {
 
     expect(acceptNoChangeDeclarations(params)).toBe(0);
     expect(params.notApplicableFiles.size).toBe(0);
+  });
+
+  it('counts a first declaration as one newly accepted file', () => {
+    expect(acceptNoChangeDeclarations(build())).toBe(1);
+  });
+
+  it('does not count a repeated declaration of an already-accepted file', () => {
+    const params = build();
+
+    acceptNoChangeDeclarations(params);
+
+    expect(acceptNoChangeDeclarations(params)).toBe(0);
+    expect([...params.notApplicableFiles]).toEqual(['src/a.ts']);
+  });
+
+  it('counts a duplicate within one call once', () => {
+    expect(acceptNoChangeDeclarations(build({ declared: ['src/a.ts', 'src/a.ts'] }))).toBe(1);
   });
 });
 

@@ -76,6 +76,10 @@ const verificationPromptFooter = [
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
   'After all edits are complete, run each verification command exactly as written.',
   'If a flagged claim cannot be implemented exactly as written, say why in the final message.',
+  [
+    'If a step needs no change because the named file or pattern is already absent, answer with a single-line proof',
+    '(for example the grep command and its empty result) plus NO-CHANGE: <path> instead of re-reading files.',
+  ].join(' '),
   'Do not output any text or plan before making your first tool call.',
 ];
 

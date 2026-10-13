@@ -365,6 +365,13 @@ describe('buildPlanStepVerificationPrompt', () => {
     expect((prompt.match(/Missing:/g) ?? [])).toHaveLength(1);
   });
 
+  it('tells the agent to answer no-op steps with a one-line proof and a NO-CHANGE declaration', () => {
+    const pending: StepAssessment[] = [{ index: 0, status: 'not-done', missing: 'x' }];
+    const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stepTexts: new Map([[0, 'step text']]) });
+    expect(prompt).toContain('single-line proof');
+    expect(prompt).toContain('NO-CHANGE: <path>');
+  });
+
   it('ends with the no-preamble instruction', () => {
     const pending: StepAssessment[] = [{ index: 0, status: 'not-done', missing: 'x' }];
     const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stallWindow: 3, stepTexts: new Map([[0, 'step text']]) });

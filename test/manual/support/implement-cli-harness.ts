@@ -11,7 +11,7 @@ import {
 export const projectRoot = path.resolve(__dirname, '../../..');
 export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
-export type FakeClaudeMode = 'noop' | 'declare' | 'declareAndEdit' | 'writeEachPass';
+export type FakeClaudeMode = 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass';
 
 export type ImplementHarness = {
   tempRoot: string;
@@ -53,6 +53,9 @@ if (mode === 'writeEachPass' && n > 1) {
 }
 if (mode === 'declare' && n === 2) {
   text = 'All good.\\nNO-CHANGE: src/a.ts\\n- NO-CHANGE: \`./src/b.ts\`\\nNO-CHANGE: src/other.ts';
+}
+if (mode === 'declareFormatted' && n === 2) {
+  text = '**NO-CHANGE: src/a.ts**\\nNO-CHANGE: "src/b.ts".';
 }
 if (mode === 'declareAndEdit' && n === 2) {
   fs.appendFileSync('src/a.ts', '// edited\\n');

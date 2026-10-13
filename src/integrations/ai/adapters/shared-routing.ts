@@ -238,14 +238,22 @@ export const continuationTail
     + 'Begin by taking action: read the first listed file and apply its edit or declare it NO-CHANGE. '
     + 'Save narration for after you\'ve made the changes.';
 
-const NO_CHANGE_LINE_PATTERN = /^\s*(?:[-*]\s+)?\**NO-CHANGE:?\**\s*`?([^`\s]+)`?(?:\s.*)?$/;
+const NO_CHANGE_LINE_PATTERN = /^\s*(?:[-*]\s+)?\**NO-CHANGE\**:\**\s*`?([^`\s]+)`?(?:\s.*)?$/i;
+
+const normalizeDeclaredPath = (declared: string): string =>
+  declared
+    .replace(/[*`"'.,;]+$/, '')
+    .replace(/^[*`"']+/, '')
+    .replace(/^\.\//, '');
 
 export const parseNoChangeDeclarations = (resultText: string): string[] =>
   resultText
     .split('\n')
     .map(line => NO_CHANGE_LINE_PATTERN.exec(line)?.[1])
     .filter((declared): declared is string => Boolean(declared))
-    .map(declared => declared.replace(/^\.\//, ''));
+    .filter(declared => !declared.includes(','))
+    .map(normalizeDeclaredPath)
+    .filter(Boolean);
 
 export type AcceptNoChangeParams = {
   declared: string[];
@@ -261,8 +269,9 @@ export const acceptNoChangeDeclarations = (params: AcceptNoChangeParams): number
   const accepted = declared
     .map(file => stripRepoPrefix(file, repoName))
     .filter(file => planned.has(file) && !isGlobPattern(file) && !touchedFiles.has(file));
+  const newlyAccepted = new Set(accepted.filter(file => !notApplicableFiles.has(file)));
   for (const file of accepted) notApplicableFiles.add(file);
-  return accepted.length;
+  return newlyAccepted.size;
 };
 
 const formatPlanStepList = (steps: string[]): string =>

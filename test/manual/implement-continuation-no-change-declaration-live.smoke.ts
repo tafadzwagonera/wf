@@ -57,21 +57,35 @@ function verifyDeclareOnly(): void {
   assert('continuation prompt offers the declare option', prompt.includes('declare it NO-CHANGE'));
 }
 
+function verifyDeclareFormatted(): void {
+  const { output, spawns } = runScenario('declareFormatted');
+  assert('formatted-declaration run spawns the agent exactly twice', spawns === 2, `spawns=${spawns}`);
+  assert('bold declaration for src/a.ts is accepted', output.includes(declaredLine('src/a.ts')), output.slice(-800));
+  assert('quoted declaration with trailing period for src/b.ts is accepted', output.includes(declaredLine('src/b.ts')));
+}
+
 function verifyDeclareAndEdit(): void {
   const { output } = runScenario('declareAndEdit');
   assert('declared-and-edited file is reported as updated', output.includes('updated: src/a.ts'), output.slice(-800));
   assert('declared-and-edited file is not reported as agent-declared', !output.includes(declaredLine('src/a.ts')));
 }
 
-function main(): void {
-  console.log(chalk.bold.cyan('\n  Implement NO-CHANGE declaration — live smoke test\n'));
-  if (!fs.existsSync(distMainPath)) {
-    fail('dist/main.js must exist', 'Run `yarn build` first.');
-    process.exit(1);
-  }
+function runChecks(): void {
   verifyDeclareOnly();
+  verifyDeclareFormatted();
   verifyDeclareAndEdit();
   summarise(counts);
+}
+
+const failMissingDist = (): never => {
+  fail('dist/main.js must exist', 'Run `yarn build` first.');
+  return process.exit(1);
+};
+
+function main(): void {
+  console.log(chalk.bold.cyan('\n  Implement NO-CHANGE declaration — live smoke test\n'));
+  const run = fs.existsSync(distMainPath) ? runChecks : failMissingDist;
+  run();
 }
 
 main();
