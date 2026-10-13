@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/src/hooks/plan-review-gate.sh check",
+            "timeout": 10,
+            "statusMessage": "Checking plan review gate"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/src/hooks/plan-review-gate.sh consume",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/quality-checks.sh",
+            "timeout": 120,
+            "statusMessage": "Running quality checks"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -33,6 +33,7 @@
     "docs:sync": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts",
     "docs:check": "ts-node -r tsconfig-paths/register scripts/sync-issue-command-docs.ts --check",
     "skills:sync": "ts-node -r tsconfig-paths/register scripts/sync-interactive-skills.ts",
+    "hooks:sync": "ts-node -r tsconfig-paths/register scripts/sync-hooks.ts",
     "generated-docs:sync": "yarn help:catalog && yarn docs:sync",
     "generated-docs:check": "yarn generated-docs:sync && git diff --exit-code -- README.md docs/commands-help.catalog.json",
     "format": "yarn lint:fix",
@@ -50,10 +51,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:handles": "jest --runInBand --detectOpenHandles --no-forceExit",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts",
-    "issue:create": "yarn start issue-create",
-    "issue:implement": "yarn start issue-implement",
-    "issue:review": "yarn start issue-review"
+    "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.97",

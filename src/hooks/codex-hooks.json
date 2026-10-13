@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/src/hooks/plan-review-gate.sh check-stop",
+            "timeout": 15,
+            "statusMessage": "Checking plan review gate"
+          },
+          {
+            "type": "command",
+            "command": "cwd=$(cat | jq -r '.cwd'); cd \"$cwd\" && ~/Projects/wf/quality-checks.sh",
+            "timeout": 120,
+            "statusMessage": "Running quality checks"
+          }
+        ]
+      }
+    ]
+  }
+}
