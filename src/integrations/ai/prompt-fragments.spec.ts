@@ -3,6 +3,9 @@ import {
   buildUiDesignComplianceSystemPromptSection,
   planFileListingInstructions,
   planStepPrinciples,
+  implementerSearchRule,
+  implementerDeleteOrphanRule,
+  needleSearchReminder,
 } from './prompt-fragments';
 
 describe('planStepPrinciples', () => {
@@ -71,5 +74,27 @@ describe('planFileListingInstructions', () => {
     expect(planFileListingInstructions).toContain('"severity" (low/medium/high)');
     expect(planFileListingInstructions).toContain('do not estimate complexity yourself');
     expect(planFileListingInstructions).not.toContain('Estimated complexity');
+  });
+});
+
+describe('needle search rules', () => {
+  it('puts the case-insensitive whole-repository search rule and .gitignore note in the planner prompt', () => {
+    expect(planStepPrinciples).toContain(implementerSearchRule);
+    expect(planStepPrinciples).toContain('git grep --no-index');
+    expect(implementerSearchRule).toContain('case-insensitive');
+    expect(implementerSearchRule).toContain('whole repository');
+  });
+
+  it('names the given search tool in the delete-orphan rule', () => {
+    expect(implementerDeleteOrphanRule('Grep')).toContain('use Grep to check');
+    expect(implementerDeleteOrphanRule('Grep')).toContain('delete it rather than leaving an orphaned module');
+  });
+
+  it('lists to-delete in the planner file listing instructions', () => {
+    expect(planFileListingInstructions).toContain('"to-delete"');
+  });
+
+  it('keeps the reminder sentence case-insensitive and repo-wide', () => {
+    expect(needleSearchReminder).toContain('case-insensitively across the whole repository');
   });
 });

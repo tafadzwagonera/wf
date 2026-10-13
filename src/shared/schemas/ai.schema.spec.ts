@@ -1,4 +1,4 @@
-import { planModelOutputSchema } from './ai.schema';
+import { fileStatusSchema, planModelOutputSchema } from './ai.schema';
 
 const createMockStructuredPlanOutput = () => ({
   action: 'feature',
@@ -58,5 +58,11 @@ describe('planModelOutputSchema', () => {
       expect(plan.verification?.waivers).toBeUndefined();
       expect(plan.phases?.[0]?.verifyAfter).toBeUndefined();
     });
+  });
+});
+
+describe('fileStatusSchema', () => {
+  it('accepts to-delete', () => {
+    expect(fileStatusSchema.parse('to-delete')).toBe('to-delete');
   });
 });

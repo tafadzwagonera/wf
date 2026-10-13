@@ -1,5 +1,6 @@
 import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
+import { needleSearchReminder } from '../prompt-fragments';
 import { executeWithCatch } from '../../../shared/utils/execute-with-catch';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
@@ -301,7 +302,7 @@ export function buildVerificationFixPrompt(
   const fragment = skillFragment ?? '';
   return `The following enforced verification commands failed:\n\n${sections}\n\n`
     + `Read the error output above, identify the root cause of each failure, `
-    + `and fix the code so all listed commands pass. ${scopeNote}`
+    + `and fix the code so all listed commands pass. ${needleSearchReminder} ${scopeNote}`
     + `Do not re-run the verification commands yourself — they will be re-run automatically after your changes. `
     + `Do not output any text or plan before making your first tool call.${fragment}`;
 }

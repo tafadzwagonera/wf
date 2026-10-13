@@ -43,6 +43,32 @@ const hasExplicitReplacementTarget = (step: string): boolean => {
   );
 };
 
+const NEEDLE_RULE_ID = 'needle-search-required';
+const NEEDLE_STEP_PATTERN = new RegExp(`${/\b(?:delete|drop|remove|replace)\b/.source}|${RENAME_STEP_PATTERN.source}`, 'i');
+const NEGATED_SEARCH_PATTERN = /(?:^|[\s'"(;&|])!\s*(?:git\s+grep|grep|rg)\s/;
+const IGNORE_CASE_FLAG_PATTERN = /\s(?:-[a-zA-Z]*i[a-zA-Z]*|--ignore-case)(?=\s)/;
+const WORD_BOUNDARY_PATTERN = /\\b/;
+
+const isCaseInsensitiveZeroMatchCommand = (command: string): boolean =>
+  NEGATED_SEARCH_PATTERN.test(command)
+  && IGNORE_CASE_FLAG_PATTERN.test(command)
+  && !WORD_BOUNDARY_PATTERN.test(command);
+
+const needleViolationMessage = (removalSteps: number[]): string =>
+  `Step ${removalSteps.join(', ')} removes or replaces a term but verification.targeted has no negated `
+  + "case-insensitive zero-match command (for example `bash -c '! git grep -I -i -q -F <term>'`) without \\b patterns. "
+  + `Add one, or waive it with a verification.waivers entry with id "${NEEDLE_RULE_ID}".`;
+
+const detectNeedleSearchViolations = (
+  steps: string[], verification: ResolutionPlan['verification'] | undefined
+): PlanQualityViolation[] => {
+  const removalSteps = steps.flatMap((step, index) => NEEDLE_STEP_PATTERN.test(step) ? [index + 1] : []);
+  if (removalSteps.length === 0) return [];
+  if (verification?.waivers?.some(waiver => waiver.id === NEEDLE_RULE_ID)) return [];
+  if (verification?.targeted?.some(entry => isCaseInsensitiveZeroMatchCommand(entry.run))) return [];
+  return [createViolation(NEEDLE_RULE_ID, needleViolationMessage(removalSteps))];
+};
+
 const normalizeRepoLocalVerificationCommand = (command: string, affectedRepositories?: string[]): string => {
   const trimmed = command.trim();
   const cdPrefixMatch = REPO_LOCAL_CD_PREFIX_PATTERN.exec(trimmed);
@@ -423,6 +449,7 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
 
   return uniqueViolations([
     ...detectRenameViolations(steps),
+    ...detectNeedleSearchViolations(steps, params.plan.verification),
     ...detectVerificationViolations(
       params.plan.verification, params.testInfra, params.affectedRepositories, params.packageManager
     ),

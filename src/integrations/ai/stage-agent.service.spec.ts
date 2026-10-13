@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { existsSync } from 'node:fs';
-import { buildAnthropicBaseOptions, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
+import { buildAnthropicBaseOptions, buildRipgrepCommand, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { z } from 'zod';
@@ -4324,5 +4324,15 @@ describe('plan model output JSON schema', () => {
 
     expect(riskItems).toContain('"description"');
     expect(riskItems).toContain('"severity"');
+  });
+});
+
+describe('buildRipgrepCommand', () => {
+  it('searches case-insensitively including hidden files but not .git', () => {
+    const command = buildRipgrepCommand('Needle', 'src');
+    expect(command).toContain(' -i ');
+    expect(command).toContain('--hidden');
+    expect(command).toContain("-g '!.git'");
+    expect(command).not.toMatch(/\s-u\b/);
   });
 });

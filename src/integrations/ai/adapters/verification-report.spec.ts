@@ -395,3 +395,10 @@ describe('runProgrammaticVerification', () => {
     expect(mockSignalProcessTree).toHaveBeenCalledWith(child, 'SIGKILL');
   });
 });
+
+describe('buildVerificationFixPrompt needle search reminder', () => {
+  it('tells the fixer to search case-insensitively across the whole repository', () => {
+    const failure = { command: 'yarn test', passed: false, output: 'boom', enforced: true } as unknown as VerificationOutcome;
+    expect(buildVerificationFixPrompt([failure])).toContain('case-insensitively across the whole repository');
+  });
+});

@@ -11,7 +11,14 @@ import {
 export const projectRoot = path.resolve(__dirname, '../../..');
 export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
-export type FakeClaudeMode = 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass';
+export type FakeClaudeMode = 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan';
+
+export type PlanOverrides = {
+  steps?: string[];
+  verification?: Record<string, unknown>;
+  statusByFile?: Record<string, string>;
+  extraFiles?: Record<string, string>;
+};
 
 export type ImplementHarness = {
   tempRoot: string;
@@ -51,6 +58,9 @@ if (mode === 'writeEachPass' && n > 1) {
   fs.writeFileSync('extra-' + n + '.ts', 'export {};\\n');
   toolUse('Write', 'extra-' + n + '.ts');
 }
+if (mode === 'deleteOrphan' && n === 1) {
+  fs.rmSync('src/orphan.ts', { force: true });
+}
 if (mode === 'declare' && n === 2) {
   text = 'All good.\\nNO-CHANGE: src/a.ts\\n- NO-CHANGE: \`./src/b.ts\`\\nNO-CHANGE: src/other.ts';
 }
@@ -81,7 +91,7 @@ const git = (cwd: string, args: string[]): void => {
   spawnSync('git', args, { cwd, stdio: 'pipe' });
 };
 
-const initRepo = (repoDir: string, plannedFiles: string[]): void => {
+const initRepo = (repoDir: string, plannedFiles: string[], extraFiles: Record<string, string> = {}): void => {
   git(repoDir, ['init']);
   git(repoDir, ['config', 'user.email', 'test@test.com']);
   git(repoDir, ['config', 'user.name', 'Test']);
@@ -89,26 +99,39 @@ const initRepo = (repoDir: string, plannedFiles: string[]): void => {
   fs.writeFileSync(path.join(repoDir, 'README.md'), '# Smoke\n', 'utf-8');
   fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
   for (const file of plannedFiles) fs.writeFileSync(path.join(repoDir, file), 'export {};\n', 'utf-8');
+  for (const [file, content] of Object.entries(extraFiles)) fs.writeFileSync(path.join(repoDir, file), content, 'utf-8');
   git(repoDir, ['add', '.']);
   git(repoDir, ['commit', '-m', 'init']);
 };
 
-const buildPlanJson = (repoName: string, plannedFiles: string[]): string => JSON.stringify({
+const buildAffectedFiles = (
+  repoName: string, plannedFiles: string[], statusByFile: Record<string, string> = {},
+): Array<string | { filePath: string; status: string }> =>
+  plannedFiles.map(file => statusByFile[file]
+    ? { filePath: `${repoName}/${file}`, status: statusByFile[file] }
+    : `${repoName}/${file}`);
+
+const buildPlanJson = (
+  repoName: string, plannedFiles: string[], overrides: PlanOverrides = {},
+): string => JSON.stringify({
   action: 'fix',
   summary: 'smoke test plan',
-  steps: ['step 1'],
+  steps: overrides.steps ?? ['step 1'],
   estimatedComplexity: 'low',
-  affectedFiles: plannedFiles.map(file => `${repoName}/${file}`),
+  affectedFiles: buildAffectedFiles(repoName, plannedFiles, overrides.statusByFile),
   affectedRepositories: [repoName],
   risks: [],
+  ...(overrides.verification ? { verification: overrides.verification } : {}),
 });
 
-const writePlanArtifact = (homeDir: string, repoName: string, plannedFiles: string[]): string => {
+const writePlanArtifact = (
+  homeDir: string, repoName: string, plannedFiles: string[], overrides: PlanOverrides = {},
+): string => {
   const sourceStem = 'source';
   const hash = hashPlanArtifactSources([sourceStem]);
   const planPath = path.join(homeDir, '.wf', repoName, buildPlanArtifactFilename({ hash, action: 'fix', format: 'json' }));
   fs.mkdirSync(path.dirname(planPath), { recursive: true });
-  fs.writeFileSync(planPath, buildPlanJson(repoName, plannedFiles), 'utf-8');
+  fs.writeFileSync(planPath, buildPlanJson(repoName, plannedFiles, overrides), 'utf-8');
   writePlanArtifactManifest({
     artifactPath: planPath, action: 'fix', createdAt: new Date().toISOString(),
     hash, format: 'json', sourceKind: 'custom', sourceName: sourceStem,
@@ -144,13 +167,17 @@ const installFakeClaude = (layout: Omit<ImplementHarness, 'planPath'>, mode: Fak
 };
 
 export const setupImplementHarness = (
-  prefix: string, mode: FakeClaudeMode, plannedFiles: string[],
+  prefix: string, mode: FakeClaudeMode, plannedFiles: string[], overrides: PlanOverrides = {},
 ): ImplementHarness => {
   const layout = createLayout(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   installFakeClaude(layout, mode);
-  initRepo(layout.repoDir, plannedFiles);
-  const planPath = writePlanArtifact(layout.homeDir, path.basename(layout.repoDir), plannedFiles);
+  initRepo(layout.repoDir, plannedFiles, overrides.extraFiles);
+  const planPath = writePlanArtifact(layout.homeDir, path.basename(layout.repoDir), plannedFiles, overrides);
   return { ...layout, planPath };
+};
+
+export const rewritePlan = (harness: ImplementHarness, plannedFiles: string[], overrides: PlanOverrides): void => {
+  fs.writeFileSync(harness.planPath, buildPlanJson(path.basename(harness.repoDir), plannedFiles, overrides), 'utf-8');
 };
 
 export const runImplement = (harness: ImplementHarness, timeoutMs = 60_000): RunResult => {

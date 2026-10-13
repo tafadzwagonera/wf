@@ -10,6 +10,9 @@ import {
   estimateOpenAiCostUsd,
   validateTypeScriptEdit,
   OpenAIAgentAdapter,
+  buildContinuationPrompt,
+  buildGrepCommand,
+  computeWorkload,
 } from './openai-agent.adapter';
 import { detectMechanicalTask } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
@@ -2461,5 +2464,38 @@ class Foo {}
       expect(validateTypeScriptEdit('src/foo.js', 'class Foo { constructor() {} constructor() {} }')).toBeNull();
       expect(validateTypeScriptEdit('data.json', '{ "key": "value" }')).toBeNull();
     });
+  });
+});
+
+describe('openai implement search and workload', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('builds a case-insensitive, binary-skipping grep that excludes vendor directories', () => {
+    const command = buildGrepCommand('Needle', '/repo', '', 50);
+    expect(command).toContain('-i -I');
+    expect(command).toContain('--exclude-dir=node_modules');
+    expect(command).toContain('--exclude-dir=dist');
+    expect(command).toContain('--exclude-dir=.git');
+    expect(command).toContain('-m 50');
+  });
+
+  it('does not count a deleted to-delete file as unvisited work', () => {
+    const status = new Map([['orphan.ts', 'deleted']]);
+    const workload = computeWorkload(status, ['repo/orphan.ts', 'repo/other.ts'], 'repo', [], new Set());
+    expect(workload.unvisited).toEqual(['other.ts']);
+  });
+
+  it('continuation prompt asks for the needle case-insensitively across the whole repository', () => {
+    const prompt = buildContinuationPrompt({
+      unvisited: ['a.ts'], failureCount: 0, failures: [], totalPlanned: 1, passNumber: 2,
+      taskBriefParams: {
+        ticketKey: 'T-1', repoName: 'repo', repoFiles: ['repo/a.ts'], contextFiles: [], trackedFilePaths: [],
+        verificationScripts: [], planSteps: ['step'], planSummary: 'summary', planAction: 'fix',
+      } as never,
+    });
+    expect(prompt).toContain('the needle, case-insensitive, across the whole repository including non-code files');
+    expect(prompt).not.toContain('remaining migration patterns');
   });
 });

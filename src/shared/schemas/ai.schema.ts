@@ -62,7 +62,7 @@ export const findingsDocumentSchema = z.object({
   conclusion: z.string(),
 });
 
-export const fileStatusSchema = z.enum(['found', 'to-create', 'not-found']);
+export const fileStatusSchema = z.enum(['found', 'to-delete', 'to-create', 'not-found']);
 
 export const fileEntrySchema = z.object({
   filePath: z.string(),

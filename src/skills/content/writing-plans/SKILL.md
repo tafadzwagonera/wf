@@ -44,18 +44,20 @@ Field notes:
 - `summary` — **required**. One-sentence description of the plan.
 - `steps` — **required**. One literal change per step.
 - `phases` — optional. Groups steps into named phases with optional post-phase verification commands.
-- `affectedFiles` — optional. Files changed by the plan. Valid `status` values: `"found"` for existing files, `"to-create"` for new files, `"not-found"` when a file was searched for but does not exist. All listed paths must be verified to exist before listing them with `"found"`.
+- `affectedFiles` — optional. Files changed by the plan. Valid `status` values: `"found"` for existing files, `"to-delete"` for orphaned files the plan deletes, `"to-create"` for new files, `"not-found"` when a file was searched for but does not exist. All listed paths must be verified to exist before listing them with `"found"`.
 - `affectedFilesContext` — optional. Files read for context but not modified.
 - `verification.targeted` — optional. Commands wf runs to verify plan completion. Omit `verification` entirely when no targeted checks or waivers apply. Omit optional fields instead of setting them to `null`.
 - `verification.waivers` — optional. Entries that suppress a specific verification command by id. Use when a command cannot run in this context; include a clear reason.
 
 ## Step Quality Rules
 
-Two checks apply to plan steps. Only `no-placeholders` is supplied by `writing-plans.skill.ts`'s `getQualityRules()`. `rename-target-required` is enforced unconditionally by `src/shared/utils/plan-quality.ts`, independent of this skill, and is not re-assessed by `plan-step-verification.service.ts`.
+Three checks apply to plan steps. Only `no-placeholders` is supplied by `writing-plans.skill.ts`'s `getQualityRules()`. `rename-target-required` and `needle-search-required` are enforced unconditionally by `src/shared/utils/plan-quality.ts`, independent of this skill, and are not re-assessed by `plan-step-verification.service.ts`.
 
 **(1) no-placeholders** — Step text must not match the `PLACEHOLDER_PATTERN` regex defined in `src/skills/writing-plans.skill.ts`. Write the actual before-and-after code change, not a description of intent. A step saying "add appropriate error handling" is rejected. A step saying "wrap the `readFile` call in a `try`/`catch` that returns `null` on `ENOENT`" is accepted.
 
 **(2) rename-target-required** — A step that uses a rename or move verb must state both the source path or symbol name and its replacement path or symbol name explicitly. A step saying "rename the helper function" is rejected. A step saying "rename `tryReadPattern` to `readSkillContent` in `src/skills/skill-content.ts`" is accepted.
+
+**(3) needle-search-required** — A step that deletes, drops, removes, replaces or renames a term needs a `verification.targeted` command that proves zero matches case-insensitively across the whole repository, for example `bash -c '! git grep -I -i -q -F NUXT_POWERREVIEWS'` (the `bash -c` wrapper keeps it inside the verification allowlist). A command without `-i`, or one that only uses `\b` word-boundary patterns, does not satisfy the rule. Intentional leftovers (an ADR, a changelog) are declared with a `verification.waivers` entry whose id is `needle-search-required`. The rule is advisory: it surfaces as a plan-quality risk, not a hard failure.
 
 ## Diff-Based Assessment
 

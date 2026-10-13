@@ -6,7 +6,10 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   AnthropicAgentAdapter,
+  buildCanUseTool,
   buildSystemPrompt,
+  computeUnvisited,
+  deleteRepoFile,
   formatActivityMessages,
   formatProgressMessage,
 } from './anthropic-agent.adapter';
@@ -29,6 +32,13 @@ jest.mock('os', () => ({
 
 const mockLoadAnthropicAgentSdk = loadAnthropicAgentSdk as jest.MockedFunction<typeof loadAnthropicAgentSdk>;
 const mockHomedir = os.homedir as jest.MockedFunction<typeof os.homedir>;
+const mockSdkModule = (sdk: Record<string, unknown>): void => {
+  mockLoadAnthropicAgentSdk.mockResolvedValue({
+    createSdkMcpServer: jest.fn(() => ({ type: 'sdk', name: 'wf' })),
+    tool: jest.fn((name: string) => ({ name })),
+    ...sdk,
+  } as never);
+};
 
 const makeConfigService = (overrides: Record<string, unknown> = {}): ConfigService => {
   const values: Record<string, unknown> = {
@@ -263,7 +273,7 @@ const makeParams = (repoDir = '/repo/primary', verificationScripts: Verification
 describe('AnthropicAgentAdapter', () => {
   beforeEach(() => {
     mockHomedir.mockReturnValue(path.join(os.tmpdir(), 'wf-home-default'));
-    mockLoadAnthropicAgentSdk.mockResolvedValue({
+    mockSdkModule({
       query: jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()])),
     } as never);
   });
@@ -412,7 +422,7 @@ describe('AnthropicAgentAdapter', () => {
   describe('model routing in generateAndVerify', () => {
     it('uses mechanical model when --model-routing=mechanical', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -435,7 +445,7 @@ describe('AnthropicAgentAdapter', () => {
     it('uses default model when --model-routing=default', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -469,7 +479,7 @@ describe('AnthropicAgentAdapter', () => {
       (resultWithCost as any).total_cost_usd = 0.0234;
       const mockSession = makeSdkSession([resultWithCost]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -489,7 +499,7 @@ describe('AnthropicAgentAdapter', () => {
 
     it('reads mechanical model from stages.implement.models.mechanical config', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -516,7 +526,7 @@ describe('AnthropicAgentAdapter', () => {
     it('throws when both model and models are configured', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -536,7 +546,7 @@ describe('AnthropicAgentAdapter', () => {
   describe('generateAndVerify', () => {
     it('renders object plan risks with severity prefixes in the initial prompt', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
       const params = makeParams();
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
@@ -554,7 +564,7 @@ describe('AnthropicAgentAdapter', () => {
 
     it('invokes the Claude Agent SDK with repo-scoped access and the verification whitelist', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -661,7 +671,7 @@ describe('AnthropicAgentAdapter', () => {
     it('sets autoCompactWindow in SDK settings', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -687,7 +697,7 @@ describe('AnthropicAgentAdapter', () => {
         makeResultSuccess(),
       ]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -722,7 +732,7 @@ describe('AnthropicAgentAdapter', () => {
         makeResultSuccess(),
       ]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -750,7 +760,7 @@ describe('AnthropicAgentAdapter', () => {
     it('throws when the SDK returns an execution error', async () => {
       const mockSession = makeSdkSession([makeResultError()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -764,7 +774,7 @@ describe('AnthropicAgentAdapter', () => {
     it('fails fast when the Anthropic API key is missing', async () => {
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -786,7 +796,7 @@ describe('AnthropicAgentAdapter', () => {
 
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -818,7 +828,7 @@ describe('AnthropicAgentAdapter', () => {
     it('includes repo conventions in continuation prompts', async () => {
       const repoDir = createManagedTempDir('claude-continuation');
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -844,7 +854,7 @@ describe('AnthropicAgentAdapter', () => {
       const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
       const mockSession = makeSdkSession([makeResultSuccess()]);
       const mockQuery = jest.fn().mockReturnValue(mockSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -862,7 +872,7 @@ describe('AnthropicAgentAdapter', () => {
 
     it('resolves with modelsUsed containing the routed model', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
@@ -898,7 +908,7 @@ describe('AnthropicAgentAdapter', () => {
         makeResultSuccess({ session_id: 'session-loop' }),
       ]);
       const mockQuery = jest.fn().mockReturnValueOnce(initialSession);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -923,7 +933,7 @@ describe('AnthropicAgentAdapter', () => {
         makeResultSuccess({ session_id: 'session-loop-2' }),
       ]);
       const mockQuery = jest.fn().mockReturnValueOnce(initialSession).mockReturnValueOnce(pass1Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -945,7 +955,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(initialSession)
         .mockReturnValueOnce(makeWritingSession(1))
         .mockReturnValueOnce(makeWritingSession(2));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -967,7 +977,7 @@ describe('AnthropicAgentAdapter', () => {
       for (let i = 0; i < 6; i++) {
         mockQuery.mockReturnValueOnce(makeSdkSession([makeResultSuccess({ session_id: 'session-loop' })]));
       }
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -988,7 +998,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(
           makeSdkSession([makeResultSuccess({ session_id: 'session-loop', result: 'Done.\nNO-CHANGE: src/foo.ts' })]),
         );
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1015,7 +1025,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(idleSession)
         .mockReturnValueOnce(makeWritingSession(2))
         .mockReturnValueOnce(makeWritingSession(3));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1041,7 +1051,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(idle1)
         .mockReturnValueOnce(idle2)
         .mockReturnValueOnce(idle3);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1067,7 +1077,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(idleSession)
         .mockReturnValueOnce(pass2Session)
         .mockReturnValueOnce(pass3Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1090,7 +1100,7 @@ describe('AnthropicAgentAdapter', () => {
       ];
       const mockQuery = jest.fn();
       for (const session of sessions) mockQuery.mockReturnValueOnce(session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1114,7 +1124,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(initialSession)
         .mockReturnValueOnce(pass1Session)
         .mockReturnValueOnce(pass2Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1137,7 +1147,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(initialSession)
         .mockReturnValueOnce(pass1Session)
         .mockReturnValueOnce(pass2Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams();
@@ -1160,7 +1170,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(initialSession)
         .mockReturnValueOnce(pass1Session)
         .mockReturnValueOnce(pass2Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       const params = makeParams('/repo/primary', [
@@ -1190,7 +1200,7 @@ describe('AnthropicAgentAdapter', () => {
         .mockReturnValueOnce(pass1Session)
         .mockReturnValueOnce(pass2Session)
         .mockReturnValueOnce(pass3Session);
-      mockLoadAnthropicAgentSdk.mockResolvedValue({
+      mockSdkModule({
         query: mockQuery,
       } as never);
 
@@ -1206,7 +1216,7 @@ describe('AnthropicAgentAdapter', () => {
 
   it('uses initialPromptOverride as the prompt when set', async () => {
     const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-    mockLoadAnthropicAgentSdk.mockResolvedValue({
+    mockSdkModule({
       query: mockQuery,
     } as never);
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -1229,7 +1239,7 @@ describe('AnthropicAgentAdapter', () => {
     const fragment = '\n\n## Skill: test-driven-development\nContent';
     jest.spyOn(skillContent, 'buildSkillPromptFragment').mockResolvedValue(fragment);
     const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-    mockLoadAnthropicAgentSdk.mockResolvedValue({
+    mockSdkModule({
       query: mockQuery,
     } as never);
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -1299,7 +1309,7 @@ describe('AnthropicAgentAdapter', () => {
   describe('UI design compliance in system prompt', () => {
     it('appends compliance section when uiDesignScreenshotPaths present', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       await adapter.generateAndVerify({
@@ -1315,7 +1325,7 @@ describe('AnthropicAgentAdapter', () => {
 
     it('does not append compliance section when uiDesignScreenshotPaths absent', async () => {
       const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
-      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery } as never);
+      mockSdkModule({ query: mockQuery } as never);
 
       const adapter = new AnthropicAgentAdapter(makeConfigService());
       await adapter.generateAndVerify(makeParams());
@@ -1325,5 +1335,73 @@ describe('AnthropicAgentAdapter', () => {
       const systemPrompt = options.systemPrompt as { append: string };
       expect(systemPrompt.append).not.toContain('UI design compliance');
     });
+  });
+});
+
+describe('orphan deletion support', () => {
+  let tmpDir: string;
+  let repoDir: string;
+  let outsideDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(jest.requireActual<typeof os>('os').tmpdir(), 'wf-del-')));
+    repoDir = path.join(tmpDir, 'repo');
+    outsideDir = path.join(tmpDir, 'outside');
+    fs.mkdirSync(repoDir);
+    fs.mkdirSync(outsideDir);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('deletes a file inside the repo root and records it as touched', async () => {
+    fs.writeFileSync(path.join(repoDir, 'orphan.ts'), 'x');
+    const touched = new Set<string>();
+    const result = await deleteRepoFile(repoDir, 'orphan.ts', touched);
+    expect(result.deleted).toBe(true);
+    expect(fs.existsSync(path.join(repoDir, 'orphan.ts'))).toBe(false);
+    expect([...touched]).toEqual(['orphan.ts']);
+  });
+
+  it('refuses an absolute path outside the repo root', async () => {
+    const target = path.join(outsideDir, 'keep.txt');
+    fs.writeFileSync(target, 'x');
+    const result = await deleteRepoFile(repoDir, target, new Set());
+    expect(result.deleted).toBe(false);
+    expect(fs.existsSync(target)).toBe(true);
+  });
+
+  it('refuses a ".." escape', async () => {
+    const target = path.join(outsideDir, 'keep.txt');
+    fs.writeFileSync(target, 'x');
+    const result = await deleteRepoFile(repoDir, '../outside/keep.txt', new Set());
+    expect(result.deleted).toBe(false);
+    expect(fs.existsSync(target)).toBe(true);
+  });
+
+  it('refuses a symlink escape', async () => {
+    const target = path.join(outsideDir, 'keep.txt');
+    fs.writeFileSync(target, 'x');
+    fs.symlinkSync(outsideDir, path.join(repoDir, 'link'));
+    const result = await deleteRepoFile(repoDir, 'link/keep.txt', new Set());
+    expect(result.deleted).toBe(false);
+    expect(fs.existsSync(target)).toBe(true);
+  });
+
+  it('does not report a deleted to-delete file as unvisited work', () => {
+    const touched = new Set(['orphan.ts']);
+    expect(computeUnvisited(['repo/orphan.ts', 'repo/other.ts'], 'repo', touched, new Set())).toEqual(['other.ts']);
+  });
+
+  it('allows the DeleteFile tool through canUseTool', async () => {
+    const canUseTool = buildCanUseTool(new Set(), {});
+    const decision = await canUseTool('mcp__wf__DeleteFile', { path: 'a.ts' }, {} as never);
+    expect(decision.behavior).toBe('allow');
+  });
+
+  it('names the DeleteFile tool in the system prompt tool list', () => {
+    expect(buildSystemPrompt({ repoDir })).toContain('mcp__wf__DeleteFile(path)');
   });
 });

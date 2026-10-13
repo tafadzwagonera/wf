@@ -9,7 +9,10 @@ import {
   SDKMessage
 } from '@anthropic-ai/claude-agent-sdk';
 import chalk from 'chalk';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { z } from 'zod';
+import { isWritablePathWithinRoot } from '../../../shared/utils/path-within-root';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -45,6 +48,8 @@ import {
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 
 const claudeCodeTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
+const DELETE_FILE_SERVER_NAME = 'wf';
+const DELETE_FILE_TOOL_NAME = `mcp__${DELETE_FILE_SERVER_NAME}__DeleteFile`;
 const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const MAX_CONTINUATION_PASSES = 15;
 const MAX_CONSECUTIVE_IDLE_PASSES = 3;
@@ -56,7 +61,7 @@ type ActivityState = {
   verificationOutcomes?: VerificationOutcome[];
 };
 
-const isReadOnlyTool = (toolName: string): boolean => toolName !== 'Bash';
+const isAlwaysAllowedTool = (toolName: string): boolean => toolName !== 'Bash';
 
 const isAllowedCommand = (command: string, allowedCommands: Set<string>): boolean =>
   allowedCommands.has(command);
@@ -71,9 +76,9 @@ const denyUnallowedCommand = (command: string, allowedCommands: Set<string>) => 
   };
 };
 
-const buildCanUseTool = (allowedCommands: Set<string>, activityState: ActivityState): CanUseTool =>
+export const buildCanUseTool = (allowedCommands: Set<string>, activityState: ActivityState): CanUseTool =>
   async (toolName, input) => {
-    if (isReadOnlyTool(toolName)) return { behavior: 'allow' };
+    if (isAlwaysAllowedTool(toolName)) return { behavior: 'allow' };
     const command = normalizeCommand(input['command']);
     if (!command) return { behavior: 'deny', message: 'Bash command missing a command string.', interrupt: true };
     if (!isAllowedCommand(command, allowedCommands)) return denyUnallowedCommand(command, allowedCommands);
@@ -84,6 +89,48 @@ const buildCanUseTool = (allowedCommands: Set<string>, activityState: ActivitySt
 
 const resolveRepoPath = (repoDir: string, rawPath: string): string =>
   path.isAbsolute(rawPath) ? rawPath : path.resolve(repoDir, rawPath);
+
+type DeleteFileResult = { deleted: boolean; message: string };
+
+const findDeletionRefusal = async (repoDir: string, absolutePath: string, rawPath: string): Promise<string | null> => {
+  if (absolutePath === path.resolve(repoDir) || !isWritablePathWithinRoot(absolutePath, repoDir)) {
+    return `Delete path is outside the primary repository: ${rawPath}`;
+  }
+  const stats = await fs.lstat(absolutePath).catch(() => undefined);
+  if (!stats) return `File does not exist: ${rawPath}`;
+  return stats.isDirectory() ? `Path is a directory, not a file: ${rawPath}` : null;
+};
+
+export const deleteRepoFile = async (
+  repoDir: string, rawPath: string, touchedFiles: Set<string>,
+): Promise<DeleteFileResult> => {
+  const absolutePath = path.resolve(resolveRepoPath(repoDir, rawPath));
+  const refusal = await findDeletionRefusal(repoDir, absolutePath, rawPath);
+  if (refusal) return { deleted: false, message: refusal };
+  await fs.unlink(absolutePath);
+  const relativePath = path.relative(repoDir, absolutePath);
+  touchedFiles.add(relativePath);
+  console.log(chalk.gray(`  [${ANTHROPIC_AGENT_LABEL}] File deleted: ${relativePath}`));
+  return { deleted: true, message: `Deleted ${relativePath}` };
+};
+
+type AnthropicSdkModule = Awaited<ReturnType<typeof loadAnthropicAgentSdk>>;
+
+const buildDeleteFileMcpServer = (sdk: AnthropicSdkModule, repoDir: string, touchedFiles: Set<string>) =>
+  sdk.createSdkMcpServer({
+    name: DELETE_FILE_SERVER_NAME,
+    tools: [
+      sdk.tool(
+        'DeleteFile',
+        'Delete one file inside the primary repository. Refuses paths outside the repository root.',
+        { path: z.string().min(1) },
+        async args => {
+          const result = await deleteRepoFile(repoDir, args.path, touchedFiles);
+          return { content: [{ type: 'text' as const, text: result.message }], isError: !result.deleted };
+        },
+      ),
+    ],
+  });
 
 const collectPersistedFiles = (message: SDKMessage, repoDir: string, touchedFiles: Set<string>): void => {
   if (message.type !== 'system' || message.subtype !== 'files_persisted') return;
@@ -211,6 +258,7 @@ const anthropicToolsBlock = `Available tools:
 - Glob(pattern, path?): find files by glob pattern
 - Grep(pattern, path?, glob?): search file contents by regex
 - Bash(command): run a verification command only if it is on the whitelist
+- ${DELETE_FILE_TOOL_NAME}(path): delete one file inside the primary repository (use for orphaned files)
 - Skill(skill, args?): invoke a specialized skill (e.g. plan-quality, executing-plans) when one applies to the current task`;
 
 const implementerRulesSection = buildImplementerRulesSection({
@@ -263,6 +311,7 @@ type SdkOptionsParams = {
   systemPromptBody: string;
   allowedCommands: Set<string>;
   activityState: ActivityState;
+  deleteFileServer: ReturnType<typeof buildDeleteFileMcpServer>;
 };
 
 const buildSystemPromptAppend = (
@@ -308,10 +357,11 @@ const buildSdkSystemPrompt = (
 
 const buildSdkOptions = (params: SdkOptionsParams) => {
   const { repoDir, additionalRepoDirs, model, apiKey, claudeContext, priorStageSummary, systemPromptBody } = params;
-  const { allowedCommands, activityState } = params;
+  const { allowedCommands, activityState, deleteFileServer } = params;
   return {
     cwd: repoDir, model,
-    tools: [...claudeCodeTools], allowedTools: [...claudeCodeTools],
+    tools: [...claudeCodeTools], allowedTools: [...claudeCodeTools, DELETE_FILE_TOOL_NAME],
+    mcpServers: { [DELETE_FILE_SERVER_NAME]: deleteFileServer },
     permissionMode: 'acceptEdits' as const, agentProgressSummaries: true,
     settingSources: ['project'] as SettingSource[], settings: buildClaudeCodeSettings(repoDir),
     systemPrompt: buildSdkSystemPrompt(priorStageSummary, claudeContext, systemPromptBody),
@@ -508,7 +558,7 @@ const runContinuationPass = async (p: ContinuationPassParams): Promise<Continuat
   return finalizeContinuationResult(result, p.passNumber, p.touchedFiles.size > touchedBefore || accepted > 0);
 };
 
-const computeUnvisited = (
+export const computeUnvisited = (
   repoFiles: string[], repoName: string, touchedFiles: Set<string>, notApplicableFiles: Set<string>,
 ): string[] =>
   repoFiles
@@ -677,20 +727,22 @@ type SessionOptionsInput = {
   allowedCommands: Set<string>;
   activityState: ActivityState;
   apiKey: string;
+  touchedFiles: Set<string>;
+  sdk: AnthropicSdkModule;
 };
 
 const resolveSessionOptions = async (input: SessionOptionsInput) => {
-  const { params, configService, allowedCommands, activityState, apiKey } = input;
+  const { params, configService, allowedCommands, activityState, apiKey, touchedFiles, sdk } = input;
   const repoDir = params.options.repoDir ?? process.cwd();
-  const additionalRepoDirs = params.options.additionalRepoDirs ?? [];
   const claudeContext = await loadClaudeContext(repoDir);
   const { model, systemPromptBody } = resolveModelAndPrompt(params, configService, repoDir);
   return {
     model,
     repoDir,
     sdkOptions: buildSdkOptions({
-      repoDir, additionalRepoDirs, model, apiKey, claudeContext,
+      repoDir, additionalRepoDirs: params.options.additionalRepoDirs ?? [], model, apiKey, claudeContext,
       priorStageSummary: params.options.priorStageSummary, systemPromptBody, allowedCommands, activityState,
+      deleteFileServer: buildDeleteFileMcpServer(sdk, repoDir, touchedFiles),
     }),
   };
 };
@@ -791,18 +843,25 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     return { verificationScripts: params.verificationScripts, verificationOutcomes: [] };
   }
 
+  private async prepareSession(params: GenerateAndVerifyParams, activityState: ActivityState) {
+    const sdk = await loadAnthropicAgentSdk();
+    const touchedFiles = new Set<string>();
+    const resolved = await resolveSessionOptions({
+      params, configService: this.configService, activityState,
+      allowedCommands: buildAllowedCommands(params.verificationScripts),
+      apiKey: this.resolveApiKey(), touchedFiles, sdk,
+    });
+    return { ...resolved, query: sdk.query as SdkQueryFn, touchedFiles };
+  }
+
   private async buildAndExecuteSession(
     params: GenerateAndVerifyParams,
   ): Promise<{ sessionId: string; activityState: ActivityState; model: string }> {
     const activityState = this.buildActivityState(params);
-    const allowedCommands = buildAllowedCommands(params.verificationScripts);
-    const { model, repoDir, sdkOptions } = await resolveSessionOptions(
-      { params, configService: this.configService, allowedCommands, activityState, apiKey: this.resolveApiKey() }
-    );
-    const { query } = await loadAnthropicAgentSdk();
+    const { model, repoDir, sdkOptions, query, touchedFiles } = await this.prepareSession(params, activityState);
     const sessionId = await executeAgentSession({
-      query: query as SdkQueryFn, sdkOptions: sdkOptions as Record<string, unknown>,
-      params, repoDir, touchedFiles: new Set<string>(), notApplicableFiles: new Set<string>(), activityState,
+      query, sdkOptions: sdkOptions as Record<string, unknown>,
+      params, repoDir, touchedFiles, notApplicableFiles: new Set<string>(), activityState,
     });
     return { sessionId, activityState, model };
   }

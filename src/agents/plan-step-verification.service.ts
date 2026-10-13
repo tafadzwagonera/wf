@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
+import { needleSearchReminder } from '../integrations/ai/prompt-fragments';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
@@ -74,6 +75,7 @@ const commandEvidenceRules = [
 const verificationPromptFooter = [
   '',
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
+  needleSearchReminder,
   'After all edits are complete, run each verification command exactly as written.',
   'If a flagged claim cannot be implemented exactly as written, say why in the final message.',
   [

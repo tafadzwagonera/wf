@@ -875,6 +875,9 @@ const createOpenAiListFilesTool = () => tool({
   },
 });
 
+export const buildRipgrepCommand = (pattern: string, relativeRoot: string): string =>
+  `rg -n -i --hidden -g '!.git' ${JSON.stringify(pattern)} ${relativeRoot}`;
+
 const createOpenAiSearchFilesTool = () => tool({
   name: 'search_files',
   description: 'Search repository files with ripgrep.',
@@ -882,7 +885,8 @@ const createOpenAiSearchFilesTool = () => tool({
   async execute(input, runContext) {
     const ctx = runContext?.context as OpenAiStageContext;
     const relativeRoot = input.root.trim() || '.';
-    const { stdout } = await execAsync(`rg -n ${JSON.stringify(input.pattern)} ${relativeRoot}`, { cwd: ctx.repoDir, maxBuffer: MAX_BUFFER_IN_BYTES });
+    const command = buildRipgrepCommand(input.pattern, relativeRoot);
+    const { stdout } = await execAsync(command, { cwd: ctx.repoDir, maxBuffer: MAX_BUFFER_IN_BYTES });
     return stdout.trim();
   },
 });

@@ -1119,3 +1119,11 @@ describe('PlanStepVerificationService', () => {
     });
   });
 });
+
+describe('buildPlanStepVerificationPrompt needle search reminder', () => {
+  it('tells the fixer to search case-insensitively across the whole repository', () => {
+    const pending = [{ index: 0, status: 'missing', missing: 'x' }] as never;
+    const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stepTexts: new Map([[0, 'step']]) });
+    expect(prompt).toContain('case-insensitively across the whole repository');
+  });
+});

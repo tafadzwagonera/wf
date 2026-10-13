@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../shared/utils/errors';
+import { isWithinRoot, resolveWritablePath as resolveWritableAbsolutePath } from '../../../shared/utils/path-within-root';
 import { formatPlanRisks } from '../../../shared/utils/plan-risk';
 import {
   Agent,
@@ -247,11 +248,6 @@ const toWorkspaceRoots = (repoDir: string, additionalRepoDirs: string[]): Worksp
   return deduplicateRoots(roots);
 };
 
-const isWithinRoot = (absolutePath: string, root: string): boolean => {
-  const rel = path.relative(root, absolutePath);
-  return rel.length > 0 && !rel.startsWith('..');
-};
-
 const matchRootPrefix = (segments: string[], roots: WorkspaceRoot[]): string | undefined => {
   const [prefix, ...rest] = segments;
   const matched = roots.find(r => r.name === prefix);
@@ -274,14 +270,12 @@ const resolveReadablePath = (requestedPath: string, ctx: OpenAiImplementerContex
   return abs;
 };
 
-const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContext): string => {
-  const abs = resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir);
-  const primaryRoot = ctx.readRoots[0]?.root ?? ctx.repoDir;
-  if (!isWithinRoot(abs, primaryRoot) && abs !== primaryRoot) {
-    throw new ValidationError(`Write path is outside the primary repository: ${requestedPath}`, { path: requestedPath });
-  }
-  return abs;
-};
+const resolveWritablePath = (requestedPath: string, ctx: OpenAiImplementerContext): string =>
+  resolveWritableAbsolutePath(
+    resolveRepoPrefixedPath(requestedPath, ctx.readRoots, ctx.repoDir),
+    ctx.readRoots[0]?.root ?? ctx.repoDir,
+    requestedPath,
+  );
 
 const getToolContext = (runContext: RunContext<unknown> | undefined): OpenAiImplementerContext => {
   const ctx = runContext?.context as OpenAiImplementerContext | undefined;
@@ -754,8 +748,10 @@ const handleGrepError = (err: { code?: number; message?: string }, pattern: stri
   return JSON.stringify({ pattern, matches: [], truncated: false, error: err.message ?? 'Search failed' });
 };
 
-const buildGrepCommand = (pattern: string, root: string, globArg: string, max: number): string =>
-  `grep -rn ${globArg} -m ${max} -E ${shellEscape(pattern)} ${shellEscape(root)}`;
+const GREP_EXCLUDE_DIRS_ARG = ['node_modules', 'dist', '.git'].map(dir => `--exclude-dir=${dir}`).join(' ');
+
+export const buildGrepCommand = (pattern: string, root: string, globArg: string, max: number): string =>
+  `grep -rn -i -I ${GREP_EXCLUDE_DIRS_ARG} ${globArg} -m ${max} -E ${shellEscape(pattern)} ${shellEscape(root)}`;
 
 const executeSearchFiles = async (
   input: { pattern: string; path: string; file_glob: string; max_results: number },
@@ -1014,7 +1010,7 @@ const logCompletion = (
   logFinalOutput(typeof run.finalOutput === 'string' ? run.finalOutput.trim() : '');
 };
 
-const computeWorkload = (
+export const computeWorkload = (
   fileChangeStatus: Map<string, string>, repoFiles: string[], repoName: string, failures: ValidationFailure[],
   notApplicableFiles: Set<string>,
 ): { total: number; unvisited: string[]; failureCount: number } => {
@@ -1060,14 +1056,14 @@ type OaiContinuationPromptParams = {
   taskBriefParams: BuildPlanContextParams;
 };
 
-const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
+export const buildContinuationPrompt = (p: OaiContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.unvisited.length;
   const sections = buildIncompleteWorkSections(p.unvisited, p.failureCount, p.failures);
   return [
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
-    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for any remaining migration patterns and continue editing until zero matches remain. ${noChangeInstruction} Do not output any text or plan before calling your first tool.`,
+    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for the needle, case-insensitive, across the whole repository including non-code files, and continue editing until zero matches remain. ${noChangeInstruction} Do not output any text or plan before calling your first tool.`,
   ].join('\n');
 };
 

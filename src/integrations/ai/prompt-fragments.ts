@@ -2,6 +2,24 @@ import * as path from 'node:path';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { FigmaFrameContext, FigmaNodeLayout } from '../figma/figma-rest.client';
 
+export const implementerSearchRule = 'For a rename or terminology migration, search with a broad case-insensitive '
+  + 'substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\\boldterm\\b/) — the latter misses '
+  + 'kebab-case identifiers (old-term-thing), capitalized prose (OldTerm), and other non-word-boundary forms that are '
+  + 'still real occurrences of the term being migrated. Run this search across the whole repository, including '
+  + 'docs/specs directories, not only the source directories the plan happened to list.';
+
+export const implementerDeleteOrphanRule = (searchTool: string): string =>
+  `For any file you edit or delete content from as part of a rename, removal, or refactor, use ${searchTool} to check `
+  + 'whether it still has any remaining importers/callers once your edits land. If it has zero remaining references '
+  + 'anywhere in the repo, delete it rather than leaving an orphaned module behind — do not just note it as dead '
+  + 'code for a future ticket.';
+
+export const needleSearchReminder = 'Search for the needle case-insensitively across the whole repository, '
+  + 'including non-code files such as docs, specs, config, env files and CI.';
+
+export const gitignoreSearchNote = 'Claude\'s Grep honours .gitignore, so ignored files need '
+  + '`git grep --no-index` through Bash.';
+
 /**
  * Condensed step-writing principles for the plan prompt.
  * Gen-5 models respond better to judgment-oriented principles than to
@@ -35,11 +53,12 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      consumer and list every copy point (raw schema, normalizer, derived types, docs) in the same
      step — a value that validates but is never read is a defect, not future-proofing.
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
-     checkpoints using the \`phases\` array.`;
+     checkpoints using the \`phases\` array.
+   - ${implementerSearchRule} ${gitignoreSearchNote}`;
 
 export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
-   placeholders. Set status to "found" for existing files or "to-create" for new files.
+   placeholders. Set status to "found" for existing files, "to-delete" for orphaned files the plan deletes, or "to-create" for new files.
    Verify each path exists with tools before listing it — hallucinated paths cause the implementer to stall.
 4. Files needed for **context only** (read, not edit) — same object shape as affectedFiles.
    All context files must have status "found". Verify each path exists before listing it.

@@ -1,4 +1,5 @@
 import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail } from './shared-routing';
+import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
 import type { ResolutionPlan } from '../ai.service';
@@ -671,5 +672,22 @@ describe('continuationTail', () => {
     expect(continuationTail).toContain(noChangeInstruction);
     expect(continuationTail).toContain('Begin by taking action');
     expect(continuationTail).toContain('declare it NO-CHANGE');
+  });
+});
+
+describe('shared needle search wording', () => {
+  const rules = buildImplementerRulesSection({
+    read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+  });
+
+  it('continuationTail asks for the needle case-insensitively across the whole repository', () => {
+    expect(continuationTail).toContain('the needle, case-insensitive, across the whole repository including non-code files');
+    expect(continuationTail).not.toContain('remaining migration patterns');
+  });
+
+  it('implementer rules embed the shared search and delete-orphan strings verbatim', () => {
+    expect(rules).toContain(implementerSearchRule);
+    expect(rules).toContain(implementerDeleteOrphanRule('Grep'));
+    expect(rules).not.toContain('remaining migration patterns');
   });
 });

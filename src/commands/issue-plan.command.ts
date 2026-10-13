@@ -182,6 +182,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices, responsive grid-cols breakpoint tiers mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
     + 'Existing components and composables whose names share significant vocabulary with the ticket are surfaced in the plan prompt as reuse candidates so the planner can reference them before creating new files; repos that place UI files outside `app/components` or `app/composables` receive no candidates. '
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
+    + 'Steps that delete, drop, remove, replace or rename a term also need a case-insensitive zero-match verification command such as `bash -c \'! git grep -I -i -q -F <term>\'` (or a `needle-search-required` waiver); a missing or `\\b`-only check is reported as an advisory quality risk after the repair retry. The planner is told to search the needle case-insensitively across the whole repository, including docs, specs, config, env files and CI, and may mark orphaned files it deletes with the `to-delete` file status (rejected in affectedFilesContext). '
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
     + 'outside the selected repository are rejected. '
@@ -879,8 +880,8 @@ export class IssuePlanCommand extends CommandRunner {
     this.assertRepoPrefixes(affected, repos, 'affectedFiles');
     this.assertRepoPrefixes(context, repos, 'affectedFilesContext');
 
-    const badStatus = context.filter(e => e.status === 'to-create');
-    if (badStatus.length > 0) throw createPlanValidationError(`affectedFilesContext entries cannot have status "to-create" — context files must already exist. Invalid: ${badStatus.map(e => e.filePath).join(', ')}.`);
+    const badStatus = context.filter(e => e.status === 'to-create' || e.status === 'to-delete');
+    if (badStatus.length > 0) throw createPlanValidationError(`affectedFilesContext entries cannot have status "to-create" or "to-delete" — context files must already exist and stay. Invalid: ${badStatus.map(e => e.filePath).join(', ')}.`);
   }
 
   private assertRepoPrefixes(entries: any[], repos: string[], label: string): void {
@@ -910,8 +911,8 @@ export class IssuePlanCommand extends CommandRunner {
       console.log(chalk.yellow(`  ⚠ ${entry.filePath}: status "to-create" but file already exists — correcting to "found"`));
       entry.status = 'found';
     }
-    if (!exists && entry.status === 'found') {
-      console.log(chalk.yellow(`  ⚠ ${entry.filePath}: status "found" but file does not exist — correcting to "not-found"`));
+    if (!exists && (entry.status === 'found' || entry.status === 'to-delete')) {
+      console.log(chalk.yellow(`  ⚠ ${entry.filePath}: status "${entry.status}" but file does not exist — correcting to "not-found"`));
       entry.status = 'not-found';
     }
   }

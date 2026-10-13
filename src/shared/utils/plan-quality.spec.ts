@@ -77,6 +77,7 @@ describe('validatePlanQuality', () => {
               policy: 'enforced',
             },
           ],
+          waivers: [{ id: 'needle-search-required', reason: 'not a term removal' }],
         },
       },
       affectedRepositories: [repoName],
@@ -94,6 +95,7 @@ describe('validatePlanQuality', () => {
         estimatedComplexity: 'low',
         steps: ['Rename AuthService in wf/src/auth/auth.service.ts.'],
         affectedRepositories: [repoName],
+        verification: { waivers: [{ id: 'needle-search-required', reason: 'not a term removal' }] },
       },
       affectedRepositories: [repoName],
       testInfra: mockTestInfra,
@@ -115,6 +117,7 @@ describe('validatePlanQuality', () => {
         estimatedComplexity: 'low',
         steps: ['Rename AuthService as part of cleanup in wf/src/auth/auth.service.ts.'],
         affectedRepositories: [repoName],
+        verification: { waivers: [{ id: 'needle-search-required', reason: 'not a term removal' }] },
       },
       affectedRepositories: [repoName],
       testInfra: mockTestInfra,
@@ -765,5 +768,72 @@ describe('formatPlanQualityViolations', () => {
     const violations = ['[test-rule] This is a message that should wrap at default width.'];
     const output = formatPlanQualityViolations(violations, 'Test');
     expect(output).toContain('[test-rule]');
+  });
+});
+
+describe('validatePlanQuality — needle-search-required', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const removalStep = 'Delete the NUXT_POWERREVIEWS env vars from wf/src/config/env.ts.';
+  const needleViolations = (plan: Parameters<typeof validatePlanQuality>[0]['plan']) =>
+    validatePlanQuality({ plan }).filter(v => v.ruleId === 'needle-search-required');
+
+  const targeted = (run: string) => ({
+    targeted: [{ id: 'needle', run, policy: 'enforced' as const, reason: 'zero matches' }],
+  });
+
+  it('flags a removal step with no zero-match command', () => {
+    expect(needleViolations({ steps: [removalStep] })).toHaveLength(1);
+  });
+
+  it('passes a negated case-insensitive git grep', () => {
+    expect(needleViolations({
+      steps: [removalStep], verification: targeted('! git grep -I -i -q -F NUXT_POWERREVIEWS'),
+    })).toEqual([]);
+  });
+
+  it('flags a command without -i', () => {
+    expect(needleViolations({
+      steps: [removalStep], verification: targeted('! git grep -I -q -F NUXT_POWERREVIEWS'),
+    })).toHaveLength(1);
+  });
+
+  it('flags a command that uses word-boundary patterns', () => {
+    expect(needleViolations({
+      steps: [removalStep], verification: targeted("! grep -rniE '\\bpowerreviews\\b' ."),
+    })).toHaveLength(1);
+  });
+
+  it('is suppressed by a matching waiver', () => {
+    expect(needleViolations({
+      steps: [removalStep],
+      verification: { waivers: [{ id: 'needle-search-required', reason: 'ADR keeps the old name' }] },
+    })).toEqual([]);
+  });
+
+  it('ignores steps without removal or replacement verbs', () => {
+    expect(needleViolations({ steps: ['Add a spec for the parser in wf/src/parser.spec.ts.'] })).toEqual([]);
+  });
+
+  it('recommended bash -c form satisfies the needle rule and the verification allowlist together', () => {
+    const testInfra: TestInfraContext = {
+      primary: 'node',
+      ecosystems: [{
+        ecosystem: 'node' as const, nodeVersionMajor: 22, hasNodeTest: true, frameworks: ['jest'],
+        scripts: { test: 'jest' }, allScriptNames: ['test'],
+        testPatterns: {
+          fileSuffix: '.spec' as const, mockPrefix: 'mock', mockFactoryPrefix: 'createMock',
+          describeStyle: 'flat' as const, helperPaths: [], mockCleanup: { namespace: 'jest', method: 'restoreAllMocks' as const },
+          diSetupPattern: 'testing-module' as const, errorHandlerExits: true,
+        },
+      }],
+    };
+    const violations = validatePlanQuality({
+      plan: { steps: [removalStep], verification: targeted("bash -c '! git grep -I -i -q -F NUXT_POWERREVIEWS'") },
+      testInfra,
+    });
+    expect(violations).toEqual([]);
   });
 });

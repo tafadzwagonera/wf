@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { exec } from 'node:child_process';
 import { ConfigurationError } from '../../../shared/utils/errors';
 import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
+import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -233,7 +234,8 @@ export const noChangeInstruction
 export const continuationTail
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
     + 'After addressing all listed files, run each verification command above exactly as written. '
-    + 'Then use Grep to search for any remaining migration patterns and continue editing until zero matches remain. '
+    + 'Then use Grep to search for the needle, case-insensitive, across the whole repository including non-code files, '
+    + 'and continue editing until zero matches remain. '
     + `${noChangeInstruction} `
     + 'Begin by taking action: read the first listed file and apply its edit or declare it NO-CHANGE. '
     + 'Save narration for after you\'ve made the changes.';
@@ -319,7 +321,7 @@ const buildImplementerEditingRuleLines = (t: ImplementerToolNames): string[] => 
   `Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.`,
   `Use ${t.search} to find relevant line numbers, then ${t.read} with offset/limit to read only the section you need. Avoid reading entire large files.`,
   `For mechanical migrations (e.g. replacing Logger with PinoLogger across many files): use ${t.search} to find all call sites, then apply ${t.edit} to each file without re-reading the full file — the search results show enough context.`,
-  `For a rename or terminology migration, search with a broad case-insensitive substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\\boldterm\\b/) — the latter misses kebab-case identifiers (old-term-thing), capitalized prose (OldTerm), and other non-word-boundary forms that are still real occurrences of the term being migrated. Run this search across the whole repository, including docs/specs directories, not only the source directories the plan happened to list.`,
+  implementerSearchRule,
   `Use ${t.glob} to discover file paths instead of guessing.`,
   `${t.verify} is the only way to execute a shell command and rejects anything outside the verification whitelist.`,
   'Modify existing functions in place rather than duplicating them — this applies to constructors, methods, and standalone functions.',
@@ -329,10 +331,10 @@ const buildImplementerEditingRuleLines = (t: ImplementerToolNames): string[] => 
 
 const buildImplementerCompletionRuleLines = (t: ImplementerToolNames): string[] => [
   'Implement all plan steps — do not stop after core infrastructure when remaining steps exist.',
-  `For any file you edit or delete content from as part of a rename, removal, or refactor, use ${t.search} to check whether it still has any remaining importers/callers once your edits land. If it has zero remaining references anywhere in the repo, delete it rather than leaving an orphaned module behind — do not just note it as dead code for a future ticket.`,
+  implementerDeleteOrphanRule(t.search),
   'The returned progress signal reflects a single verification command, not overall plan completion — treat it as a heuristic.',
   'Use verification commands as intermediate checkpoints to catch regressions. After each passing verification, check whether ALL plan steps are done. If any migration or refactoring work remains, continue working.',
-  `After verification passes, run ${t.search} to count remaining migration patterns. If any matches remain, keep editing — do not output a summary until the search returns zero matches.`,
+  `After verification passes, run ${t.search} to count remaining matches for the needle, case-insensitive, across the whole repository including non-code files. If any matches remain, keep editing — do not output a summary until the search returns zero matches.`,
   'Stop only when migration search confirms zero remaining instances and all verification commands pass (exit 0), or when no file changes are required. Then output the following summary filled in with actual results.',
 ];
 
