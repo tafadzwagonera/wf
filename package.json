@@ -129,6 +129,7 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "setupFiles": [
+      "<rootDir>/../test/setup/disable-ansi-colors.ts",
       "<rootDir>/../test/setup/isolate-wf-home.ts"
     ],
     "setupFilesAfterEnv": [
