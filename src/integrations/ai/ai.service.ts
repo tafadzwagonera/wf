@@ -66,7 +66,7 @@ import {
   formatFigmaPlanPromptSection,
   formatUiDesignScreenshotsPlanPromptSection,
   planFileListingInstructions,
-  planMinimalChangePrinciple,
+  planChangePrinciple,
   planStepPrinciples,
   reviewInstructions,
   reviewOutputSchema,
@@ -666,7 +666,7 @@ const assemblePlanPrompt = (
   outputSchema: string,
   skillSection: string
 ): string =>
-  [preamble, discoveryBlock, planStepInstructions, skillSection, '\n', ...testSections, planMinimalChangePrinciple, '\n', verificationBlock, '\n', outputSchema].join('');
+  [preamble, discoveryBlock, planStepInstructions, skillSection, '\n', ...testSections, planChangePrinciple, '\n', verificationBlock, '\n', outputSchema].join('');
 
 const extractSkillNames = (context: Record<string, unknown> | undefined): string[] | undefined => {
   const skillNames = Array.isArray(context?.skillNames) ? (context.skillNames as string[]) : [];

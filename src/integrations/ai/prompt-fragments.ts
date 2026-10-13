@@ -30,8 +30,9 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      should state both the current and target names/paths/types so the implementer does not guess.
    - When a step reuses an existing file, component, class, method, or utility function outside the
      context it was originally named for (e.g. a page-scoped component pulled onto an unrelated page,
-     or a single-purpose helper generalized to a second call site), state whether its name still
-     describes its general behavior. If not, the rename is part of this step, not a follow-up.
+     or a single-purpose helper generalized to a second call site), or touches one only in passing
+     (an importer, a mock, a doc reference, a sibling of code being removed), state whether its name
+     still describes its actual behavior. If not, the rename is part of this step, not a follow-up.
    - Trace impact across the codebase: when touching shared functions, nullable fields, CLI options,
      or documentation, follow every call site, consumer, and user-facing surface to decide whether
      it also needs updating. State findings explicitly.
@@ -66,7 +67,7 @@ export const planFileListingInstructions = `3. Files that will be **modified** �
 6. Repositories that will be affected (if known)
 7. New repositories that must be created (not yet existing locally) — a subset of affectedRepositories. Omit or leave empty when the plan only touches existing repos`;
 
-export const planMinimalChangePrinciple = `Minimal-change principle: propose the smallest effective change scoped to the ticket. Limit verification to files edited by this plan. Prefer changes that are replaceable or deletable without cascading effects.`;
+export const planChangePrinciple = `Change principle: propose the most effective and sustainable change scoped to the ticket, including renames and cleanups that the change itself makes necessary. Limit verification to files edited by this plan. Prefer changes that are replaceable or deletable without cascading effects.`;
 
 /**
  * Format the Figma discovery block for the plan prompt.
