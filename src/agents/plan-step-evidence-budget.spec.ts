@@ -1,6 +1,7 @@
 import {
   allocateEvidence,
   buildEvidenceCompletenessSection,
+  buildStepResponseShapeLines,
   computeEvidenceBudget,
   gapAwareStatusRules,
   hasEvidenceGaps,
@@ -190,19 +191,33 @@ describe('plan step evidence budget', () => {
     });
 
     it('returns the plain rules unchanged when there are no gaps', () => {
-      const rules = gapAwareStatusRules(createMockReport());
+      const rules = gapAwareStatusRules(createMockReport(), [0, 1]);
       expect(rules).toContain(unverifiableRule('evidence'));
       expect(rules.join('\n')).not.toContain('evidence gap');
     });
 
     it('swaps only the unverifiable line when gaps exist', () => {
-      const plain = gapAwareStatusRules(createMockReport());
-      const gapped = gapAwareStatusRules(gapReport);
+      const plain = gapAwareStatusRules(createMockReport(), [0, 1]);
+      const gapped = gapAwareStatusRules(gapReport, [0, 1]);
       expect(gapped).toHaveLength(plain.length);
       const changed = gapped.filter((line, i) => line !== plain[i]);
       expect(changed).toHaveLength(1);
       expect(changed[0]).toContain('disclosed evidence gap');
       expect(changed[0].startsWith(unverifiableRule('evidence').replace(' (requires missing field)', ''))).toBe(true);
+    });
+  });
+
+  describe('buildStepResponseShapeLines', () => {
+    it('renders the example from the first two real indices', () => {
+      const text = buildStepResponseShapeLines([5, 6, 8, 9]).join('\n');
+      expect(text).toContain('{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}]}');
+      expect(text).toContain('Use the exact N from each [Plan step N] tag — never renumber from 0.');
+    });
+
+    it('renders only the single index when one step is assessed', () => {
+      const text = buildStepResponseShapeLines([7]).join('\n');
+      expect(text).toContain('{"statuses":[{"index":7,"status":"done"}]}');
+      expect(text).not.toContain('partially-done","missing":"…"}]}');
     });
   });
 

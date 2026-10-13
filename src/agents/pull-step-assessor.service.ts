@@ -5,7 +5,7 @@ import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '
 import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 import { ConfigurationError } from '../shared/utils/errors';
-import { unverifiableRule } from './plan-step-evidence-budget';
+import { buildStepResponseShapeLines, unverifiableRule } from './plan-step-evidence-budget';
 import type { AssessableStep } from './step-spec-fidelity.service';
 
 export type PullStepAssessmentParams = {
@@ -38,10 +38,9 @@ const pullEvidenceInstructions = (baseRef: string): string[] => [
   '- Inspect before judging. Do not assume changes you have not seen.',
 ];
 
-const pullResponseInstructions = [
+const buildPullResponseInstructions = (indices: number[]): string[] => [
   'Index each step ONLY by its [Plan step N] tag.',
-  'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
-  '{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}',
+  ...buildStepResponseShapeLines(indices),
 ];
 
 export const buildPullStepAssessorPrompt = (steps: AssessableStep[], baseRef: string): string => {
@@ -54,7 +53,7 @@ export const buildPullStepAssessorPrompt = (steps: AssessableStep[], baseRef: st
     '',
     ...pullStatusRules,
     '',
-    ...pullResponseInstructions,
+    ...buildPullResponseInstructions(steps.map(step => step.index)),
   ].join('\n');
 };
 

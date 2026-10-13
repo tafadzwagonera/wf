@@ -10,6 +10,7 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
+import { ApiError, ERROR_CODE } from '../shared/errors/app.error';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
 import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../shared/types/config.types';
 import { PullStepAssessorService } from './pull-step-assessor.service';
@@ -353,7 +354,7 @@ export const buildStepAssessorPrompt = (
   const section = buildExecutionEvidenceSection(executionEvidence);
   const parts = [
     ...stepAssessorPreamble, numbered, buildPushEvidenceBody(evidence),
-    ...(section ? [section, ''] : []), ...gapAwareStatusRules(evidence.budgetReport),
+    ...(section ? [section, ''] : []), ...gapAwareStatusRules(evidence.budgetReport, steps.map(step => step.index)),
     ...(section ? commandEvidenceRules : []),
   ];
   return parts.join('\n');
@@ -403,6 +404,12 @@ const partitionAssessments = (
   }
   return { assessments, droppedIndices };
 };
+
+const buildZeroAcceptedError = (expectedIndices: number[], droppedIndices: number[]): ApiError => new ApiError(
+  ERROR_CODE.AI_PROVIDER_ERROR,
+  `Assessor response accepted zero of ${expectedIndices.length} expected step indices`,
+  undefined, undefined, { expectedIndices, droppedIndices }, true,
+);
 
 const buildUnassessedFallback = (index: number): StepAssessment => ({
   index,
@@ -760,8 +767,20 @@ export class PlanStepVerificationService {
       this.logEventAndAppendToLogFile('WARN', `step-verify.prompt.oversize chars=${prompt.length}`, params.silent);
     }
     const statuses = await this.requestPushAssessment(params, prompt);
+    this.assertGroupIndicesInScope(statuses, group.steps.map(step => step.index));
     this.logUnverifiableEvidenceGap(statuses, group.evidence.budgetReport, params.silent);
     return statuses;
+  }
+
+  private assertGroupIndicesInScope(statuses: StepAssessment[], expectedIndices: number[]): void {
+    const expected = new Set(expectedIndices);
+    const returnedIndices = statuses.map(status => status.index);
+    const outOfScope = returnedIndices.filter(index => !expected.has(index));
+    const coversAny = returnedIndices.some(index => expected.has(index));
+    if (coversAny && !outOfScope.length) return;
+    throw new Error(
+      `Assessor returned indices [${returnedIndices.join(',')}] but expected [${expectedIndices.join(',')}]`,
+    );
   }
 
   private logUnverifiableEvidenceGap(
@@ -797,6 +816,9 @@ export class PlanStepVerificationService {
     const { assessments, droppedIndices } = partitionAssessments(statuses, expectedIndices);
     const missingIndices = expectedIndices.filter(index => !assessments.has(index));
     this.logReconciliationAnomalies(missingIndices, droppedIndices, silent);
+    if (expectedIndices.length && !assessments.size) {
+      throw buildZeroAcceptedError(expectedIndices, droppedIndices);
+    }
     for (const index of missingIndices) {
       assessments.set(index, buildUnassessedFallback(index));
     }

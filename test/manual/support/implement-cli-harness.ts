@@ -11,13 +11,17 @@ import {
 export const projectRoot = path.resolve(__dirname, '../../..');
 export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
-export type FakeClaudeMode = 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan';
+export type FakeClaudeMode
+  = | 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan'
+    | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope';
 
 export type PlanOverrides = {
   steps?: string[];
   verification?: Record<string, unknown>;
   statusByFile?: Record<string, string>;
   extraFiles?: Record<string, string>;
+  stepVerification?: Record<string, unknown>;
+  estimatedComplexity?: string;
 };
 
 export type ImplementHarness = {
@@ -44,7 +48,8 @@ const { mode, countFile, promptDir } = JSON.parse(fs.readFileSync(path.join(here
 fs.appendFileSync(countFile, 'x\\n');
 const n = fs.readFileSync(countFile, 'utf8').split('\\n').filter(Boolean).length;
 const stdin = fs.readFileSync(0, 'utf8');
-fs.writeFileSync(path.join(promptDir, n + '.txt'), process.argv.slice(2).join('\\n') + '\\n' + stdin);
+const fullPrompt = process.argv.slice(2).join('\\n') + '\\n' + stdin;
+fs.writeFileSync(path.join(promptDir, n + '.txt'), fullPrompt);
 const emit = (message) => console.log(JSON.stringify(message));
 const toolUse = (name, file) => emit({
   type: 'assistant',
@@ -53,6 +58,26 @@ const toolUse = (name, file) => emit({
 const result = (text) => emit({
   type: 'result', subtype: 'success', is_error: false, result: text, session_id: 's1', num_turns: 1,
 });
+const respondAsAssessor = () => {
+  const seenFile = path.join(here, 'assessor-seen.txt');
+  fs.appendFileSync(seenFile, 'x');
+  const call = fs.readFileSync(seenFile, 'utf8').length;
+  const tags = [...fullPrompt.matchAll(/\\[Plan step (\\d+)\\]/g)].map(match => Number(match[1]));
+  const done = index => ({ index, status: 'done' });
+  const pending = [5, 6, 8, 9];
+  const firstRound = tags.map(index => (
+    pending.includes(index) ? { index, status: 'not-done', missing: 'still missing' } : done(index)
+  ));
+  const secondRound = mode === 'assessorOmitOne' && call === 2 ? tags.filter(index => index !== 9).map(done) : tags.map(done);
+  const laterRound = mode === 'assessorRenumber' ? [0, 1, 2, 3].map(done) : secondRound;
+  const statuses = mode === 'assessorPullOutOfScope' ? [done(9)] : call === 1 ? firstRound : laterRound;
+  emit({
+    type: 'result', subtype: 'success', is_error: false, result: '', structured_output: { statuses },
+    session_id: 's1', num_turns: 1,
+  });
+};
+const isAssessorPrompt = fullPrompt.includes('Index each step ONLY by its [Plan step N] tag');
+const respondAsImplementer = () => {
 let text = 'done';
 if (mode === 'writeEachPass' && n > 1) {
   fs.writeFileSync('extra-' + n + '.ts', 'export {};\\n');
@@ -73,15 +98,18 @@ if (mode === 'declareAndEdit' && n === 2) {
   text = 'NO-CHANGE: src/a.ts\\nNO-CHANGE: src/b.ts';
 }
 result(text);
+};
+if (mode.startsWith('assessor') && isAssessorPrompt) respondAsAssessor();
+else respondAsImplementer();
 `;
 
-const buildWfConfig = (): string => [
+const buildWfConfig = (stepVerification?: Record<string, unknown>): string => [
   'module.exports = {',
   '  ai: [',
   "    { provider: 'anthropic', model: 'claude-sonnet-4-6', default: true, apiKey: 'test-key' },",
   '  ],',
   '  stages: {',
-  "    implement: { provider: 'anthropic', backend: 'cli' },",
+  `    implement: { provider: 'anthropic', backend: 'cli'${stepVerification ? `, planStepVerification: ${JSON.stringify(stepVerification)}` : ''} },`,
   '  },',
   '};',
   '',
@@ -91,11 +119,14 @@ const git = (cwd: string, args: string[]): void => {
   spawnSync('git', args, { cwd, stdio: 'pipe' });
 };
 
-const initRepo = (repoDir: string, plannedFiles: string[], extraFiles: Record<string, string> = {}): void => {
+const initRepo = (
+  repoDir: string, plannedFiles: string[], extraFiles: Record<string, string> = {},
+  stepVerification?: Record<string, unknown>,
+): void => {
   git(repoDir, ['init']);
   git(repoDir, ['config', 'user.email', 'test@test.com']);
   git(repoDir, ['config', 'user.name', 'Test']);
-  fs.writeFileSync(path.join(repoDir, 'wf.config.js'), buildWfConfig(), 'utf-8');
+  fs.writeFileSync(path.join(repoDir, 'wf.config.js'), buildWfConfig(stepVerification), 'utf-8');
   fs.writeFileSync(path.join(repoDir, 'README.md'), '# Smoke\n', 'utf-8');
   fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
   for (const file of plannedFiles) fs.writeFileSync(path.join(repoDir, file), 'export {};\n', 'utf-8');
@@ -117,7 +148,7 @@ const buildPlanJson = (
   action: 'fix',
   summary: 'smoke test plan',
   steps: overrides.steps ?? ['step 1'],
-  estimatedComplexity: 'low',
+  estimatedComplexity: overrides.estimatedComplexity ?? 'low',
   affectedFiles: buildAffectedFiles(repoName, plannedFiles, overrides.statusByFile),
   affectedRepositories: [repoName],
   risks: [],
@@ -171,7 +202,7 @@ export const setupImplementHarness = (
 ): ImplementHarness => {
   const layout = createLayout(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   installFakeClaude(layout, mode);
-  initRepo(layout.repoDir, plannedFiles, overrides.extraFiles);
+  initRepo(layout.repoDir, plannedFiles, overrides.extraFiles, overrides.stepVerification);
   const planPath = writePlanArtifact(layout.homeDir, path.basename(layout.repoDir), plannedFiles, overrides);
   return { ...layout, planPath };
 };

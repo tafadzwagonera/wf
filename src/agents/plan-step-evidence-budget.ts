@@ -29,7 +29,20 @@ const EVIDENCE_GAP_CLAUSE
 export const unverifiableRule = (subject: string, extraClause = ''): string =>
   `- unverifiable: ONLY for temporal, process, or investigation claims that ${subject} cannot in principle prove or disprove${extraClause}${REQUIRES_MISSING_SUFFIX}`;
 
-export const stepAssessorRules = [
+export const buildStepResponseShapeLines = (indices: number[]): string[] => {
+  const [first, second] = indices;
+  const entries = [
+    `{"index":${first},"status":"done"}`,
+    ...(second === undefined ? [] : [`{"index":${second},"status":"partially-done","missing":"…"}`]),
+  ];
+  return [
+    'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
+    `{"statuses":[${entries.join(',')}]}`,
+    'Use the exact N from each [Plan step N] tag — never renumber from 0.',
+  ];
+};
+
+export const buildAssessorStatusRules = (indices: number[]): string[] => [
   '## Status rules',
   '- done: fully implemented in the evidence',
   '- partially-done: started but incomplete (requires missing field)',
@@ -40,18 +53,18 @@ export const stepAssessorRules = [
   '',
   'Index each step ONLY by its [Plan step N] tag. A step\'s own text may contain other numbers '
   + '(e.g. an internal "Step N (RED)/(GREEN)" label) — those are part of that step\'s content, not separate steps to assess.',
-  'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
-  '{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}',
+  ...buildStepResponseShapeLines(indices),
   'Do not assume changes you cannot see.',
 ];
 
 export const hasEvidenceGaps = (report: EvidenceBudgetReport): boolean =>
   report.truncated.length > 0 || report.omitted.length > 0;
 
-export const gapAwareStatusRules = (report: EvidenceBudgetReport): string[] => {
-  if (!hasEvidenceGaps(report)) return stepAssessorRules;
+export const gapAwareStatusRules = (report: EvidenceBudgetReport, indices: number[]): string[] => {
+  const rules = buildAssessorStatusRules(indices);
+  if (!hasEvidenceGaps(report)) return rules;
   const plainRule = unverifiableRule('evidence');
-  return stepAssessorRules.map(line => (line === plainRule ? unverifiableRule('evidence', EVIDENCE_GAP_CLAUSE) : line));
+  return rules.map(line => (line === plainRule ? unverifiableRule('evidence', EVIDENCE_GAP_CLAUSE) : line));
 };
 
 export const computeEvidenceBudget = (
@@ -191,7 +204,7 @@ const newCharsFor = (group: MutableGroup, sections: EvidenceSection[]): number =
   sumContentChars(sections.filter(s => !group.sections.has(s.path)));
 
 const findMostSpareGroup = (groups: MutableGroup[], ceiling: number): MutableGroup =>
-  groups.reduce((best, group) => (spareOf(group, ceiling) > spareOf(best, ceiling) ? group : best));
+  groups.reduce((best, group) => (spareOf(group, ceiling) > spareOf(best, ceiling) ? group : best), groups[0]);
 
 const pickGroupForMentions = (groups: MutableGroup[], mentions: EvidenceSection[], ceiling: number): MutableGroup => {
   const current = groups.at(-1);
@@ -235,7 +248,7 @@ export const partitionStepsForPhasedAssessment = (
   for (const step of noMentionSteps) findMostSpareGroup(groups, ceiling).steps.push(step);
   placeUnmentionedSections(groups, sections, ordered, ceiling);
   return groups.map(group => ({
-    steps: group.steps.sort((a, b) => a.index - b.index),
+    steps: group.steps.toSorted((a, b) => a.index - b.index),
     sections: [...group.sections.values()],
   }));
 };

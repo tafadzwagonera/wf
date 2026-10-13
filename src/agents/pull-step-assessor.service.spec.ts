@@ -15,6 +15,14 @@ describe('buildPullStepAssessorPrompt', () => {
     expect(prompt).toMatch(/unverifiable: ONLY/);
   });
 
+  it('renders the response example from the real indices and forbids renumbering', () => {
+    const steps = [5, 6, 8, 9].map(index => ({ index, text: `Step ${index}` }));
+    const prompt = buildPullStepAssessorPrompt(steps, 'abc123');
+    expect(prompt).toContain('{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}]}');
+    expect(prompt).toContain('Use the exact N from each [Plan step N] tag — never renumber from 0.');
+    expect(prompt).not.toContain('{"index":0,"status":"done"}');
+  });
+
   it('contains the unverifiable rule line verbatim', () => {
     const prompt = buildPullStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'abc123');
     expect(prompt).toContain(

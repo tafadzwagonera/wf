@@ -559,8 +559,122 @@ describe('PlanStepVerificationService', () => {
     const request = mockAiExecute.mock.calls[0][0];
     expect(request).toEqual(expect.objectContaining({ stage: 'implement', temperature: 0 }));
     expect(request.structuredOutput).toEqual({ name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema });
-    expect(request.prompt).toContain('{"statuses":[{"index":0,"status":"done"},{"index":1,"status":"partially-done","missing":"…"}]}');
+    expect(request.prompt).toContain('{"statuses":[{"index":0,"status":"done"}]}');
     expect(request.prompt).toContain('Produce exactly one entry per [Plan step N] tag above');
+  });
+
+  describe('index scoping for non-contiguous subsets', () => {
+    const tenSteps = Array.from({ length: 10 }, (_, i) => `Step ${i}`);
+    const roundOneStatuses = JSON.stringify({ statuses: tenSteps.map((_, index) => (
+      [5, 6, 8, 9].includes(index)
+        ? { index, status: 'not-done', missing: 'implementation' }
+        : { index, status: 'done' }
+    )) });
+    const renumberedStatuses = JSON.stringify({ statuses: [0, 1, 2, 3].map(index => ({ index, status: 'done' })) });
+    const subsetParams = () => makeRunParams({
+      steps: tenSteps, stallWindow: 2, refreshSteps: jest.fn().mockResolvedValue(new Map()),
+    });
+    const getMockAppendToLogFile = (): jest.Mock => jest.requireMock('../shared/logger/log-file-writer').appendToLogFile;
+
+    it('renders the response example from the real indices of a later-round subset', async () => {
+      mockAiExecute
+        .mockResolvedValueOnce({ content: roundOneStatuses })
+        .mockResolvedValueOnce({ content: JSON.stringify({ statuses: [5, 6, 8, 9].map(index => ({ index, status: 'done' })) }) });
+
+      await service.run(subsetParams());
+
+      const roundTwoPrompt: string = mockAiExecute.mock.calls[1][0].prompt;
+      expect(roundTwoPrompt).toContain('{"index":5,"status":"done"},{"index":6,"status":"partially-done"');
+      expect(roundTwoPrompt).not.toContain('{"index":0,"status":"done"}');
+    });
+
+    it('retries then fails the round when the assessor renumbers the subset from 0', async () => {
+      mockAiExecute
+        .mockResolvedValueOnce({ content: roundOneStatuses })
+        .mockResolvedValue({ content: renumberedStatuses });
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      mockAppendToLogFile.mockClear();
+
+      const outcome = await service.run(subsetParams());
+
+      expect(outcome.summary).toBeUndefined();
+      expect(mockAiExecute).toHaveBeenCalledTimes(1 + 2 + 2);
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'ERROR', expect.stringContaining('step-verify.assess.attempt-failed cause='), 'step-verification',
+      );
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('step-verify.exhausted reason=assessor-failed-2-rounds-in-a-row'), 'step-verification',
+      );
+      expect(mockAppendToLogFile).not.toHaveBeenCalledWith(
+        'WARN', 'step-verify.assess.partial missing-index=5', 'step-verification',
+      );
+      expect(mockAppendToLogFile).not.toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('step-verify.missed'), 'step-verification',
+      );
+    });
+
+    it('fails the round when the push assessor returns an empty statuses array', async () => {
+      mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [] }) });
+
+      const outcome = await service.run(makeRunParams({
+        stallWindow: 1, refreshSteps: jest.fn().mockResolvedValue(new Map()),
+      }));
+
+      expect(outcome.summary).toBeUndefined();
+      expect(mockAiExecute).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails the round when every pull status is dropped as out of scope', async () => {
+      mockPullAssess.mockResolvedValue([{ index: 9, status: 'done' }]);
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      mockAppendToLogFile.mockClear();
+
+      const outcome = await service.run(makeRunParams({ mode: 'pull', stallWindow: 1 }));
+
+      expect(outcome.summary).toBeUndefined();
+      expect(mockPullAssess).toHaveBeenCalledTimes(2);
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', 'step-verify.assess.partial dropped-index=9', 'step-verification',
+      );
+    });
+
+    it('falls back to not-done for one omitted index without consuming a retry', async () => {
+      const doneStatuses = (indices: number[]) => ({
+        content: JSON.stringify({ statuses: indices.map(index => ({ index, status: 'done' })) }),
+      });
+      mockAiExecute
+        .mockResolvedValueOnce({ content: roundOneStatuses })
+        .mockResolvedValueOnce(doneStatuses([5, 6, 8]))
+        .mockResolvedValueOnce(doneStatuses([9]));
+      const mockFixRound = jest.fn().mockResolvedValue({ sessionId: 'sess-2' });
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      mockAppendToLogFile.mockClear();
+
+      const outcome = await service.run({ ...subsetParams(), runFixRound: mockFixRound });
+
+      expect(outcome.summary?.pending).toBe(0);
+      expect(mockAiExecute).toHaveBeenCalledTimes(3);
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', 'step-verify.assess.partial missing-index=9', 'step-verification',
+      );
+      const roundTwoFixPrompt: string = mockFixRound.mock.calls[1][0];
+      expect(roundTwoFixPrompt).toContain('Step 9 (not-done)');
+      expect(roundTwoFixPrompt).toContain('Not assessed in this round; assessor response omitted this index.');
+    });
+
+    it('tolerates duplicate and unexpected pull indices alongside valid ones without a retry', async () => {
+      mockPullAssess.mockResolvedValueOnce([
+        { index: 0, status: 'done' },
+        { index: 0, status: 'not-done', missing: 'duplicate result' },
+        { index: 9, status: 'done' },
+        { index: 1, status: 'done' },
+      ]);
+
+      const outcome = await service.run(makeRunParams({ mode: 'pull', steps: ['Step A', 'Step B'] }));
+
+      expect(outcome.summary?.pending).toBe(0);
+      expect(mockPullAssess).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('reports pending count when provider session is unavailable', async () => {
