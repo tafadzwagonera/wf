@@ -108,8 +108,9 @@ describe('SessionService', () => {
     });
 
     it('findByTicketKey matches date-prefixed files without matching a longer ticket key', async () => {
-      await service.save(createMockSessionState({ ticketKey: 'WBP-4176', sessionId: 'sid-4', createdAt }));
-      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-5', createdAt }));
+      const recentCreatedAt = new Date().toISOString();
+      await service.save(createMockSessionState({ ticketKey: 'WBP-4176', sessionId: 'sid-4', createdAt: recentCreatedAt }));
+      await service.save(createMockSessionState({ ticketKey: 'WBP-417', sessionId: 'sid-5', createdAt: recentCreatedAt }));
 
       const found = await service.findByTicketKey('WBP-417');
 
