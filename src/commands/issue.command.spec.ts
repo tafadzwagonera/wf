@@ -3767,4 +3767,51 @@ describe('IssueCommand', () => {
       );
     });
   });
+
+  describe('chat conversation artifactDir', () => {
+    const planArtifact = { plan: { summary: 'p' }, fromCache: false, path: '/x/plan.json' };
+
+    const prepareChat = async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'isInteractiveSession').mockReturnValue(true);
+      (inquirer.prompt as unknown as jest.Mock).mockResolvedValue({ startChat: true });
+      const startChat = jest.spyOn(command as any, 'startInteractiveChat').mockResolvedValue(undefined);
+      return { command, startChat };
+    };
+
+    it('passes the custom artifact dir (no tracker segment) for custom-plan chat', async () => {
+      const { command, startChat } = await prepareChat();
+      const ticketArtifact = { ticketKey: 'shop-fix', content: 'c', path: '/wf-home/shop/shop-fix.json' };
+
+      await (command as any).offerPlanChat(ticketArtifact, planArtifact, { repos: [undefined], trackerName: 'jira' });
+
+      expect(startChat).toHaveBeenCalledWith(expect.objectContaining({
+        ticketKey: 'shop-fix', artifactDir: '/wf-home/shop',
+      }));
+    });
+
+    it('passes the tracker dir for ticket-source chat', async () => {
+      const { command, startChat } = await prepareChat();
+      const ticketArtifact = { ticketKey: 'TAD-1', content: 'c', path: '/wf-home/shop/jira/TAD-1.json' };
+
+      await (command as any).offerPlanChat(ticketArtifact, planArtifact, { repos: [undefined], trackerName: 'jira' });
+
+      expect(startChat).toHaveBeenCalledWith(expect.objectContaining({
+        ticketKey: 'TAD-1', artifactDir: '/wf-home/shop/jira',
+      }));
+    });
+
+    it('passes the ticket artifact dir for review chat', async () => {
+      const { command, startChat } = await prepareChat();
+      const ticketArtifact = { ticketKey: 'TAD-1', content: 'c', path: '/wf-home/shop/jira/TAD-1.json' };
+
+      await (command as any).offerReviewChat(
+        ticketArtifact, undefined, { review: {} }, 'TAD-1', [undefined], { tracker: 'jira' }
+      );
+
+      expect(startChat).toHaveBeenCalledWith(expect.objectContaining({
+        ticketKey: 'TAD-1', artifactDir: '/wf-home/shop/jira',
+      }));
+    });
+  });
 });

@@ -20,6 +20,7 @@ export const conversationContextSchema = z.object({
   stageOutput: z.any().optional(),
   repoDir: z.string().optional(),
   trackerName: z.string().optional(),
+  artifactDir: z.string().optional(),
   workflowState: z.object({
     ticketContent: z.string(),
     plan: z.any().optional(),

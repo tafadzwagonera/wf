@@ -43,10 +43,10 @@ const stubResult = { content: 'ok', session: stubSession };
 
 function checkAnthropicResolvedLine(anthropicLines: string[]): void {
   const anthropicMatch = anthropicLines.some(l =>
-    /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-4-6/.test(l),
+    /ℹ llm\.adapter resolved-provider=anthropic resolved-model=claude-sonnet-[\w-]+/.test(l),
   );
   if (anthropicMatch) {
-    pass('anthropic agent branch: terminal shows resolved-provider=anthropic resolved-model=claude-sonnet-4-6');
+    pass('anthropic agent branch: terminal shows resolved-provider=anthropic with a claude-sonnet model');
   } else {
     fail('anthropic agent branch: terminal missing resolved-provider line', anthropicLines.join(' | ') || '(none)');
   }

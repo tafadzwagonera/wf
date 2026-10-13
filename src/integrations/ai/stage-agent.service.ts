@@ -157,6 +157,8 @@ type CliPassResult = {
 };
 
 type CliChatPassOpts = {
+  allowEdits?: boolean;
+  artifactDir?: string;
   initialSessionId?: string;
   jsonSchema?: string;
   model: string;
@@ -272,6 +274,8 @@ type StagePromptParams = {
 };
 
 type ChatTurnParams = {
+  allowEdits?: boolean;
+  artifactDir?: string;
   structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
   modelOverride?: string;
@@ -460,16 +464,25 @@ const resolveEffectiveSystemPrompt = (systemPrompt: string, repoDir?: string): s
     ? systemPrompt
     : `${systemPrompt}\n${NO_INSPECT_CLAUSE}`;
 
-const buildAnthropicSandboxConfig = (repoDir?: string) => ({
-  allowUnsandboxedCommands: false,
-  autoAllowBashIfSandboxed: true,
-  enabled: true,
-  failIfUnavailable: true,
-  filesystem: {
-    allowRead: repoDir ? [repoDir] : [],
-    allowWrite: [],
-  },
-});
+type AnthropicEditGrant = { allowEdits?: boolean; artifactDir?: string; repoDir?: string };
+
+const resolveAnthropicEditRoots = (opts: AnthropicEditGrant): string[] =>
+  opts.allowEdits && opts.repoDir ? [opts.repoDir, ...(opts.artifactDir ? [opts.artifactDir] : [])] : [];
+
+const buildAnthropicSandboxConfig = (opts: AnthropicEditGrant) => {
+  const editRoots = resolveAnthropicEditRoots(opts);
+  const readOnlyRoots = opts.repoDir ? [opts.repoDir] : [];
+  return {
+    allowUnsandboxedCommands: false,
+    autoAllowBashIfSandboxed: true,
+    enabled: true,
+    failIfUnavailable: true,
+    filesystem: {
+      allowRead: editRoots.length ? editRoots : readOnlyRoots,
+      allowWrite: editRoots,
+    },
+  };
+};
 
 const buildPriorStagePreamble = (priorStageSummary?: string): string => {
   if (!priorStageSummary) return '';
@@ -477,7 +490,9 @@ const buildPriorStagePreamble = (priorStageSummary?: string): string => {
 };
 
 type AnthropicStageOpts = {
+  allowEdits?: boolean;
   anthropicContext: string;
+  artifactDir?: string;
   apiKey: string;
   model: string;
   priorStageSummary?: string;
@@ -490,13 +505,15 @@ type AnthropicStageOpts = {
 };
 
 export const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
-  const tools = opts.repoDir ? [...anthropicStageTools] : [];
+  const canEdit = Boolean(opts.allowEdits && opts.repoDir);
+  const baseTools = opts.repoDir ? [...anthropicStageTools] : [];
+  const tools = canEdit ? [...baseTools, 'Edit', 'Write'] : baseTools;
   return {
-    canUseTool: anthropicReadOnlyToolGuard,
+    ...(canEdit ? {} : { canUseTool: anthropicReadOnlyToolGuard }),
     cwd: opts.repoDir ?? process.cwd(), model: opts.model, tools, allowedTools: tools,
     env: { ...process.env, ANTHROPIC_API_KEY: opts.apiKey },
     permissionMode: 'acceptEdits' as const,
-    sandbox: buildAnthropicSandboxConfig(opts.repoDir),
+    sandbox: buildAnthropicSandboxConfig(opts),
     systemPrompt: { type: 'preset' as const, preset: 'claude_code' as const, append: systemAppend },
     ...buildAgentOutputFormat(opts),
   };
@@ -820,7 +837,9 @@ const checkCliStallCondition = (stalledPasses: number, passNumber: number, lastD
 };
 
 type AnthropicChatOpts = {
+  allowEdits?: boolean;
   anthropicContext: string;
+  artifactDir?: string;
   apiKey: string;
   model: string;
   prompt: string;
@@ -1629,7 +1648,7 @@ export class StageAgentService {
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
     const options = buildAnthropicChatOptions({
       prompt: params.userMessage, model: this.resolveModelForStage(params.stage, params.modelOverride), apiKey,
-      repoDir: params.repoDir,
+      repoDir: params.repoDir, allowEdits: params.allowEdits, artifactDir: params.artifactDir,
       systemPrompt: params.systemPrompt, anthropicContext, resumeSessionId: params.session?.sessionId,
       structuredOutput: params.structuredOutput,
     });
@@ -2097,6 +2116,7 @@ export class StageAgentService {
       stage: params.stage, userMessage: params.userMessage, systemPrompt: params.systemPrompt,
       model: this.resolveModelForStage(params.stage, params.modelOverride), repoDir: params.repoDir,
       initialSessionId: params.session?.sessionId,
+      allowEdits: params.allowEdits, artifactDir: params.artifactDir,
       responseValidator: params.responseValidator,
       jsonSchema: params.structuredOutput ? JSON.stringify(params.structuredOutput.schema) : params.jsonSchema,
     };
@@ -2150,6 +2170,20 @@ export class StageAgentService {
     );
   }
 
+  private buildCliChatPassArgs(
+    opts: CliChatPassOpts & { sessionId?: string; passNumber: number }, prompt: string, isResume: boolean
+  ): ReturnType<typeof buildCliArgs> {
+    const canEdit = Boolean(opts.allowEdits && opts.repoDir);
+    const inspectionTools = this.resolveCliInspectionTools(opts.repoDir);
+    return buildCliArgs({
+      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: opts.repoDir ?? process.cwd(),
+      sessionId: isResume ? opts.sessionId : opts.initialSessionId,
+      tools: canEdit ? [...inspectionTools, 'Edit', 'Write'] : inspectionTools,
+      permissionMode: canEdit ? 'acceptEdits' : 'plan', jsonSchema: opts.jsonSchema,
+      addDirs: canEdit && opts.artifactDir ? [opts.artifactDir] : undefined,
+    });
+  }
+
   private async runCliChatPass(
     opts: CliChatPassOpts & { sessionId?: string; passNumber: number }
   ): Promise<CliPassResult> {
@@ -2157,11 +2191,7 @@ export class StageAgentService {
     const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
     const prompt = isResume ? retryPrompt : opts.userMessage;
     const resolvedRepoDir = opts.repoDir ?? process.cwd();
-    const args = buildCliArgs({
-      prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model, cwd: resolvedRepoDir,
-      sessionId: isResume ? opts.sessionId : opts.initialSessionId,
-      tools: this.resolveCliInspectionTools(opts.repoDir), permissionMode: 'plan', jsonSchema: opts.jsonSchema,
-    });
+    const args = this.buildCliChatPassArgs(opts, prompt, Boolean(isResume));
     return processCliPassMessages(args, resolvedRepoDir, prompt,
       this.resolveStageTimeoutMs(opts.stage), this.resolveStageInactivityTimeoutMs(opts.stage));
   }

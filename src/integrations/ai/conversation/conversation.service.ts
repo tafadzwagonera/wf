@@ -73,19 +73,27 @@ export class ConversationService {
     return state;
   }
 
-  async loadConversation(ticketKey: string, repoDir?: string, trackerName?: string): Promise<ConversationState | null> {
-    const filePath = this.getConversationFilePath(ticketKey, repoDir, trackerName);
+  async loadConversation(
+    ticketKey: string, repoDir?: string, trackerName?: string, artifactDir?: string
+  ): Promise<ConversationState | null> {
+    const filePath = this.getConversationFilePath(ticketKey, { artifactDir, repoDir, trackerName });
     if (!fs.existsSync(filePath)) return null;
     this.logger.debug(`Loading conversation for ticket: ${ticketKey}`);
     try {
-      const state = parseConversationFile(await fs.promises.readFile(filePath, 'utf-8'));
-      this.conversations.set(state.conversationId, state);
+      const state = await this.readConversationState(filePath, artifactDir);
       this.logger.debug(`Loaded conversation: ${state.conversationId} for ticket: ${ticketKey}`);
       return state;
     } catch (error) {
       this.logger.error(`Failed to load conversation for ticket ${ticketKey}: ${error.message}`);
       return null;
     }
+  }
+
+  private async readConversationState(filePath: string, artifactDir?: string): Promise<ConversationState> {
+    const state = parseConversationFile(await fs.promises.readFile(filePath, 'utf-8'));
+    state.context.artifactDir ??= artifactDir;
+    this.conversations.set(state.conversationId, state);
+    return state;
   }
 
   async addUserMessage(conversationId: string, content: string): Promise<ConversationState> {
@@ -138,7 +146,7 @@ export class ConversationService {
 
   async saveConversation(state: ConversationState): Promise<void> {
     try {
-      const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
+      const filePath = this.getConversationFilePath(state.ticketKey, state.context);
       const dir = path.dirname(filePath);
       if (!fs.existsSync(dir)) await fs.promises.mkdir(dir, { recursive: true });
       const tempPath = `${filePath}.tmp`;
@@ -164,15 +172,12 @@ export class ConversationService {
   }
 
   private async processAgentTurn(
-    input: string,
-    state: ConversationState,
-    stage: AgentStageName,
-    systemPrompt: string,
-    repoDir: string,
-    agentSession: AgentChatSession | undefined
+    input: string, state: ConversationState, stage: AgentStageName,
+    systemPrompt: string, repoDir: string, agentSession: AgentChatSession | undefined
   ): Promise<AgentChatSession | undefined> {
     const result = await this.stageAgentService.chatTurn({
       stage, userMessage: input, systemPrompt, repoDir, session: agentSession,
+      allowEdits: true, artifactDir: state.context.artifactDir,
     });
     const msg = this.recordAssistantMessage(state, result.content, undefined);
     this.chatUI.displayAssistantResponse(msg, state.context.stage);
@@ -262,7 +267,7 @@ export class ConversationService {
     const turn = await this.runChatLoop(conversationId, state, resolvedOptions, useAgentBackend, initialAgentSession);
     if (turn > resolvedOptions.maxTurns) this.chatUI.displayMaxTurnsReached(resolvedOptions.maxTurns);
     await this.saveConversation(state);
-    const filePath = this.getConversationFilePath(state.ticketKey, state.context.repoDir, state.context.trackerName);
+    const filePath = this.getConversationFilePath(state.ticketKey, state.context);
     this.chatUI.displayChatEnd(filePath);
   }
 
@@ -282,12 +287,13 @@ export class ConversationService {
     return this.conversations.get(conversationId);
   }
 
-  private getConversationFilePath(ticketKey: string, repoDir?: string, trackerName?: string): string {
-    const baseDir = repoDir ?? process.cwd();
-    const segments: string[] = [getWfHomeDir(), path.basename(path.resolve(baseDir))];
-    if (trackerName) {
-      segments.push(trackerName);
-    }
-    return path.join(...segments, `${ticketKey}-conversation.json`);
+  private getConversationFilePath(
+    ticketKey: string,
+    ctx: { artifactDir?: string; repoDir?: string; trackerName?: string }
+  ): string {
+    const fileName = `${ticketKey}-conversation.json`;
+    if (ctx.artifactDir) return path.join(ctx.artifactDir, fileName);
+    const projectDir = path.join(getWfHomeDir(), path.basename(path.resolve(ctx.repoDir ?? process.cwd())));
+    return path.join(projectDir, ctx.trackerName ?? '', fileName);
   }
 }

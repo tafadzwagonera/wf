@@ -78,7 +78,7 @@ import { ConversationService } from '../integrations/ai/conversation/conversatio
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
 import { SessionService } from '../shared/session/session.service';
 import { ErrorHandler } from '../shared/utils/error-handler';
-import { resolveRepoBasePath } from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
@@ -1516,6 +1516,55 @@ describe('IssueReviewCommand', () => {
           exitCommands: ['exit', 'quit', 'continue'],
         })
       );
+    });
+
+    describe('conversation key and artifactDir', () => {
+      const reviewed = [{ review: { summary: 's', issues: [], suggestions: [] }, context: 'ctx', repoDir: '/tmp/proj' }];
+
+      const acceptChat = async () => {
+        const built = await buildCommand();
+        setInteractiveSession();
+        built.promptMock.mockResolvedValue({ startChat: true } as any);
+        return built;
+      };
+
+      it('uses the ticket key and tracker dir for ticket-based reviews', async () => {
+        const { command, conversationService } = await acceptChat();
+        jest.spyOn(command as any, 'resolveTrackerNameSafely').mockReturnValue('jira');
+
+        await (command as any).offerInteractiveChat(reviewed, { ticketKey: 'TAD-575' });
+
+        expect(conversationService.loadConversation).toHaveBeenCalledWith(
+          'TAD-575', '/tmp/proj', undefined, resolveArtifactDir('/tmp/proj', 'jira')
+        );
+        expect(conversationService.createConversation).toHaveBeenCalledWith(
+          'TAD-575', expect.objectContaining({ artifactDir: resolveArtifactDir('/tmp/proj', 'jira') })
+        );
+      });
+
+      it('keeps key review and the project-root artifactDir for ticket-less reviews', async () => {
+        const { command, conversationService } = await acceptChat();
+
+        await (command as any).offerInteractiveChat(reviewed, {});
+
+        expect(conversationService.loadConversation).toHaveBeenCalledWith(
+          'review', '/tmp/proj', undefined, resolveCustomArtifactDir('/tmp/proj')
+        );
+        expect(conversationService.createConversation).toHaveBeenCalledWith(
+          'review', expect.objectContaining({ artifactDir: resolveCustomArtifactDir('/tmp/proj') })
+        );
+      });
+
+      it('falls back to the review key when the tracker cannot be resolved', async () => {
+        const { command, conversationService } = await acceptChat();
+        jest.spyOn(command as any, 'resolveTrackerNameSafely').mockReturnValue(undefined);
+
+        await (command as any).offerInteractiveChat(reviewed, { ticketKey: 'TAD-575' });
+
+        expect(conversationService.loadConversation).toHaveBeenCalledWith(
+          'review', '/tmp/proj', undefined, resolveCustomArtifactDir('/tmp/proj')
+        );
+      });
     });
 
     it('skips interactive chat prompt in silent mode', async () => {

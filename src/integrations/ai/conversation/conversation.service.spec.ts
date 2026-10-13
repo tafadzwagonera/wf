@@ -494,5 +494,51 @@ describe('ConversationService', () => {
       const expectedPath = path.join(getWfHomeDir(), cwdBaseName, 'WBP-100-conversation.json');
       expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
     });
+
+    it('resolves to artifactDir when present, ignoring trackerName', async () => {
+      const context: ConversationContext = {
+        ticketKey: 'shop-plan',
+        stage: 'plan',
+        repoDir: '/projects/my-app',
+        trackerName: 'jira',
+        artifactDir: '/wf-home/my-app',
+        workflowState: { ticketContent: 'test' },
+      };
+
+      const conversation = await service.createConversation('shop-plan', context);
+
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      await service.saveConversation(conversation);
+
+      const expectedPath = path.join('/wf-home/my-app', 'shop-plan-conversation.json');
+      expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
+    });
+
+    it('backfills artifactDir on load so a moved conversation re-saves in place', async () => {
+      const stored = {
+        conversationId: 'conv-1',
+        ticketKey: 'shop-plan',
+        messages: [],
+        context: {
+          ticketKey: 'shop-plan',
+          stage: 'plan',
+          repoDir: '/projects/my-app',
+          trackerName: 'jira',
+          workflowState: { ticketContent: 'test' },
+        },
+        totalTokensUsed: { input: 0, output: 0 },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.promises.readFile as jest.Mock).mockResolvedValue(JSON.stringify(stored));
+
+      const loaded = await service.loadConversation('shop-plan', '/projects/my-app', 'jira', '/wf-home/my-app');
+      await service.saveConversation(loaded as NonNullable<typeof loaded>);
+
+      const expectedPath = path.join('/wf-home/my-app', 'shop-plan-conversation.json');
+      expect(fs.promises.rename).toHaveBeenCalledWith(`${expectedPath}.tmp`, expectedPath);
+    });
   });
 });

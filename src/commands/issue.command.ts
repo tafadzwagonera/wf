@@ -144,6 +144,16 @@ interface DryRunStageCounters {
   totalFilesCreated: number;
 }
 
+type InteractiveChatOptions = {
+  artifactDir: string;
+  repoDir: string;
+  stage: ConvWorkflowStage;
+  ticketKey: string;
+  trackerName?: string;
+  // workflowState is intentionally typed `any` — it carries heterogeneous stage outputs
+  workflowState: any;
+};
+
 type ReviewRepoContext = {
   isMultiRepo: boolean;
   options: IssueOptions;
@@ -1274,11 +1284,12 @@ export class IssueCommand extends CommandRunner {
       { type: 'confirm', name: 'startChat', message: 'Would you like to discuss the plan?', prefix: ' ', default: false },
     ]);
     if (!startChat) return;
-    await this.startInteractiveChat(
-      ticketArtifact.ticketKey, 'plan' as ConvWorkflowStage,
-      { ticketContent: ticketArtifact.content, plan: planArtifact.plan },
-      resolveRepoBasePath(ctx.repos[0]), ctx.trackerName
-    );
+    await this.startInteractiveChat({
+      ticketKey: ticketArtifact.ticketKey, stage: 'plan' as ConvWorkflowStage,
+      workflowState: { ticketContent: ticketArtifact.content, plan: planArtifact.plan },
+      repoDir: resolveRepoBasePath(ctx.repos[0]), trackerName: ctx.trackerName,
+      artifactDir: path.dirname(ticketArtifact.path),
+    });
   }
 
   private async recordStageStart(sessionState: SessionState, stage: string): Promise<SessionState> {
@@ -1798,11 +1809,12 @@ export class IssueCommand extends CommandRunner {
     ]);
     if (!startChat) return;
     const trackerName = options?.tracker || getLoadedWfConfig().tracker;
-    await this.startInteractiveChat(
-      ticketKey, 'review' as ConvWorkflowStage,
-      { ticketContent: ticketArtifact.content, plan: planArtifact?.plan, review: reviewArtifact.review },
-      resolveRepoBasePath(repos[0]), trackerName
-    );
+    await this.startInteractiveChat({
+      ticketKey, stage: 'review' as ConvWorkflowStage,
+      workflowState: { ticketContent: ticketArtifact.content, plan: planArtifact?.plan, review: reviewArtifact.review },
+      repoDir: resolveRepoBasePath(repos[0]), trackerName,
+      artifactDir: path.dirname(ticketArtifact.path),
+    });
   }
 
   private async commitForRepo(
@@ -1860,21 +1872,13 @@ export class IssueCommand extends CommandRunner {
   /**
    * Start interactive chat session
    *
-   * @param ticketKey - Ticket identifier
-   * @param stage - Current workflow stage
-   * @param workflowState - State data including ticket content, plan, review
-   * @param repoDir
-   * @param trackerName
+   * @param options - Ticket key, stage, workflow state (ticket content, plan, review), repo and artifact dirs
    */
-  // workflowState is intentionally typed `any` — it carries heterogeneous stage outputs
+  private async startInteractiveChat(options: InteractiveChatOptions): Promise<void> {
+    const { ticketKey, stage, workflowState, repoDir, trackerName, artifactDir } = options;
+    const context = this.buildConversationContext(options);
 
-  private async startInteractiveChat(
-    ticketKey: string, stage: ConvWorkflowStage,
-    workflowState: any, repoDir: string, trackerName: string
-  ): Promise<void> {
-    const context = this.buildConversationContext(ticketKey, stage, workflowState, repoDir, trackerName);
-
-    let conversation = await this.conversationService.loadConversation(ticketKey, repoDir, trackerName);
+    let conversation = await this.conversationService.loadConversation(ticketKey, repoDir, trackerName, artifactDir);
     conversation ??= await this.conversationService.createConversation(ticketKey, context);
 
     const systemPrompt = this.buildChatSystemPrompt(stage, workflowState);
@@ -1883,12 +1887,10 @@ export class IssueCommand extends CommandRunner {
     });
   }
 
-  private buildConversationContext(
-    ticketKey: string, stage: ConvWorkflowStage,
-    workflowState: any, repoDir: string, trackerName: string
-  ): ConversationContext {
+  private buildConversationContext(options: InteractiveChatOptions): ConversationContext {
+    const { ticketKey, stage, workflowState, repoDir, trackerName, artifactDir } = options;
     return {
-      ticketKey, stage, repoDir, trackerName,
+      ticketKey, stage, repoDir, trackerName, artifactDir,
       stageOutput: stage === 'plan' ? workflowState.plan : workflowState.review,
       workflowState: {
         ticketContent: workflowState.ticketContent,

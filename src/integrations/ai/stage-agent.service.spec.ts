@@ -58,6 +58,39 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('Anthropic Agent SDK edit grants', () => {
+    const baseOpts = {
+      apiKey: 'key', model: 'claude-sonnet-4-6', prompt: 'prompt', systemPrompt: 'sys', anthropicContext: '',
+      repoDir: '/tmp/repo',
+    };
+
+    it('keeps stage passes read-only with the tool guard and empty write roots', () => {
+      const options = buildAnthropicBaseOptions(baseOpts, 'sys');
+      expect(options.canUseTool).toBeDefined();
+      expect(options.tools).not.toContain('Edit');
+      expect(options.tools).not.toContain('Write');
+      expect(options.sandbox.filesystem).toEqual({ allowRead: ['/tmp/repo'], allowWrite: [] });
+    });
+
+    it('grants Edit/Write, drops the guard, and widens sandbox roots when allowEdits is set', () => {
+      const options = buildAnthropicBaseOptions(
+        { ...baseOpts, allowEdits: true, artifactDir: '/wf/proj' }, 'sys'
+      );
+      expect(options.canUseTool).toBeUndefined();
+      expect(options.tools).toEqual(expect.arrayContaining(['Read', 'Edit', 'Write']));
+      expect(options.sandbox.filesystem).toEqual({
+        allowRead: ['/tmp/repo', '/wf/proj'], allowWrite: ['/tmp/repo', '/wf/proj'],
+      });
+    });
+
+    it('ignores allowEdits when repoDir is empty', () => {
+      const options = buildAnthropicBaseOptions({ ...baseOpts, repoDir: '', allowEdits: true }, 'sys');
+      expect(options.canUseTool).toBeDefined();
+      expect(options.tools).toEqual([]);
+      expect(options.sandbox.filesystem).toEqual({ allowRead: [], allowWrite: [] });
+    });
+  });
+
   it('normalizes deterministic OpenAI Agent SDK structured output', async () => {
     const service = new StageAgentService(createConfigService());
     const build = (service as unknown as {
@@ -2419,6 +2452,41 @@ describe('StageAgentService', () => {
 
       expect(spawnCli).toHaveBeenCalledTimes(1);
       expect(spawnCodex).not.toHaveBeenCalled();
+    });
+
+    describe('Claude CLI chat edit permissions', () => {
+      const runChat = async (extra: { repoDir?: string; allowEdits?: boolean; artifactDir?: string }) => {
+        spawnCli.mockReturnValueOnce(makeStream({
+          type: 'result', subtype: 'success', result: 'ok', session_id: 'claude-chat-1',
+        }));
+        const service = new StageAgentService(createCodexImplementConfigService());
+        await service.chatTurn({
+          stage: 'implement', userMessage: 'hi', systemPrompt: 'sys',
+          providerOverride: 'anthropic', modelOverride: 'claude-sonnet-4-6', ...extra,
+        });
+        return buildCliArgs.mock.calls[0][0];
+      };
+
+      it('uses acceptEdits, Edit/Write, and addDirs when allowEdits is set with a repoDir', async () => {
+        const args = await runChat({ repoDir: '/tmp/repo', allowEdits: true, artifactDir: '/wf/proj' });
+        expect(args.permissionMode).toBe('acceptEdits');
+        expect(args.tools).toEqual(expect.arrayContaining(['Read', 'Edit', 'Write']));
+        expect(args.addDirs).toEqual(['/wf/proj']);
+      });
+
+      it('stays in plan mode with inspection tools when allowEdits is absent', async () => {
+        const args = await runChat({ repoDir: '/tmp/repo', artifactDir: '/wf/proj' });
+        expect(args.permissionMode).toBe('plan');
+        expect(args.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Skill']);
+        expect(args.addDirs).toBeUndefined();
+      });
+
+      it.each([undefined, ''])('stays in plan mode with no tools when allowEdits is set and repoDir is %p', async repoDir => {
+        const args = await runChat({ repoDir, allowEdits: true, artifactDir: '/wf/proj' });
+        expect(args.permissionMode).toBe('plan');
+        expect(args.tools).toEqual([]);
+        expect(args.addDirs).toBeUndefined();
+      });
     });
 
     it('writes a normalized structured-output schema for Codex chat turns', async () => {

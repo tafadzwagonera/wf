@@ -84,6 +84,15 @@ interface ReviewTarget {
   repoCount?: number;
 }
 
+interface ReviewChatOptions {
+  artifactDir: string;
+  conversationKey: string;
+  repoDir: string;
+  resumeProviderSessionId?: string;
+  review: CodeReview;
+  reviewContext: string;
+}
+
 interface ReviewedTarget extends ReviewTarget {
   review: CodeReview;
   verification: ReviewVerification;
@@ -904,7 +913,22 @@ export class IssueReviewCommand extends CommandRunner {
     if (!startChat) return;
     const last = reviewed.at(-1);
     if (!last) return;
-    await this.startInteractiveChat(last.review, last.context, last.repoDir ?? process.cwd(), options?.sessionId);
+    const repoDir = last.repoDir ?? process.cwd();
+    const { conversationKey, artifactDir } = this.resolveChatConversationTarget(repoDir, options);
+    await this.startInteractiveChat({
+      review: last.review, reviewContext: last.context, repoDir, conversationKey, artifactDir,
+      resumeProviderSessionId: options?.sessionId,
+    });
+  }
+
+  private resolveChatConversationTarget(
+    repoDir: string, options?: IssueReviewOptions
+  ): { conversationKey: string; artifactDir: string } {
+    const ticketKey = options?.ticketKey;
+    const trackerName = ticketKey ? this.resolveTrackerNameSafely(options?.tracker) : undefined;
+    return ticketKey && trackerName
+      ? { conversationKey: ticketKey, artifactDir: resolveArtifactDir(repoDir, trackerName) }
+      : { conversationKey: 'review', artifactDir: resolveCustomArtifactDir(repoDir) };
   }
 
   private saveReviewOutput(
@@ -1463,17 +1487,14 @@ export class IssueReviewCommand extends CommandRunner {
 
   /**
    * Launch an interactive follow-up chat about the review output.
-   * @param review - The code review result
-   * @param reviewContext - Context string used during the review
-   * @param repoDir - Repository directory for conversation persistence
-   * @param resumeProviderSessionId - Provider session ID to resume, if available
+   * @param options - Review, review context, repo dir, conversation key, artifact dir and optional provider session ID
    */
-  private async startInteractiveChat(
-    review: CodeReview, reviewContext: string, repoDir: string, resumeProviderSessionId?: string
-  ): Promise<void> {
-    const context = this.buildChatConversationContext(review, reviewContext, repoDir);
-    const conversation = await this.conversationService.loadConversation('review', repoDir)
-      ?? await this.conversationService.createConversation('review', context);
+  private async startInteractiveChat(options: ReviewChatOptions): Promise<void> {
+    const { review, reviewContext, repoDir, conversationKey, artifactDir, resumeProviderSessionId } = options;
+    const context = this.buildChatConversationContext(options);
+    const conversation = await this.conversationService.loadConversation(
+      conversationKey, repoDir, undefined, artifactDir
+    ) ?? await this.conversationService.createConversation(conversationKey, context);
     await this.conversationService.startChatSession(conversation.conversationId, {
       systemPrompt: this.buildChatSystemPrompt(review, reviewContext),
       maxTurns: 20, exitCommands: ['exit', 'quit', 'continue'],
@@ -1482,11 +1503,10 @@ export class IssueReviewCommand extends CommandRunner {
     });
   }
 
-  private buildChatConversationContext(
-    review: CodeReview, reviewContext: string, repoDir: string
-  ): ConversationContext {
+  private buildChatConversationContext(options: ReviewChatOptions): ConversationContext {
+    const { review, reviewContext, repoDir, conversationKey, artifactDir } = options;
     return {
-      ticketKey: 'review', stage: 'review', stageOutput: review, repoDir,
+      ticketKey: conversationKey, stage: 'review', stageOutput: review, repoDir, artifactDir,
       workflowState: { ticketContent: reviewContext, review },
     };
   }
