@@ -16,3 +16,5 @@ A hook deterministically blocks plan submission until this review is recorded: i
 Write the approved plan as a self-contained markdown file named `YYYY-MM-DD-<slug>.md` under `~/.wf/<project-dir>/`, where `<project-dir>` is the directory the user names (it varies per request). Verify the file is present and readable (`ls -la` plus a read-back), report the file list, then stop and wait for further instructions. Plan approval is not implementation approval; do not touch code.
 
 When a backlog has several themes, write one dated plan document per theme in the same directory. These files are later consumed as `wf issue -c <plan>.md` inputs, and the user drives implementation separately.
+
+Once the plan files are written and verified, end the turn and wait for further instructions.

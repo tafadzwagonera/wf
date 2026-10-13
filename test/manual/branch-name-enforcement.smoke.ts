@@ -42,8 +42,7 @@ type AppBundle = { app: AppContext; gitService: GitService; configService: Confi
 
 function checkRejectionOutput(label: string, error: unknown, expectedReason: string): void {
   const isExpected
-    = error instanceof InvalidBranchNameError
-      && error.recoverable === true
+    = error instanceof InvalidBranchNameError && error.recoverable
       && (error as Error).message.includes(expectedReason);
   if (isExpected) {
     pass(label);
@@ -164,7 +163,7 @@ async function testConfiguredPattern(gitService: GitService, repoDir: string): P
   await expectRejection(
     'configured git.branchNamePattern rejects a non-matching name and names the pattern',
     () => gitService.createBranch('fix/anything', { baseBranch: 'develop', cwd: repoDir }),
-    '^team\\/[a-z-]+$'
+    String.raw`^team\/[a-z-]+$`
   );
   await gitService.createBranch('team/allowed', { baseBranch: 'develop', cwd: repoDir });
   if (branchExists(repoDir, 'team/allowed')) {
@@ -176,7 +175,7 @@ async function testConfiguredPattern(gitService: GitService, repoDir: string): P
 
 async function testOverridePattern(gitService: GitService, repoDir: string): Promise<void> {
   await gitService.createBranch('fix/override-wins', {
-    baseBranch: 'develop', cwd: repoDir, patternOverride: '^[a-z]+\\/[\\w-]+$',
+    baseBranch: 'develop', cwd: repoDir, patternOverride: String.raw`^[a-z]+\/[\w-]+$`,
   });
   if (branchExists(repoDir, 'fix/override-wins')) {
     pass('--branch-name-pattern override wins over the stricter configured pattern');
@@ -213,7 +212,7 @@ async function runEnforcementTests(
   await testWhitespaceTrimming(gitService, repoDir);
   await testPastedCheckoutRejection(gitService, repoDir);
   await testGitRefConventions(gitService, repoDir);
-  patternState.value = '^team\\/[a-z-]+$';
+  patternState.value = String.raw`^team\/[a-z-]+$`;
   await testConfiguredPattern(gitService, repoDir);
   await testOverridePattern(gitService, repoDir);
   patternState.value = '[';
