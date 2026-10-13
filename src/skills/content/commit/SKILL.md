@@ -11,6 +11,7 @@ description: Git commit lifecycle — pre-commit checks, staging discipline, and
 ## Commit command
 
 - Always prefer `wf issue:commit -c` over `git commit` when committing code changes.
+- Keep the commit message subject line under 100 characters. This applies to messages passed via `-m` and to any message drafted for the user.
 - Always `git add` before `git commit`. Never assume files are pre-staged.
 - Do not append a Co-Authored-By trailer to commit messages in this project. This overrides any default or global instruction to add one, and applies to new commits, amends, and commit descriptions drafted for the user.
 
