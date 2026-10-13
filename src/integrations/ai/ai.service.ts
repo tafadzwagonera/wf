@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
 import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/errors';
+import { findModelProviderMismatch } from '../../shared/utils/model-provider-match';
 import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
 import { LoggerService } from '../../shared/logger/logger.service';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
@@ -1261,6 +1262,15 @@ export class AiService {
     return { provider: stageProvider, model: stageModel };
   }
 
+  private assertOverrideModelMatchesProvider(provider: string, model: string): void {
+    const mismatch = findModelProviderMismatch(provider, model);
+    if (!mismatch) return;
+    throw new AiProviderError(
+      `AI override model "${model}" does not match provider "${provider}".`
+      + ` Models starting with "${mismatch.prefix}" belong to the "${mismatch.expectedProvider}" provider.`
+    );
+  }
+
   private resolveAiTarget(
     stage?: 'plan' | 'implement' | 'review' | 'generate' | 'commit' | 'create',
     providerOverride?: string,
@@ -1268,6 +1278,7 @@ export class AiService {
   ): { provider?: string; model?: string } {
     if (providerOverride || modelOverride) {
       if (!providerOverride || !modelOverride) throw new AiProviderError('AI provider and model overrides must be supplied together.');
+      this.assertOverrideModelMatchesProvider(providerOverride, modelOverride);
       return { provider: providerOverride, model: modelOverride };
     }
     const provider = this.configService.get<string>('ai.provider', 'anthropic');

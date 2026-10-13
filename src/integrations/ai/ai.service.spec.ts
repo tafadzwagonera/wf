@@ -165,6 +165,26 @@ describe('AiService', () => {
       ).rejects.toThrow(/provider and model overrides must be supplied together/i);
     });
 
+    it('rejects an override pair whose model prefix belongs to another provider', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await expect(
+        service.execute({ prompt: 'commit', stage: 'commit', provider: 'anthropic', model: 'gpt-5.4' })
+      ).rejects.toThrow(/model "gpt-5\.4" does not match provider "anthropic".*"gpt-".*"openai"/i);
+      expect(adapter.execute).not.toHaveBeenCalled();
+    });
+
+    it('accepts matched and unknown-prefix override pairs', async () => {
+      const adapter = createAdapter();
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.execute({ prompt: 'commit', stage: 'commit', provider: 'openai', model: 'gpt-5.4' });
+      await service.execute({ prompt: 'commit', stage: 'commit', provider: 'anthropic', model: 'custom-model' });
+
+      expect(adapter.execute).toHaveBeenCalledTimes(2);
+    });
+
     it('ignores a model-supplied estimatedComplexity and computes it from plan size and risk severity', async () => {
       const adapter = {
         execute: jest.fn().mockResolvedValue({

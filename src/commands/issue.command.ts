@@ -50,6 +50,7 @@ import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } f
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import { resolveProviderModel } from '../integrations/ai/adapters/shared-routing';
 import * as crypto from 'node:crypto';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
 import { selectProviderSession, type ProviderSessionSelection } from '../shared/utils/provider-session-prompt';
 
@@ -1728,7 +1729,13 @@ export class IssueCommand extends CommandRunner {
   ): T {
     if (!sessionContext.resumeProviderSessionId) return sessionContext;
     const isPrimary = resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo);
-    return isPrimary ? sessionContext : { ...sessionContext, resumeProviderSessionId: undefined } as T;
+    if (isPrimary) return sessionContext;
+    appendToLogFile(
+      'INFO',
+      `issue.session.scope-skip repo=${repo ?? path.basename(process.cwd())} dropped-session=${sessionContext.resumeProviderSessionId}`,
+      'session'
+    );
+    return { ...sessionContext, resumeProviderSessionId: undefined } as T;
   }
 
   private async runReviewForRepo(
@@ -1992,7 +1999,7 @@ export class IssueCommand extends CommandRunner {
       ?? this.configService.get<string>('ai.provider', 'anthropic')) as StageConfigFingerprint['provider'];
     const backend = (this.configService.get<string>(`stages.${stage}.backend`)
       ?? resolveDefaultStageBackend(stage as StageBackendDefaultStageName)) as StageConfigFingerprint['backend'];
-    return { provider, backend };
+    return { provider, backend, model: this.resolveStageModel(stage) };
   }
 
   private resolveStageModel(stage: string): string {

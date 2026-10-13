@@ -185,6 +185,12 @@ const assertPriorCompatibleSessionResult = (status: number | null, output: strin
   }
 };
 
+const assertDroppedSessionNamed = (output: string, logContent: string): void => {
+  const droppedSessionPattern = /issue\.session\.resume-fallback stage=review .* dropped-session=stale-session/;
+  assert.ok(droppedSessionPattern.test(output), output);
+  assert.ok(droppedSessionPattern.test(logContent));
+};
+
 const assertFallbackAssertions = (status: number | null, output: string, paths: ScenarioPaths): void => {
   const invocations = readInvocations(paths.invocationPath);
   const stageInvocations = invocations.filter((args: string[]) => args.includes('--json-schema'));
@@ -196,6 +202,7 @@ const assertFallbackAssertions = (status: number | null, output: string, paths: 
   assert.strictEqual(stageInvocations[1].includes('--resume'), false);
   assert.ok(output.includes('issue.session.resume-fallback'));
   assert.ok(fs.readFileSync(logPath, 'utf8').includes('issue.session.resume-fallback'));
+  assertDroppedSessionNamed(output, fs.readFileSync(logPath, 'utf8'));
   assert.strictEqual(state.sessionId, 'wf-session');
   assert.strictEqual(state.stages.review.providerSessionId, 'fresh-session');
 };

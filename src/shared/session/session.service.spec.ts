@@ -530,6 +530,101 @@ describe('SessionService', () => {
       });
     });
 
+    describe('model drift', () => {
+      const modelFingerprint = (model?: string): StageConfigFingerprint => ({ ...mockFingerprint, model });
+
+      it('resumes an interrupted stage with a same-stage warning when the model changed', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+
+        const result = service.validateForStage(session, 'plan', modelFingerprint('claude-new'), _s => mockFingerprint);
+
+        expect(result.canResume).toBe(true);
+        expect(result.resumableProviderSessionId).toBe('sid-1');
+        expect(result.warnings).toEqual([
+          'Stage plan session was recorded with model claude-old but wf.config now resolves to claude-new. '
+          + 'The session can still be resumed — provider sessions are portable across models — '
+          + 'and will continue with claude-new.',
+        ]);
+      });
+
+      it('resumes a prior-stage session with a cross-stage warning when the model differs', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+        session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+        const result = service.validateForStage(
+          session, 'implement', modelFingerprint('claude-new'), _s => mockFingerprint
+        );
+
+        expect(result.canResume).toBe(true);
+        expect(result.warnings).toEqual([
+          "Model for implement (claude-new) differs from plan's recorded claude-old. "
+          + 'The session can still be resumed — provider sessions are portable across models — '
+          + 'and will continue with claude-new.',
+        ]);
+      });
+
+      it('does not warn when the model equals the recorded model', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+
+        const result = service.validateForStage(session, 'plan', modelFingerprint('claude-old'), _s => mockFingerprint);
+
+        expect(result.canResume).toBe(true);
+        expect(result.warnings).toHaveLength(0);
+      });
+
+      it('does not warn when the model matches any modelsUsed entry', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+        session = {
+          ...session,
+          stages: { ...session.stages, plan: { ...session.stages.plan, modelsUsed: ['claude-mech'] } },
+        };
+
+        const result = service.validateForStage(session, 'plan', modelFingerprint('claude-mech'), _s => mockFingerprint);
+
+        expect(result.warnings).toHaveLength(0);
+      });
+
+      it('does not warn when the fingerprint has no model', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordProviderSessionId(session, 'plan', 'sid-1');
+
+        const result = service.validateForStage(session, 'plan', mockFingerprint, _s => mockFingerprint);
+
+        expect(result.warnings).toHaveLength(0);
+      });
+
+      it('persists the stage config without a model key', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', modelFingerprint('claude-new'), 'claude-new');
+
+        const loaded = await service.load(session.sessionId);
+
+        expect(loaded?.stages.plan.config).toEqual({ provider: 'anthropic', backend: 'agent' });
+        expect(Object.keys(loaded?.stages.plan.config ?? {})).not.toContain('model');
+      });
+
+      it('does not report config drift for a model-only change', async () => {
+        let session = createMockSessionState();
+        session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-old');
+        session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+        const result = service.validateForStage(
+          session, 'implement', modelFingerprint('claude-new'), _s => modelFingerprint('claude-new')
+        );
+
+        expect(result.warnings.some(w => w.includes('drift'))).toBe(false);
+      });
+    });
+
     it('returns canResume with same provider across stages', async () => {
       let session = createMockSessionState();
       session = await service.recordStageStart(session, 'plan', mockFingerprint, 'claude-sonnet-4-20250514');

@@ -1500,6 +1500,67 @@ describe('wf-config-loader', () => {
     });
   });
 
+  describe('stage provider/model validation', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    const ai = [
+      { provider: 'anthropic' as const, apiKey: 'key', model: 'claude-3', default: true },
+      { provider: 'openai' as const, apiKey: 'key', model: 'gpt-5.4' },
+    ];
+
+    it('rejects a stage target with an explicit mismatched model', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { review: { provider: 'anthropic', model: 'gpt-5.4' } },
+      })).toThrow(ValidationError);
+    });
+
+    it('accepts a stage target with an explicit matching model', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { review: { provider: 'openai', model: 'gpt-5.4' } },
+      })).not.toThrow();
+    });
+
+    it('does not throw for an inherited stage model', () => {
+      expect(() => normalizeWfConfig({ ai, stages: { review: { provider: 'openai' } } })).not.toThrow();
+    });
+
+    it('rejects implement models.default that mismatches the implement provider', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', models: { default: 'gpt-5.4' } } },
+      })).toThrow(ValidationError);
+    });
+
+    it('rejects implement models.mechanical that mismatches the implement provider', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', models: { mechanical: 'gpt-5.4' } } },
+      })).toThrow(ValidationError);
+    });
+
+    it('rejects planStepVerification model-only mismatch against the implement provider', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { model: 'gpt-5.4' } } },
+      })).toThrow(ValidationError);
+    });
+
+    it('rejects planStepVerification explicit provider with a mismatched model', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { provider: 'openai', model: 'claude-3' } } },
+      })).toThrow(ValidationError);
+    });
+
+    it('accepts planStepVerification without provider or model', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { enabled: true } } },
+      })).not.toThrow();
+    });
+
+    it('accepts planStepVerification model-only matching the implement provider', () => {
+      expect(() => normalizeWfConfig({
+        ai, stages: { implement: { provider: 'anthropic', planStepVerification: { model: 'claude-3' } } },
+      })).not.toThrow();
+    });
+  });
+
   describe('initializeWfConfig', () => {
     afterEach(() => {
       jest.restoreAllMocks();

@@ -8,6 +8,7 @@ import YAML from 'yaml';
 import { ValidationError } from '../shared/utils/errors';
 import { wfConfigSchema } from '../shared/schemas/config.schema';
 import { formatFieldNames } from '../shared/utils/zod-error.util';
+import { findModelProviderMismatch } from '../shared/utils/model-provider-match';
 import { setWfPathOverrides } from '../shared/utils/wf-paths';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import type {
@@ -161,16 +162,6 @@ const getDefaultModelForProvider = (provider: WfAiProviderName): string => {
 const isGeminiConfig = ({ provider, model }: { provider: WfAiProviderName; model: string }): boolean =>
   provider === 'google' && model.startsWith('gemini');
 
-const modelPrefixToProvider: Record<string, WfAiProviderName> = {
-  'claude-': 'anthropic',
-  'gpt-': 'openai',
-  'o1-': 'openai',
-  'o3-': 'openai',
-  'o4-': 'openai',
-  'gemini-': 'google',
-  'deepseek-': 'deepseek',
-};
-
 /**
  * Validates that a model name is not obviously mismatched with its declared provider.
  * Throws when a well-known model prefix (e.g. `gpt-`) maps to a different provider
@@ -180,14 +171,12 @@ const modelPrefixToProvider: Record<string, WfAiProviderName> = {
  * @param model - Explicit model name from the config entry (not the default)
  */
 const validateProviderModelMatch = (provider: WfAiProviderName, model: string): void => {
-  for (const [prefix, expectedProvider] of Object.entries(modelPrefixToProvider)) {
-    if (model.startsWith(prefix) && provider !== expectedProvider) {
-      throw new ValidationError(
-        `Invalid wf config: model "${model}" does not match provider "${provider}".`
-        + ` Models starting with "${prefix}" belong to the "${expectedProvider}" provider.`
-      );
-    }
-  }
+  const mismatch = findModelProviderMismatch(provider, model);
+  if (!mismatch) return;
+  throw new ValidationError(
+    `Invalid wf config: model "${model}" does not match provider "${provider}".`
+    + ` Models starting with "${mismatch.prefix}" belong to the "${mismatch.expectedProvider}" provider.`
+  );
 };
 
 const parseNodeVersion = (nodeVersion: string): [number, number, number] =>
@@ -632,6 +621,7 @@ const normalizeStageTarget = ({
 }: StageTargetInput): NormalizedAiStageTargetConfig | undefined => {
   if (!stageTarget) return undefined;
   assertStageTargetProviderIsConfigured(stageName, stageTarget, configuredProviderNames);
+  if (stageTarget.model) validateProviderModelMatch(stageTarget.provider, stageTarget.model);
   const model = resolveStageTargetModel(stageName, stageTarget, configuredProvidersByName);
   const backend = resolveStageTargetBackend(stageName, stageTarget);
   return buildNormalizedStageTarget(stageTarget, model, backend);
@@ -674,10 +664,23 @@ const buildImplementStageOptionalFields = (implementStageConfig: WfImplementStag
   }),
 });
 
+const validateImplementStageModels = (
+  implementStageConfig: WfImplementStageConfig,
+  implementProvider: WfAiProviderName
+): void => {
+  const { models, planStepVerification } = implementStageConfig;
+  for (const model of [models?.default, models?.mechanical]) {
+    if (model) validateProviderModelMatch(implementProvider, model);
+  }
+  if (!planStepVerification?.model) return;
+  validateProviderModelMatch(planStepVerification.provider ?? implementProvider, planStepVerification.model);
+};
+
 const normalizeImplementStageConfig = (
   { implementStageConfig, implementTarget }: ImplementStageInput,
 ): NormalizedImplementStageConfig | undefined => {
   if (!implementStageConfig || !implementTarget) return undefined;
+  validateImplementStageModels(implementStageConfig, implementTarget.provider);
   return {
     ...resolveImplementStageTargetConfig(implementStageConfig, implementTarget),
     ...buildImplementStageOptionalFields(implementStageConfig),

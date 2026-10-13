@@ -19,6 +19,7 @@ import {
 import type { StreamedRunResult, RunState } from '@openai/agents';
 import { OpenAIResponsesCompactionSession } from '@openai/agents-openai';
 import chalk from 'chalk';
+import { appendToLogFile } from '../../../shared/logger/log-file-writer';
 import * as fs from 'node:fs/promises';
 import { exec } from 'node:child_process';
 import { glob } from 'glob';
@@ -1470,9 +1471,10 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     const preamble = buildPriorStagePreamble(options.priorStageSummary);
     const skillFragment = await this.buildSkillFragment(params);
     if (options.resumeProviderSessionId) {
-      console.log(chalk.yellow(
-        '  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'
-      ));
+      const message = 'Session resumption is not yet supported for the OpenAI agent backend, '
+        + `ignoring session ${options.resumeProviderSessionId} and starting fresh.`;
+      console.log(chalk.yellow(`  [openai-agent] ${message}`));
+      appendToLogFile('WARN', message, 'openai-agent');
     }
     return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, createAllTools(mutable, vs));
   }

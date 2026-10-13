@@ -2897,6 +2897,43 @@ describe('StageAgentService', () => {
       );
     });
 
+    it('names the dropped session id in the stale-resume console and log output', async () => {
+      const service = new StageAgentService(createAnthropicAgentConfigService());
+      (service as unknown as { dispatchToBackend: jest.Mock }).dispatchToBackend = jest.fn()
+        .mockRejectedValueOnce(new Error('session_id not found'))
+        .mockResolvedValueOnce({ content: 'fresh result' });
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+      await (service as unknown as {
+        runStagePrompt: (params: StagePromptParams) => Promise<unknown>;
+      }).runStagePrompt({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', resumeProviderSessionId: 'stale-sid' });
+
+      expect(logSpy.mock.calls.some(call => String(call[0]).includes('resume-fallback') && String(call[0]).endsWith(' dropped-session=stale-sid'))).toBe(true);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN', expect.stringMatching(/issue\.session\.resume-fallback .* dropped-session=stale-sid$/), 'stage-agent'
+      );
+    });
+
+    it('names the ignored session id and logs a WARN when the OpenAI agent backend cannot resume', async () => {
+      const service = new StageAgentService({
+        get: jest.fn((key: string, defaultValue?: unknown) => (key === 'ai.openaiApiKey' ? 'key' : defaultValue)),
+      } as unknown as ConfigService);
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      jest.spyOn(service as any, 'buildOpenAiStageAgent').mockResolvedValue({ agent: {}, runner: {}, context: {} });
+      jest.spyOn(service as any, 'processOpenAiStageResult').mockResolvedValue({ content: 'ok' });
+
+      await (service as any).runOpenAiStagePrompt({
+        stage: 'plan', prompt: 'p', systemPrompt: 'sys', resumeProviderSessionId: 'oa-sid',
+      });
+
+      expect(logSpy.mock.calls.some(call => String(call[0]).includes('ignoring session oa-sid and starting fresh.'))).toBe(true);
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('ignoring session oa-sid and starting fresh.'), 'stage-agent'
+      );
+    });
+
     it('retries fresh when Claude CLI backend throws a stale-resume error', async () => {
       const service = new StageAgentService(createClaudeCliConfigService());
       const mockDispatch = jest.fn()
@@ -4064,6 +4101,54 @@ describe('StageAgentService', () => {
       expect(chatOnceSpy).toHaveBeenCalledTimes(2);
       expect(chatOnceSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ modelOverride: 'gpt-5.4-mini', session: undefined }));
       expect(result.content).toBe('chat response');
+    });
+
+    it('names the dropped resume session id in console and log output on stage model fallback', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'ok' });
+
+      await (svc as any).runStagePrompt({
+        stage: 'generate', prompt: 'p', systemPrompt: 'sys', resumeProviderSessionId: 'old-sid',
+      });
+
+      expect(appendSpy).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('stage-agent.model.fallback'), 'stage-agent'
+      );
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining(' dropped-session=old-sid'), 'stage-agent');
+      expect(logSpy.mock.calls.some(call => String(call[0]).includes(' dropped-session=old-sid'))).toBe(true);
+    });
+
+    it('omits the dropped-session suffix when no resume session id is present', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'runStagePromptOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'ok' });
+
+      await svc.generateFromPrompt('Summarise this');
+
+      expect(appendSpy).not.toHaveBeenCalledWith('WARN', expect.stringContaining('dropped-session'), 'stage-agent');
+    });
+
+    it('names the dropped chat session id on chat model fallback', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const svc = new StageAgentService(createFallbackConfigService());
+      jest.spyOn(svc as any, 'chatTurnOnce')
+        .mockRejectedValueOnce(mockModelUnavailableError)
+        .mockResolvedValueOnce({ content: 'chat response', session: {}, costUsd: 0.01 });
+
+      await svc.chatTurn({
+        stage: 'generate', systemPrompt: 'sys', userMessage: 'hi', session: { sessionId: 'chat-sid' } as any,
+      });
+
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining(' dropped-session=chat-sid'), 'stage-agent');
+      expect(logSpy.mock.calls.some(call => String(call[0]).includes(' dropped-session=chat-sid'))).toBe(true);
     });
 
     it('does not use the stage fallback model for a provider override', async () => {

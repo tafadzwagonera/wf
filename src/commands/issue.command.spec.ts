@@ -94,6 +94,7 @@ import * as path from 'path';
 import inquirer from 'inquirer';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
+import * as logFileWriter from '../shared/logger/log-file-writer';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { selectProviderSession } from '../shared/utils/provider-session-prompt';
 
@@ -297,6 +298,7 @@ describe('IssueCommand', () => {
     (command as any).configService.get = jest.fn((key: string, defaultValue?: string) => {
       if (key === 'stages.implement.provider') return 'anthropic';
       if (key === 'stages.implement.backend') return 'cli';
+      if (key === 'stages.implement.model') return 'claude-sonnet-4-6';
       return defaultValue;
     });
     mockSessionService.validateForStage.mockReturnValue({
@@ -314,7 +316,7 @@ describe('IssueCommand', () => {
 
     expect(selectProviderSession).toHaveBeenCalledWith({
       candidate: mockCandidate,
-      fingerprint: { provider: 'anthropic', backend: 'cli' },
+      fingerprint: { provider: 'anthropic', backend: 'cli', model: 'claude-sonnet-4-6' },
       interactive: false,
     });
     expect(result.sessionContext).toEqual({
@@ -3148,6 +3150,22 @@ describe('IssueCommand', () => {
       expect(result.resumeProviderSessionId).toBeUndefined();
       expect(result.priorStageSummary).toBe('summary');
       expect(result).not.toBe(ctx);
+    });
+
+    it('logs the dropped session id when the repo differs from primaryRepo', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const command = await buildCommand();
+      (command as any).scopeSessionContextToRepo({ resumeProviderSessionId: 'sid-123' }, 'repoB', 'repoA');
+      expect(appendSpy).toHaveBeenCalledWith(
+        'INFO', 'issue.session.scope-skip repo=repoB dropped-session=sid-123', 'session'
+      );
+    });
+
+    it('does not log a scope-skip when the repo is primary', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const command = await buildCommand();
+      (command as any).scopeSessionContextToRepo({ resumeProviderSessionId: 'sid-123' }, 'repoA', 'repoA');
+      expect(appendSpy).not.toHaveBeenCalled();
     });
 
     it('treats repo and primaryRepo both undefined as equal', async () => {

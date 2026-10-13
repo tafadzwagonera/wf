@@ -4,6 +4,7 @@ import { wfAiProviderNameSchema, wfBackendModeSchema } from './config.schema';
 export const stageConfigFingerprintSchema = z.object({
   provider: wfAiProviderNameSchema,
   backend: wfBackendModeSchema,
+  model: z.string().optional(),
 });
 
 export const stageRecordSchema = z.object({

@@ -1,12 +1,9 @@
 /**
- * Smoke test: multi-repo repo skipping and plan step filtering
+ * Smoke test: multi-repo plan step filtering
  *
  * Verifies:
- *   1. filterActiveRepos skips repos not in plan.affectedRepositories
- *   2. filterActiveRepos keeps undefined (cwd mode) entries
- *   3. filterActiveRepos falls back to full list when all repos would be removed
- *   4. filterStepsForRepo excludes steps referencing another repo's files
- *   5. filterStepsForRepo passes all steps through for empty repoName or repoFiles
+ *   1. filterStepsForRepo excludes steps referencing another repo's files
+ *   2. filterStepsForRepo passes all steps through for empty repoName or repoFiles
  *
  * Run: nr test:manual multi-repo-filtering.smoke.ts
  */
@@ -15,8 +12,6 @@ import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
-import { IssueImplementCommand } from '../../src/commands/issue-implement.command';
-import type { PlanArtifact } from '../../src/agents/interfaces';
 
 let passed = 0;
 let failed = 0;
@@ -31,34 +26,7 @@ const assert = (label: string, condition: boolean): void => {
   }
 };
 
-const buildPlan = (overrides?: Partial<PlanArtifact['plan']>): PlanArtifact => ({
-  action: 'fix',
-  path: '/tmp/.wf/repo-a/jira/plan.json',
-  plan: {
-    action: 'fix',
-    summary: 'Test plan',
-    steps: ['Update a file'],
-    estimatedComplexity: 'low' as const,
-    affectedFiles: ['repo-a/src/a.ts'],
-    affectedRepositories: ['repo-a'],
-    ...overrides,
-  },
-});
-
 type StepFilter = (steps: string[], files: string[], repo: string) => string[];
-
-function runFilterActiveReposChecks(command: IssueImplementCommand): void {
-  console.log(chalk.bold('  filterActiveRepos'));
-  const filter = (command as any).filterActiveRepos.bind(command);
-  const result1 = filter(['repo-a', 'repo-b'], buildPlan({ affectedRepositories: ['repo-a'] }));
-  assert('skips repos not in affectedRepositories', result1.length === 1 && result1[0] === 'repo-a');
-  const result2 = filter(['repo-a', 'repo-b'], buildPlan({ affectedRepositories: [] }));
-  assert('keeps all repos when affectedRepositories is empty', result2.length === 2);
-  const result3 = filter([undefined, 'repo-b'], buildPlan({ affectedRepositories: ['repo-a'] }));
-  assert('always keeps undefined (cwd mode)', result3.length === 1 && result3[0] === undefined);
-  const result4 = filter(['repo-a', 'repo-b'], buildPlan({ affectedRepositories: ['repo-c'] }));
-  assert('falls back to full list when all repos would be removed', result4.length === 2);
-}
 
 function checkCrossRepoStepFiltering(filter: StepFilter): void {
   const steps = [
@@ -93,7 +61,6 @@ async function main(): Promise<void> {
     logger: ['error'],
   });
   try {
-    runFilterActiveReposChecks(app.get(IssueImplementCommand));
     runFilterStepsForRepoChecks(app.get(ImplementerAgent));
     console.log(chalk.bold(`\n  ${passed} passed, ${failed} failed\n`));
     if (failed > 0) process.exit(1);

@@ -412,7 +412,7 @@ export class SessionService {
 
   private createStageRecord(fingerprint: StageConfigFingerprint, model: string): StageRecord {
     return {
-      config: fingerprint,
+      config: { provider: fingerprint.provider, backend: fingerprint.backend },
       model,
       modelsUsed: [],
       providerSessionId: null,
@@ -496,6 +496,7 @@ export class SessionService {
       return null;
     }
     if (this.canResumeStageRecord(existingRecord, currentFingerprint)) {
+      this.pushModelChangedWarning(existingRecord, currentFingerprint, nextStage, warnings);
       return this.createProviderSessionCandidate(nextStage, existingRecord);
     }
     this.pushInterruptedResumeWarnings(existingRecord, currentFingerprint, nextStage, warnings);
@@ -522,6 +523,7 @@ export class SessionService {
       const record = session.stages[stageName];
       if (!record?.completedAt) continue;
       if (this.canResumeStageRecord(record, currentFingerprint)) {
+        this.pushPriorStageModelWarning(record, currentFingerprint, nextStage, stageName, warnings);
         return this.createProviderSessionCandidate(stageName, record);
       }
       this.pushPriorStageWarnings(record, currentFingerprint, nextStage, stageName, warnings);
@@ -593,6 +595,44 @@ export class SessionService {
   ): string {
     return `Provider for ${nextStage} (${currentProvider}) differs from ${priorStageName} (${priorProvider}). `
       + 'Prior stage summary will still be available as context.';
+  }
+
+  private findDriftedModels(
+    record: StageRecord, fingerprint: StageConfigFingerprint
+  ): { recorded: string; current: string } | null {
+    const current = fingerprint.model;
+    const recordedModels = [record.model, ...record.modelsUsed].filter(Boolean);
+    const recorded = recordedModels[0];
+    return current && recorded && !recordedModels.includes(current) ? { recorded, current } : null;
+  }
+
+  private buildModelChangedWarning(stage: string, recordedModel: string, currentModel: string): string {
+    return `Stage ${stage} session was recorded with model ${recordedModel} but wf.config now resolves to `
+      + `${currentModel}. The session can still be resumed — provider sessions are portable across models — `
+      + `and will continue with ${currentModel}.`;
+  }
+
+  private buildPriorStageModelWarning(
+    nextStage: string, currentModel: string, priorStageName: string, recordedModel: string
+  ): string {
+    return `Model for ${nextStage} (${currentModel}) differs from ${priorStageName}'s recorded ${recordedModel}. `
+      + 'The session can still be resumed — provider sessions are portable across models — '
+      + `and will continue with ${currentModel}.`;
+  }
+
+  private pushModelChangedWarning(
+    record: StageRecord, fingerprint: StageConfigFingerprint, stage: string, warnings: string[]
+  ): void {
+    const drift = this.findDriftedModels(record, fingerprint);
+    if (drift) warnings.push(this.buildModelChangedWarning(stage, drift.recorded, drift.current));
+  }
+
+  private pushPriorStageModelWarning(
+    record: StageRecord, fingerprint: StageConfigFingerprint, nextStage: string, priorStage: string,
+    warnings: string[]
+  ): void {
+    const drift = this.findDriftedModels(record, fingerprint);
+    if (drift) warnings.push(this.buildPriorStageModelWarning(nextStage, drift.current, priorStage, drift.recorded));
   }
 
   private buildNonResumableStageWarning(stage: string, config: StageConfigFingerprint): string {

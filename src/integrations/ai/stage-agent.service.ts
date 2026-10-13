@@ -1411,7 +1411,7 @@ export class StageAgentService {
       return await this.dispatchToBackend(params);
     } catch (error) {
       if (!params.resumeProviderSessionId || !isStaleResumeError(error)) throw error;
-      this.logResumeFallback(params.stage, error);
+      this.logResumeFallback(params.stage, error, params.resumeProviderSessionId);
       return this.retryStagePromptFresh(params, error);
     }
   }
@@ -1431,16 +1431,19 @@ export class StageAgentService {
     params: StagePromptParams, error: unknown, fallbackModel: string
   ): Promise<StagePromptResult> {
     const cause = (error instanceof Error ? error.message.replaceAll(/\s+/g, ' ') : String(error)).slice(0, 300);
-    this.logModelFallback(params.stage, fallbackModel, cause);
+    this.logModelFallback(params.stage, fallbackModel, cause, params.resumeProviderSessionId);
     const result = await this.runStagePromptOnce({
       ...params, modelOverride: fallbackModel, resumeProviderSessionId: undefined,
     });
     return { ...result, modelUsed: fallbackModel };
   }
 
-  private logModelFallback(stage: AgentStageName, fallbackModel: string, cause: string): void {
-    const msg = `stage-agent.model.fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} original-model=${this.resolveStageModel(stage)} fallback-model=${fallbackModel} cause=${cause}`;
-    console.log(chalk.yellow(`  [stage-agent] Model unavailable — retrying with fallback-model=${fallbackModel}`));
+  private logModelFallback(
+    stage: AgentStageName, fallbackModel: string, cause: string, droppedResumeSessionId?: string
+  ): void {
+    const droppedSuffix = droppedResumeSessionId ? ` dropped-session=${droppedResumeSessionId}` : '';
+    const msg = `stage-agent.model.fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} original-model=${this.resolveStageModel(stage)} fallback-model=${fallbackModel} cause=${cause}${droppedSuffix}`;
+    console.log(chalk.yellow(`  [stage-agent] Model unavailable — retrying with fallback-model=${fallbackModel}${droppedSuffix}`));
     appendToLogFile('WARN', msg, 'stage-agent');
   }
 
@@ -1459,9 +1462,9 @@ export class StageAgentService {
     }
   }
 
-  private logResumeFallback(stage: AgentStageName, error: unknown): void {
+  private logResumeFallback(stage: AgentStageName, error: unknown, resumeProviderSessionId: string): void {
     const cause = this.extractErrorMessage(error).replaceAll(/\s+/g, ' ').slice(0, 300);
-    const message = `issue.session.resume-fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} cause=${cause}`;
+    const message = `issue.session.resume-fallback stage=${stage} provider=${this.resolveStageProvider(stage)} backend=${this.resolveStageBackend(stage)} cause=${cause} dropped-session=${resumeProviderSessionId}`;
     console.log(chalk.yellow(`  [stage-agent] ${message}`));
     appendToLogFile('WARN', message, 'stage-agent');
   }
@@ -1522,7 +1525,7 @@ export class StageAgentService {
   private async runOpenAiStagePrompt(params: StagePromptParams): Promise<string> {
     const apiKey = this.requireOpenAiApiKey();
     setTracingExportApiKey(apiKey);
-    if (params.resumeProviderSessionId) this.logOpenAiResumeUnsupported();
+    if (params.resumeProviderSessionId) this.logOpenAiResumeUnsupported(params.resumeProviderSessionId);
     const resolvedModel = this.resolveModelForStage(params.stage, params.modelOverride);
     const { agent, runner, context } = await this.buildOpenAiStageAgent({
       stage: params.stage, systemPrompt: params.systemPrompt, repoDir: params.repoDir,
@@ -1535,8 +1538,10 @@ export class StageAgentService {
     return content;
   }
 
-  private logOpenAiResumeUnsupported(): void {
-    console.log(chalk.yellow('  [openai-agent] Session resumption is not yet supported for the OpenAI agent backend. Starting fresh.'));
+  private logOpenAiResumeUnsupported(resumeProviderSessionId: string): void {
+    const message = `Session resumption is not yet supported for the OpenAI agent backend, ignoring session ${resumeProviderSessionId} and starting fresh.`;
+    console.log(chalk.yellow(`  [openai-agent] ${message}`));
+    appendToLogFile('WARN', message, 'stage-agent');
   }
 
   private requireOpenAiApiKey(): string {
@@ -1630,7 +1635,7 @@ export class StageAgentService {
     params: ChatTurnParams, error: unknown, fallbackModel: string
   ): Promise<AgentChatTurnResult> {
     const cause = (error instanceof Error ? error.message.replaceAll(/\s+/g, ' ') : String(error)).slice(0, 300);
-    this.logModelFallback(params.stage, fallbackModel, cause);
+    this.logModelFallback(params.stage, fallbackModel, cause, params.session?.sessionId);
     return this.chatTurnOnce({ ...params, modelOverride: fallbackModel, session: undefined });
   }
 
