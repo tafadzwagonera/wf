@@ -17,6 +17,55 @@ describe('buildReviewPrompt', () => {
     jest.restoreAllMocks();
   });
 
+  it('includes frame-aligned tree guidance in trace principles', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('frame-aligned');
+  });
+
+  it('includes mirrored-nesting phrase in trace principles', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('mirror the callStack nesting');
+  });
+
+  it('references captured and changes fields by name in trace guidance', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('`captured`');
+    expect(prompt).toContain('`changes`');
+  });
+
+  it('example stateTransition has entry-array captured and changes', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('"captured":[');
+    expect(prompt).toContain('"changes":[');
+    expect(prompt).toContain('{"name"');
+  });
+
+  it('example stateTransition steps are non-empty with entry arrays', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('"steps":[');
+    expect(prompt).toContain('"frame":"Service.method(params)"');
+    expect(prompt).toContain('"frame":"Helper.transform(input)"');
+    expect(prompt).toContain('"approved":true');
+  });
+
+  it('reviewOutputSchema example JSON line is valid and has nested stateTransition with entry arrays', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    const schemaLineStart = prompt.indexOf('{"summary"');
+    const schemaLineEnd = prompt.indexOf('\n', schemaLineStart);
+    const jsonLine = prompt.substring(schemaLineStart, schemaLineEnd);
+    const parsed = JSON.parse(jsonLine);
+    expect(parsed.stateTransition).toBeDefined();
+    expect(parsed.stateTransition.steps).toBeDefined();
+    expect(Array.isArray(parsed.stateTransition.steps)).toBe(true);
+    expect(parsed.stateTransition.steps.length).toBeGreaterThan(0);
+    const step = parsed.stateTransition.steps[0];
+    expect(Array.isArray(step.captured)).toBe(true);
+    expect(Array.isArray(step.changes)).toBe(true);
+    expect(step.children).toBeDefined();
+    expect(Array.isArray(step.children)).toBe(true);
+    expect(step.children.length).toBeGreaterThan(0);
+  });
+
   it('orders code changes, numbered guidelines, instructions, trace guidance and schema', () => {
     const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
     const positions = ['Code Changes:', '1. a', reviewInstructions, reviewTraceGuidance, reviewOutputSchema]

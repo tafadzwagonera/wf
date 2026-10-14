@@ -10,9 +10,9 @@ import type {
   reviewTraceStateTransitionSchema,
   reviewTraceValueChangeSchema,
 } from '../schemas/review.schema';
-import type { ReviewTraceCallStackNode, ReviewTraceStateNode } from '../schemas/review.schema';
+import type { ReviewTraceCallStackNode, ReviewTraceStateNode, ReviewTraceCapturedEntry, ReviewTraceChangeEntry } from '../schemas/review.schema';
 
-export type { ReviewTraceCallStackNode, ReviewTraceStateNode };
+export type { ReviewTraceCallStackNode, ReviewTraceStateNode, ReviewTraceCapturedEntry, ReviewTraceChangeEntry };
 export type CodeIssue = z.infer<typeof codeIssueSchema>;
 export type CodeIssueSeverity = z.infer<typeof codeIssueSeveritySchema>;
 export type CodeReview = z.infer<typeof codeReviewSchema>;

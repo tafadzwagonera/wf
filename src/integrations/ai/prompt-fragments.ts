@@ -138,7 +138,7 @@ export const reviewInstructions = `   Review principles — apply judgment to ea
 3. Assess trace confidence honestly: evidence-based when you can follow the path,
    best-effort when partially visible, unavailable when opaque
 4. Walk the changed code path as a concrete call stack using real identifiers from the diff
-5. Capture variable state transitions between frames to show what moved
+5. Model state transitions as a frame-aligned tree mirroring the call stack — each frame records what it captured and what changed since the previous frame
 6. For each issue, suggest the most effective and sustainable fix in concise and straightforward language
 7. Offer follow-up suggestions only when they add value beyond the immediate issues
 8. Approve when the changes are sound — reject only with clear justification`;
@@ -151,13 +151,14 @@ export const reviewTraceGuidance = `   Trace principles — use judgment, not me
      reflect the actual call path, not the review process.
    - Structure callStack nodes by real invocation depth; external effects (HTTP, DB)
      belong as leaf nodes.
-   - Distinguish observed state (captured) from mutations (changes) so readers can
-     follow what was inspected versus what moved.
+   - Record observed state in \`captured\` entries and mutations in \`changes\` entries at each frame;
+     mirror the callStack nesting in \`stateTransition.steps\` — when downstream dependencies nest,
+     the state tree shows the same depth, and a genuinely flat path stays flat.
    - Prefer honest provenance: label "unavailable" with empty structures rather than
      fabricating a path you cannot trace confidently.`;
 
 export const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
-{"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":{"dep":"Dep { ... }"},"changes":{"dep":{"before":"old","after":"new"}},"children":[]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
+{"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":[{"name":"dep","value":"Dep { ... }"}],"changes":[{"name":"dep","before":"old","after":"new"}],"children":[{"frame":"Helper.transform(input)","captured":[],"changes":[{"name":"result","before":null,"after":"transformed"}],"children":[]}]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
 
 Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
 When an optional field has no value, omit it from the JSON entirely. Do not use null.

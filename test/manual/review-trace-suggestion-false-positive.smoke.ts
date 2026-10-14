@@ -54,8 +54,8 @@ const codeIdentifierTrace: CodeReview = {
     steps: [
       {
         frame: 'handleProviderError()',
-        captured: { 'suggestion map key': 'computed property' },
-        changes: {},
+        captured: [{ name: 'suggestion map key', value: 'computed property' }],
+        changes: [],
         children: [],
       },
     ],

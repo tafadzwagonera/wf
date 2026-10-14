@@ -1,6 +1,9 @@
 import { inspect } from 'util';
+import { convertCapturedToEntries, convertChangesToEntries } from '../../shared/schemas/review.schema';
 import type {
   ReviewTraceCallStackNode,
+  ReviewTraceCapturedEntry,
+  ReviewTraceChangeEntry,
   ReviewTraceValueChange,
   ReviewTraceStateNode,
   ReviewTraceStateTransition,
@@ -49,9 +52,6 @@ const indentMultilineValue = (value: string, indent: string): string =>
     .map((line, index) => (index === 0 ? line : `${indent}${line}`))
     .join('\n');
 
-const isReviewTraceValueChange = (value: unknown): value is ReviewTraceValueChange =>
-  value !== null && typeof value === 'object' && ('before' in value || 'after' in value);
-
 const normalizeCallStackNode = (node: ReviewTraceCallStackNode | string): ReviewTraceCallStackNode => {
   if (typeof node === 'string') {
     return { frame: node };
@@ -64,24 +64,24 @@ const normalizeCallStackNode = (node: ReviewTraceCallStackNode | string): Review
 };
 
 /**
- * Build the legacy changes map from a node with `state`/`next` fields.
+ * Build the legacy changes array from a node with `state`/`next` fields.
  * @param typedNode Partial node to extract legacy fields from
- * @returns Record of change entries or undefined when empty
+ * @returns Array of change entries or undefined when empty
  */
 const buildLegacyChanges = (
   typedNode: Partial<ReviewTraceStateNode> & Record<string, unknown>
-): Record<string, ReviewTraceValueChange> | undefined => {
-  const legacyChanges: Record<string, ReviewTraceValueChange> = {};
+): ReviewTraceChangeEntry[] | undefined => {
+  const legacyChanges: ReviewTraceChangeEntry[] = [];
 
   if ('state' in typedNode && typedNode.state !== undefined) {
-    legacyChanges.state = { after: typedNode.state };
+    legacyChanges.push({ name: 'state', after: typedNode.state });
   }
 
   if ('next' in typedNode && typedNode.next !== undefined) {
-    legacyChanges.next = { after: typedNode.next };
+    legacyChanges.push({ name: 'next', after: typedNode.next });
   }
 
-  return Object.keys(legacyChanges).length > 0 ? legacyChanges : undefined;
+  return legacyChanges.length > 0 ? legacyChanges : undefined;
 };
 
 /**
@@ -99,23 +99,7 @@ const mapLegacyStateNode = (
     : undefined,
 });
 
-/**
- * Normalize a raw changes object into typed ReviewTraceValueChange entries.
- * @param rawChanges The raw changes object from the node
- * @returns Normalized changes record or undefined when absent
- */
-const normalizeChanges = (
-  rawChanges: unknown
-): Record<string, ReviewTraceValueChange> | undefined => {
-  if (!rawChanges || typeof rawChanges !== 'object') {
-    return undefined;
-  }
-
-  return Object.entries(rawChanges).reduce<Record<string, ReviewTraceValueChange>>((acc, [key, value]) => {
-    acc[key] = isReviewTraceValueChange(value) ? value : { after: value };
-    return acc;
-  }, {});
-};
+const toEntries = <T>(converted: unknown): T[] | undefined => (Array.isArray(converted) ? converted : undefined);
 
 const normalizeStateNode = (node: ReviewTraceStateNode | Record<string, unknown>): ReviewTraceStateNode => {
   const typedNode = node as Partial<ReviewTraceStateNode> & Record<string, unknown>;
@@ -126,8 +110,8 @@ const normalizeStateNode = (node: ReviewTraceStateNode | Record<string, unknown>
 
   return {
     frame: typedNode.frame,
-    captured: typedNode.captured && typeof typedNode.captured === 'object' ? typedNode.captured : undefined,
-    changes: normalizeChanges(typedNode.changes),
+    captured: toEntries<ReviewTraceCapturedEntry>(convertCapturedToEntries(typedNode.captured)),
+    changes: toEntries<ReviewTraceChangeEntry>(convertChangesToEntries(typedNode.changes)),
     children: Array.isArray(typedNode.children)
       ? typedNode.children.map(child => normalizeStateNode(child as ReviewTraceStateNode | Record<string, unknown>))
       : undefined,
@@ -169,16 +153,6 @@ const renderTree = (
   );
 };
 
-const renderKeyValueLines = (values: Record<string, unknown>, prefix: string): string[] =>
-  Object.entries(values).flatMap(([key, value], index, entries) => {
-    const isLast = index === entries.length - 1;
-    const branch = isLast ? '└─' : '├─';
-    const valuePrefix = `${prefix}${isLast ? '   ' : '│  '}`;
-    const formattedValue = indentMultilineValue(formatValue(value), `${valuePrefix}   `);
-
-    return [`${prefix}${branch} ${key} = ${formattedValue}`];
-  });
-
 /**
  * Render before/after sub-lines for a structured value change.
  * @param key The change key name
@@ -189,85 +163,102 @@ const renderKeyValueLines = (values: Record<string, unknown>, prefix: string): s
  * @returns Lines for the key header and before/after values
  */
 const renderBeforeAfterEntry = (key: string, value: ReviewTraceValueChange, valuePrefix: string,
-  branch: string, subIndent: string): string[] => [
-  `${valuePrefix}${branch} ${key} =`,
-  `${valuePrefix}${subIndent}├─ before = ${indentMultilineValue(formatValue(value.before), `${valuePrefix}${subIndent}   `)}`,
-  `${valuePrefix}${subIndent}└─ after = ${indentMultilineValue(formatValue(value.after), `${valuePrefix}${subIndent}   `)}`,
-];
+  branch: string, subIndent: string): string[] => {
+  const sides = [
+    { label: 'before', value: value.before },
+    { label: 'after', value: value.after },
+  ].filter(side => side.value !== undefined);
+
+  return [
+    `${valuePrefix}${branch} ${key} =`,
+    ...sides.map((side, index) => {
+      const sideBranch = index === sides.length - 1 ? '└─' : '├─';
+      return `${valuePrefix}${subIndent}${sideBranch} ${side.label} = ${indentMultilineValue(formatValue(side.value), `${valuePrefix}${subIndent}   `)}`;
+    }),
+  ];
+};
 
 /**
  * Render the display lines for a single change entry within a state node changes block.
- * @param key The change key name
- * @param value The ReviewTraceValueChange value for the entry
+ * @param entry The change entry with name, before, and after fields
  * @param valuePrefix Indentation prefix for value lines
- * @param isLastEntry Whether this is the last entry in the changes map
+ * @param isLastEntry Whether this is the last entry in the changes array
  * @returns Lines representing this change entry
  */
-const renderChangeEntry = (key: string, value: ReviewTraceValueChange, valuePrefix: string,
+const renderChangeEntry = (entry: ReviewTraceChangeEntry, valuePrefix: string,
   isLastEntry: boolean): string[] => {
   const branch = isLastEntry ? '└─' : '├─';
   const subIndent = isLastEntry ? '   ' : '│  ';
-  if (value && typeof value === 'object' && ('before' in value || 'after' in value)) {
-    return renderBeforeAfterEntry(key, value, valuePrefix, branch, subIndent);
-  }
-  return [`${valuePrefix}${branch} ${key} = ${indentMultilineValue(formatValue(value), `${valuePrefix}      `)}`];
+  return renderBeforeAfterEntry(entry.name, entry, valuePrefix, branch, subIndent);
 };
 
 /**
  * Render lines for the changes section of a state node.
- * @param changes Map of key to ReviewTraceValueChange
+ * @param changes Array of change entries with name, before, and after fields
  * @param childPrefix Indentation prefix for the section header
  * @param hasChildren Whether the node has child state nodes
  * @returns Lines for the changes section header and entries
  */
 const renderChangesSection = (
-  changes: Record<string, ReviewTraceValueChange>,
+  changes: ReviewTraceChangeEntry[],
   childPrefix: string,
   hasChildren: boolean
 ): string[] => {
   const sectionBranch = hasChildren ? '├─' : '└─';
   const valuePrefix = `${childPrefix}${hasChildren ? '│  ' : '   '}`;
-  const entries = Object.entries(changes);
 
   return [
     `${childPrefix}${sectionBranch} changes`,
-    ...entries.flatMap(([key, value], index) =>
-      renderChangeEntry(key, value, valuePrefix, index === entries.length - 1)
+    ...changes.flatMap((entry, index) =>
+      renderChangeEntry(entry, valuePrefix, index === changes.length - 1)
     ),
   ];
 };
 
+const renderCapturedEntry = (
+  entry: ReviewTraceCapturedEntry,
+  valuePrefix: string,
+  index: number,
+  arr: ReviewTraceCapturedEntry[]
+): string[] => {
+  const isLast = index === arr.length - 1;
+  const branch = isLast ? '└─' : '├─';
+  const formattedValue = indentMultilineValue(formatValue(entry.value), `${valuePrefix}${isLast ? '   ' : '│  '}   `);
+  return [`${valuePrefix}${branch} ${entry.name} = ${formattedValue}`];
+};
+
 /**
  * Render lines for the captured section of a state node.
- * @param captured Map of captured variable values
+ * @param captured Array of captured entries with name and value fields
  * @param childPrefix Indentation prefix for the section header
  * @param hasSubSections Whether changes or children follow this section
  * @returns Lines for the captured section header and entries
  */
 const renderCapturedSection = (
-  captured: Record<string, unknown>,
+  captured: ReviewTraceCapturedEntry[],
   childPrefix: string,
   hasSubSections: boolean
 ): string[] => {
   const capturedBranch = hasSubSections ? '├─' : '└─';
   const capturedContinuation = hasSubSections ? '│  ' : '   ';
+  const valuePrefix = `${childPrefix}${capturedContinuation}`;
 
   return [
     `${childPrefix}${capturedBranch} captured`,
-    ...renderKeyValueLines(captured, `${childPrefix}${capturedContinuation}`),
+    ...captured.flatMap((entry, index, arr) => renderCapturedEntry(entry, valuePrefix, index, arr)),
   ];
 };
 
 const renderStateNode = (node: ReviewTraceStateNode, prefix = '', isLast = true): string[] => {
   const branch = isLast ? '└─' : '├─';
   const childPrefix = `${prefix}${isLast ? '   ' : '│  '}`;
-  const hasChanges = Boolean(node.changes && Object.keys(node.changes).length > 0);
+  const hasChanges = Boolean(node.changes && node.changes.length > 0);
   const hasChildren = Boolean(node.children?.length);
-  const hasCaptured = Boolean(node.captured && Object.keys(node.captured).length > 0);
+  const hasCaptured = Boolean(node.captured && node.captured.length > 0);
   return [
     `${prefix}${branch} ${node.frame}`,
-    ...(hasCaptured ? renderCapturedSection(node.captured ?? {}, childPrefix, hasChanges || hasChildren) : []),
-    ...(hasChanges ? renderChangesSection(node.changes ?? {}, childPrefix, hasChildren) : []),
+    ...(hasCaptured ? renderCapturedSection(node.captured ?? [], childPrefix, hasChanges || hasChildren) : []),
+    ...(hasChanges ? renderChangesSection(node.changes ?? [], childPrefix, hasChildren) : []),
     ...(hasChildren ? renderStateNodes(node.children ?? [], childPrefix) : []),
   ];
 };

@@ -1,4 +1,122 @@
-import { codeIssueSchema, codeReviewSchema } from './review.schema';
+import { z } from 'zod';
+import { codeIssueSchema, codeReviewSchema, reviewTraceStateNodeSchema } from './review.schema';
+import { buildSanitisedJsonSchema } from '../../integrations/ai/schema/openai-json-schema';
+
+describe('codeReviewSchema sanitised serialization', () => {
+  it('serializes codeReviewSchema with entry-array property names and descriptions', () => {
+    const jsonSchema = z.toJSONSchema(codeReviewSchema);
+    expect(jsonSchema).toBeDefined();
+    const sanitised = buildSanitisedJsonSchema(jsonSchema);
+    expect(sanitised).toBeDefined();
+    expect(sanitised).toContain('"name"');
+    expect(sanitised).toContain('"value"');
+    expect(sanitised).toContain('"before"');
+    expect(sanitised).toContain('"after"');
+    expect(sanitised).toContain('variables observed at this frame');
+    expect(sanitised).toContain('values changed since the previous frame');
+    expect(sanitised).toContain('frame-aligned tree');
+  });
+
+  it('emitted contract preserves z.unknown() entry properties without additionalProperties:false', () => {
+    const jsonSchema = z.toJSONSchema(codeReviewSchema);
+    const sanitised = buildSanitisedJsonSchema(jsonSchema);
+    expect(sanitised).toBeDefined();
+    if (sanitised === undefined) {
+      throw new Error('sanitised should not be undefined');
+    }
+    expect(sanitised).toContain('"value"');
+    expect(sanitised).toContain('"before"');
+    expect(sanitised).toContain('"after"');
+    const parsed = JSON.parse(sanitised);
+    expect(parsed).toHaveProperty('$defs');
+  });
+});
+
+describe('reviewTraceStateNodeSchema', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe('entry array captured field', () => {
+    it('parses entry array format unchanged', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        captured: [
+          { name: 'config', value: { debug: true } },
+          { name: 'logger', value: 'Logger instance' },
+        ],
+      });
+
+      expect(result.captured).toEqual([
+        { name: 'config', value: { debug: true } },
+        { name: 'logger', value: 'Logger instance' },
+      ]);
+    });
+
+    it('converts legacy record input {a: 1} to entry array [{name: "a", value: 1}]', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        captured: { a: 1 },
+      });
+
+      expect(result.captured).toEqual([
+        { name: 'a', value: 1 },
+      ]);
+    });
+  });
+
+  describe('entry array changes field', () => {
+    it('parses entry array format unchanged', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        changes: [
+          { name: 'count', before: 0, after: 5 },
+          { name: 'status', before: 'idle', after: 'active' },
+        ],
+      });
+
+      expect(result.changes).toEqual([
+        { name: 'count', before: 0, after: 5 },
+        { name: 'status', before: 'idle', after: 'active' },
+      ]);
+    });
+
+    it('converts legacy record input {a: {before: 1, after: 2}} to entry array', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        changes: { a: { before: 1, after: 2 } },
+      });
+
+      expect(result.changes).toEqual([
+        { name: 'a', before: 1, after: 2 },
+      ]);
+    });
+  });
+
+  describe('combined entry arrays', () => {
+    it('parses captured and changes entry arrays unchanged', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        captured: [{ name: 'var1', value: 'value1' }],
+        changes: [{ name: 'var2', before: 'old', after: 'new' }],
+      });
+
+      expect(result.captured).toEqual([{ name: 'var1', value: 'value1' }]);
+      expect(result.changes).toEqual([{ name: 'var2', before: 'old', after: 'new' }]);
+    });
+
+    it('converts legacy record input captured: {a: 1} and changes: {a: {before: 1, after: 2}}', () => {
+      const result = reviewTraceStateNodeSchema.parse({
+        frame: 'Service.method()',
+        captured: { a: 1 },
+        changes: { a: { before: 1, after: 2 } },
+      });
+
+      expect(result.captured).toEqual([{ name: 'a', value: 1 }]);
+      expect(result.changes).toEqual([{ name: 'a', before: 1, after: 2 }]);
+    });
+  });
+});
 
 describe('codeIssueSchema', () => {
   afterEach(() => {

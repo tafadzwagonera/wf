@@ -72,11 +72,12 @@ describe('ReviewStageService', () => {
       steps: [
         {
           frame: 'CanonicalProfileRepository.findLinkedProfiles(canonicalCustomerId)',
-          captured: {
-            canonicalCustomerId: '123',
-          },
-          changes: {
-            'firstName.dep': {
+          captured: [
+            { name: 'canonicalCustomerId', value: '123' },
+          ],
+          changes: [
+            {
+              name: 'firstName.dep',
               after: {
                 version: 1,
                 subs: 'Link_1',
@@ -84,13 +85,14 @@ describe('ReviewStageService', () => {
                 sc: 1,
               },
             },
-          },
+          ],
           children: [
             {
               frame:
                 'CanonicalLinkRepository.find({ where: { canonicalCustomerId, linkStatus: CanonicalLinkStatus.Merged } })',
-              changes: {
-                'lastName.dep': {
+              changes: [
+                {
+                  name: 'lastName.dep',
                   after: {
                     version: 1,
                     subs: 'Link_2',
@@ -98,13 +100,14 @@ describe('ReviewStageService', () => {
                     sc: 1,
                   },
                 },
-              },
+              ],
               children: [
                 {
                   frame:
                     'CanonicalProfileRepository.findLinkedProfiles(...): In([...customerIds]) -> AppGoldenCustomerProfile[]',
-                  changes: {
-                    'fullName.dep': {
+                  changes: [
+                    {
+                      name: 'fullName.dep',
                       before: {
                         version: 1,
                       },
@@ -116,13 +119,13 @@ describe('ReviewStageService', () => {
                         sc: 1,
                       },
                     },
-                  },
+                  ],
                   children: [
                     {
                       frame: 'ProfileResponseDto.linkedProfiles',
-                      captured: {
-                        'fullName._value': 'Jane Smith',
-                      },
+                      captured: [
+                        { name: 'fullName._value', value: 'Jane Smith' },
+                      ],
                       children: [
                         {
                           frame: 'LinkedProfileSummaryDto',

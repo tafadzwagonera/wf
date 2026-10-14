@@ -1102,16 +1102,12 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining(
-            'Structure callStack nodes by real invocation depth'
-          ),
+          prompt: expect.stringContaining('Structure callStack nodes by real invocation depth'),
         })
       );
       expect(adapter.execute).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: expect.stringContaining(
-            'Distinguish observed state (captured) from mutations (changes)'
-          ),
+          prompt: expect.stringContaining('mirror the callStack nesting'),
         })
       );
     });
@@ -1144,24 +1140,26 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
             steps: [
               {
                 frame: 'Analyzing payment.controller.ts for changes to event handling.',
-                captured: {
-                  diffLoaded: true,
-                },
-                changes: {
-                  reviewState: {
+                captured: [
+                  { name: 'diffLoaded', value: true },
+                ],
+                changes: [
+                  {
+                    name: 'reviewState',
                     before: 'initial',
                     after: 'diff_loaded',
                   },
-                },
+                ],
                 children: [
                   {
                     frame: 'Diff loaded and reviewed.',
-                    changes: {
-                      reviewState: {
+                    changes: [
+                      {
+                        name: 'reviewState',
                         before: 'diff_loaded',
                         after: 'reviewed',
                       },
-                    },
+                    ],
                   },
                 ],
               },
@@ -1217,24 +1215,26 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
             steps: [
               {
                 frame: 'eventPaymentRecorded()',
-                captured: {
-                  bookingId: 'booking-123',
-                },
-                changes: {
-                  paymentState: {
+                captured: [
+                  { name: 'bookingId', value: 'booking-123' },
+                ],
+                changes: [
+                  {
+                    name: 'paymentState',
                     before: 'recorded',
                     after: 'linking',
                   },
-                },
+                ],
                 children: [
                   {
                     frame: 'addPaymentToBooking()',
-                    changes: {
-                      paymentState: {
+                    changes: [
+                      {
+                        name: 'paymentState',
                         before: 'linking',
                         after: 'linked',
                       },
-                    },
+                    ],
                   },
                 ],
               },
@@ -1279,24 +1279,26 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         steps: [
           {
             frame: 'eventPaymentRecorded()',
-            captured: {
-              bookingId: 'booking-123',
-            },
-            changes: {
-              paymentState: {
+            captured: [
+              { name: 'bookingId', value: 'booking-123' },
+            ],
+            changes: [
+              {
+                name: 'paymentState',
                 before: 'recorded',
                 after: 'linking',
               },
-            },
+            ],
             children: [
               {
                 frame: 'addPaymentToBooking()',
-                changes: {
-                  paymentState: {
+                changes: [
+                  {
+                    name: 'paymentState',
                     before: 'linking',
                     after: 'linked',
                   },
-                },
+                ],
               },
             ],
           },
@@ -1333,10 +1335,10 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
             steps: [
               {
                 frame: 'handleProviderError()',
-                captured: {
-                  'suggestion map key': 'computed property',
-                },
-                changes: {},
+                captured: [
+                  { name: 'suggestion map key', value: 'computed property' },
+                ],
+                changes: [],
                 children: [],
               },
             ],
