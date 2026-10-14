@@ -812,7 +812,7 @@ describe('SessionService', () => {
       ]);
     });
 
-    it('warns about the missing provider session ID when a completed prior stage never recorded one', async () => {
+    it('silently skips a completed prior stage that never recorded a provider session ID', async () => {
       const cliFingerprint: StageConfigFingerprint = { provider: 'anthropic', backend: 'cli' };
       let session = createMockSessionState();
       session = await service.recordStageStart(session, 'plan', cliFingerprint, 'claude-sonnet-5-5');
@@ -821,10 +821,8 @@ describe('SessionService', () => {
       const result = service.validateForStage(session, 'implement', cliFingerprint, _s => cliFingerprint);
 
       expect(result.canResume).toBe(false);
-      expect(result.warnings).toEqual([
-        'Stage plan completed without a recorded provider session ID, so implement cannot resume from it. '
-        + 'Prior stage summary will still be available as context.',
-      ]);
+      expect(result.priorSummary).toBe('Plan done');
+      expect(result.warnings).toEqual([]);
     });
 
     it('returns canResume false for google/standard even with a manually-set providerSessionId', async () => {

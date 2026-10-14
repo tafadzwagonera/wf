@@ -91,7 +91,7 @@ type PriorStageWarningContextParams = {
     warnings: string[]
   ) => void;
   pushNonResumablePriorStageWarning: (nextStage: string, config: StageConfigFingerprint, warnings: string[]) => void;
-  pushMissingSessionIdPriorStageWarning: (nextStage: string, priorStageName: string, warnings: string[]) => void;
+  logMissingPriorSessionIdSkip: (nextStage: string, priorStageName: string) => void;
   hasNonResumableBackend: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
   fingerprintsDiffer: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
 };
@@ -106,9 +106,7 @@ const buildPriorStageWarningPushers = (
   pushNonResumableWarning: () => params.pushNonResumablePriorStageWarning(
     params.nextStage, params.record.config, params.warnings
   ),
-  pushMissingSessionIdWarning: () => params.pushMissingSessionIdPriorStageWarning(
-    params.nextStage, params.stageName, params.warnings
-  ),
+  pushMissingSessionIdWarning: () => params.logMissingPriorSessionIdSkip(params.nextStage, params.stageName),
 });
 
 const buildPriorStageWarningContext = (
@@ -650,9 +648,17 @@ export class SessionService {
     return `Stage ${stage} was interrupted before a provider session ID was recorded, so its session cannot be resumed.`;
   }
 
-  private buildMissingSessionIdPriorStageWarning(nextStage: string, priorStageName: string): string {
-    return `Stage ${priorStageName} completed without a recorded provider session ID, so ${nextStage} cannot resume from it. `
-      + 'Prior stage summary will still be available as context.';
+  /**
+   * A completed stage without a recorded provider session ID never ran an AI conversation
+   * (e.g. a custom-plan token records the plan stage synthetically), so skipping it during
+   * the prior-stage resume walk is routine — logged for traceability, never warned.
+   */
+  private logMissingPriorSessionIdSkip(nextStage: string, priorStageName: string): void {
+    appendToLogFile(
+      'DEBUG',
+      `issue.session.prior-stage-no-session next-stage=${nextStage} prior-stage=${priorStageName}`,
+      'session'
+    );
   }
 
   private pushStageConfigChangedWarning(
@@ -704,7 +710,7 @@ export class SessionService {
         warnings,
         pushPriorStageWarning: this.pushPriorStageWarning.bind(this),
         pushNonResumablePriorStageWarning: this.pushNonResumablePriorStageWarning.bind(this),
-        pushMissingSessionIdPriorStageWarning: this.pushMissingSessionIdPriorStageWarning.bind(this),
+        logMissingPriorSessionIdSkip: this.logMissingPriorSessionIdSkip.bind(this),
         hasNonResumableBackend: this.hasNonResumableBackend.bind(this),
         fingerprintsDiffer: this.fingerprintsDiffer.bind(this),
       })
@@ -757,13 +763,5 @@ export class SessionService {
 
   private pushMissingSessionIdStageWarning(stage: string, warnings: string[]): void {
     warnings.push(this.buildMissingSessionIdStageWarning(stage));
-  }
-
-  private pushMissingSessionIdPriorStageWarning(
-    nextStage: string,
-    priorStageName: string,
-    warnings: string[]
-  ): void {
-    warnings.push(this.buildMissingSessionIdPriorStageWarning(nextStage, priorStageName));
   }
 }
