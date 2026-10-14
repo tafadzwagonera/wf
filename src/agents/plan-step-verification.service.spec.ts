@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
+  EVIDENCE_CEILING_CHARS,
   PlanStepVerificationService,
+  applyPullCoverageDowngrades,
   buildStepAssessorPrompt,
   buildExecutionEvidenceSection,
   buildPlanStepVerificationPrompt,
@@ -13,6 +15,7 @@ import { PullStepAssessorService } from './pull-step-assessor.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { ConfigurationError } from '../shared/errors/app.error';
 import type { StepAssessment } from '../shared/types/step-verification.types';
 import { stepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
 
@@ -35,6 +38,10 @@ jest.mock('node:fs', () => ({
 jest.mock('../shared/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
+
+const pullDirective = { source: 'user', mode: 'pull' } as const;
+
+const pullResult = (statuses: StepAssessment[], inspectedPaths: string[] = []) => ({ statuses, inspectedPaths });
 
 const createMockEvidence = (overrides: Partial<PushEvidence> = {}): PushEvidence => ({
   nameStatus: 'M\tsrc/a.ts',
@@ -397,6 +404,8 @@ describe('PlanStepVerificationService', () => {
       ],
     }).compile();
 
+  const getMockAppendToLogFile = (): jest.Mock => jest.requireMock('../shared/logger/log-file-writer').appendToLogFile;
+
   const makeRunParams = (overrides: Partial<Parameters<PlanStepVerificationService['run']>[0]> = {}) => ({
     steps: ['Step A'],
     planSummary: 'summary',
@@ -434,29 +443,47 @@ describe('PlanStepVerificationService', () => {
     expect(outcome.summary?.rounds).toBe(1);
   });
 
-  it('delegates pull mode without building push evidence', async () => {
-    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+  it('builds a host-side checklist for pull mode', async () => {
+    const { execFile: mockExecFile } = jest.requireMock('node:child_process');
+    mockExecFile.mockImplementation(
+      (_cmd: string, args: string[], _opts: unknown, callback: (error: null, result: { stdout: string }) => void) => {
+        callback(null, { stdout: args.includes('--name-status') ? 'M\tsrc/a.ts\n' : 'diff body' });
+      },
+    );
+    mockGitGetStatus.mockResolvedValue({ not_added: ['src/new.ts'] });
+    const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
+    mockReadFileSync.mockReturnValue(Buffer.from('new content'));
+    mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }], ['src/a.ts', 'src/new.ts']));
+    const mockAppendToLogFile = getMockAppendToLogFile();
+    mockAppendToLogFile.mockClear();
 
-    const outcome = await service.run(makeRunParams({ mode: 'pull', repoDir: '/repos/shop', steps: ['Edit shop/src/a.ts'] }));
+    const outcome = await service.run(makeRunParams({
+      modeDirective: pullDirective, repoDir: '/repos/shop', steps: ['Edit shop/src/a.ts'],
+    }));
 
     expect(outcome.summary).toMatchObject({ pending: 0, rounds: 1 });
     expect(mockAiExecute).not.toHaveBeenCalled();
-    expect(mockGitGetStatus).not.toHaveBeenCalled();
+    expect(mockGitGetStatus).toHaveBeenCalled();
     expect(mockPullAssess).toHaveBeenCalledWith(expect.objectContaining({
       steps: [{ index: 0, text: 'Edit src/a.ts' }], repoDir: '/repos/shop', baseRef: 'HEAD',
+      changedPaths: ['src/a.ts'], untrackedPaths: ['src/new.ts'],
     }));
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'INFO', expect.stringMatching(/^step-verify\.evidence\.budget measured=\d+ budget=\d+ files=1 untracked=1$/),
+      'step-verification',
+    );
   });
 
   it('reconciles missing, duplicate, and unexpected pull assessments without consuming a retry', async () => {
     mockPullAssess
-      .mockResolvedValueOnce([
+      .mockResolvedValueOnce(pullResult([
         { index: 0, status: 'done' },
         { index: 0, status: 'not-done', missing: 'duplicate result' }, { index: 9, status: 'done' },
-      ])
-      .mockResolvedValueOnce([{ index: 1, status: 'done' }]);
+      ]))
+      .mockResolvedValueOnce(pullResult([{ index: 1, status: 'done' }]));
     const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
 
-    const outcome = await service.run(makeRunParams({ mode: 'pull', steps: ['Step A', 'Step B'] }));
+    const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Step A', 'Step B'] }));
 
     expect(outcome.summary?.pending).toBe(0);
     expect(mockPullAssess).toHaveBeenCalledTimes(2);
@@ -472,19 +499,36 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('logs the selected verification mode once', async () => {
-    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+    mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
     const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
-    await service.run(makeRunParams({ mode: 'pull' }));
-    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', 'step-verify.mode=pull', 'step-verification');
+    await service.run(makeRunParams({ modeDirective: pullDirective }));
+    expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', 'step-verify.mode=pull (user override)', 'step-verification');
+  });
+
+  it('ends the verification run without retrying when the pull provider is unsupported', async () => {
+    mockPullAssess.mockRejectedValue(
+      new ConfigurationError('Pull step verification is unsupported for provider "google".'),
+    );
+    const mockAppendToLogFile = getMockAppendToLogFile();
+    mockAppendToLogFile.mockClear();
+
+    const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, assessorProvider: 'google' }));
+
+    expect(mockPullAssess).toHaveBeenCalledTimes(1);
+    expect(outcome.summary).toBeUndefined();
+    expect(mockAppendToLogFile).toHaveBeenCalledWith(
+      'ERROR', expect.stringContaining('step-verify.error cause=Pull step verification is unsupported'),
+      'step-verification',
+    );
   });
 
   it('retries a failed pull assessment and forwards assessor overrides', async () => {
     mockPullAssess
       .mockRejectedValueOnce(new Error('chat crashed'))
-      .mockResolvedValueOnce([{ index: 0, status: 'done' }]);
+      .mockResolvedValueOnce(pullResult([{ index: 0, status: 'done' }]));
 
     const outcome = await service.run(makeRunParams({
-      mode: 'pull', assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6',
+      modeDirective: pullDirective, assessorProvider: 'anthropic', assessorModel: 'claude-sonnet-4-6',
     }));
 
     expect(outcome.summary?.pending).toBe(0);
@@ -493,15 +537,104 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('forwards assessorBackend as backend to pull assessor when set', async () => {
-    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
-    await service.run(makeRunParams({ mode: 'pull', assessorBackend: 'cli' }));
+    mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
+    await service.run(makeRunParams({ modeDirective: pullDirective, assessorBackend: 'cli' }));
     expect(mockPullAssess).toHaveBeenCalledWith(expect.objectContaining({ backend: 'cli' }));
   });
 
   it('omits backend from pull assessor when assessorBackend is not set', async () => {
-    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
-    await service.run(makeRunParams({ mode: 'pull' }));
+    mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
+    await service.run(makeRunParams({ modeDirective: pullDirective }));
     expect(mockPullAssess.mock.calls[0][0]).not.toHaveProperty('backend');
+  });
+
+  it('sends the shared push JSON schema in a push round', async () => {
+    mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+
+    await service.run(makeRunParams());
+
+    expect(mockAiExecute.mock.calls[0][0].structuredOutput.schema).toBe(stepAssessmentResponseJsonSchema);
+  });
+
+  describe('auto mode routing', () => {
+    const autoDirective = (complexity: 'low' | 'medium' | 'high', pullSupported = true) =>
+      ({ source: 'auto', complexity, pullSupported }) as const;
+
+    const mockNameStatus = (nameStatus: string, diffBody = 'diff body'): jest.Mock => {
+      const { execFile: mockExecFile } = jest.requireMock('node:child_process');
+      mockExecFile.mockClear();
+      mockExecFile.mockImplementation(
+        (_cmd: string, args: string[], _opts: unknown, callback: (error: null, result: { stdout: string }) => void) => {
+          callback(null, { stdout: args.includes('--name-status') ? nameStatus : diffBody });
+        },
+      );
+      return mockExecFile;
+    };
+
+    const nameStatusCalls = (mockExecFile: jest.Mock): number =>
+      mockExecFile.mock.calls.filter(call => (call[1] as string[]).includes('--name-status')).length;
+
+    beforeEach(() => {
+      mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
+      mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
+    });
+
+    it('routes high complexity to pull', async () => {
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await service.run(makeRunParams({ modeDirective: autoDirective('high') }));
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=pull (auto — high complexity)', 'step-verification',
+      );
+      expect(mockPullAssess).toHaveBeenCalled();
+      expect(mockAiExecute).not.toHaveBeenCalled();
+    });
+
+    it('routes low complexity to push', async () => {
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await service.run(makeRunParams({ modeDirective: autoDirective('low') }));
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=push (auto — low complexity)', 'step-verification',
+      );
+      expect(mockAiExecute).toHaveBeenCalled();
+    });
+
+    it('routes medium complexity with a small diff to push and reuses the measurement', async () => {
+      const mockExecFile = mockNameStatus('M\tsrc/a.ts\n');
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await service.run(makeRunParams({ modeDirective: autoDirective('medium') }));
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=push (auto — medium complexity, evidence fits push budget)', 'step-verification',
+      );
+      expect(mockAiExecute).toHaveBeenCalled();
+      expect(nameStatusCalls(mockExecFile)).toBe(1);
+    });
+
+    it('routes medium complexity with an oversized diff to pull', async () => {
+      mockNameStatus('M\tsrc/a.ts\n', 'x'.repeat(EVIDENCE_CEILING_CHARS + 1_000));
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await service.run(makeRunParams({ modeDirective: autoDirective('medium') }));
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=pull (auto — medium complexity, evidence exceeds push budget)', 'step-verification',
+      );
+      expect(mockPullAssess).toHaveBeenCalled();
+    });
+
+    it('falls back to push when the pull assessor provider is unsupported', async () => {
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await expect(service.run(makeRunParams({ modeDirective: autoDirective('high', false) }))).resolves.toBeDefined();
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=push (auto — pull assessor provider unsupported)', 'step-verification',
+      );
+      expect(mockPullAssess).not.toHaveBeenCalled();
+    });
+
+    it('logs a default reason when no directive is supplied', async () => {
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      await service.run(makeRunParams());
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', 'step-verify.mode=push (default)', 'step-verification',
+      );
+    });
   });
 
   it('treats not-applicable as terminal (no fix round)', async () => {
@@ -574,7 +707,6 @@ describe('PlanStepVerificationService', () => {
     const subsetParams = () => makeRunParams({
       steps: tenSteps, stallWindow: 2, refreshSteps: jest.fn().mockResolvedValue(new Map()),
     });
-    const getMockAppendToLogFile = (): jest.Mock => jest.requireMock('../shared/logger/log-file-writer').appendToLogFile;
 
     it('renders the response example from the real indices of a later-round subset', async () => {
       mockAiExecute
@@ -625,11 +757,11 @@ describe('PlanStepVerificationService', () => {
     });
 
     it('fails the round when every pull status is dropped as out of scope', async () => {
-      mockPullAssess.mockResolvedValue([{ index: 9, status: 'done' }]);
+      mockPullAssess.mockResolvedValue(pullResult([{ index: 9, status: 'done' }]));
       const mockAppendToLogFile = getMockAppendToLogFile();
       mockAppendToLogFile.mockClear();
 
-      const outcome = await service.run(makeRunParams({ mode: 'pull', stallWindow: 1 }));
+      const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, stallWindow: 1 }));
 
       expect(outcome.summary).toBeUndefined();
       expect(mockPullAssess).toHaveBeenCalledTimes(2);
@@ -663,14 +795,14 @@ describe('PlanStepVerificationService', () => {
     });
 
     it('tolerates duplicate and unexpected pull indices alongside valid ones without a retry', async () => {
-      mockPullAssess.mockResolvedValueOnce([
+      mockPullAssess.mockResolvedValueOnce(pullResult([
         { index: 0, status: 'done' },
         { index: 0, status: 'not-done', missing: 'duplicate result' },
         { index: 9, status: 'done' },
         { index: 1, status: 'done' },
-      ]);
+      ]));
 
-      const outcome = await service.run(makeRunParams({ mode: 'pull', steps: ['Step A', 'Step B'] }));
+      const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Step A', 'Step B'] }));
 
       expect(outcome.summary?.pending).toBe(0);
       expect(mockPullAssess).toHaveBeenCalledTimes(1);
@@ -1040,17 +1172,123 @@ describe('PlanStepVerificationService', () => {
     expect(prompt).not.toContain('Commits created since baseline');
   });
 
-  it('does not call mockAiExecute or mockGitGetStatus in pull mode even when verificationOutcomes are provided', async () => {
-    mockPullAssess.mockResolvedValue([{ index: 0, status: 'done' }]);
+  it('passes execution evidence to the pull assessor and calls getStatus', async () => {
+    mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
 
     await service.run(makeRunParams({
-      mode: 'pull',
+      modeDirective: pullDirective,
       verificationOutcomes: [{ id: 'v1', command: 'yarn test', policy: 'enforced', status: 'passed' }],
+      commitPolicy: { allowsCommit: false, complexity: 'high' } as never,
     }));
 
     expect(mockPullAssess).toHaveBeenCalled();
     expect(mockAiExecute).not.toHaveBeenCalled();
-    expect(mockGitGetStatus).not.toHaveBeenCalled();
+    expect(mockGitGetStatus).toHaveBeenCalled();
+    expect(mockPullAssess.mock.calls[0][0].executionEvidenceSection).toContain('## Command execution evidence');
+  });
+
+  describe('pull coverage cross-check', () => {
+    const mockChecklist = (nameStatus: string): void => {
+      const { execFile: mockExecFile } = jest.requireMock('node:child_process');
+      mockExecFile.mockImplementation(
+        (_cmd: string, args: string[], _opts: unknown, callback: (error: null, result: { stdout: string }) => void) => {
+          callback(null, { stdout: args.includes('--name-status') ? nameStatus : 'diff body' });
+        },
+      );
+    };
+
+    it('downgrades a done step that mentions an uninspected checklist path', async () => {
+      mockChecklist('M\tsrc/a.ts\nM\tsrc/b.ts\n');
+      mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }], ['src/b.ts']));
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      mockAppendToLogFile.mockClear();
+
+      const outcome = await service.run(makeRunParams({
+        modeDirective: pullDirective, steps: ['Edit src/a.ts'], runFixRound: jest.fn(),
+      }));
+
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', 'step-verify.pull.coverage-gap indices=0 paths=src/a.ts', 'step-verification',
+      );
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'INFO', expect.stringContaining('step-verify.status index=0 status=unverifiable missing='), 'step-verification',
+      );
+      expect(outcome.summary).toMatchObject({ unverifiable: 1, pending: 0 });
+    });
+
+    it('does not downgrade under full coverage and ignores extra reported paths', async () => {
+      mockChecklist('M\tsrc/a.ts\n');
+      mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }], ['./src/a.ts', 'src/extra.ts']));
+      const mockAppendToLogFile = getMockAppendToLogFile();
+      mockAppendToLogFile.mockClear();
+
+      const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Edit src/a.ts'] }));
+
+      expect(outcome.summary).toMatchObject({ unverifiable: 0, done: 1 });
+      expect(mockAppendToLogFile).not.toHaveBeenCalledWith(
+        'WARN', expect.stringContaining('step-verify.pull.coverage-gap'), expect.anything(),
+      );
+    });
+
+    it('retries the attempt when the assessor reports no inspectedPaths for a non-empty checklist', async () => {
+      mockChecklist('M\tsrc/a.ts\n');
+      mockPullAssess
+        .mockResolvedValueOnce(pullResult([{ index: 0, status: 'done' }], []))
+        .mockResolvedValueOnce(pullResult([{ index: 0, status: 'done' }], ['src/a.ts']));
+
+      const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Edit src/a.ts'] }));
+
+      expect(mockPullAssess).toHaveBeenCalledTimes(2);
+      expect(outcome.summary).toMatchObject({ unverifiable: 0, done: 1 });
+    });
+
+    it('skips the cross-check when the checklist is empty', async () => {
+      mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }], []));
+
+      const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Edit src/a.ts'] }));
+
+      expect(outcome.summary).toMatchObject({ unverifiable: 0, done: 1 });
+    });
+  });
+
+  describe('applyPullCoverageDowngrades', () => {
+    const steps = [{ index: 0, text: 'Edit src/a.ts' }, { index: 1, text: 'Edit src/c.ts' }];
+
+    it('downgrades done and not-applicable steps naming an uncovered path and leaves others', () => {
+      const statuses: StepAssessment[] = [
+        { index: 0, status: 'not-applicable' },
+        { index: 1, status: 'done' },
+      ];
+      const result = applyPullCoverageDowngrades({
+        statuses, steps, uncoveredPaths: ['src/a.ts'], repoDir: '/repos/shop',
+      });
+      expect(result[0]).toEqual({ index: 0, status: 'unverifiable', missing: expect.stringContaining('src/a.ts') });
+      expect(result[1]).toBe(statuses[1]);
+    });
+
+    it('normalizes ./ and repoDir prefixes on uncovered paths', () => {
+      const statuses: StepAssessment[] = [{ index: 0, status: 'done' }, { index: 1, status: 'done' }];
+      const result = applyPullCoverageDowngrades({
+        statuses, steps, uncoveredPaths: ['./src/a.ts', '/repos/shop/src/c.ts'], repoDir: '/repos/shop',
+      });
+      expect(result.map(r => r.status)).toEqual(['unverifiable', 'unverifiable']);
+    });
+
+    it('matches paths on boundaries so src/a.tsx does not mention src/a.ts', () => {
+      const statuses: StepAssessment[] = [{ index: 0, status: 'done' }];
+      const result = applyPullCoverageDowngrades({
+        statuses, steps: [{ index: 0, text: 'Edit src/a.tsx' }], uncoveredPaths: ['src/a.ts'], repoDir: '/repo',
+      });
+      expect(result).toEqual(statuses);
+    });
+
+    it('never downgrades partially-done or not-done steps', () => {
+      const statuses: StepAssessment[] = [{ index: 0, status: 'not-done', missing: 'x' }];
+      const result = applyPullCoverageDowngrades({
+        statuses, steps, uncoveredPaths: ['src/a.ts'], repoDir: '/repo',
+      });
+      expect(result).toEqual(statuses);
+    });
   });
 
   it('never throws even when an internal error occurs', async () => {

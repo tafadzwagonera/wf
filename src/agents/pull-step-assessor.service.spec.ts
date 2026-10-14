@@ -1,13 +1,32 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PullStepAssessorService, buildPullStepAssessorPrompt } from './pull-step-assessor.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import { stepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
+import { pullStepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
+
+const baseParams = {
+  repoDir: '/repo',
+  baseRef: 'HEAD',
+  changedPaths: ['src/a.ts'],
+  untrackedPaths: [] as string[],
+};
+
+const donePayload = (inspectedPaths: string[] = ['src/a.ts']): string =>
+  JSON.stringify({ statuses: [{ index: 0, status: 'done' }], inspectedPaths });
 
 describe('buildPullStepAssessorPrompt', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  const buildPrompt = (overrides: Partial<Parameters<typeof buildPullStepAssessorPrompt>[0]> = {}): string =>
+    buildPullStepAssessorPrompt({
+      steps: [{ index: 2, text: 'Step C' }],
+      baseRef: 'abc123',
+      changedPaths: [],
+      untrackedPaths: [],
+      ...overrides,
+    });
+
   it('requires repository inspection before assessment', () => {
-    const prompt = buildPullStepAssessorPrompt([{ index: 2, text: 'Step C' }], 'abc123');
+    const prompt = buildPrompt();
     expect(prompt).toContain('git diff abc123 --stat');
     expect(prompt).toContain('git diff abc123 -- <path>');
     expect(prompt).toContain('[Plan step 2]');
@@ -17,17 +36,36 @@ describe('buildPullStepAssessorPrompt', () => {
 
   it('renders the response example from the real indices and forbids renumbering', () => {
     const steps = [5, 6, 8, 9].map(index => ({ index, text: `Step ${index}` }));
-    const prompt = buildPullStepAssessorPrompt(steps, 'abc123');
-    expect(prompt).toContain('{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}]}');
+    const prompt = buildPrompt({ steps });
+    expect(prompt).toContain(
+      '{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}],'
+      + '"inspectedPaths":["src/example.ts"]}',
+    );
     expect(prompt).toContain('Use the exact N from each [Plan step N] tag — never renumber from 0.');
     expect(prompt).not.toContain('{"index":0,"status":"done"}');
   });
 
   it('contains the unverifiable rule line verbatim', () => {
-    const prompt = buildPullStepAssessorPrompt([{ index: 0, text: 'Step A' }], 'abc123');
-    expect(prompt).toContain(
+    expect(buildPrompt()).toContain(
       '- unverifiable: ONLY for temporal, process, or investigation claims that repository state cannot in principle prove or disprove (requires missing field)',
     );
+  });
+
+  it('lists every changed and untracked path in a mandatory inspection checklist', () => {
+    const prompt = buildPrompt({ changedPaths: ['src/a.ts', 'src/b.ts'], untrackedPaths: ['src/new.ts'] });
+    expect(prompt).toContain('## Mandatory inspection checklist');
+    expect(prompt).toContain('git diff abc123 -- src/a.ts');
+    expect(prompt).toContain('git diff abc123 -- src/b.ts');
+    expect(prompt).toContain('src/new.ts');
+    expect(prompt).toMatch(/untracked.*read/i);
+    expect(prompt).toMatch(/every hunk/i);
+    expect(prompt).toMatch(/before (?:judging|assessing)/i);
+  });
+
+  it('includes the execution-evidence section verbatim when supplied', () => {
+    const section = '## Command execution evidence\n- yarn test: passed';
+    expect(buildPrompt({ executionEvidenceSection: section })).toContain(section);
+    expect(buildPrompt()).not.toContain('## Command execution evidence');
   });
 });
 
@@ -49,31 +87,25 @@ describe('PullStepAssessorService', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('runs a fresh repository-scoped structured chat turn', async () => {
-    mockChatTurn.mockResolvedValue({
-      content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }),
-      session: { provider: 'anthropic' },
-    });
+    mockChatTurn.mockResolvedValue({ content: donePayload(), session: { provider: 'anthropic' } });
 
-    const statuses = await service.assess({ steps: [{ index: 0, text: 'Step A' }], repoDir: '/repo', baseRef: 'HEAD' });
+    const result = await service.assess({ ...baseParams, steps: [{ index: 0, text: 'Step A' }] });
 
-    expect(statuses).toEqual([{ index: 0, status: 'done' }]);
+    expect(result).toEqual({ statuses: [{ index: 0, status: 'done' }], inspectedPaths: ['src/a.ts'] });
     expect(mockChatTurn).toHaveBeenCalledWith(expect.objectContaining({
       stage: 'implement',
       repoDir: '/repo',
-      structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
+      structuredOutput: { name: 'plan_step_assessment', schema: pullStepAssessmentResponseJsonSchema },
     }));
     expect(mockChatTurn.mock.calls[0][0].session).toBeUndefined();
     expect(mockChatTurn.mock.calls[0][0].responseValidator.label).toBe('plan_step_assessment');
   });
 
   it('forwards supported overrides and rejects unsupported pull providers', async () => {
-    mockChatTurn.mockResolvedValue({
-      content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }),
-      session: { provider: 'anthropic' },
-    });
+    mockChatTurn.mockResolvedValue({ content: donePayload(), session: { provider: 'anthropic' } });
 
     await service.assess({
-      steps: [{ index: 0, text: 'Step A' }], repoDir: '/repo', baseRef: 'HEAD',
+      ...baseParams, steps: [{ index: 0, text: 'Step A' }],
       provider: 'openai', model: 'gpt-5.6-terra',
     });
 
@@ -81,31 +113,33 @@ describe('PullStepAssessorService', () => {
       providerOverride: 'openai', modelOverride: 'gpt-5.6-terra',
     }));
     await expect(service.assess({
-      steps: [{ index: 0, text: 'Step A' }], repoDir: '/repo', baseRef: 'HEAD', provider: 'google',
+      ...baseParams, steps: [{ index: 0, text: 'Step A' }], provider: 'google',
     })).rejects.toThrow('unsupported for provider');
   });
 
   it('forwards backend as backendOverride when set, omits it when absent', async () => {
-    mockChatTurn.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }), session: {} });
+    mockChatTurn.mockResolvedValue({ content: donePayload(), session: {} });
 
-    await service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD', backend: 'cli' });
+    await service.assess({ ...baseParams, steps: [{ index: 0, text: 'A' }], backend: 'cli' });
     expect(mockChatTurn).toHaveBeenCalledWith(expect.objectContaining({ backendOverride: 'cli' }));
 
     mockChatTurn.mockClear();
-    await service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' });
+    await service.assess({ ...baseParams, steps: [{ index: 0, text: 'A' }] });
     expect(mockChatTurn.mock.calls[0][0]).not.toHaveProperty('backendOverride');
   });
 
   it('rejects invalid payloads and propagates chat failures', async () => {
     mockChatTurn.mockResolvedValue({ content: 'not json', session: { provider: 'anthropic' } });
-    await expect(service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' })).rejects.toThrow();
+    await expect(service.assess({ ...baseParams, steps: [{ index: 0, text: 'A' }] })).rejects.toThrow();
     mockChatTurn.mockRejectedValue(new Error('cli exited 1'));
-    await expect(service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' })).rejects.toThrow('cli exited 1');
+    await expect(service.assess({ ...baseParams, steps: [{ index: 0, text: 'A' }] })).rejects.toThrow('cli exited 1');
   });
 
-  it('supplies a schema validator for chat backend retries', async () => {
-    mockChatTurn.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }), session: { provider: 'anthropic' } });
-    await service.assess({ steps: [{ index: 0, text: 'A' }], repoDir: '/repo', baseRef: 'HEAD' });
-    expect(() => mockChatTurn.mock.calls[0][0].responseValidator.parse({ statuses: [{ index: 0, status: 'skipped' }] })).toThrow();
+  it('supplies a schema validator that rejects bad statuses and missing inspectedPaths', async () => {
+    mockChatTurn.mockResolvedValue({ content: donePayload(), session: { provider: 'anthropic' } });
+    await service.assess({ ...baseParams, steps: [{ index: 0, text: 'A' }] });
+    const { parse } = mockChatTurn.mock.calls[0][0].responseValidator;
+    expect(() => parse({ statuses: [{ index: 0, status: 'skipped' }], inspectedPaths: [] })).toThrow();
+    expect(() => parse({ statuses: [{ index: 0, status: 'done' }] })).toThrow();
   });
 });

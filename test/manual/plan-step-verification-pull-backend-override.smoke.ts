@@ -107,10 +107,20 @@ const assertPullResult = (statuses: { index: number; status: string }[], lines: 
   }
 };
 
+const assertInspectedPaths = (inspectedPaths: string[]): void => {
+  if (inspectedPaths.includes('src/bar.ts')) {
+    pass('inspectedPaths covers the checklist');
+  } else {
+    fail('inspectedPaths missing checklist file', JSON.stringify(inspectedPaths));
+  }
+};
+
 const buildAssessParams = (repoDir: string) => ({
   steps: [{ index: 0, text: 'Update src/bar.ts to export a helper function' }],
   repoDir,
   baseRef: 'HEAD' as const,
+  changedPaths: ['src/bar.ts'],
+  untrackedPaths: [] as string[],
   provider: 'anthropic' as const,
   model: 'claude-haiku-4-5-20251001',
   backend: 'cli' as const,
@@ -121,8 +131,9 @@ const runPullWithCliBackend = async (repoDir: string): Promise<void> => {
   try {
     const service = app.get(PullStepAssessorService);
     const { lines, restore } = interceptConsole();
-    const statuses = await service.assess(buildAssessParams(repoDir)).finally(restore);
+    const { statuses, inspectedPaths } = await service.assess(buildAssessParams(repoDir)).finally(restore);
     assertPullResult(statuses, lines);
+    assertInspectedPaths(inspectedPaths);
   } finally {
     await app.close();
   }

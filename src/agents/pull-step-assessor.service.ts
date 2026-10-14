@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { parseJsonResponse } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
+import {
+  pullStepAssessmentResponseJsonSchema,
+  pullStepAssessmentResponseSchema,
+} from '../shared/schemas/step-verification.schema';
 import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
-import type { StepAssessment } from '../shared/types/step-verification.types';
+import type { PullStepAssessmentResponse } from '../shared/types/step-verification.types';
 import { ConfigurationError } from '../shared/utils/errors';
 import { buildStepResponseShapeLines, unverifiableRule } from './plan-step-evidence-budget';
 import type { AssessableStep } from './step-spec-fidelity.service';
@@ -12,6 +15,9 @@ export type PullStepAssessmentParams = {
   steps: AssessableStep[];
   repoDir: string;
   baseRef: string;
+  changedPaths: string[];
+  untrackedPaths: string[];
+  executionEvidenceSection?: string;
   provider?: WfAiProviderName;
   model?: string;
   backend?: WfBackendMode;
@@ -40,22 +46,37 @@ const pullEvidenceInstructions = (baseRef: string): string[] => [
 
 const buildPullResponseInstructions = (indices: number[]): string[] => [
   'Index each step ONLY by its [Plan step N] tag.',
-  ...buildStepResponseShapeLines(indices),
+  ...buildStepResponseShapeLines(indices, { includeInspectedPaths: true }),
 ];
 
-export const buildPullStepAssessorPrompt = (steps: AssessableStep[], baseRef: string): string => {
-  const numbered = steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
-  return [
-    '## Steps to assess',
-    numbered,
-    '',
-    ...pullEvidenceInstructions(baseRef),
-    '',
-    ...pullStatusRules,
-    '',
-    ...buildPullResponseInstructions(steps.map(step => step.index)),
-  ].join('\n');
-};
+const buildInspectionChecklistSection = (
+  args: { baseRef: string; changedPaths: string[]; untrackedPaths: string[] },
+): string[] => [
+  '## Mandatory inspection checklist',
+  ...args.changedPaths.map(path => `- changed: \`git diff ${args.baseRef} -- ${path}\``),
+  ...args.untrackedPaths.map(path => `- untracked: read the file ${path}`),
+  'Read every hunk of every listed file. Do not judge any step before covering the whole list.',
+];
+
+type PullPromptArgs = Pick<PullStepAssessmentParams, 'steps' | 'baseRef' | 'changedPaths' | 'untrackedPaths'>
+  & { executionEvidenceSection?: string };
+
+const renderNumberedSteps = (steps: AssessableStep[]): string =>
+  steps.map(step => `[Plan step ${step.index}]\n${step.text}`).join('\n\n');
+
+export const buildPullStepAssessorPrompt = (args: PullPromptArgs): string => [
+  '## Steps to assess',
+  renderNumberedSteps(args.steps),
+  '',
+  ...pullEvidenceInstructions(args.baseRef),
+  '',
+  ...buildInspectionChecklistSection(args),
+  '',
+  ...(args.executionEvidenceSection ? [args.executionEvidenceSection, ''] : []),
+  ...pullStatusRules,
+  '',
+  ...buildPullResponseInstructions(args.steps.map(step => step.index)),
+].join('\n');
 
 const resolvePullProvider = (provider?: WfAiProviderName): 'anthropic' | 'openai' | undefined => {
   if (!provider || provider === 'anthropic' || provider === 'openai') return provider;
@@ -66,18 +87,19 @@ const resolvePullProvider = (provider?: WfAiProviderName): 'anthropic' | 'openai
 export class PullStepAssessorService {
   constructor(private readonly stageAgentService: StageAgentService) {}
 
-  async assess(params: PullStepAssessmentParams): Promise<StepAssessment[]> {
+  async assess(params: PullStepAssessmentParams): Promise<PullStepAssessmentResponse> {
     const result = await this.stageAgentService.chatTurn({
       stage: 'implement',
       systemPrompt: PULL_STEP_ASSESSOR_SYSTEM_PROMPT,
-      userMessage: buildPullStepAssessorPrompt(params.steps, params.baseRef),
+      userMessage: buildPullStepAssessorPrompt(params),
       repoDir: params.repoDir,
       providerOverride: resolvePullProvider(params.provider),
       modelOverride: params.model,
       ...(params.backend && { backendOverride: params.backend }),
-      structuredOutput: { name: 'plan_step_assessment', schema: stepAssessmentResponseJsonSchema },
-      responseValidator: { label: 'plan_step_assessment', parse: value => stepAssessmentResponseSchema.parse(value) },
+      structuredOutput: { name: 'plan_step_assessment', schema: pullStepAssessmentResponseJsonSchema },
+      responseValidator: { label: 'plan_step_assessment', parse: value => pullStepAssessmentResponseSchema.parse(value) },
     });
-    return parseJsonResponse<{ statuses: StepAssessment[] }>(result.content).statuses;
+    const { statuses, inspectedPaths } = parseJsonResponse<PullStepAssessmentResponse>(result.content);
+    return { statuses, inspectedPaths };
   }
 }

@@ -1,5 +1,12 @@
 import { aiRequestSchema } from './ai.schema';
-import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema, stepAssessmentSchema, stepStatusSchema } from './step-verification.schema';
+import {
+  pullStepAssessmentResponseJsonSchema,
+  pullStepAssessmentResponseSchema,
+  stepAssessmentResponseJsonSchema,
+  stepAssessmentResponseSchema,
+  stepAssessmentSchema,
+  stepStatusSchema,
+} from './step-verification.schema';
 
 describe('stepStatusSchema', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -35,6 +42,23 @@ describe('stepAssessmentResponseSchema', () => {
   it('describes the required response envelope and status values', () => {
     expect(stepAssessmentResponseJsonSchema.required).toEqual(['statuses']);
     expect(stepAssessmentResponseJsonSchema.properties.statuses.items.properties.status.enum).toEqual(['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable']);
+  });
+});
+
+describe('pullStepAssessmentResponseSchema', () => {
+  afterEach(() => jest.restoreAllMocks());
+  it('rejects a payload missing inspectedPaths', () => {
+    expect(() => pullStepAssessmentResponseSchema.parse({ statuses: [{ index: 0, status: 'done' }] })).toThrow();
+  });
+  it('accepts statuses with an empty inspectedPaths', () => {
+    const parsed = pullStepAssessmentResponseSchema.parse({ statuses: [{ index: 0, status: 'done' }], inspectedPaths: [] });
+    expect(parsed.inspectedPaths).toEqual([]);
+  });
+  it('requires inspectedPaths at the top level of the JSON schema and reuses the statuses definition', () => {
+    expect(pullStepAssessmentResponseJsonSchema.required).toEqual(['statuses', 'inspectedPaths']);
+    expect(pullStepAssessmentResponseJsonSchema.additionalProperties).toBe(false);
+    const { statuses } = stepAssessmentResponseJsonSchema.properties;
+    expect(pullStepAssessmentResponseJsonSchema.properties.statuses).toBe(statuses);
   });
 });
 

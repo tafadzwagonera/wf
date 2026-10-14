@@ -32,7 +32,12 @@ import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install'
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { PlanStepVerificationService, stripRepoNamePrefix, type PlanStepVerificationRunParams } from './plan-step-verification.service';
+import {
+  PlanStepVerificationService,
+  stripRepoNamePrefix,
+  type PlanStepVerificationRunParams,
+  type StepVerificationModeDirective,
+} from './plan-step-verification.service';
 import { StepSpecFidelityService, type AssessableStep } from './step-spec-fidelity.service';
 import type { StepFidelityFailure, StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
@@ -41,7 +46,7 @@ import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig, WfStepVerificationMode } from '../shared/types/config.types';
+import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig } from '../shared/types/config.types';
 import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
@@ -96,7 +101,7 @@ type VerificationRunParamsArgs = {
   assessedSteps: string[];
   sessionId: string;
   stallWindow: number;
-  mode?: WfStepVerificationMode;
+  modeDirective?: StepVerificationModeDirective;
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
   assessorBackend?: WfBackendMode;
@@ -284,7 +289,7 @@ export class ImplementerAgent {
     const assessorTarget = this.resolveAssessorTarget(cfg);
     const params = this.buildVerificationRunParams({
       ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
-      stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW), mode: cfg?.mode,
+      ...this.resolveVerificationLoopSettings(cfg, scopedPlan),
       verificationOutcomes: result.verificationOutcomes, commitPolicy: policy, ...assessorTarget,
       ...this.createFidelityRefresher(assessedSteps, options, baseline, assessorTarget),
     });
@@ -306,6 +311,35 @@ export class ImplementerAgent {
       assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha, assessorTarget,
     );
     return { refreshSteps: refresher.refresh, getSuppressed: refresher.getSuppressed };
+  }
+
+  private resolveVerificationLoopSettings(
+    cfg: WfPlanStepVerificationConfig | undefined, scopedPlan: PlanArtifact,
+  ): { stallWindow: number; modeDirective: StepVerificationModeDirective } {
+    return {
+      stallWindow: Math.max(1, cfg?.stallWindow ?? DEFAULT_STALL_WINDOW),
+      modeDirective: this.resolveModeDirective(cfg, scopedPlan),
+    };
+  }
+
+  private resolveModeDirective(
+    cfg: WfPlanStepVerificationConfig | undefined, scopedPlan: PlanArtifact,
+  ): StepVerificationModeDirective {
+    return cfg?.mode
+      ? { source: 'user', mode: cfg.mode }
+      : {
+          source: 'auto',
+          complexity: scopedPlan.plan.estimatedComplexity,
+          pullSupported: this.resolvePullAssessorSupport(cfg),
+        };
+  }
+
+  private resolvePullAssessorSupport(cfg: WfPlanStepVerificationConfig | undefined): boolean {
+    const provider = cfg?.provider
+      ?? this.configService.get<WfAiProviderName>('stages.implement.provider')
+      ?? this.configService.get<WfAiProviderName>('ai.provider')
+      ?? 'anthropic';
+    return provider === 'anthropic' || provider === 'openai';
   }
 
   private resolveAssessorTarget(
@@ -365,7 +399,7 @@ export class ImplementerAgent {
       baseRef: args.baseline?.sha,
       sessionId: args.sessionId,
       stallWindow: args.stallWindow,
-      ...(args.mode && { mode: args.mode }),
+      ...(args.modeDirective && { modeDirective: args.modeDirective }),
       ...(args.assessorProvider && { assessorProvider: args.assessorProvider }),
       ...(args.assessorModel && { assessorModel: args.assessorModel }),
       ...(args.assessorBackend && { assessorBackend: args.assessorBackend }),

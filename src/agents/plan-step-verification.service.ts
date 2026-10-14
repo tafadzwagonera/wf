@@ -9,11 +9,12 @@ import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
+import type { PlanComplexity } from '../shared/types/ai.types';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
-import { ApiError, ERROR_CODE } from '../shared/errors/app.error';
+import { ApiError, ConfigurationError, ERROR_CODE } from '../shared/errors/app.error';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
 import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../shared/types/config.types';
-import { PullStepAssessorService } from './pull-step-assessor.service';
+import { PullStepAssessorService, type PullStepAssessmentParams } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
 import { executeAsyncWithCatch, executeWithCatch } from '../shared/utils/execute-with-catch';
 import type { VerificationOutcome } from '../shared/types/agent.types';
@@ -234,6 +235,20 @@ type VerificationLoopState = {
   lastFailureCause?: string;
 };
 
+export type StepVerificationModeDirective
+  = | { source: 'user'; mode: WfStepVerificationMode }
+    | { source: 'auto'; complexity: PlanComplexity; pullSupported: boolean };
+
+type EvidenceSeed = { evidence?: PushEvidence };
+
+type SeedableRunParams = PlanStepVerificationRunParams & { evidenceSeed?: EvidenceSeed };
+
+type ResolvedRunParams = SeedableRunParams & { mode: WfStepVerificationMode };
+
+type ResolvedMode = { mode: WfStepVerificationMode; reason: string; measuredEvidence?: PushEvidence };
+
+type MeasuredEvidence = { evidence: PushEvidence; executionEvidence?: ExecutionEvidence };
+
 export interface PlanStepVerificationRunParams {
   steps: string[];
   planSummary: string;
@@ -254,7 +269,7 @@ export interface PlanStepVerificationRunParams {
   baseRef?: string;
   verificationOutcomes?: VerificationOutcome[];
   commitPolicy?: CommitPolicy;
-  mode?: WfStepVerificationMode;
+  modeDirective?: StepVerificationModeDirective;
   assessorProvider?: WfAiProviderName;
   assessorModel?: string;
   assessorBackend?: WfBackendMode;
@@ -417,6 +432,51 @@ const buildUnassessedFallback = (index: number): StepAssessment => ({
   missing: 'Not assessed in this round; assessor response omitted this index.',
 });
 
+const normalizeCoveragePath = (file: string, repoDir: string): string => {
+  const withoutDotSlash = file.trim().replace(/^(?:\.\/)+/, '');
+  const prefix = [`${repoDir}/`, `${path.basename(repoDir)}/`].find(candidate => withoutDotSlash.startsWith(candidate));
+  return prefix ? withoutDotSlash.slice(prefix.length) : withoutDotSlash;
+};
+
+const buildPullAssessorTarget = (
+  params: PlanStepVerificationRunParams,
+): Pick<PullStepAssessmentParams, 'provider' | 'model' | 'backend'> => ({
+  provider: params.assessorProvider,
+  model: params.assessorModel,
+  ...(params.assessorBackend && { backend: params.assessorBackend }),
+});
+
+const findUninspectedPaths = (checklist: string[], inspectedPaths: string[], repoDir: string): string[] => {
+  if (checklist.length && !inspectedPaths.length) {
+    throw new Error(`Pull assessor reported no inspectedPaths for a checklist of ${checklist.length} files`);
+  }
+  const inspected = new Set(inspectedPaths.map(file => normalizeCoveragePath(file, repoDir)));
+  return checklist.map(file => normalizeCoveragePath(file, repoDir)).filter(file => !inspected.has(file));
+};
+
+const escapeRegExp = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+
+const mentionsPath = (text: string, file: string): boolean =>
+  new RegExp(`(?<![\\w./-])${escapeRegExp(file)}(?![\\w-]|\\.\\w)`).test(text);
+
+const downgradeIfUncovered = (status: StepAssessment, stepText: string, uncovered: string[]): StepAssessment => {
+  if (status.status !== 'done' && status.status !== 'not-applicable') return status;
+  const mentioned = uncovered.filter(file => mentionsPath(stepText, file));
+  if (!mentioned.length) return status;
+  return { index: status.index, status: 'unverifiable', missing: `Assessor did not inspect ${mentioned.join(', ')}` };
+};
+
+export const applyPullCoverageDowngrades = (args: {
+  statuses: StepAssessment[];
+  steps: AssessableStep[];
+  uncoveredPaths: string[];
+  repoDir: string;
+}): StepAssessment[] => {
+  const uncovered = args.uncoveredPaths.map(file => normalizeCoveragePath(file, args.repoDir));
+  const textByIndex = new Map(args.steps.map(step => [step.index, step.text]));
+  return args.statuses.map(status => downgradeIfUncovered(status, textByIndex.get(status.index) ?? '', uncovered));
+};
+
 @Injectable()
 export class PlanStepVerificationService {
   constructor(
@@ -427,9 +487,11 @@ export class PlanStepVerificationService {
   ) {}
 
   async run(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
-    this.logEventAndAppendToLogFile('INFO', `step-verify.mode=${params.mode ?? 'push'}`, params.silent);
+    const { mode, reason, measuredEvidence } = await this.resolveEffectiveMode(params);
+    this.logEventAndAppendToLogFile('INFO', `step-verify.mode=${mode} (${reason})`, params.silent);
+    const resolved: ResolvedRunParams = { ...params, mode, evidenceSeed: { evidence: measuredEvidence } };
     const [outcome] = await executeAsyncWithCatch({
-      fn: () => this.runVerificationLoop(params),
+      fn: () => this.runVerificationLoop(resolved),
       rethrowIf: error => isAiProviderErrorLike(error) && error.category === 'auth',
       onError: error => {
         const cause = error instanceof Error ? error.message : String(error);
@@ -440,7 +502,32 @@ export class PlanStepVerificationService {
     return outcome ?? { sessionId: params.sessionId, summary: undefined, extraPassCount: 0 };
   }
 
-  private async runVerificationLoop(params: PlanStepVerificationRunParams): Promise<PlanStepVerificationOutcome> {
+  private async resolveEffectiveMode(params: PlanStepVerificationRunParams): Promise<ResolvedMode> {
+    const directive = params.modeDirective;
+    if (!directive) return { mode: 'push', reason: 'default' };
+    if (directive.source === 'user') return { mode: directive.mode, reason: 'user override' };
+    if (!directive.pullSupported) return { mode: 'push', reason: 'auto — pull assessor provider unsupported' };
+    if (directive.complexity === 'high') return { mode: 'pull', reason: 'auto — high complexity' };
+    if (directive.complexity === 'low') return { mode: 'push', reason: 'auto — low complexity' };
+    return this.routeMediumByMeasuredEvidence(params);
+  }
+
+  private async routeMediumByMeasuredEvidence(params: PlanStepVerificationRunParams): Promise<ResolvedMode> {
+    const steps = params.steps.map((text, index) => ({ index, text }));
+    const [evidence, failure] = await executeAsyncWithCatch({
+      fn: () => this.captureEvidence(params, stripRepoNamePrefix(steps, params.repoDir)),
+      onError: error => error instanceof Error ? error.message : String(error),
+    });
+    if (!evidence) {
+      this.logEventAndAppendToLogFile('WARN', `step-verify.mode.measure-failed cause=${failure}`, params.silent);
+      return { mode: 'push', reason: `auto — medium complexity, evidence measurement failed: ${failure}` };
+    }
+    return hasEvidenceGaps(evidence.budgetReport)
+      ? { mode: 'pull', reason: 'auto — medium complexity, evidence exceeds push budget', measuredEvidence: evidence }
+      : { mode: 'push', reason: 'auto — medium complexity, evidence fits push budget', measuredEvidence: evidence };
+  }
+
+  private async runVerificationLoop(params: ResolvedRunParams): Promise<PlanStepVerificationOutcome> {
     let state = this.createVerificationLoopState(params.sessionId);
     const verificationState = this.createAssessmentState(params.steps);
     for (let round = 1; ; round += 1) {
@@ -469,7 +556,7 @@ export class PlanStepVerificationService {
   }
 
   private checkFailureLimit(
-    state: VerificationLoopState, params: PlanStepVerificationRunParams,
+    state: VerificationLoopState, params: ResolvedRunParams,
   ): PlanStepVerificationOutcome | null {
     return this.checkConsecutiveFailureLimit(
       state.consecutiveFailures, params, state.sessionId, state.extraPassCount, state.lastFailureCause,
@@ -489,7 +576,7 @@ export class PlanStepVerificationService {
   }
 
   private checkConsecutiveFailureLimit(
-    count: number, params: PlanStepVerificationRunParams,
+    count: number, params: ResolvedRunParams,
     sessionId: string | undefined, extraPassCount: number, failureCause?: string,
   ): PlanStepVerificationOutcome | null {
     if (!params.refreshSteps || count < params.stallWindow) return null;
@@ -499,7 +586,7 @@ export class PlanStepVerificationService {
   }
 
   private async runOneRound(
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
     round: number, sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
     settled: Map<number, StepAssessment>, pendingIndices: number[],
   ): Promise<RoundResult> {
@@ -515,7 +602,7 @@ export class PlanStepVerificationService {
   }
 
   private async executeRound(
-    params: PlanStepVerificationRunParams, round: number, sessionId: string | undefined,
+    params: ResolvedRunParams, round: number, sessionId: string | undefined,
     extraPassCount: number, activeStepTexts: Map<number, string>,
     pendingHistory: number[], settled: Map<number, StepAssessment>,
   ): Promise<RoundResult> {
@@ -541,7 +628,7 @@ export class PlanStepVerificationService {
 
   private resolveRound(
     statusMap: Map<number, StepAssessment>, pending: StepAssessment[], round: number,
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
     sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
   ): PlanStepVerificationOutcome | null {
     return this.resolveRoundOutcome(
@@ -560,7 +647,7 @@ export class PlanStepVerificationService {
   }
 
   private async runFixRound(
-    params: PlanStepVerificationRunParams, pending: StepAssessment[], round: number,
+    params: ResolvedRunParams, pending: StepAssessment[], round: number,
     sessionId: string, extraPassCount: number, stepTexts: Map<number, string>,
   ): Promise<RoundResult> {
     const fix = await params.runFixRound(this.buildFixPrompt(pending, round, params, stepTexts), sessionId);
@@ -575,13 +662,13 @@ export class PlanStepVerificationService {
     return [...statusMap.values()].filter(s => s.status === 'partially-done' || s.status === 'not-done');
   }
 
-  private logRoundStart(params: PlanStepVerificationRunParams, round: number): void {
+  private logRoundStart(params: ResolvedRunParams, round: number): void {
     const roundLabel = params.refreshSteps ? `${round}/?` : `${round}/${params.stallWindow}`;
     this.logEventAndAppendToLogFile('INFO', `step-verify.round.start round=${roundLabel} stallWindow=${params.stallWindow}`, params.silent);
   }
 
   private buildFixPrompt(
-    nowPending: StepAssessment[], round: number, params: PlanStepVerificationRunParams, stepTexts: Map<number, string>,
+    nowPending: StepAssessment[], round: number, params: ResolvedRunParams, stepTexts: Map<number, string>,
   ): string {
     return buildPlanStepVerificationPrompt({
       pending: nowPending,
@@ -598,7 +685,7 @@ export class PlanStepVerificationService {
   }
 
   private handleAssessmentFailure(
-    round: number, params: PlanStepVerificationRunParams, sessionId: string | undefined, extraPassCount: number,
+    round: number, params: ResolvedRunParams, sessionId: string | undefined, extraPassCount: number,
     failureCause?: string,
   ): RoundResult {
     if (params.refreshSteps || round < params.stallWindow) {
@@ -612,7 +699,7 @@ export class PlanStepVerificationService {
 
   private resolveRoundOutcome(
     statusMap: Map<number, StepAssessment>, nowPending: StepAssessment[], round: number,
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
     sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
   ): PlanStepVerificationOutcome | null {
     if (!nowPending.length) {
@@ -624,7 +711,7 @@ export class PlanStepVerificationService {
   }
 
   private resolveCompleteRound(
-    statusMap: Map<number, StepAssessment>, round: number, params: PlanStepVerificationRunParams,
+    statusMap: Map<number, StepAssessment>, round: number, params: ResolvedRunParams,
     sessionId: string | undefined, extraPassCount: number,
   ): PlanStepVerificationOutcome {
     const counts = countStatuses(statusMap.values());
@@ -637,7 +724,7 @@ export class PlanStepVerificationService {
   }
 
   private isRoundStalled(
-    params: PlanStepVerificationRunParams, round: number, pendingCount: number, pendingHistory: number[],
+    params: ResolvedRunParams, round: number, pendingCount: number, pendingHistory: number[],
   ): boolean {
     if (!params.refreshSteps) return round === params.stallWindow;
     return this.recordPendingAndCheckStall(pendingHistory, pendingCount, params.stallWindow);
@@ -645,7 +732,7 @@ export class PlanStepVerificationService {
 
   private resolvePendingRound(
     statusMap: Map<number, StepAssessment>, nowPending: StepAssessment[], round: number,
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
     sessionId: string | undefined, extraPassCount: number, pendingHistory: number[],
   ): PlanStepVerificationOutcome {
     const pending = nowPending.length, reason = sessionId
@@ -671,11 +758,13 @@ export class PlanStepVerificationService {
   }
 
   private async assessSteps(
-    params: PlanStepVerificationRunParams, steps: AssessableStep[],
+    params: ResolvedRunParams, steps: AssessableStep[],
   ): Promise<{ steps: Map<number, StepAssessment> | undefined; failureCause?: string }> {
+    const strippedSteps = stripRepoNamePrefix(steps, params.repoDir);
+    const measure = this.createRoundMeasurer(params, strippedSteps);
     let failureCause: string | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const result = await this.attemptAssessment(params, steps, c => {
+      const result = await this.attemptAssessment(params, strippedSteps, measure, c => {
         failureCause = c;
       });
       if (result) return { steps: result };
@@ -684,8 +773,22 @@ export class PlanStepVerificationService {
     return { steps: undefined, failureCause };
   }
 
+  private createRoundMeasurer(
+    params: ResolvedRunParams, strippedSteps: AssessableStep[],
+  ): () => Promise<MeasuredEvidence> {
+    let measured: MeasuredEvidence | undefined;
+    return async () => {
+      measured ??= {
+        evidence: await this.captureEvidence(params, strippedSteps),
+        executionEvidence: await this.collectExecutionEvidence(params),
+      };
+      return measured;
+    };
+  }
+
   private handleAssessmentAttemptError(error: unknown, onFailureCause?: (cause: string) => void): undefined {
     if (isAiProviderErrorLike(error) && error.category === 'auth') throw error;
+    if (error instanceof ConfigurationError) throw error;
     const cause = error instanceof Error ? error.message : String(error);
     onFailureCause?.(cause);
     appendToLogFile('ERROR', `step-verify.assess.attempt-failed cause=${cause}`, 'step-verification');
@@ -693,41 +796,76 @@ export class PlanStepVerificationService {
   }
 
   private async attemptAssessment(
-    params: PlanStepVerificationRunParams, steps: AssessableStep[],
+    params: ResolvedRunParams, strippedSteps: AssessableStep[], measure: () => Promise<MeasuredEvidence>,
     onFailureCause?: (cause: string) => void,
   ): Promise<Map<number, StepAssessment> | undefined> {
-    return this.runSingleAssessmentAttempt(params, steps)
+    return measure()
+      .then(measured => this.runSingleAssessmentAttempt(params, { strippedSteps, ...measured }))
       .catch(error => this.handleAssessmentAttemptError(error, onFailureCause));
   }
 
   private async runSingleAssessmentAttempt(
-    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
+    params: ResolvedRunParams,
+    { strippedSteps, evidence, executionEvidence }: MeasuredEvidence & { strippedSteps: AssessableStep[] },
   ): Promise<Map<number, StepAssessment>> {
     const statuses = params.mode === 'pull'
-      ? await this.runPullAssessment(params, activeSteps)
-      : await this.runPushAssessment(params, activeSteps);
-    return this.reconcilePartialAssessments(statuses, activeSteps.map(step => step.index), params.silent);
+      ? await this.runPullAssessment(params, strippedSteps, evidence, executionEvidence)
+      : await this.runPushAssessment(params, strippedSteps, evidence, executionEvidence);
+    return this.reconcilePartialAssessments(statuses, strippedSteps.map(step => step.index), params.silent);
   }
 
   private async runPullAssessment(
-    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
+    params: ResolvedRunParams, strippedSteps: AssessableStep[], evidence: PushEvidence,
+    executionEvidence?: ExecutionEvidence,
   ): Promise<StepAssessment[]> {
-    return this.pullStepAssessor.assess({
-      steps: stripRepoNamePrefix(activeSteps, params.repoDir),
+    const changedPaths = parseChangedPaths(evidence.nameStatus);
+    const untrackedPaths = evidence.sections.filter(s => s.kind === 'untracked').map(s => s.path);
+    const { statuses, inspectedPaths } = await this.pullStepAssessor.assess(
+      this.buildPullAssessmentParams(params, strippedSteps, { changedPaths, untrackedPaths, executionEvidence }),
+    );
+    const uncoveredPaths = findUninspectedPaths([...changedPaths, ...untrackedPaths], inspectedPaths, params.repoDir);
+    return this.enforcePullCoverage(params, strippedSteps, statuses, uncoveredPaths);
+  }
+
+  private buildPullAssessmentParams(
+    params: ResolvedRunParams, strippedSteps: AssessableStep[],
+    checklist: { changedPaths: string[]; untrackedPaths: string[]; executionEvidence?: ExecutionEvidence },
+  ): PullStepAssessmentParams {
+    const executionEvidenceSection = buildExecutionEvidenceSection(checklist.executionEvidence);
+    return {
+      steps: strippedSteps,
       repoDir: params.repoDir,
       baseRef: params.baseRef ?? 'HEAD',
-      provider: params.assessorProvider,
-      model: params.assessorModel,
-      ...(params.assessorBackend && { backend: params.assessorBackend }),
-    });
+      changedPaths: checklist.changedPaths,
+      untrackedPaths: checklist.untrackedPaths,
+      ...(executionEvidenceSection && { executionEvidenceSection }),
+      ...buildPullAssessorTarget(params),
+    };
+  }
+
+  private enforcePullCoverage(
+    params: ResolvedRunParams, steps: AssessableStep[], statuses: StepAssessment[], uncoveredPaths: string[],
+  ): StepAssessment[] {
+    const downgraded = applyPullCoverageDowngrades({ statuses, steps, uncoveredPaths, repoDir: params.repoDir });
+    const indices = downgraded.filter((status, i) => status !== statuses[i]).map(status => status.index);
+    if (indices.length) this.logCoverageGap(params, { steps, indices, uncoveredPaths });
+    return downgraded;
+  }
+
+  private logCoverageGap(
+    params: ResolvedRunParams, gap: { steps: AssessableStep[]; indices: number[]; uncoveredPaths: string[] },
+  ): void {
+    const downgradedText = gap.steps.filter(step => gap.indices.includes(step.index)).map(step => step.text).join('\n');
+    const paths = gap.uncoveredPaths.filter(file => downgradedText.includes(file));
+    this.logEventAndAppendToLogFile(
+      'WARN', `step-verify.pull.coverage-gap indices=${gap.indices.join(',')} paths=${paths.join(',')}`, params.silent,
+    );
   }
 
   private async runPushAssessment(
-    params: PlanStepVerificationRunParams, activeSteps: AssessableStep[],
+    params: ResolvedRunParams, strippedSteps: AssessableStep[], evidence: PushEvidence,
+    executionEvidence?: ExecutionEvidence,
   ): Promise<StepAssessment[]> {
-    const strippedSteps = stripRepoNamePrefix(activeSteps, params.repoDir);
-    const evidence = await this.captureEvidence(params, strippedSteps);
-    const executionEvidence = await this.collectExecutionEvidence(params);
     const statuses: StepAssessment[] = [];
     for (const group of this.planAssessmentGroups(params, strippedSteps, evidence)) {
       statuses.push(...await this.assessGroup(params, group, executionEvidence));
@@ -757,7 +895,7 @@ export class PlanStepVerificationService {
   }
 
   private async assessGroup(
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
     group: { steps: AssessableStep[]; evidence: PushEvidence },
     executionEvidence?: ExecutionEvidence,
   ): Promise<StepAssessment[]> {
@@ -795,7 +933,7 @@ export class PlanStepVerificationService {
   }
 
   private async requestPushAssessment(
-    params: PlanStepVerificationRunParams, prompt: string,
+    params: ResolvedRunParams, prompt: string,
   ): Promise<StepAssessment[]> {
     const response = await this.aiService.execute({
       prompt,
@@ -860,17 +998,25 @@ export class PlanStepVerificationService {
   }
 
   private async captureEvidence(
-    params: PlanStepVerificationRunParams, strippedSteps: AssessableStep[],
+    params: SeedableRunParams, strippedSteps: AssessableStep[],
   ): Promise<PushEvidence> {
-    const untrackedFiles = await this.collectUntrackedFiles(params.repoDir);
+    const seeded = this.consumeEvidenceSeed(params);
+    if (seeded) return seeded;
     const evidence = await collectPushEvidence({
       repoDir: params.repoDir,
       baseRef: params.baseRef ?? 'HEAD',
       stepTexts: strippedSteps.map(step => step.text),
       affectedFiles: params.affectedFiles?.map(file => stripRepoPrefix(file, params.repoDir)),
-      untrackedFiles,
+      untrackedFiles: await this.collectUntrackedFiles(params.repoDir),
     });
     this.logEvidenceBudget(evidence, params.silent);
+    return evidence;
+  }
+
+  private consumeEvidenceSeed(params: SeedableRunParams): PushEvidence | undefined {
+    const seed = params.evidenceSeed;
+    const evidence = seed?.evidence;
+    if (seed) seed.evidence = undefined;
     return evidence;
   }
 
@@ -904,7 +1050,7 @@ export class PlanStepVerificationService {
   }
 
   private async collectExecutionEvidence(
-    params: PlanStepVerificationRunParams,
+    params: ResolvedRunParams,
   ): Promise<ExecutionEvidence | undefined> {
     if (!params.verificationOutcomes?.length && !params.commitPolicy) return undefined;
     const stagedFiles = await this.collectStagedFiles(params.repoDir);

@@ -2631,7 +2631,7 @@ describe('ImplementerAgent', () => {
       );
 
       expect(planStepVerificationService.run).toHaveBeenCalledWith(expect.objectContaining({
-        mode: 'pull', assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra',
+        modeDirective: { source: 'user', mode: 'pull' }, assessorProvider: 'openai', assessorModel: 'gpt-5.6-terra',
       }));
     });
 
@@ -2652,17 +2652,67 @@ describe('ImplementerAgent', () => {
       }));
     });
 
-    it('omits unconfigured mode and assessor target keys', async () => {
-      setupWithChanges();
-      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'sess-1', verificationOutcomes: [] });
-      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }), {
-        trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
+    describe('auto mode directive', () => {
+      const mockConfig = (values: Record<string, unknown>): void => {
+        (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+          if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+          return key in values ? values[key] : fallback;
+        });
+      };
+
+      const runAgent = async (): Promise<void> => {
+        jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+          sessionId: 'sess-1', verificationOutcomes: [],
+        });
+        await agent.execute(
+          ticketArtifact,
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        );
+      };
+
+      it('yields an auto directive and omits unset assessor target keys when no mode is configured', async () => {
+        setupWithChanges();
+        await runAgent();
+        const params = planStepVerificationService.run.mock.calls[0][0];
+        expect(params.modeDirective).toEqual({ source: 'auto', complexity: 'medium', pullSupported: true });
+        expect(params).not.toHaveProperty('mode');
+        expect(params).not.toHaveProperty('assessorProvider');
+        expect(params).not.toHaveProperty('assessorModel');
+        expect(params).not.toHaveProperty('assessorBackend');
       });
-      const params = planStepVerificationService.run.mock.calls[0][0];
-      expect(params).not.toHaveProperty('mode');
-      expect(params).not.toHaveProperty('assessorProvider');
-      expect(params).not.toHaveProperty('assessorModel');
-      expect(params).not.toHaveProperty('assessorBackend');
+
+      it('marks pull unsupported when the assessor provider is outside anthropic and openai', async () => {
+        setupWithChanges();
+        mockConfig({ 'stages.implement.planStepVerification': { provider: 'google' } });
+        await runAgent();
+        expect(planStepVerificationService.run.mock.calls[0][0].modeDirective).toMatchObject({
+          source: 'auto', pullSupported: false,
+        });
+      });
+
+      it('resolves an unset assessor provider through stages.implement.provider, ai.provider, then anthropic', () => {
+        const supports = (values: Record<string, unknown>): boolean => {
+          mockConfig(values);
+          return (agent as unknown as { resolvePullAssessorSupport: (cfg: undefined) => boolean })
+            .resolvePullAssessorSupport(undefined);
+        };
+        expect(supports({})).toBe(true);
+        expect(supports({ 'ai.provider': 'google' })).toBe(false);
+        expect(supports({ 'ai.provider': 'google', 'stages.implement.provider': 'openai' })).toBe(true);
+        expect(supports({ 'ai.provider': 'openai', 'stages.implement.provider': 'deepseek' })).toBe(false);
+        expect(supports({ 'ai.provider': 'openai' })).toBe(true);
+      });
+
+      it('lets an explicit assessor provider override the implement provider', async () => {
+        setupWithChanges();
+        mockConfig({
+          'stages.implement.provider': 'anthropic',
+          'stages.implement.planStepVerification': { provider: 'deepseek' },
+        });
+        await runAgent();
+        expect(planStepVerificationService.run.mock.calls[0][0].modeDirective).toMatchObject({ pullSupported: false });
+      });
     });
 
     it('skips service.run when cfg.enabled is false', async () => {

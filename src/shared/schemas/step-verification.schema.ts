@@ -22,23 +22,39 @@ export const stepAssessmentResponseSchema = z.object({
   statuses: z.array(stepAssessmentSchema),
 });
 
+export const pullStepAssessmentResponseSchema = stepAssessmentResponseSchema.extend({
+  inspectedPaths: z.array(z.string()),
+});
+
+const statusesJsonSchemaProperty = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['index', 'status'],
+    properties: {
+      index: { type: 'integer', minimum: 0 },
+      status: { type: 'string', enum: ['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable'] },
+      missing: { type: 'string' },
+    },
+  },
+} as const;
+
 export const stepAssessmentResponseJsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['statuses'],
   properties: {
-    statuses: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['index', 'status'],
-        properties: {
-          index: { type: 'integer', minimum: 0 },
-          status: { type: 'string', enum: ['done', 'partially-done', 'not-done', 'not-applicable', 'unverifiable'] },
-          missing: { type: 'string' },
-        },
-      },
-    },
+    statuses: statusesJsonSchemaProperty,
+  },
+} as const;
+
+export const pullStepAssessmentResponseJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['statuses', 'inspectedPaths'],
+  properties: {
+    statuses: statusesJsonSchemaProperty,
+    inspectedPaths: { type: 'array', items: { type: 'string' } },
   },
 } as const;

@@ -71,8 +71,15 @@ const respondAsAssessor = () => {
   const secondRound = mode === 'assessorOmitOne' && call === 2 ? tags.filter(index => index !== 9).map(done) : tags.map(done);
   const laterRound = mode === 'assessorRenumber' ? [0, 1, 2, 3].map(done) : secondRound;
   const statuses = mode === 'assessorPullOutOfScope' ? [done(9)] : call === 1 ? firstRound : laterRound;
+  const checklistPaths = [
+    ...[...fullPrompt.matchAll(/^- changed: .* -- (\\S+)\\x60$/gm)].map(match => match[1]),
+    ...[...fullPrompt.matchAll(/^- untracked: read the file (\\S+)$/gm)].map(match => match[1]),
+  ];
+  const structuredOutput = fullPrompt.includes('## Mandatory inspection checklist')
+    ? { statuses, inspectedPaths: checklistPaths }
+    : { statuses };
   emit({
-    type: 'result', subtype: 'success', is_error: false, result: '', structured_output: { statuses },
+    type: 'result', subtype: 'success', is_error: false, result: '', structured_output: structuredOutput,
     session_id: 's1', num_turns: 1,
   });
 };

@@ -219,6 +219,27 @@ describe('plan step evidence budget', () => {
       expect(text).toContain('{"statuses":[{"index":7,"status":"done"}]}');
       expect(text).not.toContain('partially-done","missing":"…"}]}');
     });
+
+    it('renders the inspectedPaths example and listing requirement when requested', () => {
+      const text = buildStepResponseShapeLines([5, 6], { includeInspectedPaths: true }).join('\n');
+      expect(text).toContain(
+        '{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}],'
+        + '"inspectedPaths":["src/example.ts"]}',
+      );
+      expect(text).toContain('List every file you inspected in "inspectedPaths"');
+    });
+
+    it('returns identical output without options or with includeInspectedPaths false', () => {
+      const plain = buildStepResponseShapeLines([5, 6]);
+      expect(plain).toEqual([
+        'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
+        '{"statuses":[{"index":5,"status":"done"},{"index":6,"status":"partially-done","missing":"…"}]}',
+        'Use the exact N from each [Plan step N] tag — never renumber from 0.',
+      ]);
+      expect(buildStepResponseShapeLines([5, 6], {})).toEqual(plain);
+      expect(buildStepResponseShapeLines([5, 6], { includeInspectedPaths: false })).toEqual(plain);
+      expect(plain.join('\n')).not.toContain('inspectedPaths');
+    });
   });
 
   describe('partitionStepsForPhasedAssessment', () => {

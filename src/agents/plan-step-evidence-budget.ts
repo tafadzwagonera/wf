@@ -29,16 +29,25 @@ const EVIDENCE_GAP_CLAUSE
 export const unverifiableRule = (subject: string, extraClause = ''): string =>
   `- unverifiable: ONLY for temporal, process, or investigation claims that ${subject} cannot in principle prove or disprove${extraClause}${REQUIRES_MISSING_SUFFIX}`;
 
-export const buildStepResponseShapeLines = (indices: number[]): string[] => {
-  const [first, second] = indices;
-  const entries = [
-    `{"index":${first},"status":"done"}`,
-    ...(second === undefined ? [] : [`{"index":${second},"status":"partially-done","missing":"…"}`]),
-  ];
+const inspectedPathsExample = ',"inspectedPaths":["src/example.ts"]';
+const inspectedPathsRequirement
+  = 'List every file you inspected in "inspectedPaths" — every checklist file must appear there.';
+
+const buildExampleEntries = ([first, second]: number[]): string[] => [
+  `{"index":${first},"status":"done"}`,
+  ...(second === undefined ? [] : [`{"index":${second},"status":"partially-done","missing":"…"}`]),
+];
+
+export const buildStepResponseShapeLines = (
+  indices: number[],
+  options?: { includeInspectedPaths?: boolean },
+): string[] => {
+  const includeInspectedPaths = options?.includeInspectedPaths ?? false;
   return [
     'Produce exactly one entry per [Plan step N] tag above — no more, no fewer — in this shape:',
-    `{"statuses":[${entries.join(',')}]}`,
+    `{"statuses":[${buildExampleEntries(indices).join(',')}]${includeInspectedPaths ? inspectedPathsExample : ''}}`,
     'Use the exact N from each [Plan step N] tag — never renumber from 0.',
+    ...(includeInspectedPaths ? [inspectedPathsRequirement] : []),
   ];
 };
 

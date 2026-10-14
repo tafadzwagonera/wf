@@ -18,8 +18,9 @@ const verifyPullAssessment = async (): Promise<void> => {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });
   try {
     const assessor = app.get(PullStepAssessorService);
-    const statuses = await assessor.assess(pullAssessmentParams());
-    reportPullStatuses(statuses);
+    const result = await assessor.assess(pullAssessmentParams());
+    reportPullStatuses(result.statuses);
+    reportInspectedPaths(result.inspectedPaths);
   } finally {
     await app.close();
   }
@@ -29,6 +30,8 @@ const pullAssessmentParams = () => ({
   steps: [{ index: 0, text: 'Update src/large.ts' }, { index: 1, text: 'Update src/absent.ts' }],
   repoDir,
   baseRef: 'HEAD',
+  changedPaths: ['src/large.ts'],
+  untrackedPaths: [] as string[],
   provider: 'anthropic' as const,
   model: 'claude-sonnet-4-6',
 });
@@ -40,6 +43,14 @@ const reportPullStatuses = (statuses: { index: number; status: string }[]): void
     pass('pull assessment distinguishes changed and absent files');
   } else {
     fail('pull assessment returned unexpected statuses', JSON.stringify(statuses));
+  }
+};
+
+const reportInspectedPaths = (inspectedPaths: string[]): void => {
+  if (inspectedPaths.includes('src/large.ts')) {
+    pass('pull assessment reports the checklist file as inspected');
+  } else {
+    fail('pull assessment did not report the checklist file as inspected', JSON.stringify(inspectedPaths));
   }
 };
 
