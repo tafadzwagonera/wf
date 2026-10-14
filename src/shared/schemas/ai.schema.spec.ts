@@ -1,4 +1,4 @@
-import { fileStatusSchema, planModelOutputSchema } from './ai.schema';
+import { fileStatusSchema, planModelOutputSchema, resolutionPlanSchema } from './ai.schema';
 
 const createMockStructuredPlanOutput = () => ({
   action: 'feature',
@@ -58,6 +58,43 @@ describe('planModelOutputSchema', () => {
       expect(plan.verification?.waivers).toBeUndefined();
       expect(plan.phases?.[0]?.verifyAfter).toBeUndefined();
     });
+  });
+});
+
+describe('planModelOutputSchema stepIntents', () => {
+  it('parses a plan with no stepIntents', () => {
+    const plan = planModelOutputSchema.parse(createMockStructuredPlanOutput());
+
+    expect(plan.stepIntents).toBeUndefined();
+  });
+
+  it('preserves stepIntents values exactly', () => {
+    const plan = planModelOutputSchema.parse({
+      ...createMockStructuredPlanOutput(),
+      stepIntents: ['goal', null],
+    });
+
+    expect(plan.stepIntents).toEqual(['goal', null]);
+  });
+
+  it('rejects stepIntents whose length differs from steps', () => {
+    const result = planModelOutputSchema.safeParse({
+      ...createMockStructuredPlanOutput(),
+      stepIntents: ['goal'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain('stepIntents');
+  });
+
+  it('applies the same alignment rule to resolutionPlanSchema', () => {
+    const result = resolutionPlanSchema.safeParse({
+      ...createMockStructuredPlanOutput(),
+      estimatedComplexity: 'low',
+      stepIntents: ['goal'],
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

@@ -3197,6 +3197,77 @@ describe('ImplementerAgent', () => {
       expect(result3).not.toBeNull();
     });
 
+    describe('step intents', () => {
+      const intentSteps = [
+        'repo-b/src/other.ts: change A',
+        'repo-a/src/example.ts: change B',
+        'repo-a/src/example.ts: change C',
+      ];
+
+      const runWithIntents = async (
+        overrides: Partial<PlanArtifact['plan']>, extraOptions = {}, refreshIndices = [0, 1],
+      ) => {
+        setupWithChanges();
+        stepSpecFidelityService.verifyAll.mockResolvedValue({ findingsPerStep: new Map(), failures: [] });
+        planStepVerificationService.run.mockResolvedValue({
+          sessionId: undefined, summary: undefined, extraPassCount: 0,
+        });
+        const generateSpy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+          sessionId: 'sess-1', verificationOutcomes: [],
+        });
+        await agent.execute(
+          ticketArtifact,
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: intentSteps, ...overrides }),
+          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, ...extraOptions },
+        );
+        expect(planStepVerificationService.run).toHaveBeenCalledTimes(1);
+        const { refreshSteps } = planStepVerificationService.run.mock.calls[0][0];
+        await refreshSteps(refreshIndices);
+        return generateSpy;
+      };
+
+      it('keeps intents aligned with steps when a step for another repo is dropped', async () => {
+        await runWithIntents({ stepIntents: ['ia', 'ib', null] });
+
+        expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledTimes(1);
+        const steps = stepSpecFidelityService.verifyAll.mock.calls[0][0];
+        expect(steps).toEqual([
+          { index: 0, text: 'src/example.ts: change B', intent: 'ib' },
+          { index: 1, text: 'src/example.ts: change C' },
+        ]);
+        expect(steps[1].intent).toBeUndefined();
+      });
+
+      it('passes the filtered intents on the scoped plan', async () => {
+        const generateSpy = await runWithIntents({ stepIntents: ['ia', 'ib', null] });
+
+        expect(generateSpy).toHaveBeenCalledTimes(1);
+        const serialised = JSON.stringify(generateSpy.mock.calls[0]);
+        expect(serialised).toContain('"stepIntents":["ib",null]');
+      });
+
+      it('keeps intents aligned through the multi-repo assessed-steps filter', async () => {
+        await runWithIntents(
+          { steps: ['Generic first', 'repo-a/src/example.ts: change B'], stepIntents: ['ig', 'ib'] },
+          { additionalRepoDirs: ['/tmp/repo-b'] },
+          [0],
+        );
+
+        expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledTimes(1);
+        expect(stepSpecFidelityService.verifyAll.mock.calls[0][0]).toEqual([
+          { index: 0, text: 'src/example.ts: change B', intent: 'ib' },
+        ]);
+      });
+
+      it('leaves stepIntents undefined for a plan without intents', async () => {
+        const generateSpy = await runWithIntents({});
+
+        expect(generateSpy).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(generateSpy.mock.calls[0])).not.toContain('stepIntents');
+        expect(stepSpecFidelityService.verifyAll.mock.calls[0][0][0].intent).toBeUndefined();
+      });
+    });
+
     it('does not suppress duplicate findings returned within one refresh', async () => {
       setupWithChanges();
       const finding = { severity: 'error' as const, claim: '/\\.ts$/', deviation: 'diff uses /\\.js$/' };

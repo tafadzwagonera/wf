@@ -75,6 +75,15 @@ describe('planStepPrinciples', () => {
     expect(planStepPrinciples).toContain('empty or failed input');
   });
 
+  it('instructs the planner to emit index-aligned stepIntents only for literal-prescribing steps', () => {
+    expect(planStepPrinciples).toContain('`stepIntents`');
+    expect(planStepPrinciples).toContain('only for steps that prescribe a literal');
+    expect(planStepPrinciples).toContain('(a call chain, signature, regex, or test name)');
+    expect(planStepPrinciples).toContain('checkable from the diff');
+    expect(planStepPrinciples).toContain('index-aligned with `steps`');
+    expect(planStepPrinciples).toContain('`null` for every other step');
+  });
+
   it('requires a call assertion for mocked collaborators', () => {
     expect(planStepPrinciples).toContain(
       '   - Each test step states its observable assertion; when a collaborator is mocked, also assert after the act\n'

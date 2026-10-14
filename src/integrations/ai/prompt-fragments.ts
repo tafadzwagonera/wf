@@ -59,7 +59,10 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
    - For any new guardrail, fallback or downgrade, state what happens on empty or failed input, whether the
      logic already exists elsewhere (reuse it), and whether a failure is visible beyond a log line.
    - Each test step states its observable assertion; when a collaborator is mocked, also assert after the act
-     step that it was called and with what arguments (extends the strongest-viable-positive-check rule above).`;
+     step that it was called and with what arguments (extends the strongest-viable-positive-check rule above).
+   - Emit \`stepIntents\` only for steps that prescribe a literal (a call chain, signature, regex, or test name).
+     State each intent as a goal checkable from the diff, keep the array index-aligned with \`steps\`
+     (same length), and use \`null\` for every other step. Omit \`stepIntents\` when no step prescribes a literal.`;
 
 export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not

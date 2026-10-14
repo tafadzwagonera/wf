@@ -222,6 +222,46 @@ describe('IssuePlanCommand', () => {
     });
   });
 
+  describe('formatPlanAsMarkdown step intents', () => {
+    const basePlan = { action: 'fix', estimatedComplexity: 'low', summary: 'S', steps: ['First', 'Second'] };
+
+    it('emits an Intent line only under the step that has one', async () => {
+      const { command } = await buildCommand();
+
+      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal'] });
+
+      expect(md).toContain('1. First\n2. Second\n   Intent: goal\n\n');
+      expect(md).not.toContain('1. First\n   Intent:');
+    });
+
+    it('collapses newlines inside an intent so it cannot start a phantom step', async () => {
+      const { command } = await buildCommand();
+
+      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal\n3. fake'] });
+
+      expect(md).toContain('2. Second\n   Intent: goal 3. fake\n');
+    });
+
+    it('renders a plan without stepIntents exactly as before', async () => {
+      const { command } = await buildCommand();
+
+      const md = (command as any).formatPlanAsMarkdown(basePlan);
+
+      expect(md).toBe(
+        '# Implementation Plan\n\n**Action:** fix\n**Complexity:** low\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n2. Second\n\n'
+      );
+    });
+
+    it('round-trips stepIntents through the markdown parser', async () => {
+      const { command } = await buildCommand();
+      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal'] });
+
+      const parsed = require('../shared/utils/plan-artifact').parsePlanArtifact(md, '/tmp/plan.md');
+
+      expect(parsed.stepIntents).toEqual([null, 'goal']);
+    });
+  });
+
   it('stores custom-mode plans under the artifact repo namespace when --repos is absent', async () => {
     const { command } = await buildCommand();
     const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;

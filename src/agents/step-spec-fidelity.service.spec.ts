@@ -50,6 +50,18 @@ describe('StepSpecFidelityService', () => {
       );
     });
 
+    it('puts the intent and downgrade rule in the prompt sent to the AI adapter', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      const compliantDiff = 'diff --git a/src/m.ts b/src/m.ts\n+export const re = /\\.(?:vue)$/;';
+      await service.run({ stepText: 'use /\\.vue$/ regex', diff: compliantDiff, intent: 'match only vue files' });
+      expect(mockAiExecute).toHaveBeenCalledTimes(1);
+      const prompt = mockAiExecute.mock.calls[0][0].prompt as string;
+      expect(prompt).toContain('match only vue files');
+      expect(prompt).toContain(
+        'When the diff satisfies that intent, a literal that differs from the diff is a "warning", not an "error".'
+      );
+    });
+
     it('returns findings on a valid response with no failure', async () => {
       mockAiExecute.mockResolvedValue({
         content: '{"findings":[{"severity":"error","claim":"uses X","deviation":"diff shows Y"}]}',
@@ -117,6 +129,13 @@ describe('StepSpecFidelityService', () => {
   });
 
   describe('verifyAll()', () => {
+    it('forwards each step intent to run()', async () => {
+      const runSpy = jest.spyOn(service, 'run').mockResolvedValue({ findings: [] });
+      await service.verifyAll([{ index: 0, text: 'step-a', intent: 'goal' }], '/repo');
+      expect(runSpy).toHaveBeenCalledTimes(1);
+      expect(runSpy.mock.calls[0][0].intent).toBe('goal');
+    });
+
     it('returns findingsPerStep with one entry per step and no failures on success', async () => {
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
       const result = await service.verifyAll([{ index: 2, text: 'step-a' }, { index: 7, text: 'step-b' }], '/repo');
@@ -345,6 +364,20 @@ describe('StepSpecFidelityService', () => {
     it('includes the JSON output shape instruction', () => {
       const prompt = buildSpecFidelityPrompt('step', 'diff');
       expect(prompt).toContain('{"findings":[');
+    });
+
+    it('adds an Intent section with the downgrade rule when an intent is given', () => {
+      const prompt = buildSpecFidelityPrompt('step', 'diff', 'route all lookups through the resolver');
+      expect(prompt).toContain('## Intent\n\nroute all lookups through the resolver');
+      expect(prompt).toContain('a literal that differs from the diff is a "warning", not an "error"');
+      expect(prompt).toContain('Only intents checkable from the diff count');
+    });
+
+    it.each([undefined, null, ''])('renders exactly the intent-free prompt when intent is %p', intent => {
+      const prompt = buildSpecFidelityPrompt('step', 'diff', intent);
+      expect(prompt).toBe(buildSpecFidelityPrompt('step', 'diff'));
+      expect(prompt).not.toContain('## Intent');
+      expect(prompt).not.toContain('checkable from the diff');
     });
   });
 

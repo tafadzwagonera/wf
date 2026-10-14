@@ -93,9 +93,8 @@ function checkWfPathHelpers(): void {
     const { getWfStateDir, getWfLogDir } = require('../../src/shared/utils/wf-paths');
     const expectedState = path.join(os.homedir(), '.wf', 'state');
     const expectedLog = path.join(os.homedir(), '.wf', 'logs');
-    if (getWfStateDir() !== expectedState) fail(`getWfStateDir returned ${getWfStateDir()}, expected ${expectedState}`);
-    else if (getWfLogDir() === expectedLog) pass('wf-paths helpers return correct hardcoded paths');
-    else fail(`getWfLogDir returned ${getWfLogDir()}, expected ${expectedLog}`);
+    if (getWfStateDir() === expectedState && getWfLogDir() === expectedLog) pass('wf-paths helpers return correct hardcoded paths');
+    else fail(`wf-paths helpers returned state=${getWfStateDir()} log=${getWfLogDir()}, expected state=${expectedState} log=${expectedLog}`);
   } catch (err: any) {
     fail(`Error: ${err.message}`);
   }

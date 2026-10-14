@@ -93,12 +93,29 @@ interface AssessorTarget {
   assessorBackend?: WfBackendMode;
 }
 
+type PlannedStep = { text: string; intent?: string | null };
+
+const toAssessableStep = (index: number, { text, intent }: PlannedStep): AssessableStep =>
+  intent ? { index, text, intent } : { index, text };
+
+const toPlannedSteps = ({ plan }: PlanArtifact): PlannedStep[] =>
+  plan.steps.map((text, index) => ({ text, intent: plan.stepIntents?.[index] }));
+
+const scopePlanToSteps = (planArtifact: PlanArtifact, steps: PlannedStep[]): PlanArtifact => ({
+  ...planArtifact,
+  plan: {
+    ...planArtifact.plan,
+    steps: steps.map(step => step.text),
+    stepIntents: planArtifact.plan.stepIntents && steps.map(step => step.intent ?? null),
+  },
+});
+
 type VerificationRunParamsArgs = {
   ticket: TicketArtifact;
   scopedPlan: PlanArtifact;
   options: ImplementerOptions;
   resolved: FileResolution;
-  assessedSteps: string[];
+  assessedSteps: PlannedStep[];
   sessionId: string;
   stallWindow: number;
   modeDirective?: StepVerificationModeDirective;
@@ -164,9 +181,9 @@ export class ImplementerAgent {
     const branchName = await this.handleBranchWorkflow(ticket, planArtifact, options);
 
     const resolved = this.resolveFiles(planArtifact, options);
-    const filteredSteps = this.filterStepsForRepo(planArtifact.plan.steps, resolved.repoFiles, resolved.repoName);
-    this.logPlanSteps(filteredSteps);
-    const scopedPlan = { ...planArtifact, plan: { ...planArtifact.plan, steps: filteredSteps } };
+    const filteredSteps = this.filterStepsForRepo(toPlannedSteps(planArtifact), resolved.repoFiles, resolved.repoName);
+    this.logPlanSteps(filteredSteps.map(step => step.text));
+    const scopedPlan = scopePlanToSteps(planArtifact, filteredSteps);
     const baseline = await this.captureCommitBaseline(options.repoDir);
     const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved, baseline);
     return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
@@ -203,12 +220,13 @@ export class ImplementerAgent {
    * Filters plan steps to only those relevant to the given repo.
    * Steps that reference another repo's prefixed paths are excluded.
    * Generic steps (no repo-prefixed path) are always included.
-   * @param steps - All plan steps from the plan artifact.
+   * @param steps - All plan steps from the plan artifact, each carrying its optional intent so the
+   *   intent stays aligned with its step when other steps are dropped.
    * @param repoFiles - Resolved file paths for this repo (may include repo-name prefix).
    * @param repoName - The basename of the current repo directory.
-   * @returns Filtered steps relevant to this repo.
+   * @returns Filtered steps (with their intents) relevant to this repo.
    */
-  private filterStepsForRepo(steps: string[], repoFiles: string[], repoName: string): string[] {
+  private filterStepsForRepo(steps: PlannedStep[], repoFiles: string[], repoName: string): PlannedStep[] {
     if (!repoName || repoFiles.length === 0) return steps;
 
     const strippedPaths = repoFiles.map(f =>
@@ -217,9 +235,9 @@ export class ImplementerAgent {
 
     const repoPathPattern = REPO_RELATIVE_PATH_PATTERN;
 
-    return steps.filter(step => {
-      const referencesThisRepo = strippedPaths.some(p => step.includes(p));
-      const referencesAnyRepo = repoPathPattern.test(step);
+    return steps.filter(({ text }) => {
+      const referencesThisRepo = strippedPaths.some(p => text.includes(p));
+      const referencesAnyRepo = repoPathPattern.test(text);
       return referencesThisRepo || !referencesAnyRepo;
     });
   }
@@ -264,7 +282,7 @@ export class ImplementerAgent {
   private async applyPlanStepVerification(
     ticket: TicketArtifact, scopedPlan: PlanArtifact,
     options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: string[], result: ImplementerResult,
+    filteredSteps: PlannedStep[], result: ImplementerResult,
     baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     try {
@@ -278,7 +296,7 @@ export class ImplementerAgent {
 
   private async runPlanStepVerification(
     ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: string[], result: ImplementerResult, baseline: { sha: string; branch: string } | null,
+    filteredSteps: PlannedStep[], result: ImplementerResult, baseline: { sha: string; branch: string } | null,
   ): Promise<ImplementerResult> {
     const cfg = this.configService.get<WfPlanStepVerificationConfig>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
@@ -304,7 +322,7 @@ export class ImplementerAgent {
   }
 
   private createFidelityRefresher(
-    assessedSteps: string[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
+    assessedSteps: PlannedStep[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
     assessorTarget: AssessorTarget,
   ): Pick<PlanStepVerificationRunParams, 'refreshSteps' | 'getSuppressed'> {
     const refresher = this.buildFidelityRefresher(
@@ -363,10 +381,10 @@ export class ImplementerAgent {
     };
   }
 
-  private resolveAssessedSteps(filteredSteps: string[], options: ImplementerOptions): string[] {
+  private resolveAssessedSteps(filteredSteps: PlannedStep[], options: ImplementerOptions): PlannedStep[] {
     if (!options.additionalRepoDirs?.length) return filteredSteps;
     const repoPathPattern = REPO_RELATIVE_PATH_PATTERN;
-    const assessedSteps = filteredSteps.filter(s => repoPathPattern.test(s));
+    const assessedSteps = filteredSteps.filter(step => repoPathPattern.test(step.text));
     const excluded = filteredSteps.length - assessedSteps.length;
     if (excluded > 0) {
       appendToLogFile('INFO', `step-verify.generic-steps-excluded excluded=${excluded}`, 'step-verification');
@@ -377,7 +395,7 @@ export class ImplementerAgent {
   private resolvePlanStepVerificationSkipReason(
     cfg: { enabled?: boolean } | undefined,
     result: { hasChanges: boolean },
-    assessedSteps: string[],
+    assessedSteps: PlannedStep[],
     options: ImplementerOptions,
     policy: CommitPolicy,
   ): PlanStepVerificationSkipReason | null {
@@ -392,7 +410,7 @@ export class ImplementerAgent {
   private buildVerificationRunParams(args: VerificationRunParamsArgs): PlanStepVerificationRunParams {
     const { ticket, scopedPlan, options, resolved, assessedSteps } = args;
     return {
-      steps: assessedSteps,
+      steps: assessedSteps.map(step => step.text),
       planSummary: scopedPlan.plan.summary,
       repoDir: options.repoDir ?? process.cwd(),
       affectedFiles: toAffectedFilePaths(scopedPlan.plan.affectedFiles),
@@ -456,13 +474,13 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(
-    originalSteps: string[], repoDir: string, baseRef?: string, assessorTarget?: AssessorTarget,
+    originalSteps: PlannedStep[], repoDir: string, baseRef?: string, assessorTarget?: AssessorTarget,
   ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
     const raised = new Map<string, number>();
     let suppressed = 0;
     return {
       refresh: (indices = originalSteps.map((_, index) => index)) => {
-        const steps = indices.map(index => ({ index, text: originalSteps[index] }));
+        const steps = indices.map(index => toAssessableStep(index, originalSteps[index]));
         const incrementSuppressed = (): void => {
           suppressed += 1;
         };

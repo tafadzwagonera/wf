@@ -195,6 +195,69 @@ describe('parsePlanArtifact markdown risks and complexity', () => {
   });
 });
 
+describe('parsePlanArtifact stepIntents', () => {
+  const jsonPlan = (extra: Record<string, unknown>) =>
+    JSON.stringify({ action: 'fix', summary: 's', steps: ['one', 'two'], ...extra });
+
+  it('loads stepIntents from a JSON artifact', () => {
+    const plan = parsePlanArtifact(jsonPlan({ stepIntents: [null, 'goal'] }), '/tmp/plan.json');
+
+    expect(plan.stepIntents).toEqual([null, 'goal']);
+  });
+
+  it('maps non-string JSON intents to null', () => {
+    const plan = parsePlanArtifact(jsonPlan({ stepIntents: [5, 'goal'] }), '/tmp/plan.json');
+
+    expect(plan.stepIntents).toEqual([null, 'goal']);
+  });
+
+  it('rejects a JSON artifact whose stepIntents length differs from steps', () => {
+    expect(() => parsePlanArtifact(jsonPlan({ stepIntents: ['goal'] }), '/tmp/plan.json')).toThrow(WorkflowParseError);
+  });
+
+  it('leaves stepIntents undefined when a JSON artifact omits them', () => {
+    const plan = parsePlanArtifact(jsonPlan({}), '/tmp/plan.json');
+
+    expect(plan.stepIntents).toBeUndefined();
+  });
+
+  it('loads an Intent line under numbered step 2 only', () => {
+    const plan = parsePlanArtifact(
+      '**Action:** fix\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n2. Second\n   Intent: goal text\n',
+      '/tmp/plan.md'
+    );
+
+    expect(plan.stepIntents).toEqual([null, 'goal text']);
+  });
+
+  it('does not treat an Intent line as bold metadata or step text', () => {
+    const plan = parsePlanArtifact(
+      '**Action:** fix\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n2. Second\n   Intent: goal text\n',
+      '/tmp/plan.md'
+    );
+
+    expect(plan.action).toBe('fix');
+    expect(plan.steps).toEqual(['First', 'Second']);
+    expect(plan.summary).toBe('S');
+  });
+
+  it('ignores an Intent line that is not immediately below its numbered step', () => {
+    const plan = parsePlanArtifact(
+      '**Action:** fix\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n   detail\n   Intent: late\n2. Second\n',
+      '/tmp/plan.md'
+    );
+
+    expect(plan.stepIntents).toBeUndefined();
+  });
+
+  it('loads markdown without Intent lines with stepIntents undefined', () => {
+    const plan = parsePlanArtifact('**Action:** fix\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n2. Second\n', '/tmp/plan.md');
+
+    expect(plan.stepIntents).toBeUndefined();
+    expect(plan.steps).toEqual(['First', 'Second']);
+  });
+});
+
 describe('plan artifact helpers', () => {
   it('builds hashed plan filenames from the hash and action', () => {
     expect(

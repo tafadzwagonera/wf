@@ -356,6 +356,12 @@ describe('stripRepoNamePrefix', () => {
     expect(result).toEqual([{ index: 0, text: 'Move a.ts to b.ts' }]);
   });
 
+  it('preserves the intent of each step', () => {
+    const steps = [{ index: 3, text: 'Touches shop-v1.1/a.ts', intent: 'goal' }];
+    const result = stripRepoNamePrefix(steps, '/repos/shop-v1.1');
+    expect(result).toEqual([{ index: 3, text: 'Touches a.ts', intent: 'goal' }]);
+  });
+
   it('leaves steps with no repo-prefixed path unchanged', () => {
     const steps = [{ index: 0, text: 'Run yarn test and confirm it passes' }];
     const result = stripRepoNamePrefix(steps, '/repos/shop-v1.1');

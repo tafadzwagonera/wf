@@ -122,6 +122,15 @@ describe('writing-plans SKILL.md example', () => {
     expect(() => planModelOutputSchema.parse(JSON.parse(example))).not.toThrow();
   });
 
+  it('instructs the planner to emit index-aligned stepIntents only for literal-prescribing steps', () => {
+    expect(skillMd).toContain('Emit `stepIntents` only for steps that prescribe a literal');
+    expect(skillMd).toContain('(a call chain, signature, regex, or test name)');
+    expect(skillMd).toContain('checkable from the diff');
+    expect(skillMd).toContain('Omit `stepIntents` when no step prescribes a literal');
+    expect(skillMd).toContain('index-aligned with `steps`');
+    expect(skillMd).toContain('`null` for every other step');
+  });
+
   it('does not claim verification.targeted is required', () => {
     expect(skillMd).not.toMatch(/`verification\.targeted`\s*—\s*\*\*required\*\*/);
   });

@@ -2,7 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
-import { planComplexitySchema, planPhaseSchema } from '../schemas/ai.schema';
+import {
+  hasAlignedStepIntents, planComplexitySchema, planPhaseSchema, type PlanWithStepIntents,
+} from '../schemas/ai.schema';
 import type { PlanComplexity } from '../types/ai.types';
 import { estimatePlanComplexity } from './estimate-plan-complexity';
 import { formatPlanRisk, normalizePlanRisks } from './plan-risk';
@@ -453,6 +455,7 @@ const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: str
   action: normalizeAction(rawPlan.action, filePath),
   summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
   steps: normalizeStringList(rawPlan.steps),
+  stepIntents: normalizeStepIntents(rawPlan.stepIntents),
   affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
   affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
 });
@@ -468,12 +471,20 @@ const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: st
   phases: normalizePlanPhases(rawPlan),
 });
 
+const assertStepIntentsAligned = (plan: PlanWithStepIntents, filePath: string): void => {
+  if (hasAlignedStepIntents(plan)) return;
+  throw new WorkflowParseError(
+    `Plan file has ${plan.stepIntents?.length} stepIntents for ${plan.steps.length} steps: ${filePath}`
+  );
+};
+
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
     throw new WorkflowParseError(`Plan file is not valid: ${filePath}`);
   }
   const rawPlan = value as Record<string, unknown>;
   const base = { ...normalizeCorePlanFields(rawPlan, filePath), ...normalizeExtraPlanFields(rawPlan, filePath) };
+  assertStepIntentsAligned(base, filePath);
   const explicitComplexity = normalizeComplexity(rawPlan.estimatedComplexity, filePath);
   const estimatedComplexity = explicitComplexity ?? estimatePlanComplexity(base);
   return { ...base, estimatedComplexity };
@@ -509,11 +520,16 @@ const parseMarkdownSections = (content: string): ParsedMarkdownPlan => {
   return parsed;
 };
 
+const buildMarkdownStepFields = (stepLines?: string[]) => {
+  const steps = extractNumberedList(stepLines);
+  return { steps, stepIntents: extractStepIntents(stepLines, steps.length) };
+};
+
 const buildMarkdownPlanFields = (sections: Map<string, string[]>, metadata: Map<string, string>) => ({
   action: metadata.get('action'),
   estimatedComplexity: metadata.get('complexity'),
   summary: collapseSection(sections.get('summary')),
-  steps: extractNumberedList(sections.get('steps')),
+  ...buildMarkdownStepFields(sections.get('steps')),
   affectedFiles: extractBulletedList(sections.get('files affected')),
   affectedRepositories: extractBulletedList(
     sections.get('affected repositories') ?? sections.get('repositories affected')
@@ -531,6 +547,19 @@ const collapseSection = (lines?: string[]): string => (lines ?? []).join('\n').t
 
 const extractNumberedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^\d+\.\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
+
+const extractStepIntents = (lines: string[] = [], stepCount: number): (string | null)[] | undefined => {
+  const intents: (string | null)[] = [];
+  for (const [index, line] of lines.entries()) {
+    if (!/^\d+\.\s+\S/.test(line)) continue;
+    intents.push(/^\s+Intent:\s*(.+)$/.exec(lines[index + 1] ?? '')?.[1]?.trim() ?? null);
+  }
+  const aligned = Array.from({ length: stepCount }, (_, index) => intents[index] ?? null);
+  return aligned.some(intent => intent !== null) ? aligned : undefined;
+};
+
+const normalizeStepIntents = (value: unknown): (string | null)[] | undefined =>
+  Array.isArray(value) ? value.map(item => (typeof item === 'string' ? item : null)) : undefined;
 
 const extractBulletedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^-\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);

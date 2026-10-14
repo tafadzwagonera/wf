@@ -13,7 +13,7 @@ export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
 export type FakeClaudeMode
   = | 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan'
-    | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope';
+    | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope' | 'intentFidelity';
 
 export type PlanOverrides = {
   steps?: string[];
@@ -86,6 +86,10 @@ const respondAsAssessor = () => {
 const isAssessorPrompt = fullPrompt.includes('Index each step ONLY by its [Plan step N] tag');
 const respondAsImplementer = () => {
 let text = 'done';
+if (mode === 'intentFidelity' && n === 1) {
+  fs.appendFileSync('src/a.ts', '// implemented\\n');
+  toolUse('Edit', 'src/a.ts');
+}
 if (mode === 'writeEachPass' && n > 1) {
   fs.writeFileSync('extra-' + n + '.ts', 'export {};\\n');
   toolUse('Write', 'extra-' + n + '.ts');
@@ -106,7 +110,9 @@ if (mode === 'declareAndEdit' && n === 2) {
 }
 result(text);
 };
-if (mode.startsWith('assessor') && isAssessorPrompt) respondAsAssessor();
+const isFidelityPrompt = fullPrompt.includes('## Plan step') && fullPrompt.includes('## Your task');
+if (mode === 'intentFidelity' && isFidelityPrompt) result('{"findings":[]}');
+else if ((mode.startsWith('assessor') || mode === 'intentFidelity') && isAssessorPrompt) respondAsAssessor();
 else respondAsImplementer();
 `;
 

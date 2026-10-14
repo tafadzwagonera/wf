@@ -182,7 +182,7 @@ const extractScriptName = (command: string): string | undefined => {
     + 'When a design system is detected, observed element class conventions (e.g. h1–h6 heading classes, grid-gap token choices, responsive grid-cols breakpoint tiers mined from real .vue/.tsx files) are included in the plan prompt; the design-system block is omitted for non-UI tickets so the prompt stays focused. '
     + 'Existing components and composables whose names share significant vocabulary with the ticket are surfaced in the plan prompt as reuse candidates so the planner can reference them before creating new files; repos that place UI files outside `app/components` or `app/composables` receive no candidates. '
     + 'Generated plans are semantically validated before they are saved: wf retries once with explicit repair feedback when a draft omits rename targets, uses a non-allowlisted verification command, or contradicts detected test conventions. '
-    + 'Steps that delete, drop, remove, replace or rename a term also need a case-insensitive zero-match verification command such as `bash -c \'! git grep -I -i -q -F <term>\'` (or a `needle-search-required` waiver); a missing or `\\b`-only check is reported as an advisory quality risk after the repair retry. A step that writes a spec with a mocked collaborator must also state that the collaborator is asserted called after the act step (or carry a `test-call-assertion-required` waiver); this is reported the same advisory way. The planner is told to search the needle case-insensitively across the whole repository, including docs, specs, config, env files and CI, and may mark orphaned files it deletes with the `to-delete` file status (rejected in affectedFilesContext). '
+    + 'Steps that delete, drop, remove, replace or rename a term also need a case-insensitive zero-match verification command such as `bash -c \'! git grep -I -i -q -F <term>\'` (or a `needle-search-required` waiver); a missing or `\\b`-only check is reported as an advisory quality risk after the repair retry. A step that writes a spec with a mocked collaborator must also state that the collaborator is asserted called after the act step (or carry a `test-call-assertion-required` waiver); this is reported the same advisory way. A plan may carry an optional `stepIntents` array, index-aligned with `steps` (same length, `null` for steps without an intent): the planner is told to emit an intent only for steps that prescribe a literal (a call chain, signature, regex or test name), phrased as a goal checkable from the diff; a length mismatch fails plan validation, and markdown artifacts store each intent as an `Intent:` line directly under its numbered step. The planner is told to search the needle case-insensitively across the whole repository, including docs, specs, config, env files and CI, and may mark orphaned files it deletes with the `to-delete` file status (rejected in affectedFilesContext). '
     + 'A step that names two config keys (backticked or quoted, starting with `ai.`, `stages.`, `git.` or `figma.`) with the same final segment, or that adds a `resolve*`, `get*`, `pick*`, `select*` or `build*` function, is checked against the repository with `git grep`; when an existing resolver in a file the plan does not list already reads those keys or defines that name, the plan records a `duplicate-resolver` risk ("reuse <name> in <file>:<line>, or state why it cannot be reused") without a repair retry. The lookup is skipped when no repository directory is known and fails open on any git error. '
     + 'Targeted verification commands are interpreted as repo-root-relative: redundant '
     + '`cd <repo>` prefixes are normalized away, while commands that change directories '
@@ -683,7 +683,7 @@ export class IssuePlanCommand extends CommandRunner {
       + '**Complexity:** ' + plan.estimatedComplexity + '\n\n'
       + '## Summary\n\n' + plan.summary + '\n\n';
 
-    md += this.formatNumberedSection('## Steps', plan.steps);
+    md += this.formatNumberedSection('## Steps', plan.steps, plan.stepIntents);
     md += this.formatBulletSection('## Files Affected', plan.affectedFiles?.map(resolveFileLabel));
     md += this.formatBulletSection('## Files for Context (Read-Only)', plan.affectedFilesContext?.map(resolveFileLabel));
     md += this.formatBulletSection('## Affected Repositories', plan.affectedRepositories);
@@ -692,9 +692,13 @@ export class IssuePlanCommand extends CommandRunner {
     return md;
   }
 
-  private formatNumberedSection(heading: string, items?: string[]): string {
+  private formatNumberedSection(heading: string, items?: string[], intents?: (string | null)[]): string {
     if (!items?.length) return '';
-    return heading + '\n\n' + items.map((item, i) => (i + 1) + '. ' + item).join('\n') + '\n\n';
+    const renderItem = (item: string, i: number): string => {
+      const intent = intents?.[i];
+      return (i + 1) + '. ' + item + (typeof intent === 'string' ? '\n   Intent: ' + intent.replaceAll(/\s*\n\s*/g, ' ') : '');
+    };
+    return heading + '\n\n' + items.map(renderItem).join('\n') + '\n\n';
   }
 
   private formatBulletSection(heading: string, items?: string[]): string {
