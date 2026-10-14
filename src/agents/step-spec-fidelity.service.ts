@@ -14,6 +14,7 @@ import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.typ
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { splitDiffIntoFileSections } from '../shared/utils/commit-diff-stat';
+import { mentionsPath } from '../shared/utils/mentions-path';
 import {
   EVIDENCE_FLOOR_CHARS, allocateEvidence, sliceHeadTail, type EvidenceSection,
 } from './plan-step-evidence-budget';
@@ -159,7 +160,7 @@ export class StepSpecFidelityService {
     const fileSections = splitDiffIntoFileSections(diff);
     if (fileSections.size === 0) return this.fitUnsectionedDiff(diff, loggedGaps);
     const sections: EvidenceSection[] = [...fileSections].map(([filePath, content]) => ({
-      path: filePath, kind: 'tracked', content, mentioned: stepText.includes(filePath),
+      path: filePath, kind: 'tracked', content, mentioned: mentionsPath(stepText, filePath),
     }));
     const measuredTotal = sections.reduce((sum, section) => sum + section.content.length, 0);
     const { rendered, report } = allocateEvidence(sections, clampFidelityBudget(measuredTotal));

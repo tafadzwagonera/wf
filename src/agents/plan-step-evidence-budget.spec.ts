@@ -284,6 +284,22 @@ describe('plan step evidence budget', () => {
       }
     });
 
+    it('assigns src/a.tsx but not src/a.ts to a step that names only src/a.tsx', () => {
+      const boundarySections = [
+        createMockSection({ path: 'src/a.ts', content: 'a'.repeat(80_000) }),
+        createMockSection({ path: 'src/a.tsx', content: 'x'.repeat(60_000) }),
+        createMockSection({ path: 'src/big.ts', content: 'b'.repeat(100_000) }),
+      ];
+      const boundarySteps = [
+        { index: 0, text: 'edit src/a.tsx' },
+        { index: 1, text: 'edit src/big.ts' },
+      ];
+      const groups = partitionStepsForPhasedAssessment(boundarySteps, boundarySections, 130_000);
+      const group = groups.find(g => g.steps.some(s => s.index === 0));
+      expect(group?.sections.map(s => s.path)).toContain('src/a.tsx');
+      expect(group?.sections.map(s => s.path)).not.toContain('src/a.ts');
+    });
+
     it('lands no-mention steps and unmentioned sections in the group with the most spare budget', () => {
       const groups = partitionStepsForPhasedAssessment(steps, sections, 130_000);
       const withNoMention = groups.find(g => g.steps.some(s => s.index === 3));

@@ -13,6 +13,7 @@ import type { PlanComplexity } from '../shared/types/ai.types';
 import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
 import { ApiError, ConfigurationError, ERROR_CODE } from '../shared/errors/app.error';
 import { isAiProviderErrorLike } from '../shared/utils/errors';
+import { mentionsPath } from '../shared/utils/mentions-path';
 import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../shared/types/config.types';
 import { PullStepAssessorService, type PullStepAssessmentParams } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
@@ -130,7 +131,7 @@ const buildEvidenceCandidates = (
 ): EvidenceCandidate[] => {
   const stepText = params.stepTexts.join('\n');
   const affected = new Set(params.affectedFiles ?? []);
-  const isMentioned = (filePath: string): boolean => stepText.includes(filePath) || affected.has(filePath);
+  const isMentioned = (filePath: string): boolean => mentionsPath(stepText, filePath) || affected.has(filePath);
   const candidates: EvidenceCandidate[] = [
     ...trackedPaths.map(filePath => ({ path: filePath, mentioned: isMentioned(filePath) })),
     ...untracked.map(file => ({ path: file.path, mentioned: isMentioned(file.path), untracked: file })),
@@ -453,11 +454,6 @@ const findUninspectedPaths = (checklist: string[], inspectedPaths: string[], rep
   const inspected = new Set(inspectedPaths.map(file => normalizeCoveragePath(file, repoDir)));
   return checklist.map(file => normalizeCoveragePath(file, repoDir)).filter(file => !inspected.has(file));
 };
-
-const escapeRegExp = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-
-const mentionsPath = (text: string, file: string): boolean =>
-  new RegExp(`(?<![\\w./-])${escapeRegExp(file)}(?![\\w-]|\\.\\w)`).test(text);
 
 const downgradeIfUncovered = (status: StepAssessment, stepText: string, uncovered: string[]): StepAssessment => {
   if (status.status !== 'done' && status.status !== 'not-applicable') return status;
@@ -856,7 +852,7 @@ export class PlanStepVerificationService {
     params: ResolvedRunParams, gap: { steps: AssessableStep[]; indices: number[]; uncoveredPaths: string[] },
   ): void {
     const downgradedText = gap.steps.filter(step => gap.indices.includes(step.index)).map(step => step.text).join('\n');
-    const paths = gap.uncoveredPaths.filter(file => downgradedText.includes(file));
+    const paths = gap.uncoveredPaths.filter(file => mentionsPath(downgradedText, file));
     this.logEventAndAppendToLogFile(
       'WARN', `step-verify.pull.coverage-gap indices=${gap.indices.join(',')} paths=${paths.join(',')}`, params.silent,
     );

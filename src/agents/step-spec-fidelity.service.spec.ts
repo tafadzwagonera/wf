@@ -1,6 +1,9 @@
 import { Test } from '@nestjs/testing';
 import { StepSpecFidelityService, buildSpecFidelityPrompt } from './step-spec-fidelity.service';
 import type { StepSpecFidelityRunParams } from './step-spec-fidelity.service';
+import * as evidenceBudget from './plan-step-evidence-budget';
+import type { EvidenceSection } from './plan-step-evidence-budget';
+import { stripRepoNamePrefix } from './plan-step-verification.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { stepFidelityResponseJsonSchema } from '../shared/schemas/step-spec-fidelity.schema';
@@ -253,6 +256,58 @@ describe('StepSpecFidelityService', () => {
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'WARN', 'step-fidelity.diff.truncated paths=src/other.ts', 'step-verification',
       );
+    });
+  });
+
+  describe('path mention boundaries in the diff budget', () => {
+    const buildFileDiff = (filePath: string, body: string): string =>
+      `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${body}`;
+    let mockAllocateEvidence: jest.SpyInstance;
+
+    beforeEach(() => {
+      mockAllocateEvidence = jest.spyOn(evidenceBudget, 'allocateEvidence');
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('keeps src/a.tsx whole and truncates src/a.ts when the step names only src/a.tsx', async () => {
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      mockAppendToLogFile.mockClear();
+      const tsx = buildFileDiff('src/a.tsx', 'x'.repeat(50_000));
+      const diff = [buildFileDiff('src/a.ts', 't'.repeat(100_000)), tsx].join('\n');
+      mockGitService.getDiffFromRef.mockResolvedValue(diff);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll([{ index: 0, text: 'edit src/a.tsx' }], '/repo');
+      expect(mockAiExecute).toHaveBeenCalledTimes(1);
+      const prompt: string = mockAiExecute.mock.calls[0][0].prompt;
+      expect(prompt).toContain(tsx);
+      expect(prompt).not.toContain('t'.repeat(100_000));
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', 'step-fidelity.diff.truncated paths=src/a.ts', 'step-verification',
+      );
+      expect(mockAllocateEvidence).toHaveBeenCalledTimes(1);
+      const sections: EvidenceSection[] = mockAllocateEvidence.mock.calls[0][0];
+      expect(sections.map(section => [section.path, section.mentioned])).toEqual([
+        ['src/a.ts', false],
+        ['src/a.tsx', true],
+      ]);
+    });
+
+    it('marks src/a.ts as mentioned when the step text carries a repo prefix that is stripped', async () => {
+      const ts = buildFileDiff('src/a.ts', 't'.repeat(50_000));
+      const diff = [ts, buildFileDiff('src/a.tsx', 'x'.repeat(100_000))].join('\n');
+      mockGitService.getDiffFromRef.mockResolvedValue(diff);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      const [strippedStep] = stripRepoNamePrefix([{ index: 0, text: 'edit shop/src/a.ts' }], '/repos/shop');
+      expect(strippedStep.text).toBe('edit src/a.ts');
+      await service.verifyAll([strippedStep], '/repos/shop');
+      expect(mockAllocateEvidence).toHaveBeenCalledTimes(1);
+      const sections: EvidenceSection[] = mockAllocateEvidence.mock.calls[0][0];
+      expect(sections.map(section => [section.path, section.mentioned])).toEqual([
+        ['src/a.ts', true],
+        ['src/a.tsx', false],
+      ]);
+      expect(mockAiExecute.mock.calls[0][0].prompt).toContain(ts);
     });
   });
 

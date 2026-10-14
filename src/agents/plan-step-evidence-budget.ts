@@ -1,3 +1,4 @@
+import { mentionsPath } from '../shared/utils/mentions-path';
 import type { AssessableStep } from './step-spec-fidelity.service';
 
 export type EvidenceSection = {
@@ -194,7 +195,7 @@ export const buildEvidenceCompletenessSection = (report: EvidenceBudgetReport): 
 };
 
 const mentionedSections = (step: AssessableStep, sections: EvidenceSection[]): EvidenceSection[] =>
-  sections.filter(section => step.text.includes(section.path));
+  sections.filter(section => mentionsPath(step.text, section.path));
 
 type MutableGroup = { steps: AssessableStep[]; sections: Map<string, EvidenceSection>; total: number };
 

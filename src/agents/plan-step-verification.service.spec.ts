@@ -255,6 +255,27 @@ describe('collectPushEvidence', () => {
     expect(evidence.fileDiffSections[0]).toContain('src/2.ts');
   });
 
+  it('does not prioritize src/a.ts for a step that names only src/a.tsx', async () => {
+    const mockExecFile = mockDiffOutputs(['src/a.ts', 'src/a.tsx'], 100);
+
+    const evidence = await collectPushEvidence({ repoDir: '/repo', baseRef: 'HEAD', stepTexts: ['Edit src/a.tsx'] });
+
+    expect(mockExecFile).toHaveBeenCalled();
+    expect(evidence.fileDiffSections.map(section => section.split('\n')[0])).toEqual(['### src/a.tsx', '### src/a.ts']);
+  });
+
+  it('still prioritizes an affected file ahead of a path that only shares a name prefix', async () => {
+    const mockExecFile = mockDiffOutputs(['src/a.ts', 'src/a.tsx', 'src/b.ts'], 100);
+
+    const evidence = await collectPushEvidence({
+      repoDir: '/repo', baseRef: 'HEAD', stepTexts: ['Edit src/a.tsx'], affectedFiles: ['src/b.ts'],
+    });
+
+    expect(mockExecFile).toHaveBeenCalled();
+    expect(evidence.fileDiffSections.map(section => section.split('\n')[0]))
+      .toEqual(['### src/a.tsx', '### src/b.ts', '### src/a.ts']);
+  });
+
   it('renders 20k tracked and untracked sections whole instead of truncating them', async () => {
     mockDiffOutputs(['src/a.ts'], 20_000);
 
