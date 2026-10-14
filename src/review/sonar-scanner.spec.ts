@@ -399,7 +399,7 @@ describe('runSonarScan', () => {
       expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('scope=staged'), 'sonar-scanner');
     });
 
-    it('logs a structured INFO record for a findings scan too, not just clean', async () => {
+    it('logs a structured WARN record for a findings scan so it is not buried among INFO entries', async () => {
       const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       mockExecSync.mockReturnValue('');
       mockExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
@@ -411,10 +411,11 @@ describe('runSonarScan', () => {
 
       await runSonarScan(defaultOptions);
 
-      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.findings'), 'sonar-scanner');
-      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('repoDir=/tmp/repo'), 'sonar-scanner');
-      expect(appendSpy).toHaveBeenCalledWith('INFO', expect.stringContaining('scope=staged'), 'sonar-scanner');
-      expect(appendSpy).not.toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.clean'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('sonar.scan.findings'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('repoDir=/tmp/repo'), 'sonar-scanner');
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('scope=staged'), 'sonar-scanner');
+      expect(appendSpy).not.toHaveBeenCalledWith('INFO', expect.stringContaining('sonar.scan.findings'), 'sonar-scanner');
+      expect(appendSpy).not.toHaveBeenCalledWith('WARN', expect.stringContaining('sonar.scan.clean'), 'sonar-scanner');
     });
 
     it('calls onProgress with a clean-scan message including the scope, so a clean run is visible without --verbose logs', async () => {

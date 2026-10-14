@@ -14,7 +14,7 @@
  *   7. Negative: omitting all five fields yields undefined reads and a false figma gate
  *
  * Sonar behavioral gating (scan runs vs returns early) is covered by
- * sonar-gating.smoke.ts; this test covers the config propagation that feeds it.
+ * src/review/sonar-stage.service.spec.ts; this test covers the config propagation that feeds it.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';

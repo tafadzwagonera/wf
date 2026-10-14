@@ -116,9 +116,19 @@ export class SonarStageService {
         }
         return this.resolveSourceBranchFromManifestChain(repoDir, branchInfo, options);
       },
-      onError: () => undefined,
+      onError: error => this.warnSourceBranchLookupFailed(error),
     });
     return result;
+  }
+
+  private warnSourceBranchLookupFailed(error: unknown): undefined {
+    const reason = error instanceof Error ? error.message : String(error);
+    this.logger.warn(
+      `SonarQube CLI: recorded source-branch lookup failed (${reason}) — `
+      + 'falling back to the development or upstream branch',
+      'sonar-stage'
+    );
+    return undefined;
   }
 
   private async resolveSourceBranchFromManifestChain(

@@ -55,7 +55,9 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      step — a value that validates but is never read is a defect, not future-proofing.
    - For plans affecting more than 10 files, group steps into phases with intermediate verification
      checkpoints using the \`phases\` array.
-   - ${implementerSearchRule} ${gitignoreSearchNote}`;
+   - ${implementerSearchRule} ${gitignoreSearchNote}
+   - For any new guardrail, fallback or downgrade, state what happens on empty or failed input, whether the
+     logic already exists elsewhere (reuse it), and whether a failure is visible beyond a log line.`;
 
 export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not

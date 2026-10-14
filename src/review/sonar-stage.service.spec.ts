@@ -787,5 +787,27 @@ describe('SonarStageService', () => {
         'sonar-stage'
       );
     });
+
+    it('logs a WARN and still scans when the recorded source-branch lookup fails', async () => {
+      const { service, mockGitService, mockSessionService, mockLoggerService } = await buildService();
+      const mockRunSonar = runSonarScan as jest.MockedFunction<typeof runSonarScan>;
+      mockRunSonar.mockClear();
+      mockGitService.getStatus.mockResolvedValue({ staged: [] });
+      mockGitService.getBranchInfo.mockResolvedValue({
+        current: 'feature/WBP-1-thing', development: 'develop', all: [], isClean: true, hasUncommittedChanges: false,
+      });
+      mockSessionService.findByProviderSessionId.mockRejectedValue(new Error('session store unreadable'));
+
+      await service.scanIfEnabled({
+        repoDir: '/tmp/repo', force: true, providerSessionId: 'sess-1', allowPrompt: false,
+      });
+
+      expect(mockLoggerService.warn).toHaveBeenCalledWith(
+        'SonarQube CLI: recorded source-branch lookup failed (session store unreadable) — '
+        + 'falling back to the development or upstream branch',
+        'sonar-stage'
+      );
+      expect(mockRunSonar).toHaveBeenCalledTimes(1);
+    });
   });
 });

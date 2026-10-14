@@ -50,7 +50,7 @@ const logScanOutcome = (
     `scope=${scope.kind}`,
     `steps=${steps.map(s => `${s.step}:${s.status}`).join(',')}`,
   ].join(' ');
-  appendToLogFile('INFO', `sonar.scan.${status} ${rendered}`, 'sonar-scanner');
+  appendToLogFile(status === 'findings' ? 'WARN' : 'INFO', `sonar.scan.${status} ${rendered}`, 'sonar-scanner');
 };
 
 const ensureSonarCliAvailable = (): void => {

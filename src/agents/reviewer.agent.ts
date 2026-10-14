@@ -7,7 +7,8 @@ import { REVIEW_VERDICT_APPROVED } from '../shared/types/review.types';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
-import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
+import { deriveReviewArtifactPath, parsePlanArtifact } from '../shared/utils/plan-artifact';
+import { formatPlanRisksSection } from '../review/format-plan-risks-section';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
@@ -23,6 +24,7 @@ import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install'
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 
 interface DiffReviewInputs {
   onProgress?: (line: string) => void;
@@ -147,7 +149,7 @@ export class ReviewerAgent {
     ticket: TicketArtifact, repoDir: string, options: ReviewerOptions, inputs: DiffReviewInputs
   ): Parameters<ReviewStageService['reviewDiff']>[1] {
     return {
-      context: this.buildReviewContext(ticket.ticketKey, repoDir),
+      context: this.buildReviewContext(ticket.ticketKey, repoDir, options.planArtifactPath),
       additionalContextSections: this.buildAdditionalContextSections(inputs.sonarResult),
       repoDir,
       resumeProviderSessionId: options.resumeProviderSessionId,
@@ -173,7 +175,8 @@ export class ReviewerAgent {
   /**
    * Delegates SonarQube scan for the REVIEW stage to SonarStageService (gating, scope
    * selection, and source-branch fallback live there). Contains CLI failures so that
-   * a scan error continues the review without Sonar findings rather than aborting.
+   * a scan error continues the review without Sonar findings rather than aborting. The
+   * failure warning is always shown and logged at WARN, even when `silent` is set.
    */
   private async runSonarStage(
     repoDir: string, ticket: TicketArtifact, options: ReviewerOptions, onProgress?: (line: string) => void
@@ -189,7 +192,8 @@ export class ReviewerAgent {
       rethrowIf: error => !(error instanceof ConfigurationError) && !(error instanceof ExecutionError),
       onError: error => {
         const message = `SonarQube CLI error — continuing review for ${path.basename(repoDir)} without Sonar findings: ${(error as Error).message}`;
-        if (!options.silent) this.presenter.outcome('warning', message);
+        appendToLogFile('WARN', message, 'sonar-stage');
+        this.presenter.outcome('warning', message);
       },
     });
     return scan;
@@ -215,12 +219,29 @@ export class ReviewerAgent {
     return [sonarResult.findingsText];
   }
 
-  private buildReviewContext(ticketKey: string, repoDir: string): string {
+  private buildReviewContext(ticketKey: string, repoDir: string, planArtifactPath?: string): string {
     const verificationSummary = resolveVerificationSummary(repoDir, ticketKey);
     const conventions = detectRepoConventions(repoDir);
     const conventionsSection = formatRepoConventionsPromptSection(conventions, path.basename(repoDir));
-    const extraContext = [verificationSummary, conventionsSection].filter(Boolean).join('\n\n');
+    const risksSection = this.loadPlanRisksSection(planArtifactPath);
+    const extraContext = [verificationSummary, conventionsSection, risksSection].filter(Boolean).join('\n\n');
 
     return extraContext ? `ticket ${ticketKey}\n\n${extraContext}` : `ticket ${ticketKey}`;
+  }
+
+  private loadPlanRisksSection(planArtifactPath?: string): string {
+    if (!planArtifactPath) return '';
+
+    try {
+      const content = fs.readFileSync(planArtifactPath, 'utf-8');
+      const plan = parsePlanArtifact(content, planArtifactPath);
+      return formatPlanRisksSection(plan.risks);
+    } catch (error) {
+      const message = `unable to load plan risks from ${planArtifactPath}: `
+        + (error instanceof Error ? error.message : String(error));
+      appendToLogFile('WARN', message, 'plan-risks');
+      this.presenter.outcome('warning', message);
+      return '';
+    }
   }
 }

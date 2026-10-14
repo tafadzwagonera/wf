@@ -21,6 +21,10 @@ describe('planStepPrinciples', () => {
   it('keeps the first principle bullet intact', () => {
     expect(planStepPrinciples).toContain('Be explicit about before and after');
   });
+
+  it('includes the failure-mode principle for guardrails and fallbacks', () => {
+    expect(planStepPrinciples).toContain('empty or failed input');
+  });
 });
 
 describe('formatUiDesignScreenshotsPlanPromptSection', () => {

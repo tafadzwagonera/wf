@@ -8,19 +8,24 @@ import { FigmaStageService } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
 import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
 import { resolveVerificationSummary } from '../shared/utils/implement-verification';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 
 jest.mock('../shared/utils/post-pull-install');
 jest.mock('../shared/utils/implement-verification');
 jest.mock('../shared/utils/detect-repo-conventions');
+jest.mock('../shared/logger/log-file-writer');
 
 const mockRunPostPullDependencyInstall = jest.mocked(runPostPullDependencyInstall);
 const mockResolveVerificationSummary = jest.mocked(resolveVerificationSummary);
 const mockDetectRepoConventions = jest.mocked(detectRepoConventions);
 const mockFormatRepoConventionsPromptSection = jest.mocked(formatRepoConventionsPromptSection);
+const mockAppendToLogFile = jest.mocked(appendToLogFile);
 
 const createMockSonarStageService = () => ({
   scanIfEnabled: jest.fn().mockResolvedValue(undefined),
@@ -791,14 +796,32 @@ describe('ReviewerAgent', () => {
         agent: module.get(ReviewerAgent),
         reviewStageService: module.get(ReviewStageService),
         presenter: module.get(CliPresenter),
+        sonarStageService: module.get(SonarStageService),
       };
     };
 
     beforeEach(() => {
+      mockAppendToLogFile.mockReset();
       mockRunPostPullDependencyInstall.mockReset().mockResolvedValue(undefined);
       mockResolveVerificationSummary.mockReset().mockReturnValue('');
       mockDetectRepoConventions.mockReset().mockReturnValue({} as ReturnType<typeof detectRepoConventions>);
       mockFormatRepoConventionsPromptSection.mockReset().mockReturnValue('');
+    });
+
+    it.each([
+      ['silent', true],
+      ['non-silent', false],
+    ])('warns on screen and in the log file when the Sonar scan fails (%s run)', async (_label, silent) => {
+      const { agent, presenter, sonarStageService, reviewStageService } = await buildModule();
+      (sonarStageService.scanIfEnabled as jest.Mock).mockRejectedValue(new ExecutionError('sonar timed out'));
+
+      await agent.execute(ticket, { repoDir: '/tmp/sonar-repo', silent });
+
+      const expectedMessage = 'SonarQube CLI error — continuing review for sonar-repo without Sonar findings: '
+        + 'sonar timed out';
+      expect(presenter.outcome).toHaveBeenCalledWith('warning', expectedMessage);
+      expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expectedMessage, 'sonar-stage');
+      expect(reviewStageService.reviewDiff).toHaveBeenCalledTimes(1);
     });
 
     it('runs post-pull dependency install with the resolved repoDir before reviewDiff', async () => {
@@ -1179,6 +1202,111 @@ describe('ReviewerAgent', () => {
 
       expect(result?.review.issues).toHaveLength(1);
       expect(result?.review.issues[0].origin).toBe('comment-policy');
+    });
+  });
+  describe('plan risks in the review context', () => {
+    const ticket = {
+      ticketKey: 'WBP-123',
+      content: '# WBP-123',
+      path: '/tmp/.wf/repo/jira/WBP-123.md',
+    };
+    let tmpDir: string;
+
+    const buildAgent = async () => {
+      const reviewDiff = jest.fn().mockResolvedValue({
+        review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+      });
+      const presenter = createMockPresenter();
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: presenter },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff,
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+          { provide: CommentPolicyStageService, useValue: createMockCommentPolicyStageService() },
+        ],
+      }).compile();
+
+      return { agent: module.get(ReviewerAgent), reviewDiff, presenter };
+    };
+
+    const writePlan = (risks: { description: string; severity: string }[]): string => {
+      const planPath = path.join(tmpDir, 'WBP-123-plan.json');
+      fs.writeFileSync(planPath, JSON.stringify({ action: 'fix', summary: 'Test fix', steps: [], risks }));
+      return planPath;
+    };
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-plan-risks-'));
+      mockAppendToLogFile.mockReset();
+      mockResolveVerificationSummary.mockReset().mockReturnValue('');
+      mockDetectRepoConventions.mockReset().mockReturnValue({} as ReturnType<typeof detectRepoConventions>);
+      mockFormatRepoConventionsPromptSection.mockReset().mockReturnValue('');
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('adds the known plan risks to the reviewDiff context when the plan lists risks', async () => {
+      const { agent, reviewDiff } = await buildAgent();
+      const planArtifactPath = writePlan([
+        { description: 'Database migration risk', severity: 'high' },
+        { description: 'Performance impact', severity: 'medium' },
+      ]);
+
+      await agent.execute(ticket, { repoDir: '/tmp/repo', planArtifactPath });
+
+      expect(reviewDiff).toHaveBeenCalledTimes(1);
+      const { context } = reviewDiff.mock.calls[0][1];
+      expect(context).toContain('Known plan risks');
+      expect(context).toContain('- [high] Database migration risk');
+      expect(context).toContain('- [medium] Performance impact');
+    });
+
+    it('omits the plan risks section when no plan artifact path is given', async () => {
+      const { agent, reviewDiff, presenter } = await buildAgent();
+
+      await agent.execute(ticket, { repoDir: '/tmp/repo' });
+
+      expect(reviewDiff).toHaveBeenCalledTimes(1);
+      expect(reviewDiff.mock.calls[0][1].context).toBe('ticket WBP-123');
+      expect(presenter.outcome).not.toHaveBeenCalledWith('warning', expect.anything());
+    });
+
+    it('omits the section, warns on screen and logs a WARN when the plan file is unreadable', async () => {
+      const { agent, reviewDiff, presenter } = await buildAgent();
+      const planArtifactPath = path.join(tmpDir, 'missing-plan.json');
+
+      await agent.execute(ticket, { repoDir: '/tmp/repo', planArtifactPath });
+
+      expect(reviewDiff).toHaveBeenCalledTimes(1);
+      expect(reviewDiff.mock.calls[0][1].context).toBe('ticket WBP-123');
+      expect(presenter.outcome).toHaveBeenCalledWith(
+        'warning', expect.stringContaining(`unable to load plan risks from ${planArtifactPath}`)
+      );
+      expect(mockAppendToLogFile).toHaveBeenCalledWith(
+        'WARN', expect.stringContaining(planArtifactPath), 'plan-risks'
+      );
     });
   });
 });

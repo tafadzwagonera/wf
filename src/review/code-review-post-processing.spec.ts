@@ -493,4 +493,70 @@ describe('postProcessCodeReview', () => {
 
     expect(processed.review.issues[0]?.line).toBe(13);
   });
+
+  it('forces approved to false when an error issue is present, even if model approved is true', () => {
+    const review = createReview({
+      approved: true,
+      issues: [
+        {
+          severity: 'error',
+          message: 'Critical issue',
+          file: 'src/example.ts',
+          line: 5,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -1,5 +1,5 @@
+ line1
+ line2
+ line3
+ line4
+-line5old
++line5new
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.approved).toBe(false);
+    expect(processed.review.summary).toBe('review summary');
+    expect(processed.review.suggestions).toEqual([]);
+    expect(processed.review.issues[0]?.severity).toBe('error');
+    expect(processed.review.issues[0]?.message).toBe('Critical issue');
+    expect(processed.review.issues[0]?.file).toBe('src/example.ts');
+    expect(processed.review.issues[0]?.line).toBe(5);
+  });
+
+  it('keeps approved true for a warning-only review when model approved is true', () => {
+    const review = createReview({
+      approved: true,
+      issues: [
+        {
+          severity: 'warning',
+          message: 'Minor issue',
+          file: 'src/example.ts',
+          line: 5,
+        },
+      ],
+    });
+
+    const diff = `diff --git a/src/example.ts b/src/example.ts
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -1,5 +1,5 @@
+ line1
+ line2
+ line3
+ line4
+-line5old
++line5new
+`;
+
+    const processed = postProcessCodeReview(review, diff);
+
+    expect(processed.review.approved).toBe(true);
+  });
 });

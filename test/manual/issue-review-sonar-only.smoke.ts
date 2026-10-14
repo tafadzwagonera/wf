@@ -141,7 +141,6 @@ function runScenario(paths: Paths): ScenarioData {
 
 function runChecks(data: ScenarioData): void {
   record(fs.existsSync(distMainPath), 'built CLI entrypoint exists', distMainPath);
-  recordAbsentPath(data.artifactDir, 'repo-scoped artifact directory starts absent');
   record(data.result.error === undefined, 'built CLI process spawned', data.result.error?.message);
   record(data.result.status === 0, 'command exits 0 when fake sonar reports findings', data.output);
   record(fs.existsSync(data.outputPath), 'sonar-only filename output is written under the repo-scoped artifact directory', data.outputPath);
@@ -160,6 +159,7 @@ async function main(): Promise<void> {
   try {
     const paths = buildPaths(tempRoot);
     setupFixtures(paths);
+    recordAbsentPath(paths.artifactDir, 'repo-scoped artifact directory starts absent');
     runChecks(runScenario(paths));
   } catch (error) {
     fail('sonar-only live CLI smoke completed', error instanceof Error ? error.message : String(error));

@@ -1,5 +1,6 @@
 import type { CodeIssue, CodeReview } from '../integrations/ai/ai.service';
 import type { CodeReviewPresentation, ProcessedCodeReview } from '../shared/types/review.types';
+import { deriveApproval } from './derive-approval';
 
 export type {
   ReviewPresentationIssueRow,
@@ -337,9 +338,11 @@ export const buildCodeReviewPresentation = (review: CodeReview): CodeReviewPrese
  */
 export const postProcessCodeReview = (review: CodeReview, diff: string): ProcessedCodeReview => {
   const normalizedReview = normalizeReviewIssues(review, diff);
+  const approved = deriveApproval(normalizedReview.issues, normalizedReview.approved);
+  const derivedReview = { ...normalizedReview, approved };
 
   return {
-    review: normalizedReview,
-    presentation: buildCodeReviewPresentation(normalizedReview),
+    review: derivedReview,
+    presentation: buildCodeReviewPresentation(derivedReview),
   };
 };

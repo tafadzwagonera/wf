@@ -44,11 +44,11 @@ function test2(
 ): void {
   const g = build({ context: ctx });
   const cnt = g.filter(x => !x.startsWith('Relevancy:')).length;
-  if (cnt === 13) {
-    pass('Default criteria count = 13');
+  if (cnt === 14) {
+    pass('Default criteria count = 14');
   } else {
     const details = g.map((x, i) => (i + 1) + '. ' + x.slice(0, 60)).join('\n');
-    fail('Expected 13 default criteria, got ' + cnt, details);
+    fail('Expected 14 default criteria, got ' + cnt, details);
   }
 }
 
@@ -78,7 +78,7 @@ function getBuild(svc: ReviewStageService): (opts: { context: string; extraCrite
 function runAllTests(build: any, ctx: string): void {
   console.log(chalk.bold.cyan('\nTest 1: default guidelines contain required criteria'));
   test1(build, ctx);
-  console.log(chalk.bold.cyan('\nTest 2: defaultReviewGuidelines has 13 entries (Relevancy added separately)'));
+  console.log(chalk.bold.cyan('\nTest 2: defaultReviewGuidelines has 14 entries (Relevancy added separately)'));
   test2(build, ctx);
   console.log(chalk.bold.cyan('\nTest 3: extraCriteria appended without removing defaults'));
   test3(build, ctx);
