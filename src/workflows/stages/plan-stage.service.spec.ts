@@ -14,6 +14,7 @@ import {
 import { AiProviderError, PlanArtifactNotFoundError, ValidationError } from '../../shared/utils/errors';
 import { detectTestInfra } from '../../shared/utils/detect-test-infra';
 import { detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
+import { findConfigReadClusters } from '../../shared/utils/find-existing-resolvers';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -24,6 +25,11 @@ jest.mock('inquirer', () => ({
   default: {
     prompt: jest.fn(),
   },
+}));
+
+jest.mock('../../shared/utils/find-existing-resolvers', () => ({
+  findConfigReadClusters: jest.fn().mockResolvedValue([]),
+  findFunctionsByName: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../../shared/utils/detect-test-infra', () => ({
@@ -649,6 +655,28 @@ describe('PlanStageService', () => {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     expect(result.plan.risks!.some(r => r.description.includes('[plan-quality]'))).toBe(true);
     expect(result.plan.estimatedComplexity).toBe('medium');
+  });
+
+  it('records a duplicate-resolver reuse risk without retrying the planner', async () => {
+    const { service, aiService } = await buildService();
+    const repoDir = '/tmp/wf-duplicate-resolver-repo';
+    const mockClusterLookup = jest.mocked(findConfigReadClusters);
+    mockClusterLookup.mockResolvedValue([{ file: 'src/integrations/ai/ai.service.ts', line: 977, count: 2 }]);
+    (aiService.generatePlan as jest.Mock).mockResolvedValue({
+      ...mockPlan,
+      risks: [],
+      steps: ['Read `stages.implement.provider` and `ai.stages.plan.provider` in a new helper.'],
+    });
+    jest.spyOn(console, 'log').mockImplementation();
+
+    const result = await service.generatePlan('Ticket body', { action: 'fix', ticketKey: 'WBP-406', repoDir });
+
+    expect(aiService.generatePlan).toHaveBeenCalledTimes(1);
+    expect(mockClusterLookup).toHaveBeenCalledTimes(1);
+    expect(mockClusterLookup.mock.calls[0]).toEqual([repoDir, ['provider']]);
+    expect(result.plan.risks?.some(risk =>
+      /reuse .* in src\/integrations\/ai\/ai\.service\.ts:977, or state why it cannot be reused/.test(risk.description)
+    )).toBe(true);
   });
 
   it('applyQualityViolationsToRisks returns a new plan without mutating the attempt or the violations', async () => {

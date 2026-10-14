@@ -10,9 +10,17 @@ jest.mock('chalk', () => {
   return { default: chalk, __esModule: true };
 });
 
-import { createPlanQualityError, formatPlanQualityViolations, validatePlanQuality } from './plan-quality';
+import {
+  createPlanQualityError,
+  formatPlanQualityViolations,
+  validatePlanQuality,
+  validatePlanQualityWithLookups,
+} from './plan-quality';
+import { findConfigReadClusters } from './find-existing-resolvers';
 import type { NodeInfra, TestInfraContext } from '../types/detection.types';
 import { formatRunnerInvocation } from './verification-commands';
+
+jest.mock('./find-existing-resolvers');
 
 describe('validatePlanQuality', () => {
   const repoName = 'wf';
@@ -880,5 +888,35 @@ describe('validatePlanQuality — test-call-assertion-required', () => {
       steps: [step],
       verification: { waivers: [{ id: 'test-call-assertion-required', reason: 'output-only check' }] },
     })).toEqual([]);
+  });
+});
+
+describe('validatePlanQualityWithLookups', () => {
+  const mockClusterLookup = jest.mocked(findConfigReadClusters);
+  const plan = {
+    steps: ['Read `stages.implement.provider` and `ai.stages.plan.provider` in one helper.'],
+    affectedFiles: ['src/helper.ts'],
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockClusterLookup.mockReset();
+  });
+
+  it('skips the duplicate-resolver lookup when repoDir is absent', async () => {
+    const result = await validatePlanQualityWithLookups({ plan });
+
+    expect(result.some(violation => violation.ruleId === 'duplicate-resolver')).toBe(false);
+    expect(mockClusterLookup).toHaveBeenCalledTimes(0);
+  });
+
+  it('reports one duplicate-resolver violation when the lookup finds an existing cluster', async () => {
+    mockClusterLookup.mockResolvedValue([{ file: 'src/existing.ts', line: 10, count: 2 }]);
+
+    const result = await validatePlanQualityWithLookups({ plan, repoDir: '/repo' });
+
+    expect(result.filter(violation => violation.ruleId === 'duplicate-resolver')).toHaveLength(1);
+    expect(mockClusterLookup).toHaveBeenCalledTimes(1);
+    expect(mockClusterLookup.mock.calls[0][0]).toBe('/repo');
   });
 });

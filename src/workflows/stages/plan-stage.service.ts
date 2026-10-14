@@ -24,7 +24,8 @@ import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundE
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
 import { detectPackageManager, detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
-import { formatPlanQualityViolations, validatePlanQuality } from '../../shared/utils/plan-quality';
+import { formatPlanQualityViolations, validatePlanQualityWithLookups } from '../../shared/utils/plan-quality';
+import { DUPLICATE_RESOLVER_RULE_ID } from '../../shared/utils/plan-quality-duplicate-resolver';
 import type { RepoConventionsContext,
   PriorPlanContext,
   PlanCorrelationResult,
@@ -61,6 +62,19 @@ interface GeneratePlanOptions {
   testInfra?: TestInfraContext;
 }
 
+interface PlanQualityViolations {
+  blocking: string[];
+  advisory: string[];
+}
+
+const formatViolations = (violations: { ruleId: string; message: string }[]): string[] =>
+  violations.map(v => `[${v.ruleId}] ${v.message}`);
+
+const splitViolations = (violations: { ruleId: string; message: string }[]): PlanQualityViolations => ({
+  blocking: formatViolations(violations.filter(v => v.ruleId !== DUPLICATE_RESOLVER_RULE_ID)),
+  advisory: formatViolations(violations.filter(v => v.ruleId === DUPLICATE_RESOLVER_RULE_ID)),
+});
+
 const toQualityRisk = (violation: string): PlanRisk => ({
   description: `[plan-quality] ${violation}`,
   severity: 'medium',
@@ -80,12 +94,11 @@ export class PlanStageService {
   ): Promise<PlanResult> {
     const ctx = await this.buildPlanContext(ticketContent, options);
     const firstAttempt = await this.generatePlanAttempt(ctx);
-    const firstViolations = this.validatePlanViolations(firstAttempt.plan, ctx);
-    if (firstViolations.length === 0) return firstAttempt;
-    const retryAttempt = await this.generatePlanAttempt(ctx, firstViolations);
-    const retryViolations = this.validatePlanViolations(retryAttempt.plan, ctx);
-    if (retryViolations.length > 0) return this.applyQualityViolationsToRisks(retryAttempt, retryViolations);
-    return retryAttempt;
+    const first = await this.validatePlanViolations(firstAttempt.plan, ctx);
+    if (first.blocking.length === 0) return this.withAdvisoryRisks(firstAttempt, first.advisory);
+    const retryAttempt = await this.generatePlanAttempt(ctx, first.blocking);
+    const retry = await this.validatePlanViolations(retryAttempt.plan, ctx);
+    return this.withAdvisoryRisks(retryAttempt, [...retry.blocking, ...retry.advisory]);
   }
 
   /**
@@ -311,15 +324,16 @@ export class PlanStageService {
 
   private async getLoadedPlanViolations(
     plan: ResolutionPlan, repoDir: string
-  ): Promise<ReturnType<typeof validatePlanQuality>> {
+  ): Promise<Awaited<ReturnType<typeof validatePlanQualityWithLookups>>> {
     const testInfra = detectTestInfra(repoDir);
     const skillRules = await this.resolveSkillRulesForPlan();
-    return validatePlanQuality({
+    return await validatePlanQualityWithLookups({
       plan,
       affectedRepositories: plan.affectedRepositories,
       testInfra,
       skillRules,
       packageManager: detectPackageManager(repoDir),
+      repoDir,
     });
   }
 
@@ -404,15 +418,22 @@ export class PlanStageService {
     return { ticketContent, options: { ...options, repoDir, conventions }, testInfra, skillIds, skillRules };
   }
 
-  private validatePlanViolations(plan: ResolutionPlan, ctx: PlanGenerationContext): string[] {
-    const violations = validatePlanQuality({
+  private async validatePlanViolations(
+    plan: ResolutionPlan, ctx: PlanGenerationContext
+  ): Promise<PlanQualityViolations> {
+    const violations = await validatePlanQualityWithLookups({
       plan,
       affectedRepositories: ctx.options.affectedRepositories,
       testInfra: ctx.testInfra,
       skillRules: ctx.skillRules,
       packageManager: ctx.options.conventions?.packageManager,
+      repoDir: ctx.options.repoDir,
     });
-    return violations.map(v => `[${v.ruleId}] ${v.message}`);
+    return splitViolations(violations);
+  }
+
+  private withAdvisoryRisks(attempt: PlanResult, violations: string[]): PlanResult {
+    return violations.length === 0 ? attempt : this.applyQualityViolationsToRisks(attempt, violations);
   }
 
   private applyQualityViolationsToRisks(attempt: PlanResult, violations: string[]): PlanResult {

@@ -4,6 +4,8 @@ import { ValidationError } from '../errors/app.error';
 import type { SkillQualityRule } from '../../skills/skill.types';
 import type { PackageManager } from './detect-repo-conventions';
 import { formatRunnerInvocation, parseRunnerInvocation } from './verification-commands';
+import { buildPlannedPathSet } from './planned-paths';
+import { detectDuplicateResolverViolations } from './plan-quality-duplicate-resolver';
 import chalk from 'chalk';
 
 export interface PlanQualityViolation {
@@ -17,6 +19,7 @@ interface ValidatePlanQualityParams {
   testInfra?: TestInfraContext;
   skillRules?: SkillQualityRule[];
   packageManager?: PackageManager;
+  repoDir?: string;
 }
 
 const RENAME_STEP_PATTERN = /\b(rename|move|refactor)\b/i;
@@ -230,33 +233,6 @@ const extractInlineAllowedPaths = (command: string): string[] => {
     }
   }
   return paths;
-};
-
-/**
- * Normalizes an affectedFiles entry to a plain file path string.
- *
- * @param entry - Either a string path or a FileEntry object
- * @returns The file path string
- */
-const toFilePath = (entry: string | { filePath: string }): string =>
-  typeof entry === 'string' ? entry : entry.filePath;
-
-/**
- * Builds a set of planned file paths with repo prefixes stripped.
- *
- * @param affectedFiles - The plan's declared affected files
- * @param repos - Repository names used to strip path prefixes
- * @returns Set of repo-relative file paths
- */
-const buildPlannedPathSet = (
-  affectedFiles: NonNullable<ResolutionPlan['affectedFiles']>,
-  repos: string[]
-): Set<string> => {
-  const strip = (p: string): string => {
-    const match = repos.find(repo => p.startsWith(`${repo}/`));
-    return match ? p.slice(match.length + 1) : p;
-  };
-  return new Set(affectedFiles.map(entry => strip(toFilePath(entry))));
 };
 
 /**
@@ -503,6 +479,19 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
   ]);
 };
 
+const validatePlanQualityWithLookups = async (
+  params: ValidatePlanQualityParams
+): Promise<PlanQualityViolation[]> => {
+  const steps = Array.isArray(params.plan.steps) ? params.plan.steps : [];
+  const duplicateResolverViolations = await detectDuplicateResolverViolations({
+    steps,
+    affectedFiles: params.plan.affectedFiles,
+    affectedRepositories: params.affectedRepositories,
+    repoDir: params.repoDir,
+  });
+  return uniqueViolations([...validatePlanQuality(params), ...duplicateResolverViolations]);
+};
+
 const createPlanQualityError = (violations: PlanQualityViolation[]): ValidationError => {
   const details = violations.map(violation => `[${violation.ruleId}] ${violation.message}`).join('\n');
   return new ValidationError(`Generated plan failed quality checks:\n${details}`);
@@ -555,4 +544,4 @@ const formatPlanQualityViolations = (violations: string[], header: string): stri
   return headerLine + '\n' + formattedViolations.join('\n\n');
 };
 
-export { createPlanQualityError, formatPlanQualityViolations, validatePlanQuality };
+export { createPlanQualityError, formatPlanQualityViolations, validatePlanQuality, validatePlanQualityWithLookups };
