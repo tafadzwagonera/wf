@@ -159,6 +159,22 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
+export const buildReviewPrompt = ({ diff, guidelines, figmaContextSection }: {
+  diff: string;
+  guidelines: string[];
+  figmaContextSection?: string;
+}): string => {
+  const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
+  return [
+    `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
+    `\nReview Guidelines:\n${numberedGuidelines}`,
+    `\n${reviewInstructions}`,
+    ...(figmaContextSection ? [figmaContextSection] : []),
+    reviewTraceGuidance,
+    `\n${reviewOutputSchema}`,
+  ].join('\n');
+};
+
 function formatNodeHeader(node: FigmaNodeLayout, indent: string): string {
   const dims = node.width !== undefined && node.height !== undefined
     ? ` (${node.width}×${node.height}px)`

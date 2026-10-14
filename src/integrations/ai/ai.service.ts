@@ -62,6 +62,7 @@ import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
+  buildReviewPrompt,
   buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
@@ -69,9 +70,6 @@ import {
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
-  reviewInstructions,
-  reviewOutputSchema,
-  reviewTraceGuidance,
 } from './prompt-fragments';
 import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
@@ -765,21 +763,6 @@ const reviewSystemPrompt = `You are a code reviewer. Assess quality, correctness
 Ignore JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 
-const formatReviewGuidelines = (guidelines: string[]): string =>
-  guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
-
-const buildReviewPrompt = (diff: string, guidelines: string[]): string => {
-  const codeSection = '\nCode Changes:\n```\n' + diff + '\n```\n';
-  return [
-    codeSection,
-    'Review Guidelines:\n' + formatReviewGuidelines(guidelines) + '\n',
-    reviewInstructions,
-    reviewTraceGuidance,
-    '\n',
-    reviewOutputSchema,
-  ].join('\n');
-};
-
 const VALIDATION_RETRY_LIMIT = 2;
 
 const buildValidationCorrectionPrompt = (invalidJson: string, zodErrors: string): string =>
@@ -1182,7 +1165,7 @@ export class AiService {
   ): Promise<CodeReview> {
     onProgress?.('Synthesizing review...');
     const reviewMaxTokens = this.configService.get<number>('stages.review.maxTokens', DEFAULT_REVIEW_MAX_TOKENS);
-    const reviewPrompt = await this.buildReviewPromptFrom(diff, guidelines);
+    const reviewPrompt = buildReviewPrompt({ diff, guidelines });
     const response = await retryOnUnusableResponse(
       () => this.executeReviewPrompt(reviewPrompt, reviewMaxTokens),
       requireReviewJsonContent,
@@ -1190,10 +1173,6 @@ export class AiService {
     );
     throwIfTruncated(response, 'Review');
     return this.validateReviewJson(requireReviewResponseContent(response), diff, reviewMaxTokens);
-  }
-
-  private async buildReviewPromptFrom(diff: string, guidelines: string[]): Promise<string> {
-    return buildReviewPrompt(diff, guidelines);
   }
 
   /**

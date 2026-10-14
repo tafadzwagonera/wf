@@ -6,7 +6,56 @@ import {
   implementerSearchRule,
   implementerDeleteOrphanRule,
   needleSearchReminder,
+  buildReviewPrompt,
+  reviewInstructions,
+  reviewTraceGuidance,
+  reviewOutputSchema,
 } from './prompt-fragments';
+
+describe('buildReviewPrompt', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('orders code changes, numbered guidelines, instructions, trace guidance and schema', () => {
+    const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
+    const positions = ['Code Changes:', '1. a', reviewInstructions, reviewTraceGuidance, reviewOutputSchema]
+      .map(section => result.indexOf(section));
+    expect(positions.every(position => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it('numbers guidelines from 1', () => {
+    expect(buildReviewPrompt({ diff: 'D', guidelines: ['a', 'b'] })).toContain('1. a\n2. b');
+  });
+
+  it('places the figma section between instructions and trace guidance when supplied', () => {
+    const result = buildReviewPrompt({ diff: 'D', guidelines: [], figmaContextSection: 'FIGMA' });
+    expect(result.indexOf('FIGMA')).toBeGreaterThan(result.indexOf(reviewInstructions));
+    expect(result.indexOf('FIGMA')).toBeLessThan(result.indexOf(reviewTraceGuidance));
+  });
+
+  it('omits the figma section and joins instructions to trace guidance directly when not supplied', () => {
+    const result = buildReviewPrompt({ diff: 'D', guidelines: [] });
+    expect(result).not.toContain('FIGMA');
+    expect(result).toContain(`${reviewInstructions}\n${reviewTraceGuidance}`);
+  });
+
+  it('puts exactly two newlines between trace guidance and the schema', () => {
+    const result = buildReviewPrompt({ diff: 'D', guidelines: [] });
+    expect(result).toContain(`${reviewTraceGuidance}\n\n${reviewOutputSchema}`);
+  });
+
+  it('renders an empty guidelines block without numbered lines', () => {
+    const result = buildReviewPrompt({ diff: 'D', guidelines: [] });
+    expect(result).toContain(`Review Guidelines:\n\n\n${reviewInstructions}`);
+    expect(result).not.toContain('Review Guidelines:\n1. ');
+  });
+
+  it('wraps the diff in a triple-backtick fence', () => {
+    expect(buildReviewPrompt({ diff: 'DIFF', guidelines: [] })).toContain('```\nDIFF\n```');
+  });
+});
 
 describe('planStepPrinciples', () => {
   it('directs commands to verification.targeted and forbids hand-off steps', () => {

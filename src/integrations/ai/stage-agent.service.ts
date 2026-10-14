@@ -20,15 +20,13 @@ import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
   buildPlanTestConventionsBlock,
   buildPlanVerificationBlock,
+  buildReviewPrompt,
   buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
-  reviewInstructions,
-  reviewOutputSchema,
-  reviewTraceGuidance,
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
@@ -429,20 +427,6 @@ const buildPlanPromptBody = async (opts: PlanPromptBodyOpts): Promise<string> =>
     buildPlanVerificationBlock(opts.hasNodeInfra),
     buildPlanJsonSchemaExample(opts),
     skillFragment,
-  ].join('\n');
-};
-
-const buildStageReviewPrompt = (
-  diff: string, guidelines: string[], figmaContextSection?: string
-): string => {
-  const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
-  return [
-    `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
-    `\nReview Guidelines:\n${numberedGuidelines}`,
-    `\n${reviewInstructions}`,
-    ...(figmaContextSection ? [figmaContextSection] : []),
-    reviewTraceGuidance,
-    `\n${reviewOutputSchema}`,
   ].join('\n');
 };
 
@@ -1234,7 +1218,7 @@ export class StageAgentService {
     resumeProviderSessionId?: string, onProgress?: StageProgressCallback, opts?: ReviewCodeOpts,
   ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
     const systemPrompt = this.buildReviewSystemPrompt(opts?.screenshots);
-    const prompt = buildStageReviewPrompt(diff, guidelines, opts?.figmaContextSection);
+    const prompt = buildReviewPrompt({ diff, guidelines, figmaContextSection: opts?.figmaContextSection });
     const base = { prompt, systemPrompt, repoDir, priorStageSummary, resumeProviderSessionId, onProgress };
     const { content: response, sessionId, modelUsed } = await this.runReviewStagePrompt(
       base, opts?.forkSession, opts?.screenshots,
