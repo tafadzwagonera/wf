@@ -19,6 +19,7 @@ async function main(): Promise<void> {
   assertCompiledArtifacts();
   runCompiledIssueFallbackScenario();
   runPriorCompatibleSessionScenario();
+  runInterruptedReviewEarlyRecordScenario();
   summarise(counts);
 }
 
@@ -27,17 +28,21 @@ const assertCompiledArtifacts = (): void => {
   throw new Error('dist/main.js must exist. Run `yarn build` first.');
 };
 
+const spawnWfIssueReview = (paths: ScenarioPaths): { status: number | null; output: string } => {
+  const result = spawnSync(process.execPath, [
+    distMainPath, 'issue', '--session-id', 'wf-session',
+    '--ticket-key', 'RESUME-1', '--from', 'review', '--to', 'review', '--silent',
+  ], { cwd: paths.repoDir, encoding: 'utf8', env: scenarioEnv(paths) });
+  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+};
+
 const runCompiledIssueFallbackScenario = (): void => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-session-resume-'));
   try {
     const paths = createScenarioPaths(tempRoot);
     setupScenario(paths);
-    const result = spawnSync(process.execPath, [
-      distMainPath, 'issue', '--session-id', 'wf-session',
-      '--ticket-key', 'RESUME-1', '--from', 'review', '--to', 'review', '--silent',
-    ], { cwd: paths.repoDir, encoding: 'utf8', env: scenarioEnv(paths) });
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    assertScenarioResult(result.status, output, paths);
+    const { status, output } = spawnWfIssueReview(paths);
+    assertScenarioResult(status, output, paths);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -49,11 +54,29 @@ const runPriorCompatibleSessionScenario = (): void => {
     const paths = createScenarioPaths(tempRoot);
     setupScenario(paths);
     setupPriorCompatibleSession(paths);
-    const result = spawnSync(process.execPath, [
-      distMainPath, 'issue', '--session-id', 'wf-session',
-      '--ticket-key', 'RESUME-1', '--from', 'review', '--to', 'review', '--silent',
-    ], { cwd: paths.repoDir, encoding: 'utf8', env: scenarioEnv(paths) });
-    assertPriorCompatibleSessionResult(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`, paths);
+    const { status, output } = spawnWfIssueReview(paths);
+    assertPriorCompatibleSessionResult(status, output, paths);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+};
+
+const runInterruptedThenResumedReview = (paths: ScenarioPaths): void => {
+  const interrupted = spawnWfIssueReview(paths);
+  assertInterruptedReviewPersistsEarlySessionId(interrupted.status, interrupted.output, paths);
+  fs.writeFileSync(paths.resumeReadyPath, '');
+  const resumed = spawnWfIssueReview(paths);
+  assertResumedReviewUsesEarlySessionId(resumed.status, resumed.output, paths);
+};
+
+const runInterruptedReviewEarlyRecordScenario = (): void => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-session-early-record-'));
+  try {
+    const paths = createScenarioPaths(tempRoot);
+    setupScenario(paths);
+    setupFreshReviewSessionState(paths);
+    writeEarlyRecordClaude(paths);
+    runInterruptedThenResumedReview(paths);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -61,7 +84,10 @@ const runPriorCompatibleSessionScenario = (): void => {
 
 const seededCreatedAt = new Date().toISOString();
 
-type ScenarioPaths = { homeDir: string; repoDir: string; binDir: string; statePath: string; invocationPath: string };
+type ScenarioPaths = {
+  homeDir: string; repoDir: string; binDir: string; statePath: string;
+  invocationPath: string; resumeReadyPath: string;
+};
 
 const createScenarioPaths = (tempRoot: string): ScenarioPaths => ({
   homeDir: path.join(tempRoot, 'home'), repoDir: path.join(tempRoot, 'repo'), binDir: path.join(tempRoot, 'bin'),
@@ -70,6 +96,7 @@ const createScenarioPaths = (tempRoot: string): ScenarioPaths => ({
     buildSessionFileName({ ticketKey: 'RESUME-1', sessionId: 'wf-session', createdAt: seededCreatedAt })
   ),
   invocationPath: path.join(tempRoot, 'invocations.log'),
+  resumeReadyPath: path.join(tempRoot, 'resume-ready'),
 });
 
 const setupScenario = (paths: ScenarioPaths): void => {
@@ -105,6 +132,14 @@ const setupSessionState = (paths: ScenarioPaths): void => {
   }));
 };
 
+const setupFreshReviewSessionState = (paths: ScenarioPaths): void => {
+  fs.writeFileSync(paths.statePath, JSON.stringify({
+    sessionId: 'wf-session', ticketKey: 'RESUME-1', toStage: 'review', action: 'fix', sourceType: 'ticket',
+    customPlanRef: null, sourceBranch: 'main', createdAt: seededCreatedAt, updatedAt: new Date().toISOString(), completedAt: null,
+    stages: {},
+  }));
+};
+
 const setupPriorCompatibleSession = (paths: ScenarioPaths): void => {
   fs.writeFileSync(paths.statePath, JSON.stringify({
     sessionId: 'wf-session', ticketKey: 'RESUME-1', toStage: 'review', action: 'fix', sourceType: 'ticket',
@@ -122,23 +157,36 @@ const createCompletedStage = (provider: string, backend: string, providerSession
   summary: null, startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
 });
 
+const fakeReviewResultJson = JSON.stringify({
+  summary: 'ok', issues: [], executionMode: 'cli', repairStrategy: null, traceProvenance: 'best-effort',
+  callStack: null, stateTransition: null, suggestions: [], approved: true,
+});
+
 const setupFakeClaude = (paths: ScenarioPaths): void => {
-  const reviewResult = JSON.stringify({
-    summary: 'ok', issues: [], executionMode: 'cli', repairStrategy: null, traceProvenance: 'best-effort',
-    callStack: null, stateTransition: null, suggestions: [], approved: true,
-  });
-  const script = `#!/usr/bin/env node\nconst fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};fs.appendFileSync(p,JSON.stringify(a)+'\\n');if(a.includes('--resume')){console.error('session_id not found');process.exit(1)}console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${reviewResult},session_id:'fresh-session'}));`;
+  const script = `#!/usr/bin/env node\nconst fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};fs.appendFileSync(p,JSON.stringify(a)+'\\n');if(a.includes('--resume')){console.error('session_id not found');process.exit(1)}console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${fakeReviewResultJson},session_id:'fresh-session'}));`;
   const executable = path.join(paths.binDir, 'claude');
   fs.writeFileSync(executable, script);
   fs.chmodSync(executable, 0o755);
 };
 
+const writeEarlyRecordClaude = (paths: ScenarioPaths): void => {
+  const script = `#!/usr/bin/env node
+const fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};
+fs.appendFileSync(p,JSON.stringify(a)+'\\n');
+const resumeReady=fs.existsSync(${JSON.stringify(paths.resumeReadyPath)});
+if(resumeReady&&a.includes('--resume')&&a.includes('early-session')){
+  console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${fakeReviewResultJson},session_id:'resumed-session'}));
+} else {
+  console.log(JSON.stringify({type:'system',subtype:'init',session_id:'early-session'}));
+  console.error('simulated review crash');
+  process.exit(1);
+}`;
+  fs.writeFileSync(path.join(paths.binDir, 'claude'), script);
+  fs.chmodSync(path.join(paths.binDir, 'claude'), 0o755);
+};
+
 const writeCompatibleClaude = (paths: ScenarioPaths): void => {
-  const reviewResult = JSON.stringify({
-    summary: 'ok', issues: [], executionMode: 'cli', repairStrategy: null, traceProvenance: 'best-effort',
-    callStack: null, stateTransition: null, suggestions: [], approved: true,
-  });
-  const script = `#!/usr/bin/env node\nconst fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};fs.appendFileSync(p,JSON.stringify(a)+'\\n');if(a.includes('--json-schema')&&(!a.includes('--resume')||!a.includes('plan-session'))){console.error('expected plan session');process.exit(1)}console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${reviewResult},session_id:'compatible-session'}));`;
+  const script = `#!/usr/bin/env node\nconst fs=require('fs'),a=process.argv.slice(2),p=${JSON.stringify(paths.invocationPath)};fs.appendFileSync(p,JSON.stringify(a)+'\\n');if(a.includes('--json-schema')&&(!a.includes('--resume')||!a.includes('plan-session'))){console.error('expected plan session');process.exit(1)}console.log(JSON.stringify({type:'result',subtype:'success',structured_output:${fakeReviewResultJson},session_id:'compatible-session'}));`;
   fs.writeFileSync(path.join(paths.binDir, 'claude'), script);
   fs.chmodSync(path.join(paths.binDir, 'claude'), 0o755);
 };
@@ -182,6 +230,42 @@ const assertPriorCompatibleSessionResult = (status: number | null, output: strin
     pass('Compiled wf issue resumes the older compatible session after an incompatible completed stage');
   } catch (error) {
     fail('Compiled wf issue did not select the older compatible session', String(error));
+  }
+};
+
+const assertInterruptedReviewPersistsEarlySessionId = (
+  status: number | null, output: string, paths: ScenarioPaths
+): void => {
+  try {
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    assert.notStrictEqual(status, 0, output);
+    assert.strictEqual(state.stages.review.providerSessionId, 'early-session', JSON.stringify(state.stages));
+    assert.strictEqual(state.stages.review.completedAt, null);
+    pass('Interrupted review persists the provider session ID from the first stream event');
+  } catch (error) {
+    fail('Interrupted review did not persist an early provider session ID', String(error));
+  }
+};
+
+const assertResumedInvocationUsedEarlySession = (invocationPath: string): void => {
+  const invocations = readInvocations(invocationPath).filter(args => args.includes('--json-schema'));
+  const resumedInvocation = invocations.at(-1) ?? [];
+  assert.ok(resumedInvocation.includes('--resume'), JSON.stringify(resumedInvocation));
+  assert.ok(resumedInvocation.includes('early-session'), JSON.stringify(resumedInvocation));
+};
+
+const assertResumedReviewUsesEarlySessionId = (
+  status: number | null, output: string, paths: ScenarioPaths
+): void => {
+  try {
+    const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
+    assert.strictEqual(status, 0, output);
+    assertResumedInvocationUsedEarlySession(paths.invocationPath);
+    assert.strictEqual(state.stages.review.providerSessionId, 'resumed-session');
+    assert.ok(state.stages.review.completedAt);
+    pass('Re-run resumes the interrupted review from the early-recorded provider session');
+  } catch (error) {
+    fail('Re-run did not resume the review from the early-recorded provider session', String(error));
   }
 };
 

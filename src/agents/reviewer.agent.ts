@@ -156,6 +156,7 @@ export class ReviewerAgent {
       priorStageSummary: options.priorStageSummary,
       forkSession: options.forkSession,
       onProgress: inputs.onProgress,
+      onProviderSessionId: options.onProviderSessionId,
       figmaContextSection: buildFigmaContextSection(inputs.figmaResult?.frames ?? []),
       ...(inputs.uiResult ? { screenshots: inputs.uiResult.screenshots } : {}),
       commentPolicyEnabled: inputs.commentPolicyEnabled,

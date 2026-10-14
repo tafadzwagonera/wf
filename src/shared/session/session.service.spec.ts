@@ -793,6 +793,40 @@ describe('SessionService', () => {
       expect(result.warnings.some(w => w.includes('cannot resume from openai/agent'))).toBe(true);
     });
 
+    it('falls back to the implement session with an accurate warning when an interrupted review never recorded a provider session ID', async () => {
+      const cliFingerprint: StageConfigFingerprint = { provider: 'anthropic', backend: 'cli' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'implement', cliFingerprint, 'claude-sonnet-5-5');
+      session = await service.recordProviderSessionId(session, 'implement', 'implement-session');
+      session = await service.recordStageComplete(session, 'implement', null);
+      session = await service.recordStageStart(session, 'review', cliFingerprint, 'claude-sonnet-5-5');
+
+      const result = service.validateForStage(session, 'review', cliFingerprint, _s => cliFingerprint);
+
+      expect(result.canResume).toBe(true);
+      expect(result.providerSessionCandidate).toEqual(expect.objectContaining({
+        stage: 'implement', providerSessionId: 'implement-session',
+      }));
+      expect(result.warnings).toEqual([
+        'Stage review was interrupted before a provider session ID was recorded, so its session cannot be resumed.',
+      ]);
+    });
+
+    it('warns about the missing provider session ID when a completed prior stage never recorded one', async () => {
+      const cliFingerprint: StageConfigFingerprint = { provider: 'anthropic', backend: 'cli' };
+      let session = createMockSessionState();
+      session = await service.recordStageStart(session, 'plan', cliFingerprint, 'claude-sonnet-5-5');
+      session = await service.recordStageComplete(session, 'plan', 'Plan done');
+
+      const result = service.validateForStage(session, 'implement', cliFingerprint, _s => cliFingerprint);
+
+      expect(result.canResume).toBe(false);
+      expect(result.warnings).toEqual([
+        'Stage plan completed without a recorded provider session ID, so implement cannot resume from it. '
+        + 'Prior stage summary will still be available as context.',
+      ]);
+    });
+
     it('returns canResume false for google/standard even with a manually-set providerSessionId', async () => {
       const googleFingerprint: StageConfigFingerprint = { provider: 'google', backend: 'standard' };
       let session = createMockSessionState();

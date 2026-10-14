@@ -33,6 +33,7 @@ export type ResolutionAction = z.infer<typeof resolutionActionSchema>;
 export type RetryScopeStrategy = z.infer<typeof retryScopeStrategySchema>;
 export type ReviewArtifact = z.infer<typeof reviewArtifactSchema>;
 export type StageProgressCallback = (line: string) => void;
+export type ProviderSessionIdCallback = (providerSessionId: string) => void;
 export type TicketArtifact = z.infer<typeof ticketArtifactSchema>;
 export type VerificationAttemptArtifact = z.infer<typeof verificationAttemptArtifactSchema>;
 export type VerificationFailureCategory = z.infer<typeof verificationFailureCategorySchema>;

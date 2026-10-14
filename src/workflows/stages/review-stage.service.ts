@@ -27,7 +27,7 @@ import {
 } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
 import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
-import { StageProgressCallback } from '../../shared/types/agent.types';
+import { ProviderSessionIdCallback, StageProgressCallback } from '../../shared/types/agent.types';
 import { isAiProviderErrorLike } from '../../shared/utils/errors';
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
@@ -71,6 +71,7 @@ interface ReviewDiffOptions {
   resumeProviderSessionId?: string;
   forkSession?: boolean;
   onProgress?: StageProgressCallback;
+  onProviderSessionId?: ProviderSessionIdCallback;
   figmaContextSection?: string;
   screenshots?: UiDesignScreenshot[];
   commentPolicyEnabled?: boolean;
@@ -257,7 +258,7 @@ export class ReviewStageService {
       const result = await this.stageAgentService.reviewCode(
         diff, guidelines, options.repoDir, options.priorStageSummary,
         options.resumeProviderSessionId, options.onProgress,
-        { forkSession, figmaContextSection, screenshots },
+        { forkSession, figmaContextSection, screenshots, onProviderSessionId: options.onProviderSessionId },
       );
       return { review: result.review, sessionId: result.sessionId, modelUsed: result.modelUsed };
     } catch (error) {

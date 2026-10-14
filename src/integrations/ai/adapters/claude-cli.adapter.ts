@@ -35,6 +35,7 @@ import {
   type BuildPlanContextParams,
 } from './shared-routing';
 import {
+  ANTHROPIC_AGENT_LABEL,
   buildSystemPrompt, computeStallThreshold, formatProgressMessage, formatActivityMessages, resolveProgressColor,
 } from './anthropic-agent.adapter';
 import {
@@ -292,10 +293,10 @@ const acceptPassDeclarations = (p: ContinuationLoopParams, resultText: string): 
 const logSdkProgressEvent = (message: ClaudeCliMessage, repoDir: string, activityState: ActivityState): boolean => {
   const progressLine = formatProgressMessage(message as never);
   if (!progressLine) return false;
-  const label = progressLine.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`);
+  const label = progressLine.replace(`[${ANTHROPIC_AGENT_LABEL}]`, `[${CLI_ADAPTER_LABEL}]`);
   console.log(resolveProgressColor(message as never)(label));
   for (const line of formatActivityMessages(message as never, repoDir, activityState)) {
-    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`)));
+    console.log(chalk.cyan(line.replace(`[${ANTHROPIC_AGENT_LABEL}]`, `[${CLI_ADAPTER_LABEL}]`)));
   }
   return true;
 };
@@ -310,7 +311,7 @@ const logCliProgressEvent = (message: ClaudeCliMessage, repoDir: string, activit
   if (logSdkProgressEvent(message, repoDir, activityState)) return true;
   const activityLines = formatActivityMessages(message as never, repoDir, activityState);
   for (const line of activityLines) {
-    console.log(chalk.cyan(line.replace(/\[claude-agent-sdk]/, `[${CLI_ADAPTER_LABEL}]`)));
+    console.log(chalk.cyan(line.replace(`[${ANTHROPIC_AGENT_LABEL}]`, `[${CLI_ADAPTER_LABEL}]`)));
   }
   return activityLines.length > 0;
 };

@@ -37,19 +37,8 @@ type ResumeWarningContext = {
   hasNonResumableBackend: boolean;
   pushChangedWarning: () => void;
   pushNonResumableWarning: () => void;
+  pushMissingSessionIdWarning: () => void;
 };
-
-const createResumeWarningContext = (
-  configChanged: boolean,
-  hasNonResumableBackend: boolean,
-  pushChangedWarning: () => void,
-  pushNonResumableWarning: () => void
-): ResumeWarningContext => ({
-  configChanged,
-  hasNonResumableBackend,
-  pushChangedWarning,
-  pushNonResumableWarning,
-});
 
 type InterruptedStageWarningContextParams = {
   existingRecord: StageRecord;
@@ -63,24 +52,30 @@ type InterruptedStageWarningContextParams = {
     warnings: string[]
   ) => void;
   pushNonResumableStageWarning: (stage: string, config: StageConfigFingerprint, warnings: string[]) => void;
+  pushMissingSessionIdStageWarning: (stage: string, warnings: string[]) => void;
   hasNonResumableBackend: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
   fingerprintsDiffer: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
 };
 
+const buildInterruptedStageWarningPushers = (
+  params: InterruptedStageWarningContextParams
+): Pick<ResumeWarningContext, 'pushChangedWarning' | 'pushNonResumableWarning' | 'pushMissingSessionIdWarning'> => ({
+  pushChangedWarning: () => params.pushStageConfigChangedWarning(
+    params.nextStage, params.existingRecord.config, params.currentFingerprint, params.warnings
+  ),
+  pushNonResumableWarning: () => params.pushNonResumableStageWarning(
+    params.nextStage, params.currentFingerprint, params.warnings
+  ),
+  pushMissingSessionIdWarning: () => params.pushMissingSessionIdStageWarning(params.nextStage, params.warnings),
+});
+
 const buildInterruptedStageWarningContext = (
   params: InterruptedStageWarningContextParams
-): ResumeWarningContext =>
-  createResumeWarningContext(
-    params.fingerprintsDiffer(params.existingRecord.config, params.currentFingerprint),
-    params.hasNonResumableBackend(params.existingRecord.config, params.currentFingerprint),
-    () => params.pushStageConfigChangedWarning(
-      params.nextStage,
-      params.existingRecord.config,
-      params.currentFingerprint,
-      params.warnings
-    ),
-    () => params.pushNonResumableStageWarning(params.nextStage, params.currentFingerprint, params.warnings)
-  );
+): ResumeWarningContext => ({
+  configChanged: params.fingerprintsDiffer(params.existingRecord.config, params.currentFingerprint),
+  hasNonResumableBackend: params.hasNonResumableBackend(params.existingRecord.config, params.currentFingerprint),
+  ...buildInterruptedStageWarningPushers(params),
+});
 
 type PriorStageWarningContextParams = {
   record: StageRecord;
@@ -96,25 +91,33 @@ type PriorStageWarningContextParams = {
     warnings: string[]
   ) => void;
   pushNonResumablePriorStageWarning: (nextStage: string, config: StageConfigFingerprint, warnings: string[]) => void;
+  pushMissingSessionIdPriorStageWarning: (nextStage: string, priorStageName: string, warnings: string[]) => void;
   hasNonResumableBackend: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
   fingerprintsDiffer: (first: StageConfigFingerprint, second: StageConfigFingerprint) => boolean;
 };
 
+const buildPriorStageWarningPushers = (
+  params: PriorStageWarningContextParams
+): Pick<ResumeWarningContext, 'pushChangedWarning' | 'pushNonResumableWarning' | 'pushMissingSessionIdWarning'> => ({
+  pushChangedWarning: () => params.pushPriorStageWarning(
+    params.nextStage, params.currentFingerprint.provider, params.stageName,
+    params.record.config.provider, params.warnings
+  ),
+  pushNonResumableWarning: () => params.pushNonResumablePriorStageWarning(
+    params.nextStage, params.record.config, params.warnings
+  ),
+  pushMissingSessionIdWarning: () => params.pushMissingSessionIdPriorStageWarning(
+    params.nextStage, params.stageName, params.warnings
+  ),
+});
+
 const buildPriorStageWarningContext = (
   params: PriorStageWarningContextParams
-): ResumeWarningContext =>
-  createResumeWarningContext(
-    params.fingerprintsDiffer(params.record.config, params.currentFingerprint),
-    params.hasNonResumableBackend(params.record.config, params.currentFingerprint),
-    () => params.pushPriorStageWarning(
-      params.nextStage,
-      params.currentFingerprint.provider,
-      params.stageName,
-      params.record.config.provider,
-      params.warnings
-    ),
-    () => params.pushNonResumablePriorStageWarning(params.nextStage, params.record.config, params.warnings)
-  );
+): ResumeWarningContext => ({
+  configChanged: params.fingerprintsDiffer(params.record.config, params.currentFingerprint),
+  hasNonResumableBackend: params.hasNonResumableBackend(params.record.config, params.currentFingerprint),
+  ...buildPriorStageWarningPushers(params),
+});
 
 /**
  * Writes an INFO stage-lifecycle record.
@@ -643,6 +646,15 @@ export class SessionService {
     return `Stage ${nextStage} cannot resume from ${config.provider}/${config.backend} session IDs. Prior stage summary will still be available as context.`;
   }
 
+  private buildMissingSessionIdStageWarning(stage: string): string {
+    return `Stage ${stage} was interrupted before a provider session ID was recorded, so its session cannot be resumed.`;
+  }
+
+  private buildMissingSessionIdPriorStageWarning(nextStage: string, priorStageName: string): string {
+    return `Stage ${priorStageName} completed without a recorded provider session ID, so ${nextStage} cannot resume from it. `
+      + 'Prior stage summary will still be available as context.';
+  }
+
   private pushStageConfigChangedWarning(
     stage: string,
     fromConfig: StageConfigFingerprint,
@@ -669,6 +681,7 @@ export class SessionService {
         warnings,
         pushStageConfigChangedWarning: this.pushStageConfigChangedWarning.bind(this),
         pushNonResumableStageWarning: this.pushNonResumableStageWarning.bind(this),
+        pushMissingSessionIdStageWarning: this.pushMissingSessionIdStageWarning.bind(this),
         hasNonResumableBackend: this.hasNonResumableBackend.bind(this),
         fingerprintsDiffer: this.fingerprintsDiffer.bind(this),
       })
@@ -691,20 +704,20 @@ export class SessionService {
         warnings,
         pushPriorStageWarning: this.pushPriorStageWarning.bind(this),
         pushNonResumablePriorStageWarning: this.pushNonResumablePriorStageWarning.bind(this),
+        pushMissingSessionIdPriorStageWarning: this.pushMissingSessionIdPriorStageWarning.bind(this),
         hasNonResumableBackend: this.hasNonResumableBackend.bind(this),
         fingerprintsDiffer: this.fingerprintsDiffer.bind(this),
       })
     );
 
-  private pushResumeWarnings(params: {
-    configChanged: boolean;
-    hasNonResumableBackend: boolean;
-    pushChangedWarning: () => void;
-    pushNonResumableWarning: () => void;
-  }): void {
-    if (params.configChanged) params.pushChangedWarning();
-    if (!params.configChanged) params.pushNonResumableWarning();
-    if (params.configChanged && params.hasNonResumableBackend) params.pushNonResumableWarning();
+  private pushResumeWarnings(params: ResumeWarningContext): void {
+    if (params.configChanged) {
+      params.pushChangedWarning();
+      if (params.hasNonResumableBackend) params.pushNonResumableWarning();
+      return;
+    }
+    if (params.hasNonResumableBackend) params.pushNonResumableWarning();
+    else params.pushMissingSessionIdWarning();
   }
 
   private hasNonResumableBackend(
@@ -740,5 +753,17 @@ export class SessionService {
     warnings: string[]
   ): void {
     warnings.push(this.buildNonResumablePriorStageWarning(nextStage, config));
+  }
+
+  private pushMissingSessionIdStageWarning(stage: string, warnings: string[]): void {
+    warnings.push(this.buildMissingSessionIdStageWarning(stage));
+  }
+
+  private pushMissingSessionIdPriorStageWarning(
+    nextStage: string,
+    priorStageName: string,
+    warnings: string[]
+  ): void {
+    warnings.push(this.buildMissingSessionIdPriorStageWarning(nextStage, priorStageName));
   }
 }

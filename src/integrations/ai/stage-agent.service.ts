@@ -10,7 +10,10 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import chalk from 'chalk';
 import dayjs from 'dayjs';
-import { formatProgressMessage as formatAnthropicProgressMessage } from './adapters/anthropic-agent.adapter';
+import {
+  ANTHROPIC_AGENT_LABEL,
+  formatProgressMessage as formatAnthropicProgressMessage,
+} from './adapters/anthropic-agent.adapter';
 import { isUnavailableModelError } from './adapters/ai-provider-error.classify';
 import { estimateOpenAiCostUsd, extractUsageFromEvent, formatProgressMessage as formatOpenAiProgressMessage } from './adapters/openai-agent.adapter';
 import { loadAnthropicAgentSdk } from './adapters/load-anthropic-agent-sdk';
@@ -83,7 +86,7 @@ import {
   type ReuseCandidateContext,
   formatReuseCandidatesPromptSection,
 } from '../../shared/utils/detect-reuse-candidates';
-import type { AgentStageName, StageProgressCallback } from '../../shared/types/agent.types';
+import type { AgentStageName, ProviderSessionIdCallback, StageProgressCallback } from '../../shared/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
 import { buildSkillPromptFragment } from '../../skills';
 import { estimateLlmCostUsd } from './llm-cost';
@@ -172,6 +175,7 @@ type CliStagePassOpts = {
   jsonSchema?: string;
   model: string;
   onProgress?: StageProgressCallback;
+  onProviderSessionId?: ProviderSessionIdCallback;
   passNumber?: number;
   prompt: string;
   repoDir?: string;
@@ -254,6 +258,7 @@ type OpenAiStageContext = {
 
 type ReviewCodeOpts = {
   forkSession?: boolean; figmaContextSection?: string; screenshots?: UiDesignScreenshot[];
+  onProviderSessionId?: ProviderSessionIdCallback;
 };
 
 type StagePromptParams = {
@@ -262,6 +267,7 @@ type StagePromptParams = {
   forkSession?: boolean;
   modelOverride?: string;
   onProgress?: StageProgressCallback;
+  onProviderSessionId?: ProviderSessionIdCallback;
   priorStageSummary?: string;
   prompt: string;
   repoDir?: string;
@@ -717,15 +723,27 @@ const applyCliResultToAcc = (acc: CliPassAccumulator, message: ClaudeCliMessage)
   acc.stopReason = message.stop_reason as string | undefined;
 };
 
+const observeProviderSessionId = (
+  observed: string | undefined, current: string | undefined, onProviderSessionId?: ProviderSessionIdCallback
+): string | undefined => {
+  if (!observed || observed === current) return current;
+  onProviderSessionId?.(observed);
+  return observed;
+};
+
+const emitCliProgress = (message: ClaudeCliMessage, onProgress?: StageProgressCallback): void => {
+  if (!onProgress) return;
+  const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
+  if (line) onProgress(line);
+};
+
 const accumulateCliMessage = (
-  acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback
+  acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback,
+  onProviderSessionId?: ProviderSessionIdCallback
 ): void => {
-  if (message.session_id) acc.sessionId = message.session_id;
+  acc.sessionId = observeProviderSessionId(message.session_id, acc.sessionId, onProviderSessionId);
   acc.costUsd = (message as { total_cost_usd?: number }).total_cost_usd ?? acc.costUsd;
-  if (onProgress) {
-    const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
-    if (line) onProgress(line);
-  }
+  emitCliProgress(message, onProgress);
   const assistantText = extractAssistantText(message);
   if (assistantText) acc.lastAssistantText = assistantText;
   applyCliResultToAcc(acc, message);
@@ -751,11 +769,12 @@ const processCliPassMessages = async (
   prompt: string,
   wallClockTimeoutMs: number,
   inactivityTimeoutMs?: number,
-  onProgress?: StageProgressCallback
+  onProgress?: StageProgressCallback,
+  onProviderSessionId?: ProviderSessionIdCallback
 ): Promise<CliPassResult> => {
   const acc: CliPassAccumulator = { result: '', source: undefined, stopReason: undefined, sessionId: undefined, lastAssistantText: '', diagnostics: [] };
   for await (const message of spawnCli(args, repoDir, prompt, undefined, wallClockTimeoutMs, inactivityTimeoutMs)) {
-    accumulateCliMessage(acc, message, onProgress);
+    accumulateCliMessage(acc, message, onProgress, onProviderSessionId);
   }
   return finalizeCliPass(acc);
 };
@@ -916,17 +935,30 @@ const buildOpenAiStageTools = () => [
 type AnthropicSession = AsyncIterable<Record<string, unknown>> & { close: () => void };
 type AnthropicResultHandler = (msg: Record<string, unknown>) => { content: string } | undefined;
 
+const observeAnthropicSessionId = (
+  message: Record<string, unknown>, current: string | undefined, onProviderSessionId?: ProviderSessionIdCallback
+): string | undefined => {
+  const observed = typeof message.session_id === 'string' ? message.session_id : undefined;
+  return observeProviderSessionId(observed, current, onProviderSessionId);
+};
+
+const finalizeAnthropicSessionResult = (
+  result: { content: string }, sessionId: string | undefined, sessionLogPrefix: string
+): { content: string; sessionId?: string } => {
+  if (sessionId && sessionLogPrefix) console.log(chalk.cyan(sessionLogPrefix + sessionId));
+  return { ...result, sessionId };
+};
+
 const drainAnthropicSession = async (
-  session: AnthropicSession, handler: AnthropicResultHandler, sessionLogPrefix: string
+  session: AnthropicSession, handler: AnthropicResultHandler, sessionLogPrefix: string,
+  onProviderSessionId?: ProviderSessionIdCallback
 ): Promise<{ content: string; sessionId?: string }> => {
   let sessionId: string | undefined;
   try {
     for await (const message of session) {
-      if ('session_id' in message && typeof message.session_id === 'string') sessionId = message.session_id;
+      sessionId = observeAnthropicSessionId(message, sessionId, onProviderSessionId);
       const result = handler(message);
-      if (!result) continue;
-      if (sessionId && sessionLogPrefix) console.log(chalk.cyan(sessionLogPrefix + sessionId));
-      return { ...result, sessionId };
+      if (result) return finalizeAnthropicSessionResult(result, sessionId, sessionLogPrefix);
     }
   } finally { session.close(); }
   throw new AiProviderError('Claude Agent SDK finished without returning a result.');
@@ -1220,9 +1252,7 @@ export class StageAgentService {
     const systemPrompt = this.buildReviewSystemPrompt(opts?.screenshots);
     const prompt = buildReviewPrompt({ diff, guidelines, figmaContextSection: opts?.figmaContextSection });
     const base = { prompt, systemPrompt, repoDir, priorStageSummary, resumeProviderSessionId, onProgress };
-    const { content: response, sessionId, modelUsed } = await this.runReviewStagePrompt(
-      base, opts?.forkSession, opts?.screenshots,
-    );
+    const { content: response, sessionId, modelUsed } = await this.runReviewStagePrompt(base, opts);
     const parsed = await this.parseStageReviewResponse(
       diff, response, sessionId, repoDir, systemPrompt, priorStageSummary
     );
@@ -1231,9 +1261,12 @@ export class StageAgentService {
 
   private async runReviewStagePrompt(
     base: Pick<StagePromptParams, 'prompt' | 'systemPrompt' | 'repoDir' | 'priorStageSummary' | 'resumeProviderSessionId' | 'onProgress'>,
-    forkSession?: boolean, screenshots?: UiDesignScreenshot[],
+    opts?: ReviewCodeOpts,
   ) {
-    return this.runStagePrompt({ stage: 'review', ...base, forkSession, screenshots });
+    return this.runStagePrompt({
+      stage: 'review', ...base, forkSession: opts?.forkSession, screenshots: opts?.screenshots,
+      onProviderSessionId: opts?.onProviderSessionId,
+    });
   }
 
   private async parseStageReviewResponse(
@@ -1488,7 +1521,7 @@ export class StageAgentService {
       structuredOutput: params.structuredOutput,
     });
     const { query } = await loadAnthropicAgentSdk();
-    return this.processAnthropicStageResult(query(options), params.onProgress);
+    return this.processAnthropicStageResult(query(options), params.onProgress, params.onProviderSessionId);
   }
 
   private requireAnthropicApiKey(): string {
@@ -1498,12 +1531,13 @@ export class StageAgentService {
   }
 
   private async processAnthropicStageResult(
-    session: AsyncIterable<Record<string, unknown>> & { close: () => void }, onProgress?: StageProgressCallback
+    session: AsyncIterable<Record<string, unknown>> & { close: () => void }, onProgress?: StageProgressCallback,
+    onProviderSessionId?: ProviderSessionIdCallback
   ): Promise<{ content: string; sessionId?: string }> {
     return drainAnthropicSession(session, msg => {
       const outcome = extractAnthropicResultMessage(msg, onProgress);
       return outcome ? { content: outcome.trim() } : undefined;
-    }, '  [claude-agent-sdk] Provider session: ');
+    }, `  [${ANTHROPIC_AGENT_LABEL}] Provider session: `, onProviderSessionId);
   }
 
   private async runOpenAiStagePrompt(params: StagePromptParams): Promise<string> {
@@ -1699,18 +1733,22 @@ export class StageAgentService {
 
   private async runCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     assertClaudeCliAvailable();
+    return this.runCliRetryLoop(this.buildCliStagePassOpts(params), params.stage, params.resumeProviderSessionId);
+  }
+
+  private buildCliStagePassOpts(params: StagePromptParams): CliStagePassOpts {
     const preamble = buildPriorStagePreamble(params.priorStageSummary);
-    const systemPrompt = preamble ? `${preamble}\n\n${params.systemPrompt}` : params.systemPrompt;
-    const passOpts: CliStagePassOpts = {
-      stage: params.stage, prompt: params.prompt, systemPrompt,
+    return {
+      stage: params.stage, prompt: params.prompt,
+      systemPrompt: preamble ? `${preamble}\n\n${params.systemPrompt}` : params.systemPrompt,
       model: this.resolveModelForStage(params.stage, params.modelOverride), repoDir: params.repoDir,
       jsonSchema: params.structuredOutput
         ? JSON.stringify(params.structuredOutput.schema)
         : params.jsonSchema ?? this.resolveStageJsonSchema(params.stage),
       resumeProviderSessionId: params.resumeProviderSessionId, onProgress: params.onProgress,
+      onProviderSessionId: params.onProviderSessionId,
       forkSession: params.forkSession, screenshots: params.screenshots,
     };
-    return this.runCliRetryLoop(passOpts, params.stage, params.resumeProviderSessionId);
   }
 
   private async runGenericCliRetryLoop(
@@ -1870,7 +1908,8 @@ export class StageAgentService {
       prompt,
       this.resolveStageTimeoutMs(opts.stage),
       this.resolveStageInactivityTimeoutMs(opts.stage),
-      opts.onProgress
+      opts.onProgress,
+      opts.onProviderSessionId
     );
   }
 

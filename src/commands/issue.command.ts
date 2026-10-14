@@ -44,6 +44,7 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
+import type { ProviderSessionIdCallback } from '../shared/types/agent.types';
 import { isResumableBackend, SessionService } from '../shared/session/session.service';
 import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
 import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } from '../shared/types/session.types';
@@ -164,6 +165,12 @@ type ReviewRepoContext = {
   sessionContext: ReviewLoopContext;
   ticketArtifact: TicketArtifact;
   ticketKey: string;
+};
+
+type ReviewCollectionState = {
+  reviewArtifacts: ReviewArtifact[];
+  sessionRef: { current: SessionState | undefined };
+  onProviderSessionId?: ProviderSessionIdCallback;
 };
 
 @Command({
@@ -1696,18 +1703,54 @@ export class IssueCommand extends CommandRunner {
     reviewContext: ReviewRepoContext,
     sessionState: SessionState | undefined
   ): Promise<{ reviewArtifacts: ReviewArtifact[]; sessionState: SessionState | undefined }> {
-    const reviewArtifacts: ReviewArtifact[] = [];
+    const sessionRef = { current: sessionState };
+    const state: ReviewCollectionState = {
+      reviewArtifacts: [], sessionRef,
+      onProviderSessionId: this.createEarlyReviewSessionRecorder(sessionRef),
+    };
     for (const repo of repos) {
       try {
-        const reviewArtifact = await this.runReviewForRepo(repo, reviewContext);
-        if (!reviewArtifact) continue;
-        sessionState = await this.recordAndPresentReviewArtifact(reviewArtifact, reviewContext, sessionState);
-        reviewArtifacts.push(reviewArtifact);
+        await this.reviewRepoIntoState(repo, reviewContext, state);
       } catch (error) {
         this.handleReviewLoopError(error, repo, repos, reviewContext.options);
       }
     }
-    return { reviewArtifacts, sessionState };
+    return { reviewArtifacts: state.reviewArtifacts, sessionState: sessionRef.current };
+  }
+
+  private async reviewRepoIntoState(
+    repo: string | undefined, reviewContext: ReviewRepoContext, state: ReviewCollectionState
+  ): Promise<void> {
+    const reviewArtifact = await this.runReviewForRepo(repo, reviewContext, state.onProviderSessionId);
+    if (!reviewArtifact) return;
+    state.sessionRef.current = await this.recordAndPresentReviewArtifact(
+      reviewArtifact, reviewContext, state.sessionRef.current
+    );
+    state.reviewArtifacts.push(reviewArtifact);
+  }
+
+  /**
+   * Persists the review stage's provider session ID the moment the provider stream first
+   * reports it, instead of waiting for the review artifact. An interrupted or crashed
+   * review would otherwise leave `providerSessionId` null in the session file, making the
+   * stage unresumable.
+   */
+  private createEarlyReviewSessionRecorder(
+    sessionRef: { current: SessionState | undefined }
+  ): ProviderSessionIdCallback | undefined {
+    if (!sessionRef.current) return undefined;
+    return providerSessionId => {
+      const session = sessionRef.current;
+      if (!session || session.stages.review?.providerSessionId === providerSessionId) return;
+      this.sessionService.recordProviderSessionId(session, 'review', providerSessionId)
+        .then(updated => { sessionRef.current = updated; })
+        .catch((error: unknown) => appendToLogFile(
+          'WARN',
+          `issue.session.early-record-failed stage=review session=${providerSessionId} `
+          + `error=${error instanceof Error ? error.message : String(error)}`,
+          'session'
+        ));
+    };
   }
 
   private handleReviewLoopError(
@@ -1740,7 +1783,8 @@ export class IssueCommand extends CommandRunner {
 
   private async runReviewForRepo(
     repo: string | undefined,
-    reviewContext: ReviewRepoContext
+    reviewContext: ReviewRepoContext,
+    onProviderSessionId?: ProviderSessionIdCallback
   ): Promise<ReviewArtifact | null> {
     await initializeWfConfig(resolveRepoBasePath(repo));
     const { isMultiRepo, options, planArtifact, primaryRepo, repos, sessionContext, ticketArtifact } = reviewContext;
@@ -1750,7 +1794,7 @@ export class IssueCommand extends CommandRunner {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
       suppressHeader: isMultiRepo, silent: options?.silent,
       sonar: options?.sonar, figma: options?.figma,
-      planArtifactPath: planArtifact?.path, ...scopedContext,
+      planArtifactPath: planArtifact?.path, onProviderSessionId, ...scopedContext,
     });
     if (!reviewArtifact) return null;
 

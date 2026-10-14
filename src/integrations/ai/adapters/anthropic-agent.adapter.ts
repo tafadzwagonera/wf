@@ -50,7 +50,7 @@ import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments'
 const claudeCodeTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const DELETE_FILE_SERVER_NAME = 'wf';
 const DELETE_FILE_TOOL_NAME = `mcp__${DELETE_FILE_SERVER_NAME}__DeleteFile`;
-const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
+export const ANTHROPIC_AGENT_LABEL = 'claude-agent-sdk';
 const MAX_CONTINUATION_PASSES = 15;
 const MAX_CONSECUTIVE_IDLE_PASSES = 3;
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
@@ -766,7 +766,7 @@ const assertNoAgentError = (result: SDKResultMessage): void => {
 
 const runInitialSdkSession = async (p: InitialSessionParams): Promise<SDKResultMessage> => {
   const resumeOption = p.resumeSessionId ? { resume: p.resumeSessionId } : {};
-  console.log(chalk.bold.cyan(`\n  [claude-agent-sdk] Running agent loop in ${p.repoDir}...`));
+  console.log(chalk.bold.cyan(`\n  [${ANTHROPIC_AGENT_LABEL}] Running agent loop in ${p.repoDir}...`));
   const sessionOptions = { ...p.sdkOptions, ...resumeOption };
   const prompt = resolveInitialUserPrompt(p.promptOverride, p.taskBriefParams);
   const session = p.query({ prompt, options: sessionOptions });

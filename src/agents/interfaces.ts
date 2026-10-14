@@ -4,6 +4,7 @@ import type {
   TicketArtifact,
   PlanArtifact,
   ImplementerOptions,
+  ProviderSessionIdCallback,
   VerificationScript,
   VerificationOutcome,
 } from '../shared/types/agent.types';
@@ -65,6 +66,7 @@ export interface ReviewerOptions {
   priorStageSummary?: string;
   forkSession?: boolean;
   onProgress?: (line: string) => void;
+  onProviderSessionId?: ProviderSessionIdCallback;
   estimatedComplexity?: string;
   passCount?: number;
   sonar?: boolean;
