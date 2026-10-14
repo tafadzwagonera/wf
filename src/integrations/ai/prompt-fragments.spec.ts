@@ -74,6 +74,13 @@ describe('planStepPrinciples', () => {
   it('includes the failure-mode principle for guardrails and fallbacks', () => {
     expect(planStepPrinciples).toContain('empty or failed input');
   });
+
+  it('requires a call assertion for mocked collaborators', () => {
+    expect(planStepPrinciples).toContain(
+      '   - Each test step states its observable assertion; when a collaborator is mocked, also assert after the act\n'
+      + '     step that it was called and with what arguments (extends the strongest-viable-positive-check rule above).'
+    );
+  });
 });
 
 describe('formatUiDesignScreenshotsPlanPromptSection', () => {

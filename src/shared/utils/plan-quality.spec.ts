@@ -837,3 +837,48 @@ describe('validatePlanQuality — needle-search-required', () => {
     expect(violations).toEqual([]);
   });
 });
+
+describe('validatePlanQuality — test-call-assertion-required', () => {
+  const callViolations = (plan: Parameters<typeof validatePlanQuality>[0]['plan']) =>
+    validatePlanQuality({ plan }).filter(v => v.ruleId === 'test-call-assertion-required');
+
+  it('flags a spec step that mentions a mock without a call assertion', () => {
+    const step = 'Add wf/src/reader.spec.ts that uses real temp files or a mocked `fs.readFileSync`.';
+    const violations = callViolations({ steps: [step] });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('Step 1');
+  });
+
+  it('passes when the step asserts the call count', () => {
+    const step = 'Add wf/src/reader.spec.ts with a mocked `fs.readFileSync`; assert `toHaveBeenCalledTimes(1)`.';
+    expect(callViolations({ steps: [step] })).toEqual([]);
+  });
+
+  it('does not flag cleanup and factory wording', () => {
+    const step = 'Add wf/src/auth.spec.ts using `afterEach(() => jest.restoreAllMocks())` and '
+      + '`createMockAuthRepository()` to check the returned token.';
+    expect(callViolations({ steps: [step] })).toEqual([]);
+  });
+
+  it('still flags a step that says invoked by the controller without a call assertion', () => {
+    const step = 'Add wf/src/ctl.spec.ts with a mock service that is invoked by the controller.';
+    expect(callViolations({ steps: [step] })).toHaveLength(1);
+  });
+
+  it('passes when the step asserts the collaborator is never called', () => {
+    const step = 'Add wf/src/guard.spec.ts with a mocked `notifier`; assert it is never called on empty input.';
+    expect(callViolations({ steps: [step] })).toEqual([]);
+  });
+
+  it('ignores steps that name no spec file', () => {
+    expect(callViolations({ steps: ['Introduce a mock adapter in wf/src/adapter.ts.'] })).toEqual([]);
+  });
+
+  it('is suppressed by a matching waiver', () => {
+    const step = 'Add wf/src/reader.spec.ts that uses a mocked `fs.readFileSync`.';
+    expect(callViolations({
+      steps: [step],
+      verification: { waivers: [{ id: 'test-call-assertion-required', reason: 'output-only check' }] },
+    })).toEqual([]);
+  });
+});

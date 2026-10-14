@@ -365,6 +365,8 @@ const formatTestPatternLines = (p: NonNullable<NodeInfra['testPatterns']>): stri
     ...(p.helperPaths.length > 0 ? [`- Test helpers: ${p.helperPaths.join(', ')}`] : []),
     ...formatMockCleanupLine(p.mockCleanup),
     ...formatDiSetupLines(p.diSetupPattern),
+    '- Mocked collaborators: assert after the act step that the collaborator was called '
+    + '(call count and arguments via mock.calls); never assert only inside a mock callback',
     ...formatErrorHandlerLines(p.errorHandlerExits),
     'Follow these patterns when prescribing test changes.',
   ];
@@ -458,4 +460,4 @@ const formatTestInfraPromptSection = (ctx: TestInfraContext, packageManager: Pac
   ].join('\n');
 };
 
-export { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection };
+export { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection, formatTestPatternLines };

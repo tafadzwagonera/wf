@@ -1,4 +1,6 @@
-import { detectTestInfra, detectTestPatterns, formatTestInfraPromptSection } from './detect-test-infra';
+import {
+  detectTestInfra, detectTestPatterns, formatTestInfraPromptSection, formatTestPatternLines,
+} from './detect-test-infra';
 import { parseRunnerInvocation } from './verification-commands';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -435,6 +437,21 @@ describe('formatTestInfraPromptSection', () => {
     expect(output).toContain('nested describe blocks');
     expect(output).toContain('src/test/helpers.ts');
     expect(output).toContain('Follow these patterns');
+  });
+
+  it('tells the planner to assert mocked collaborators were called after the act step', () => {
+    const dir = createTempRepo();
+    fs.mkdirSync(path.join(dir, 'src'));
+    fs.writeFileSync(path.join(dir, 'src', 'a.spec.ts'), 'describe("x", () => { it("y", () => {}); })');
+    const patterns = detectTestPatterns(dir);
+    expect(patterns).not.toBeNull();
+
+    const lines = formatTestPatternLines(patterns as NonNullable<typeof patterns>);
+
+    expect(lines).toContain(
+      '- Mocked collaborators: assert after the act step that the collaborator was called '
+      + '(call count and arguments via mock.calls); never assert only inside a mock callback'
+    );
   });
 
   it('omits test conventions block when testPatterns is undefined', () => {

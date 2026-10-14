@@ -69,6 +69,44 @@ const detectNeedleSearchViolations = (
   return [createViolation(NEEDLE_RULE_ID, needleViolationMessage(removalSteps))];
 };
 
+const CALL_ASSERTION_RULE_ID = 'test-call-assertion-required';
+const SPEC_FILE_PATTERN = /\.(?:spec|test)\.[jt]sx?/;
+const mockedCollaboratorPatterns = [
+  /\bmock(?:s|ed|ing)?\b/i,
+  /\bstub(?:s|bed|bing)?\b/i,
+  /\bspy(?:ing)? on\b/i,
+  /\bjest\.(?:fn|spyOn|mock)\b/,
+  /\bmock(?:Resolved|Rejected|Return|Implementation)\w*/,
+];
+const callAssertionPatterns = [
+  /\btoHaveBeenCalled\w*/,
+  /\btoBeCalled\w*/,
+  /\bmock\.calls\b/,
+  /\bcall count\b/i,
+  /\bcalled (?:once|twice|exactly|with)\b/i,
+  /\b(?:not|never) (?:be )?called\b/i,
+];
+
+const callAssertionViolationMessage = (steps: number[]): string =>
+  `Step ${steps.join(', ')} writes a spec with a mocked collaborator but never asserts it was called. `
+  + 'State that the collaborator is asserted called after the act step, with arguments inspected from `mock.calls`, '
+  + 'not asserted inside the mock callback. '
+  + `Or waive it with a verification.waivers entry with id "${CALL_ASSERTION_RULE_ID}".`;
+
+const needsCallAssertion = (step: string): boolean =>
+  SPEC_FILE_PATTERN.test(step)
+  && mockedCollaboratorPatterns.some(pattern => pattern.test(step))
+  && !callAssertionPatterns.some(pattern => pattern.test(step));
+
+const detectTestCallAssertionViolations = (
+  steps: string[], verification: ResolutionPlan['verification'] | undefined
+): PlanQualityViolation[] => {
+  const flaggedSteps = steps.flatMap((step, index) => needsCallAssertion(step) ? [index + 1] : []);
+  if (flaggedSteps.length === 0) return [];
+  if (verification?.waivers?.some(waiver => waiver.id === CALL_ASSERTION_RULE_ID)) return [];
+  return [createViolation(CALL_ASSERTION_RULE_ID, callAssertionViolationMessage(flaggedSteps))];
+};
+
 const normalizeRepoLocalVerificationCommand = (command: string, affectedRepositories?: string[]): string => {
   const trimmed = command.trim();
   const cdPrefixMatch = REPO_LOCAL_CD_PREFIX_PATTERN.exec(trimmed);
@@ -450,6 +488,7 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
   return uniqueViolations([
     ...detectRenameViolations(steps),
     ...detectNeedleSearchViolations(steps, params.plan.verification),
+    ...detectTestCallAssertionViolations(steps, params.plan.verification),
     ...detectVerificationViolations(
       params.plan.verification, params.testInfra, params.affectedRepositories, params.packageManager
     ),

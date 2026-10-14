@@ -24,7 +24,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ## Good Tests
 
 - Name the production change that would make the test fail — before writing the test.
-- Assert on real output values, not on mock call counts.
+- Assert on real output values; when you inspect a mocked collaborator's arguments, also assert it was called.
 - One behavior per test; if the name contains "and", split it.
 - Use `jest.restoreAllMocks()` in `afterEach`.
 
