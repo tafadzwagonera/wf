@@ -56,8 +56,8 @@ anything from a single desktop/mobile pair to a dozen frames spanning several
 sections or states. Group them by what they design; take each group as one
 implementation unit and read all of it before starting — frames routinely differ
 in what they *contain*, not just how it is arranged. Never infer one from
-another. If a group is missing a width, ask for that frame rather than deriving
-it.
+another: a missing width can hide a deliberate design difference. If a group is
+missing a width, ask for that frame rather than deriving it.
 
 Each response ends with a `## Component descriptions` block naming every
 design-system component in that frame, each with a node ID. Treat the union of
@@ -106,8 +106,8 @@ Confirm the token namespace matches the property (`bg-`, `border-`, `ring-`,
 
 Figma content is mock. Every string in a frame must come from the data source
 (API, CMS, feed). Map each field explicitly. If a value has no field behind it,
-ask — prefer omitting the element to fabricating a value. A fabricated value is
-indistinguishable from a real one to every downstream consumer.
+ask — prefer omitting the element to fabricating a value, because downstream
+consumers cannot tell a fabricated value from a real one.
 
 ## Step 5 — Locate or create the target component
 
@@ -130,8 +130,9 @@ Write the markup and styles to match the frame exactly:
 - Colors: use the mapped token; apply dark mode variants per `darkModeConvention`.
 - Images and icons: use `<img alt="…">` or the detected icon library; do not
   inline SVG unless the frame contains a one-off illustration.
-- Never colour an icon separately — set the colour on the parent and let the
-  icon inherit `currentColor`.
+- Never colour an icon separately. Set the colour on the parent and let the
+  icon inherit `currentColor`, so icon and label stay in sync across states and
+  themes.
 
 ## Step 7 — Verify interactive states at pointer
 
@@ -159,7 +160,8 @@ reads as fine and is not. Produce this table before calling a row done:
 
 ## Traps — what actually costs time
 
-Each is an observed failure pattern, generalized. The bold line is the rule.
+Each is an observed failure pattern, generalized. The bold line is the
+principle; apply it to similar cases the list does not name.
 
 - **A layout that fits the designed mobile frame can still fail at 320 px.** The
   narrowest phone is never in the design. Fixed-width or `shrink-0` children that

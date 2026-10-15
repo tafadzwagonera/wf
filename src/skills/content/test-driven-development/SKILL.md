@@ -5,27 +5,23 @@ description: Test-driven development methodology grounded in wf's verification p
 
 **Category:** Methodology skill.
 
-## The Iron Law
+## The iron law
 
-Write the failing test first. If production code was written before the test, delete it and start over.
-
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
+Write the failing test first, with no exceptions. A test written first specifies the behavior; a test written after only describes what the code already does. If production code was written before the test, delete it and start over.
 
 ## Red-Green-Refactor
 
-**RED** — Write one minimal test for one behavior. Run `yarn test src/path/to/file.spec.ts`. Confirm it fails because the feature is absent — not because of a syntax error or import issue.
+**RED** — Write one minimal test for one behavior. Run `yarn test src/path/to/file.spec.ts`. Confirm it fails because the feature is absent, not because of a syntax error or import issue.
 
 **GREEN** — Write the smallest implementation that makes the test pass. Run again to confirm.
 
 **REFACTOR** — Clean up names and duplication while tests stay green. Add no behavior.
 
-## Good Tests
+## Good tests
 
-- Name the production change that would make the test fail — before writing the test.
-- Assert on real output values; when you inspect a mocked collaborator's arguments, also assert it was called.
-- One behavior per test; if the name contains "and", split it.
+- Before writing the test, name the production change that would make it fail.
+- Assert on real output values. When you inspect a mocked collaborator's arguments, also assert it was called.
+- Cover one behavior per test; a name that needs "and" usually means two tests.
 - Use `jest.restoreAllMocks()` in `afterEach`.
 
 ```typescript
@@ -36,32 +32,29 @@ it('returns null when SKILL.md cannot be read', async () => {
 });
 ```
 
-## wf Mechanics
+## wf mechanics
 
 - **Test framework**: Jest 30; spec files co-located as `*.spec.ts` alongside their source in `src/`.
-- **Target-repo detection**: `detect-test-infra.ts` detects `fileSuffix`, `mockCleanup`, and `mockFactoryPrefix` per target repo. These drive conventions in code generated *for* target repos — not in wf's own specs.
+- **Target-repo detection**: `detect-test-infra.ts` detects `fileSuffix`, `mockCleanup`, and `mockFactoryPrefix` per target repo. These drive conventions in code generated *for* target repos, not in wf's own specs.
 - **No internal test runner**: The implementing agent runs allowlisted verification commands itself. wf does not execute tests internally.
 
-## Common Rationalizations
+## Why test-first holds up
 
-| Excuse | Reality |
-|--------|---------|
-| "Too simple to test" | Simple code breaks. The test takes 30 seconds. |
-| "I already manually tested it" | Manual is ad hoc, has no record, and cannot be re-run when the code changes. |
-| "Tests after achieve the same goals" | Tests written after are biased by the code already written. They verify what was built, not what should have been built. You never watched the test fail, so you never proved it can catch the bug. |
-| "TDD will slow me down" | TDD catches bugs before commit, prevents regressions, and lets you refactor without fear. |
+| Objection | Response |
+|-----------|----------|
+| "Too simple to test" | Simple code still breaks, and the test takes seconds to write. |
+| "I already tested it manually" | Manual checks leave no record and cannot be re-run when the code changes. |
+| "Tests after achieve the same goals" | Tests written after are shaped by the code. They verify what was built rather than what should have been built, and a test you never watched fail has not proven it can catch the bug. |
+| "TDD will slow me down" | It catches bugs before commit, prevents regressions, and makes refactoring safe. |
 
-## Red Flags
+## Stop and reassess when
 
-Stop and reassess when you notice:
+- Production code exists before its test.
+- A test passes immediately with no implementation.
+- You cannot explain why a test failed.
+- You are building a case for skipping the test just this once.
 
-- Production code written before the test.
-- A test that passes immediately with no implementation.
-- Inability to explain why a test failed.
-- Rationalizing an exception for this one case.
-- "I'll write the tests after" or "I already tested it manually."
-
-## Verification Checklist
+## Verification checklist
 
 Before marking work complete:
 

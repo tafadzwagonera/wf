@@ -32,8 +32,8 @@ Read current git state before opening any Figma frame.
 !git branch --show-current
 ```
 
-These two lines are facts, not ceremony. Everything that follows is a claim
-about the diff — if you do not read the diff, you are writing fiction.
+Everything that follows is a claim about the diff, so ground it in the actual
+git state and diff rather than in memory of what was built.
 
 ## Discipline: read the code before the frames
 
@@ -64,8 +64,8 @@ while harvesting mixes two cognitive modes and produces missed items.
 |         | radius   |             |            |
 |         | gap      |             |            |
 
-The harvest table is not optional. Comparing without it produces "looks about
-right" instead of "matches exactly".
+Always build the harvest table before comparing. Separating harvesting from
+comparing is what turns "looks about right" into "matches exactly".
 
 ## Step 2 — Mechanical checks before opening the full diff
 
@@ -145,13 +145,9 @@ conventions and the frame includes a dark-mode variant.
 
 ## Common failure modes
 
-- **Harvesting and comparing simultaneously** — produces "looks about right"
-  verdicts. Harvest first, compare second.
 - **Treating bucket D as a fix** — design-system overrides are wins, not
   defects. Mark them 🔒 and move on.
 - **Confirming a grep hit without reading the diff** — grep finds candidates.
   The diff confirms findings.
-- **Skipping the mechanical checks** — they are the fastest path to bucket-A
-  items. Run them first.
 - **Calling a deviation ambiguous without checking the design system** — the
   design system is the tiebreaker. Check it before escalating to design.
