@@ -117,6 +117,38 @@ function checkCapturedWhenNotLast(lines: string[]): void {
   console.log('  ✓ Bug 2 verified: captured continuation matches section position\n');
 }
 
+const entryArrayInput = {
+  from: 'init',
+  to: 'ready',
+  steps: [
+    {
+      frame: 'Service.init()',
+      captured: [{ name: 'config', value: 'loaded' }],
+      changes: [
+        { name: 'a', before: '1', after: '2' },
+        { name: 'b', before: '3', after: '4' },
+      ],
+      children: [{ frame: 'Child.run()', changes: [{ name: 'c', after: '5' }] }],
+    },
+  ],
+};
+
+function runEntryArrayScenario(): string[] {
+  console.log('Test 3: entry-array captured/changes render connectors');
+  const result = formatReviewStateTransition(entryArrayInput);
+  console.log(result.join('\n'));
+  console.log();
+  return result;
+}
+
+function checkEntryArrayInput(lines: string[]): void {
+  assertIncludes(lines, '├─ captured', 'Entry arrays: captured should precede changes (├─)');
+  assertIncludes(lines, '│  ├─ before', 'Entry arrays: expected │ connector between sibling changes');
+  assertIncludes(lines, '└─ Child.run()', 'Entry arrays: child frame should nest under parent');
+  assertNotIncludes(lines, 'undefined', 'Entry arrays: omitted before must not render as undefined');
+  console.log('  ✓ Entry-array input verified\n');
+}
+
 async function main(): Promise<void> {
   console.log('🧪 Manual smoke: review-trace state transition rendering fixes\n');
   const siblingResult = runSiblingScenario();
@@ -125,6 +157,7 @@ async function main(): Promise<void> {
   checkCapturedWhenLast(capturedResult);
   const capturedWithChanges = runCapturedWithChangesScenario();
   checkCapturedWhenNotLast(capturedWithChanges);
+  checkEntryArrayInput(runEntryArrayScenario());
   console.log('✓ Manual smoke test passed: review-trace state transition rendering');
 }
 

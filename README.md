@@ -1482,6 +1482,9 @@ Manual smoke tests live in `test/manual/` and are run via the `test:manual` scri
 # Run a named manual smoke test
 yarn test:manual test-issue-create-jira-adf-smoke
 
+# Fail if any smoke test file contains only comments (it would pass without running anything)
+yarn test:smoke:check
+
 # Smoke-test shared Anthropic/OpenAI agent progress output
 yarn test:manual test-agent-progress-output
 

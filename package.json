@@ -51,7 +51,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:handles": "jest --runInBand --detectOpenHandles --no-forceExit",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts"
+    "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts",
+    "test:smoke:check": "ts-node -r tsconfig-paths/register scripts/check-smoke-tests.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.97",
