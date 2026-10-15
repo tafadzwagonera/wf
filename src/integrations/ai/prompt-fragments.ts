@@ -251,6 +251,17 @@ export function formatUiDesignScreenshotsPlanPromptSection(paths: string[]): str
   return `UI design screenshots provided:\n${basenames}\nThese screenshots accompany this prompt call — as inline images, or as file paths you can read from disk. Do not guess spacing, colour, or typography values — derive all values from the design reference.`;
 }
 
+export function formatUiDesignScreenshotPathsPromptSection(paths: string[]): string {
+  if (!paths.length) return '';
+  const list = paths.map(p => `- ${p}`).join('\n');
+  return 'Design screenshots (accessible via filesystem):\n'
+    + `${list}\n`
+    + 'You MUST open and inspect every screenshot listed above with your file-reading tool before doing any UI '
+    + 'work. Derive layout structure, alignment, spacing, sizing, spatial relationships between components, '
+    + 'colour, typography, iconography, border radii, elevation, exact copy and label casing, content order, '
+    + 'and component states from these images — do not guess, and do not rely on the plan text alone.';
+}
+
 export function buildUiDesignComplianceSystemPromptSection(
   context: { figmaLinks?: string[]; uiDesignScreenshots?: string[] }
 ): string {

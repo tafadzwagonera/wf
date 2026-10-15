@@ -70,6 +70,7 @@ describe('codex-cli-runner', () => {
       expect(result).toContain('Design screenshots (accessible via filesystem):');
       expect(result).toContain('- /tmp/a.png');
       expect(result).toContain('- /tmp/b.jpg');
+      expect(result).toContain('You MUST open and inspect every screenshot');
       expect(result.indexOf('implement this')).toBeLessThan(result.indexOf('Design screenshots'));
     });
   });

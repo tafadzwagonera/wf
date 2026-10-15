@@ -13,6 +13,7 @@ import type {
 } from '../../../agents/interfaces';
 import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles, redGreenWorkflowInstruction, collectPlanProblems, planProblemInstruction } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
+import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
 import { buildSkillPromptFragment, fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
 import {
@@ -98,7 +99,7 @@ const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDi
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
   const preamble = buildPriorStagePreamble(params.options);
   const screenshotPaths = params.uiDesignScreenshotPaths?.length
-    ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.uiDesignScreenshotPaths.map(p => `- ${p}`).join('\n')
+    ? `\n\n${formatUiDesignScreenshotPathsPromptSection(params.uiDesignScreenshotPaths)}`
     : '';
   const skillFragment = await buildCodexSkillFragment(params);
   const tail = fragmentIncludesSkill(skillFragment, TDD_SKILL_ID) ? codexTddImplementTail : codexImplementTail;

@@ -1,4 +1,5 @@
 import {
+  formatUiDesignScreenshotPathsPromptSection,
   formatUiDesignScreenshotsPlanPromptSection,
   buildUiDesignComplianceSystemPromptSection,
   planFileListingInstructions,
@@ -160,6 +161,20 @@ describe('formatUiDesignScreenshotsPlanPromptSection', () => {
     const result = formatUiDesignScreenshotsPlanPromptSection(['/a/header.png', '/b/footer.jpg']);
     expect(result).toContain('header.png');
     expect(result).toContain('footer.jpg');
+  });
+});
+
+describe('formatUiDesignScreenshotPathsPromptSection', () => {
+  it('returns empty string for empty paths array', () => {
+    expect(formatUiDesignScreenshotPathsPromptSection([])).toBe('');
+  });
+
+  it('lists full paths and instructs the agent to open every screenshot', () => {
+    const result = formatUiDesignScreenshotPathsPromptSection(['/designs/a.png', '/designs/b.jpg']);
+    expect(result).toContain('Design screenshots (accessible via filesystem):');
+    expect(result).toContain('- /designs/a.png');
+    expect(result).toContain('- /designs/b.jpg');
+    expect(result).toContain('You MUST open and inspect every screenshot');
   });
 });
 

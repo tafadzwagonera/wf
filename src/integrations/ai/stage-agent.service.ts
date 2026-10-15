@@ -27,6 +27,7 @@ import {
   buildUiDesignComplianceSystemPromptSection,
   deriveModelSource,
   formatFigmaPlanPromptSection,
+  formatUiDesignScreenshotPathsPromptSection,
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
@@ -1141,8 +1142,7 @@ const applySchemaRetry = (
 
 const appendAgentSdkScreenshotPaths = (prompt: string, screenshots: UiDesignScreenshot[] | undefined): string => {
   if (!screenshots?.length) return prompt;
-  const screenshotLines = screenshots.map(s => '- ' + s.path);
-  return [prompt, '', 'Design screenshots (accessible via filesystem):', ...screenshotLines].join('\n');
+  return `${prompt}\n\n${formatUiDesignScreenshotPathsPromptSection(screenshots.map(s => s.path))}`;
 };
 
 @Injectable()
@@ -1922,7 +1922,7 @@ export class StageAgentService {
     const preamble = buildPriorStagePreamble(params.priorStageSummary);
     const schemaSection = buildCodexSchemaSection(params.stage);
     const screenshotPaths = params.screenshots?.length
-      ? '\n\nDesign screenshots (accessible via filesystem):\n' + params.screenshots.map(s => `- ${s.path}`).join('\n')
+      ? `\n\n${formatUiDesignScreenshotPathsPromptSection(params.screenshots.map(s => s.path))}`
       : '';
     return `${preamble ? preamble + '\n\n' : ''}${params.systemPrompt}\n\n${params.prompt}${schemaSection}${screenshotPaths}`;
   }

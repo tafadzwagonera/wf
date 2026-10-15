@@ -2,6 +2,7 @@ import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
 import { buildGitShimEnvOverrides } from '../../../shared/utils/git-shim-path';
+import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
 import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
@@ -258,8 +259,8 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
 
 export const buildClaudeStdinPrompt = (params: Pick<CliRunnerParams, 'prompt' | 'screenshots'>): string => {
   if (!params.screenshots?.length) return params.prompt;
-  const paths = params.screenshots.map(s => `- ${s.path}`).join('\n');
-  return `${params.prompt}\n\nDesign screenshots (accessible via filesystem):\n${paths}`;
+  const section = formatUiDesignScreenshotPathsPromptSection(params.screenshots.map(s => s.path));
+  return `${params.prompt}\n\n${section}`;
 };
 
 export const parseNdjsonLine = (line: string): ClaudeCliMessage | null => {

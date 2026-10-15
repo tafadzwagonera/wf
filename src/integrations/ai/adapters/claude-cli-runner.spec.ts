@@ -354,9 +354,10 @@ describe('claude-cli-runner', () => {
           { path: '/designs/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
         ],
       });
-      expect(prompt).toBe(
+      expect(prompt).toContain(
         'implement the thing\n\nDesign screenshots (accessible via filesystem):\n- /designs/a.png\n- /designs/b.jpg'
       );
+      expect(prompt).toContain('You MUST open and inspect every screenshot');
     });
 
     it('returns the prompt unchanged when screenshots are absent', () => {

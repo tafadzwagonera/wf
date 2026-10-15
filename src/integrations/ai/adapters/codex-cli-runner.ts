@@ -6,6 +6,7 @@ import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
 import { registerSigintHandler } from '../../../shared/utils/sigint-registry';
 import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
 import { parseNdjsonLine } from './claude-cli-runner';
+import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 
 export interface CodexCliMessage {
@@ -51,8 +52,8 @@ export interface CodexCliRunnerParams {
 
 export const buildCodexStdinPrompt = (params: Pick<CodexCliRunnerParams, 'prompt' | 'screenshots'>): string => {
   if (!params.screenshots?.length) return params.prompt;
-  const paths = params.screenshots.map(s => `- ${s.path}`).join('\n');
-  return `${params.prompt}\n\nDesign screenshots (accessible via filesystem):\n${paths}`;
+  const section = formatUiDesignScreenshotPathsPromptSection(params.screenshots.map(s => s.path));
+  return `${params.prompt}\n\n${section}`;
 };
 
 export const CLI_TIMEOUT_MS = 15 * 60 * 1000;
