@@ -1,5 +1,6 @@
 import {
   assertClaudeCliAvailable,
+  buildClaudeStdinPrompt,
   buildCliArgs,
   type ClaudeCliMessage,
   isSystemChatter,
@@ -295,41 +296,72 @@ describe('claude-cli-runner', () => {
       expect(args).not.toContain('--append-system-prompt');
     });
 
-    it('adds --image flag for each screenshot path', () => {
+    it('never emits the unsupported --image flag', () => {
+      const args = buildCliArgs({
+        prompt: 'test',
+        model: 'claude-sonnet-4-6',
+        cwd: '/repo',
+        screenshots: [{ path: '/designs/a.png', mediaType: 'image/png', base64: 'x' }],
+      });
+      expect(args).not.toContain('--image');
+    });
+
+    it('adds --add-dir for each unique screenshot directory', () => {
       const args = buildCliArgs({
         prompt: 'test',
         model: 'claude-sonnet-4-6',
         cwd: '/repo',
         screenshots: [
-          { path: '/tmp/a.png', mediaType: 'image/png', base64: 'x' },
-          { path: '/tmp/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
+          { path: '/designs/a.png', mediaType: 'image/png', base64: 'x' },
+          { path: '/designs/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
+          { path: '/other/c.png', mediaType: 'image/png', base64: 'z' },
         ],
       });
 
-      const imageFlags = args.reduce<string[]>((acc, arg, idx, arr) => {
-        if (arg === '--image') acc.push(arr[idx + 1]);
+      const addDirs = args.reduce<string[]>((acc, arg, idx, arr) => {
+        if (arg === '--add-dir') acc.push(arr[idx + 1]);
         return acc;
       }, []);
-      expect(imageFlags).toEqual(['/tmp/a.png', '/tmp/b.jpg']);
+      expect(addDirs).toEqual(['/designs', '/other']);
     });
 
-    it('omits --image when screenshots array is empty', () => {
+    it('omits screenshot --add-dir when screenshots array is empty', () => {
       const args = buildCliArgs({
         prompt: 'test',
         model: 'claude-sonnet-4-6',
         cwd: '/repo',
         screenshots: [],
       });
-      expect(args).not.toContain('--image');
+      expect(args).not.toContain('--add-dir');
     });
 
-    it('omits --image when screenshots is undefined', () => {
+    it('omits screenshot --add-dir when screenshots is undefined', () => {
       const args = buildCliArgs({
         prompt: 'test',
         model: 'claude-sonnet-4-6',
         cwd: '/repo',
       });
-      expect(args).not.toContain('--image');
+      expect(args).not.toContain('--add-dir');
+    });
+  });
+
+  describe('buildClaudeStdinPrompt', () => {
+    it('appends screenshot paths to the prompt', () => {
+      const prompt = buildClaudeStdinPrompt({
+        prompt: 'implement the thing',
+        screenshots: [
+          { path: '/designs/a.png', mediaType: 'image/png', base64: 'x' },
+          { path: '/designs/b.jpg', mediaType: 'image/jpeg', base64: 'y' },
+        ],
+      });
+      expect(prompt).toBe(
+        'implement the thing\n\nDesign screenshots (accessible via filesystem):\n- /designs/a.png\n- /designs/b.jpg'
+      );
+    });
+
+    it('returns the prompt unchanged when screenshots are absent', () => {
+      expect(buildClaudeStdinPrompt({ prompt: 'implement the thing' })).toBe('implement the thing');
+      expect(buildClaudeStdinPrompt({ prompt: 'implement the thing', screenshots: [] })).toBe('implement the thing');
     });
   });
 

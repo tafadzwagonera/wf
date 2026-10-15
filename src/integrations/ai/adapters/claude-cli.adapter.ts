@@ -42,6 +42,7 @@ import {
 } from './anthropic-agent.adapter';
 import {
   assertClaudeCliAvailable,
+  buildClaudeStdinPrompt,
   buildCliArgs,
   CLI_INACTIVITY_TIMEOUT_MS,
   CLI_TIMEOUT_MS,
@@ -551,7 +552,10 @@ export class ClaudeCliAdapter implements ImplementerBackend {
 
   private openImplementStream(p: CliSessionParams): AsyncGenerator<ClaudeCliMessage, void, undefined> {
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
-    const prompt = resolveInitialUserPrompt(p.options.initialPromptOverride, p.taskBriefParams);
+    const prompt = buildClaudeStdinPrompt({
+      prompt: resolveInitialUserPrompt(p.options.initialPromptOverride, p.taskBriefParams),
+      screenshots: p.uiDesignScreenshotPaths?.map(toScreenshot),
+    });
     return spawnCli(buildImplementCliArgs(p), p.repoDir, prompt, undefined, timeoutMs, inactivityTimeoutMs);
   }
 

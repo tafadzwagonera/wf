@@ -153,7 +153,7 @@ describe('formatUiDesignScreenshotsPlanPromptSection', () => {
   it('lists basenames and includes injection note', () => {
     const result = formatUiDesignScreenshotsPlanPromptSection(['/abs/path/design.png']);
     expect(result).toContain('design.png');
-    expect(result).toContain('injected as images');
+    expect(result).toContain('accompany this prompt call');
   });
 
   it('includes all basenames when multiple paths provided', () => {

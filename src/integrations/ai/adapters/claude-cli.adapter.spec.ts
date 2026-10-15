@@ -12,6 +12,8 @@ jest.mock('./verification-report', () => ({
 
 const mockAssert = cliRunner.assertClaudeCliAvailable as jest.MockedFunction<typeof cliRunner.assertClaudeCliAvailable>;
 const mockBuildCliArgs = cliRunner.buildCliArgs as jest.MockedFunction<typeof cliRunner.buildCliArgs>;
+const mockBuildClaudeStdinPrompt
+  = cliRunner.buildClaudeStdinPrompt as jest.MockedFunction<typeof cliRunner.buildClaudeStdinPrompt>;
 const mockRunProgrammaticVerification = runProgrammaticVerification as jest.MockedFunction<
   typeof runProgrammaticVerification
 >;
@@ -33,6 +35,9 @@ describe('ClaudeCliAdapter', () => {
     );
     mockAssert.mockImplementation(() => undefined);
     mockBuildCliArgs.mockReturnValue(['-p', '--output-format', 'stream-json']);
+    mockBuildClaudeStdinPrompt.mockImplementation(
+      jest.requireActual<typeof import('./claude-cli-runner')>('./claude-cli-runner').buildClaudeStdinPrompt,
+    );
   });
 
   it('asserts CLI availability before generating', async () => {
@@ -1020,7 +1025,7 @@ describe('ClaudeCliAdapter', () => {
     consoleSpy.mockRestore();
   });
 
-  it('passes --image flags when uiDesignScreenshotPaths provided', async () => {
+  it('appends screenshot paths to the implement prompt when uiDesignScreenshotPaths provided', async () => {
     mockSpawnCli.mockReturnValue(
       (async function* () {
         yield { type: 'result', result: 'done', session_id: 's1', num_turns: 1, total_cost_usd: 0 };
@@ -1044,10 +1049,11 @@ describe('ClaudeCliAdapter', () => {
       uiDesignScreenshotPaths: ['/tmp/design.png'],
     });
 
-    expect(mockBuildCliArgs.mock.calls[0][0].screenshots).toBeDefined();
     expect(mockBuildCliArgs.mock.calls[0][0].screenshots).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: '/tmp/design.png' })])
     );
+    expect(mockSpawnCli.mock.calls[0][2]).toContain('Design screenshots (accessible via filesystem):');
+    expect(mockSpawnCli.mock.calls[0][2]).toContain('- /tmp/design.png');
   });
 
   describe('modelsUsed', () => {

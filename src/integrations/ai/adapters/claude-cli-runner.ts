@@ -235,6 +235,11 @@ const appendAddDirs = (args: string[], dirs: string[] | undefined): void => {
   for (const dir of dirs) args.push('--add-dir', dir);
 };
 
+const appendScreenshotDirs = (args: string[], screenshots: UiDesignScreenshot[] | undefined): void => {
+  if (!screenshots?.length) return;
+  appendAddDirs(args, [...new Set(screenshots.map(s => path.dirname(s.path)))]);
+};
+
 export const buildCliArgs = (params: CliRunnerParams): string[] => {
   const args: string[] = ['-p', '--verbose', '--output-format', 'stream-json'];
   args.push('--model', params.model);
@@ -245,10 +250,16 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
   if (params.tools?.length) args.push('--allowedTools', params.tools.join(','));
   appendAddDirs(args, params.addDirs);
   appendOptionalArg(args, '--json-schema', params.jsonSchema);
-  for (const s of (params.screenshots ?? [])) args.push('--image', s.path);
+  appendScreenshotDirs(args, params.screenshots);
   const noMcpConfig = path.join(__dirname, '..', '..', '..', 'bootstrap', 'no-mcp.json');
   args.push('--mcp-config', noMcpConfig, '--strict-mcp-config');
   return args;
+};
+
+export const buildClaudeStdinPrompt = (params: Pick<CliRunnerParams, 'prompt' | 'screenshots'>): string => {
+  if (!params.screenshots?.length) return params.prompt;
+  const paths = params.screenshots.map(s => `- ${s.path}`).join('\n');
+  return `${params.prompt}\n\nDesign screenshots (accessible via filesystem):\n${paths}`;
 };
 
 export const parseNdjsonLine = (line: string): ClaudeCliMessage | null => {

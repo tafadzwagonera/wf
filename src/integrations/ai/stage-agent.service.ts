@@ -35,7 +35,10 @@ import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot
 import { appendToLogFile } from '../../shared/logger/log-file-writer';
 import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL } from '../../common/constant';
 import { STALL_THRESHOLD } from './adapters/verification-report';
-import { assertClaudeCliAvailable, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS, type ClaudeCliMessage, spawnCli } from './adapters/claude-cli-runner';
+import {
+  assertClaudeCliAvailable, buildClaudeStdinPrompt, buildCliArgs, CLI_INACTIVITY_TIMEOUT_MS,
+  type ClaudeCliMessage, spawnCli,
+} from './adapters/claude-cli-runner';
 import {
   assertCodexCliAvailable,
   buildCodexCliArgs,
@@ -1870,7 +1873,9 @@ export class StageAgentService {
   private async runCliStagePass(opts: CliStagePassOpts & { passNumber: number }): Promise<CliPassResult> {
     const isResume = this.isCliResumePass(opts);
     const retryPrompt = opts.jsonSchema ? cliRetryPrompt : cliChatRetryPrompt;
-    const prompt = isResume && opts.passNumber > 1 ? retryPrompt : opts.prompt;
+    const prompt = isResume && opts.passNumber > 1
+      ? retryPrompt
+      : buildClaudeStdinPrompt({ prompt: opts.prompt, screenshots: opts.screenshots });
     const args = this.buildCliStagePassArgs(opts, prompt, isResume);
     const result = await this.processCliStagePassMessages(opts, args, prompt);
     result.schemaExpected = Boolean(opts.jsonSchema);

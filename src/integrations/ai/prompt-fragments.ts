@@ -248,7 +248,7 @@ export const deriveModelSource = (provider: string, model: string): string => {
 export function formatUiDesignScreenshotsPlanPromptSection(paths: string[]): string {
   if (!paths.length) return '';
   const basenames = paths.map(p => `- ${path.basename(p)}`).join('\n');
-  return `UI design screenshots provided:\n${basenames}\nThese screenshots are injected as images into this prompt call. Do not guess spacing, colour, or typography values — derive all values from the design reference.`;
+  return `UI design screenshots provided:\n${basenames}\nThese screenshots accompany this prompt call — as inline images, or as file paths you can read from disk. Do not guess spacing, colour, or typography values — derive all values from the design reference.`;
 }
 
 export function buildUiDesignComplianceSystemPromptSection(

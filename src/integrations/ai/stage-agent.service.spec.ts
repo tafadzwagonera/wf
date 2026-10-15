@@ -10,6 +10,9 @@ import * as logFileWriter from '../../shared/logger/log-file-writer';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
+  buildClaudeStdinPrompt:
+    jest.requireActual<typeof import('./adapters/claude-cli-runner')>('./adapters/claude-cli-runner')
+      .buildClaudeStdinPrompt,
   buildCliArgs: jest.fn().mockReturnValue([]),
   spawnCli: jest.fn(),
 }));
