@@ -411,6 +411,30 @@ describe('buildPlanStepVerificationPrompt', () => {
     const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stallWindow: 3, stepTexts: new Map([[0, 'step text']]) });
     expect(prompt).toContain('Do not output any text or plan before making your first tool call');
   });
+
+  it('labels each step header with its plan step number when planStepNumbers is given', () => {
+    const pending: StepAssessment[] = [{ index: 1, status: 'not-done', missing: 'x' }];
+    const prompt = buildPlanStepVerificationPrompt({
+      pending, round: 1, stepTexts: new Map([[1, 'step text']]), planStepNumbers: [4, 7],
+    });
+    expect(prompt).toContain('Step 1 (not-done) - plan step 7');
+  });
+
+  it('keeps the step header unchanged when planStepNumbers is omitted', () => {
+    const pending: StepAssessment[] = [{ index: 1, status: 'not-done', missing: 'x' }];
+    const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stepTexts: new Map([[1, 'step text']]) });
+    expect(prompt).toContain('Step 1 (not-done)\n');
+    expect(prompt).not.toContain(' - plan step');
+  });
+
+  it('asks for the PLAN-PROBLEM report format and explains how to treat reported steps', () => {
+    const pending: StepAssessment[] = [{ index: 0, status: 'not-done', missing: 'x' }];
+    const prompt = buildPlanStepVerificationPrompt({ pending, round: 1, stepTexts: new Map([[0, 'step text']]) });
+    expect(prompt).toContain('PLAN-PROBLEM: <step number from the Plan steps list> | <reason> | <what you did instead>');
+    expect(prompt).not.toContain('say why in the final message');
+    expect(prompt).toContain('If a step shows [IMPLEMENTER REPORTED PLAN PROBLEM], do not force exact conformance');
+    expect(prompt.endsWith('Do not output any text or plan before making your first tool call.')).toBe(true);
+  });
 });
 
 describe('PlanStepVerificationService', () => {
@@ -1456,6 +1480,18 @@ describe('PlanStepVerificationService', () => {
     expect(outcome.summary?.pending).toBe(1);
     expect(refreshSteps).toHaveBeenCalledTimes(1);
     expect(runFixRound).not.toHaveBeenCalled();
+  });
+
+  it('forwards planStepNumbers into the fix prompt passed to runFixRound', async () => {
+    mockAiExecute.mockResolvedValue({
+      content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'impl' }] }),
+    });
+    const runFixRound = jest.fn().mockResolvedValue({ sessionId: 'fix-sess' });
+
+    await service.run(makeRunParams({ stallWindow: 2, planStepNumbers: [7], runFixRound }));
+
+    expect(runFixRound).toHaveBeenCalled();
+    expect(runFixRound.mock.calls[0][0]).toContain('Step 0 (not-done) - plan step 7');
   });
 
   describe('logSkip', () => {

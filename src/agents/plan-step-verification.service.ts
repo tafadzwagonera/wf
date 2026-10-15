@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
 import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
 import { needleSearchReminder } from '../integrations/ai/prompt-fragments';
+import { planProblemInstruction } from '../integrations/ai/adapters/shared-routing';
 import { GitService } from '../integrations/git/git.service';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
@@ -80,7 +81,11 @@ const verificationPromptFooter = [
   'Address ONLY the steps listed above. Read the relevant files first, then apply edits to complete each step fully.',
   needleSearchReminder,
   'After all edits are complete, run each verification command exactly as written.',
-  'If a flagged claim cannot be implemented exactly as written, say why in the final message.',
+  planProblemInstruction,
+  [
+    'If a step shows [IMPLEMENTER REPORTED PLAN PROBLEM], do not force exact conformance;',
+    'keep the alternative when it satisfies the step purpose and confirm or revise the report in the final message.',
+  ].join(' '),
   [
     'If a step needs no change because the named file or pattern is already absent, answer with a single-line proof',
     '(for example the grep command and its empty result) plus NO-CHANGE: <path> instead of re-reading files.',
@@ -277,6 +282,7 @@ export interface PlanStepVerificationRunParams {
   sessionId: string;
   stallWindow: number;
   silent?: boolean;
+  planStepNumbers?: number[];
   runFixRound: (prompt: string, sessionId: string) => Promise<{ sessionId?: string; passCount?: number }>;
   /**
    * Called at the start of each assessment round to refresh the step list with
@@ -394,14 +400,18 @@ type FixPromptArgs = {
   round: number;
   stallWindow?: number;
   stepTexts: Map<number, string>;
+  planStepNumbers?: number[];
 };
 
+const formatPlanStepSuffix = (planStepNumber: number | undefined): string =>
+  planStepNumber === undefined ? '' : ` - plan step ${planStepNumber}`;
+
 export const buildPlanStepVerificationPrompt = (args: FixPromptArgs): string => {
-  const { pending, round, stallWindow, stepTexts } = args;
+  const { pending, round, stallWindow, stepTexts, planStepNumbers } = args;
   const stallWindowTag = stallWindow === undefined ? '' : ` (stall window: ${stallWindow})`;
   const roundHeader = `Verification round ${round}${stallWindowTag}: a post-implementation audit found plan steps that are not fully implemented.`;
   const stepLines = pending.flatMap(step => [
-    `Step ${step.index} (${step.status})`,
+    `Step ${step.index} (${step.status})${formatPlanStepSuffix(planStepNumbers?.[step.index])}`,
     stepTexts.get(step.index) ?? '[Enriched step text unavailable]',
     `Missing: ${step.missing ?? 'No missing reason supplied'}`,
   ]);
@@ -671,6 +681,7 @@ export class PlanStepVerificationService {
       round,
       stallWindow: params.refreshSteps ? undefined : params.stallWindow,
       stepTexts,
+      planStepNumbers: params.planStepNumbers,
     });
   }
 

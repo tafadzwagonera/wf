@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import { execSync } from 'child_process';
 import {
   appendImplementVerificationAttempt,
+  appendPlanProblemsToRunFile,
+  readImplementVerificationRunFile,
   buildMutationProgressSignal,
   buildStreamProgressSignal,
   buildVerificationCommandOrder,
@@ -249,6 +251,51 @@ describe('implement verification helpers', () => {
     });
   });
 
+  describe('appendPlanProblemsToRunFile', () => {
+    const storedRun = {
+      run: {
+        ticketKey: 'WBP-1000',
+        repoDir: '/tmp/repo-a',
+        backendConfigured: 'anthropic-agent',
+        backendSelected: 'anthropic-agent',
+        provider: 'openai',
+        verificationScripts: [{ id: 'lint', command: 'yarn lint' }],
+        startedAt: '2026-04-09T00:00:00.000Z',
+      },
+      attempts: [{ ticketKey: 'WBP-1000', attemptNumber: 1 }],
+    };
+    const problems = [{ step: 2, reason: 'resolver differs', instead: 'used runtime resolver' }];
+
+    const writtenPayload = () => JSON.parse(mockFs.writeFileSync.mock.calls[0][1] as string);
+
+    beforeEach(() => {
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(JSON.stringify(storedRun));
+    });
+
+    it('writes the reports into the run file and keeps attempts', () => {
+      const updated = appendPlanProblemsToRunFile('/tmp/run.json', problems);
+
+      expect(updated.run.planProblems).toEqual(problems);
+      expect(mockFs.writeFileSync).toHaveBeenCalledWith('/tmp/run.json', expect.any(String), 'utf-8');
+      expect(writtenPayload().run.planProblems).toEqual(problems);
+      expect(writtenPayload().attempts).toEqual(storedRun.attempts);
+    });
+
+    it('round-trips through readImplementVerificationRunFile', () => {
+      appendPlanProblemsToRunFile('/tmp/run.json', problems);
+      mockFs.readFileSync.mockReturnValue(mockFs.writeFileSync.mock.calls[0][1] as string);
+
+      expect(readImplementVerificationRunFile('/tmp/run.json').run.planProblems).toEqual(problems);
+    });
+
+    it('leaves planProblems absent when given no reports', () => {
+      appendPlanProblemsToRunFile('/tmp/run.json', []);
+
+      expect(writtenPayload().run).not.toHaveProperty('planProblems');
+    });
+  });
+
   describe('resolveVerificationSummary', () => {
     const repoDir = '/projects/my-repo';
     const ticket = 'WBP-99';
@@ -316,6 +363,41 @@ describe('implement verification helpers', () => {
       const result = resolveVerificationSummary(repoDir, ticket);
 
       expect(result).toContain('no verification attempts recorded');
+    });
+
+    describe('with plan-problem reports', () => {
+      const withProblems = (attempts: unknown[]) => JSON.stringify({
+        ...JSON.parse(validRunFile),
+        attempts,
+        run: {
+          ...JSON.parse(validRunFile).run,
+          planProblems: [{ step: 3, reason: 'resolver differs', instead: 'used runtime resolver' }],
+        },
+      });
+      const header = 'Implementer plan-problem reports (the plan step was reported as wrong; judge whether the alternative is sound):';
+      const reportLine = '- step 3: resolver differs | instead: used runtime resolver';
+
+      it('lists each report after the attempts summary', () => {
+        mockFs.readFileSync.mockReturnValue(withProblems(JSON.parse(validRunFile).attempts));
+
+        const result = resolveVerificationSummary(repoDir, ticket);
+
+        expect(result).toContain('1 attempt(s)');
+        expect(result).toContain(`${header}\n${reportLine}`);
+      });
+
+      it('lists each report when no verification attempts were recorded', () => {
+        mockFs.readFileSync.mockReturnValue(withProblems([]));
+
+        const result = resolveVerificationSummary(repoDir, ticket);
+
+        expect(result).toContain('no verification attempts recorded');
+        expect(result).toContain(`${header}\n${reportLine}`);
+      });
+
+      it('adds nothing without reports', () => {
+        expect(resolveVerificationSummary(repoDir, ticket)).not.toContain('plan-problem');
+      });
     });
 
     it('reads the most recently modified matching file when several exist', () => {

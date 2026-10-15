@@ -10,6 +10,7 @@ import type {
   StepFidelityFailure,
   StepFidelityVerificationResult,
 } from '../shared/types/step-spec-fidelity.types';
+import type { PlanProblem } from '../shared/types/agent.types';
 import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
@@ -19,7 +20,11 @@ import {
   EVIDENCE_FLOOR_CHARS, allocateEvidence, sliceHeadTail, type EvidenceSection,
 } from './plan-step-evidence-budget';
 
-export type AssessableStep = { index: number; text: string; intent?: string | null };
+export type StepPlanProblem = Omit<PlanProblem, 'step'>;
+
+export type AssessableStep = {
+  index: number; text: string; intent?: string | null; planProblem?: StepPlanProblem;
+};
 
 const FIDELITY_CEILING_CHARS = 120_000;
 
@@ -33,6 +38,7 @@ export interface StepSpecFidelityRunParams {
   stepText: string;
   diff: string;
   intent?: string | null;
+  planProblem?: StepPlanProblem;
   provider?: WfAiProviderName;
   model?: string;
   backend?: WfBackendMode;
@@ -83,10 +89,38 @@ const buildIntentSection = (intent?: string | null): string =>
 
 const buildIntentRuleSuffix = (intent?: string | null): string => intent?.trim() ? `\n\n${intentRule}` : '';
 
-export const buildSpecFidelityPrompt = (stepText: string, diff: string, intent?: string | null): string => {
-  const gapNote = diff.includes('[... evidence gap:') ? EVIDENCE_GAP_NOTE : '';
-  return `## Plan step\n\n${stepText}\n\n${buildIntentSection(intent)}## Changed files diff\n\n${gapNote}${diff}\n\n## Your task\n\n${fidelityTaskInstructions}${buildIntentRuleSuffix(intent)}`;
+const planProblemRule = [
+  'The implementer reported this step as wrong and says what it did instead. Judge whether the alternative is sound.',
+  'If the alternative is sound, a literal that differs from the diff is a "warning", not an "error".',
+  'If the alternative is unsound or unrelated to the step purpose, literal mismatches stay "error".',
+].join('\n');
+
+const buildPlanProblemSection = (planProblem?: StepPlanProblem): string =>
+  planProblem
+    ? `## Implementer reported\n\nReason: ${planProblem.reason}\nDone instead: ${planProblem.instead}\n\n`
+    : '';
+
+const buildPlanProblemRuleSuffix = (planProblem?: StepPlanProblem): string =>
+  planProblem ? `\n\n${planProblemRule}` : '';
+
+export type SpecFidelityPromptOptions = {
+  stepText: string;
+  diff: string;
+  intent?: string | null;
+  planProblem?: StepPlanProblem;
 };
+
+export const buildSpecFidelityPrompt = (options: SpecFidelityPromptOptions): string => {
+  const { stepText, diff, intent, planProblem } = options;
+  const gapNote = diff.includes('[... evidence gap:') ? EVIDENCE_GAP_NOTE : '';
+  const sections = `${buildIntentSection(intent)}${buildPlanProblemSection(planProblem)}`;
+  const rules = `${buildIntentRuleSuffix(intent)}${buildPlanProblemRuleSuffix(planProblem)}`;
+  return `## Plan step\n\n${stepText}\n\n${sections}## Changed files diff\n\n${gapNote}${diff}\n\n## Your task\n\n${fidelityTaskInstructions}${rules}`;
+};
+
+const toRunParams = (step: AssessableStep, diff: string): StepSpecFidelityRunParams => ({
+  stepText: step.text, diff, intent: step.intent, planProblem: step.planProblem,
+});
 
 @Injectable()
 export class StepSpecFidelityService {
@@ -127,7 +161,7 @@ export class StepSpecFidelityService {
     const loggedGaps = new Set<string>();
     for (const step of steps) {
       const stepDiff = this.fitDiffToBudget(diff, step.text, loggedGaps);
-      const r = await this.run({ stepText: step.text, diff: stepDiff, intent: step.intent, provider, model, backend });
+      const r = await this.run({ ...toRunParams(step, stepDiff), provider, model, backend });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
         result.failures.push({ ...r.failure, stepIndex: step.index });
@@ -139,7 +173,7 @@ export class StepSpecFidelityService {
     if (!params.diff.trim()) return { findings: [] };
     try {
       const res = await this.aiService.execute({
-        prompt: buildSpecFidelityPrompt(params.stepText, params.diff, params.intent),
+        prompt: buildSpecFidelityPrompt(params),
         maxTokens: 2048, stage: 'implement',
         structuredOutput: { name: 'step_spec_fidelity', schema: stepFidelityResponseJsonSchema },
         ...(params.provider && { provider: params.provider }), ...(params.model && { model: params.model }),

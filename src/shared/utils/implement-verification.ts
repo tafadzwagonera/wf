@@ -6,6 +6,7 @@ import { getWfStateDir } from './wf-paths';
 import type {
   ImplementBackendSelection,
   ImplementRunArtifact,
+  PlanProblem,
   VerificationAttemptArtifact,
   VerificationFailureClassification,
 } from '../types/agent.types';
@@ -96,6 +97,20 @@ export const appendImplementVerificationAttempt = (
   const updated: ImplementVerificationRunFile = {
     ...existing,
     attempts: [...existing.attempts, attempt],
+  };
+
+  fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+  return updated;
+};
+
+export const appendPlanProblemsToRunFile = (
+  filePath: string,
+  planProblems: PlanProblem[]
+): ImplementVerificationRunFile => {
+  const existing = readImplementVerificationRunFile(filePath);
+  const updated: ImplementVerificationRunFile = {
+    ...existing,
+    run: planProblems.length > 0 ? { ...existing.run, planProblems } : existing.run,
   };
 
   fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
@@ -388,7 +403,16 @@ const findLatestCachedVerificationFile = (repoDir: string, ticketKey: string): s
   return files.length > 0 ? files[0].filePath : null;
 };
 
-const formatCachedVerificationSummary = (file: ImplementVerificationRunFile): string => {
+const PLAN_PROBLEM_HEADER
+  = 'Implementer plan-problem reports (the plan step was reported as wrong; judge whether the alternative is sound):';
+
+const formatPlanProblemLines = (planProblems: PlanProblem[] | undefined): string => {
+  if (!planProblems?.length) return '';
+  const lines = planProblems.map(problem => `- step ${problem.step}: ${problem.reason} | instead: ${problem.instead}`);
+  return `\n${PLAN_PROBLEM_HEADER}\n${lines.join('\n')}`;
+};
+
+const formatAttemptsSummary = (file: ImplementVerificationRunFile): string => {
   const { run, attempts } = file;
   const prefix = `Prior implement run (ticket ${run.ticketKey}):`;
   if (attempts.length === 0) return `${prefix} no verification attempts recorded.`;
@@ -397,6 +421,9 @@ const formatCachedVerificationSummary = (file: ImplementVerificationRunFile): st
   const status = last.failed ? `failed (exit ${last.exitCode})` : `passed (exit ${last.exitCode})`;
   return `${prefix} ${attempts.length} attempt(s). Last attempt [${last.command}]: ${status}.`;
 };
+
+const formatCachedVerificationSummary = (file: ImplementVerificationRunFile): string =>
+  `${formatAttemptsSummary(file)}${formatPlanProblemLines(file.run.planProblems)}`;
 
 const generateFallbackVerificationSummary = (repoDir: string): string => {
   try {

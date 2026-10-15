@@ -10,11 +10,13 @@ import {
   estimateOpenAiCostUsd,
   validateTypeScriptEdit,
   OpenAIAgentAdapter,
+  oaiImplementTail,
+  oaiTddImplementTail,
   buildContinuationPrompt,
   buildGrepCommand,
   computeWorkload,
 } from './openai-agent.adapter';
-import { detectMechanicalTask } from './shared-routing';
+import { detectMechanicalTask, planProblemInstruction } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
 import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
@@ -2305,6 +2307,64 @@ describe('OpenAIAgentAdapter', () => {
 
         const promptArg = (mockRun.mock.calls as unknown[][])[1]?.[1] as string | undefined;
         expect(promptArg).toContain('`NO-CHANGE: <path>`');
+      });
+
+      describe('plan problem reports', () => {
+        const runWithOutputs = async (outputs: unknown[], repoFiles: string[] = []) => {
+          const repoDir = createManagedTempDir('openai-plan-problem');
+          fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+          fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+          const mockRun = jest.fn(async () => {
+            const output = outputs[mockRun.mock.calls.length - 1] ?? 'Done.';
+            return makeStreamedRun([], output as string);
+          });
+          mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
+          jest.spyOn(console, 'log').mockImplementation(() => {});
+          const params = { ...makeParams(repoDir), repoFiles };
+          (params.planArtifact.plan.steps as string[]) = ['step 1', 'step 2'];
+          const result = await new OpenAIAgentAdapter(makeConfigService()).generateAndVerify(params);
+          return { result, mockRun };
+        };
+
+        it('returns no reports when none are made', async () => {
+          const { result } = await runWithOutputs(['Done.']);
+
+          expect(result.planProblems).toEqual([]);
+        });
+
+        it('records a report from the initial run output', async () => {
+          const { result } = await runWithOutputs(['PLAN-PROBLEM: 1 | wrong path | used src/b.ts']);
+
+          expect(result.planProblems).toEqual([{ step: 1, reason: 'wrong path', instead: 'used src/b.ts' }]);
+        });
+
+        it('records a report from a continuation pass', async () => {
+          const { result } = await runWithOutputs(
+            ['Done.', 'PLAN-PROBLEM: 2 | stale | skipped\nNO-CHANGE: src/foo.ts'],
+            ['primary/src/foo.ts'],
+          );
+
+          expect(result.planProblems).toEqual([{ step: 2, reason: 'stale', instead: 'skipped' }]);
+        });
+
+        it('ignores a non-string final output', async () => {
+          const { result } = await runWithOutputs([undefined]);
+
+          expect(result.planProblems).toEqual([]);
+        });
+
+        it('carries the instruction in both system instruction constants', () => {
+          expect(oaiImplementTail).toContain(planProblemInstruction);
+          expect(oaiTddImplementTail).toContain(planProblemInstruction);
+        });
+
+        it('carries the instruction in the initial and continuation prompts', async () => {
+          const { mockRun } = await runWithOutputs(['Done.', 'NO-CHANGE: src/foo.ts'], ['primary/src/foo.ts']);
+
+          const prompts = (mockRun.mock.calls as unknown[][]).map(call => call[1] as string);
+          expect(prompts[0]).toContain(planProblemInstruction);
+          expect(prompts[1]).toContain(planProblemInstruction);
+        });
       });
 
       it('includes plan summary in continuation prompt', async () => {

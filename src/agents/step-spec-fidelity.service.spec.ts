@@ -352,32 +352,70 @@ describe('StepSpecFidelityService', () => {
     afterEach(() => jest.restoreAllMocks());
 
     it('includes the stepText verbatim', () => {
-      const prompt = buildSpecFidelityPrompt('must use /\\.ts$/ regex', 'diff');
+      const prompt = buildSpecFidelityPrompt({ stepText: 'must use /\\.ts$/ regex', diff: 'diff' });
       expect(prompt).toContain('must use /\\.ts$/ regex');
     });
 
     it('includes the diff verbatim', () => {
-      const prompt = buildSpecFidelityPrompt('step', '+const x = 1;');
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: '+const x = 1;' });
       expect(prompt).toContain('+const x = 1;');
     });
 
     it('includes the JSON output shape instruction', () => {
-      const prompt = buildSpecFidelityPrompt('step', 'diff');
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff' });
       expect(prompt).toContain('{"findings":[');
     });
 
     it('adds an Intent section with the downgrade rule when an intent is given', () => {
-      const prompt = buildSpecFidelityPrompt('step', 'diff', 'route all lookups through the resolver');
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff', intent: 'route all lookups through the resolver' });
       expect(prompt).toContain('## Intent\n\nroute all lookups through the resolver');
       expect(prompt).toContain('a literal that differs from the diff is a "warning", not an "error"');
       expect(prompt).toContain('Only intents checkable from the diff count');
     });
 
     it.each([undefined, null, ''])('renders exactly the intent-free prompt when intent is %p', intent => {
-      const prompt = buildSpecFidelityPrompt('step', 'diff', intent);
-      expect(prompt).toBe(buildSpecFidelityPrompt('step', 'diff'));
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff', intent });
+      expect(prompt).toBe(buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff' }));
       expect(prompt).not.toContain('## Intent');
       expect(prompt).not.toContain('checkable from the diff');
+    });
+  });
+
+  describe('buildSpecFidelityPrompt with a plan problem', () => {
+    const planProblem = { reason: 'resolver differs from plan text', instead: 'matched the runtime resolver' };
+
+    it('adds an Implementer reported section with the reason and alternative', () => {
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff', planProblem });
+      expect(prompt).toContain(
+        '## Implementer reported\n\nReason: resolver differs from plan text\nDone instead: matched the runtime resolver',
+      );
+    });
+
+    it('tells the auditor to judge the alternative and keeps unsound alternatives as errors', () => {
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff', planProblem });
+      expect(prompt).toContain('The implementer reported this step as wrong');
+      expect(prompt).toContain('Judge whether the alternative is sound');
+      expect(prompt).toContain('If the alternative is sound, a literal that differs from the diff is a "warning"');
+      expect(prompt).toContain('If the alternative is unsound or unrelated to the step purpose, literal mismatches stay "error"');
+    });
+
+    it('renders the prior prompt byte-for-byte without a plan problem', () => {
+      const prompt = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff' });
+      const withReport = buildSpecFidelityPrompt({ stepText: 'step', diff: 'diff', planProblem });
+      const stripped = withReport
+        .replace('## Implementer reported\n\nReason: resolver differs from plan text\nDone instead: matched the runtime resolver\n\n', '')
+        .replace(/\n\nThe implementer reported this step as wrong[\s\S]*$/, '');
+      expect(stripped).toBe(prompt);
+      expect(prompt.startsWith('## Plan step\n\nstep\n\n## Changed files diff\n\ndiff\n\n## Your task\n\n')).toBe(true);
+      expect(prompt.endsWith('Return {"findings":[]} when there are no deviations.')).toBe(true);
+      expect(prompt).not.toContain('Implementer reported');
+    });
+
+    it('passes step.planProblem into the AI prompt from verifyAll', async () => {
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+      await service.verifyAll([{ index: 0, text: 'step-a', planProblem }], '/repo');
+      expect(mockAiExecute).toHaveBeenCalledTimes(1);
+      expect(mockAiExecute.mock.calls[0][0].prompt).toContain('Reason: resolver differs from plan text');
     });
   });
 

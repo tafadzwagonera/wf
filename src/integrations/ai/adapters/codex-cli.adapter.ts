@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import type { PlanProblem } from '../../../shared/types/agent.types';
 import { AiProviderError } from '../../../shared/utils/errors';
 import type {
   TicketArtifact,
@@ -10,7 +11,7 @@ import type {
   VerificationScript,
   VerificationOutcome,
 } from '../../../agents/interfaces';
-import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles, redGreenWorkflowInstruction } from './shared-routing';
+import { DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL, resolveModelRouting, resolveProviderModel, discoverChangedFiles, redGreenWorkflowInstruction, collectPlanProblems, planProblemInstruction } from './shared-routing';
 import { buildSystemPrompt } from './anthropic-agent.adapter';
 import { buildSkillPromptFragment, fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { assertCodexCliAvailable, buildCodexCliArgs, CLI_INACTIVITY_TIMEOUT_MS, CLI_TIMEOUT_MS, getCodexCliVersion, spawnCodex, type CodexCliMessage } from './codex-cli-runner';
@@ -43,6 +44,7 @@ type CodexSessionResult = {
   verificationOutcomes: VerificationOutcome[];
   modelsUsed: string[];
   verificationPassCount: number;
+  planProblems: PlanProblem[];
 };
 
 type AssistantBlock = { type: string; name?: string; input?: Record<string, unknown> };
@@ -50,6 +52,7 @@ type AssistantBlock = { type: string; name?: string; input?: Record<string, unkn
 type ActivityState = {
   lastVerificationCommand?: string;
   verificationOutcomes: VerificationOutcome[];
+  planProblems: PlanProblem[];
 };
 
 type CodexVerificationLoopParams = {
@@ -69,6 +72,7 @@ type StreamContext = {
   touchedFiles: Set<string>;
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
+  planStepCount: number;
   timeoutMs: number;
   inactivityTimeoutMs: number;
 };
@@ -85,10 +89,10 @@ const buildCodexSkillFragment = async (params: GenerateAndVerifyParams): Promise
   params.skillNames?.length ? await buildSkillPromptFragment(params.skillNames, CODEX_ADAPTER_LABEL, chalk.cyan) : '';
 
 const codexImplementTail
-  = 'Implement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands.';
+  = `Implement the changes described above now. Read existing files, apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. ${planProblemInstruction}`;
 
 const codexTddImplementTail
-  = `Implement the changes described above now. Read existing files, apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each verification command provided exactly as written, in order. Do not modify or pipe the commands.`;
+  = `Implement the changes described above now. Read existing files, apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each verification command provided exactly as written, in order. Do not modify or pipe the commands. ${planProblemInstruction}`;
 
 const buildCodexImplementPrompt = async (params: GenerateAndVerifyParams, repoDir: string): Promise<string> => {
   const systemPrompt = buildCodexRawSystemPrompt(params, repoDir);
@@ -234,10 +238,18 @@ const processCodexMessage = (
   return { sessionId, wrote };
 };
 
+type CodexStreamState = { sessionId: string | undefined; wrote: boolean; finalMessageText: string };
+
+const trackFinalAgentMessage = (message: CodexCliMessage, state: CodexStreamState): void => {
+  if (message.type !== 'item.completed' || message.item?.type !== 'agent_message') return;
+  state.finalMessageText = message.item.text ?? '';
+};
+
 const applyCodexMessage = (
-  message: CodexCliMessage, ctx: StreamContext, state: { sessionId: string | undefined; wrote: boolean },
+  message: CodexCliMessage, ctx: StreamContext, state: CodexStreamState,
 ): void => {
   throwOnTerminalCodexError(message);
+  trackFinalAgentMessage(message, state);
   const result = processCodexMessage(message, ctx);
   if (result.sessionId) state.sessionId = result.sessionId;
   if (result.wrote) state.wrote = true;
@@ -247,12 +259,13 @@ const processCodexStream = async (
   ctx: StreamContext,
   initialSessionId: string | undefined,
 ): Promise<{ sessionId: string | undefined; wrote: boolean }> => {
-  const state = { sessionId: initialSessionId, wrote: false };
+  const state: CodexStreamState = { sessionId: initialSessionId, wrote: false, finalMessageText: '' };
   for await (const message of spawnCodex(
     ctx.cliArgs, ctx.repoDir, ctx.implementPrompt, undefined, ctx.timeoutMs, ctx.inactivityTimeoutMs,
   )) {
     applyCodexMessage(message, ctx, state);
   }
+  collectPlanProblems(ctx.activityState.planProblems, state.finalMessageText, ctx.planStepCount);
   return state;
 };
 
@@ -288,13 +301,13 @@ const buildStreamContext = async (
 ): Promise<StreamContext> => {
   const implementPrompt = params.options.initialPromptOverride ?? await buildCodexImplementPrompt(params, repoDir);
   const cliArgs = buildCodexCliArgs({
-    prompt: implementPrompt, model, cwd: repoDir,
-    permissionMode: 'full-auto', sessionId: params.options.resumeProviderSessionId,
-    codexVersion: getCodexCliVersion(),
+    prompt: implementPrompt, model, cwd: repoDir, permissionMode: 'full-auto',
+    sessionId: params.options.resumeProviderSessionId, codexVersion: getCodexCliVersion(),
   });
   return {
     cliArgs, repoDir, implementPrompt, timeoutMs, inactivityTimeoutMs,
     touchedFiles: new Set<string>(), activityState, verificationScripts: params.verificationScripts,
+    planStepCount: params.planArtifact.plan.steps.length,
   };
 };
 
@@ -334,7 +347,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams,
   ): Promise<{
     sessionId?: string; verificationOutcomes: VerificationOutcome[];
-    modelsUsed?: string[]; verificationPassCount: number;
+    modelsUsed?: string[]; verificationPassCount: number; planProblems: PlanProblem[];
   }> {
     const repoDir = params.options.repoDir ?? process.cwd();
     assertCodexCliAvailable();
@@ -346,7 +359,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams, model: string, repoDir: string,
   ): Promise<CodexSessionResult> {
     console.log(chalk.bold.cyan(`\n  [${CODEX_ADAPTER_LABEL}] Running Codex CLI agent in ${repoDir}...`));
-    const activityState: ActivityState = { verificationOutcomes: [] };
+    const activityState: ActivityState = { verificationOutcomes: [], planProblems: [] };
     const { timeoutMs, inactivityTimeoutMs } = this.resolveImplementTimeouts();
     const { sessionId, touchedFiles } = await runCodexStream(
       params, repoDir, model, activityState, timeoutMs, inactivityTimeoutMs,
@@ -364,7 +377,7 @@ export class CodexCliAdapter implements ImplementerBackend {
   private async finalizeCodexSession(
     params: GenerateAndVerifyParams, activityState: ActivityState,
     touchedFiles: Set<string>, sessionId: string | undefined, model: string,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; verificationPassCount: number }> {
+  ): Promise<Omit<CodexSessionResult, 'modelsUsed'>> {
     this.logSessionSummary(touchedFiles, sessionId);
     const repoDir = params.options.repoDir ?? process.cwd();
     const skillFragment = await buildCodexSkillFragment(params) || undefined;
@@ -372,7 +385,8 @@ export class CodexCliAdapter implements ImplementerBackend {
       params, activityState, touchedFiles, sessionId, model, repoDir, skillFragment,
     });
     printVerificationReport(outcomes);
-    return { sessionId, verificationOutcomes: outcomes, verificationPassCount };
+    const { planProblems } = activityState;
+    return { sessionId, verificationOutcomes: outcomes, verificationPassCount, planProblems };
   }
 
   private logFixPassStart(passNumber: number, failureCount: number): void {
@@ -417,6 +431,7 @@ export class CodexCliAdapter implements ImplementerBackend {
     return {
       cliArgs: [], repoDir, implementPrompt: '', touchedFiles,
       activityState, verificationScripts: params.verificationScripts,
+      planStepCount: params.planArtifact.plan.steps.length,
       timeoutMs, inactivityTimeoutMs,
     };
   }

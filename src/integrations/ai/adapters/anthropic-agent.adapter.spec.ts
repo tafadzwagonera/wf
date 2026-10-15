@@ -12,6 +12,7 @@ import {
   deleteRepoFile,
   formatActivityMessages,
   formatProgressMessage,
+  collectResultPlanProblems,
 } from './anthropic-agent.adapter';
 import { detectMechanicalTask } from './shared-routing';
 import * as skillContent from '../../../skills/skill-content';
@@ -1257,6 +1258,67 @@ describe('AnthropicAgentAdapter', () => {
 
     const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string };
     expect(queryArgs.prompt).toBe(`custom override${fragment}`);
+  });
+
+  describe('plan problem reports', () => {
+    const run = async (results: string[], repoFiles: string[] = []) => {
+      const mockQuery = jest.fn();
+      for (const result of results) {
+        mockQuery.mockReturnValueOnce(makeSdkSession([makeResultSuccess({ session_id: 'session-pp', result })]));
+      }
+      mockQuery.mockImplementation(() => makeSdkSession([makeResultSuccess({ session_id: 'session-pp' })]));
+      mockSdkModule({ query: mockQuery } as never);
+      const params = makeParams();
+      (params.planArtifact.plan.steps as string[]) = ['step 1', 'step 2'];
+      params.repoFiles = repoFiles;
+      return new AnthropicAgentAdapter(makeConfigService()).generateAndVerify(params);
+    };
+
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('returns no reports when none are made', async () => {
+      const result = await run(['Done.']);
+
+      expect(result.planProblems).toEqual([]);
+    });
+
+    it('records a report from the initial session result', async () => {
+      const result = await run(['PLAN-PROBLEM: 1 | wrong path | used src/b.ts']);
+
+      expect(result.planProblems).toEqual([{ step: 1, reason: 'wrong path', instead: 'used src/b.ts' }]);
+    });
+
+    it('records a report from a continuation pass', async () => {
+      const result = await run(['Done.', 'PLAN-PROBLEM: 2 | stale | skipped\nNO-CHANGE: src/foo.ts'], ['primary/src/foo.ts']);
+
+      expect(result.planProblems).toEqual([{ step: 2, reason: 'stale', instead: 'skipped' }]);
+    });
+
+    it('keeps the first report when a later pass reports the same step', async () => {
+      const result = await run(
+        ['PLAN-PROBLEM: 1 | first | one', 'PLAN-PROBLEM: 1 | second | two\nNO-CHANGE: src/foo.ts'],
+        ['primary/src/foo.ts'],
+      );
+
+      expect(result.planProblems).toEqual([{ step: 1, reason: 'first', instead: 'one' }]);
+    });
+
+    it('records nothing from a non-success result', () => {
+      const activityState = { planProblems: [] as never[] };
+      const errored = makeResultError({ result: 'PLAN-PROBLEM: 1 | a | b' } as never);
+
+      collectResultPlanProblems(activityState as never, errored, 2);
+
+      expect(activityState.planProblems).toEqual([]);
+    });
+
+    it('drops a step number above the plan step count', async () => {
+      const result = await run(['PLAN-PROBLEM: 3 | a | b']);
+
+      expect(result.planProblems).toEqual([]);
+    });
   });
 
   describe('buildSystemPrompt', () => {

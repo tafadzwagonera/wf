@@ -13,6 +13,7 @@ import {
   ImplementerBackend,
   TicketArtifact,
   PlanArtifact,
+  PlanProblem,
   ImplementerOptions,
   ResolutionAction,
   FindingsArtifact,
@@ -24,7 +25,9 @@ import { CliPresenter } from '../shared/presentation/cli-presenter.service';
 import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 import { ConfigurationError, ExecutionError, GitError, InvalidBranchNameError, ValidationError } from '../shared/utils/errors';
 import { resolveSkills } from '../skills';
-import { formatBackendSelection, writeImplementVerificationRunFile } from '../shared/utils/implement-verification';
+import {
+  appendPlanProblemsToRunFile, formatBackendSelection, writeImplementVerificationRunFile,
+} from '../shared/utils/implement-verification';
 import { getWfStateDir } from '../shared/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
 import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../shared/utils/implement-commit-policy';
@@ -95,8 +98,53 @@ interface AssessorTarget {
 
 type PlannedStep = { text: string; intent?: string | null };
 
-const toAssessableStep = (index: number, { text, intent }: PlannedStep): AssessableStep =>
-  intent ? { index, text, intent } : { index, text };
+const toAssessableStep = (index: number, { text, intent }: PlannedStep, report?: PlanProblem): AssessableStep => ({
+  index,
+  text,
+  ...(intent && { intent }),
+  ...(report && { planProblem: { reason: report.reason, instead: report.instead } }),
+});
+
+type PlanProblemLedger = {
+  add: (problems?: PlanProblem[]) => void;
+  forStep: (planStepNumber: number) => PlanProblem | undefined;
+  all: () => PlanProblem[];
+};
+
+const createPlanProblemLedger = (initial: PlanProblem[]): PlanProblemLedger => {
+  const byStep = new Map<number, PlanProblem>();
+  const add = (problems: PlanProblem[] = []): void => {
+    for (const problem of problems) {
+      if (!byStep.has(problem.step)) byStep.set(problem.step, problem);
+    }
+  };
+  add(initial);
+  return { add, forStep: planStepNumber => byStep.get(planStepNumber), all: () => [...byStep.values()] };
+};
+
+const buildPlanStepNumbers = (filteredSteps: PlannedStep[], assessedSteps: PlannedStep[]): number[] =>
+  assessedSteps.map(step => filteredSteps.indexOf(step) + 1);
+
+const formatPlanProblemAnnotation = (report: PlanProblem): string => [
+  `[IMPLEMENTER REPORTED PLAN PROBLEM - plan step ${report.step}]`,
+  `Reason: ${report.reason}`,
+  `Done instead: ${report.instead}`,
+  'Accept the alternative when it satisfies the step purpose; do not demand literal conformance.',
+].join('\n');
+
+const collectPlanProblemReports = (
+  indices: number[], planStepNumbers: number[], ledger: PlanProblemLedger,
+): Map<number, PlanProblem> => {
+  const reports = new Map<number, PlanProblem>();
+  for (const index of indices) {
+    const report = ledger.forStep(planStepNumbers[index]);
+    if (report) reports.set(index, report);
+  }
+  return reports;
+};
+
+const annotateWithPlanProblem = (text: string, report?: PlanProblem): string =>
+  report ? `${text}\n\n${formatPlanProblemAnnotation(report)}` : text;
 
 const toPlannedSteps = ({ plan }: PlanArtifact): PlannedStep[] =>
   plan.steps.map((text, index) => ({ text, intent: plan.stepIntents?.[index] }));
@@ -116,6 +164,8 @@ type VerificationRunParamsArgs = {
   options: ImplementerOptions;
   resolved: FileResolution;
   assessedSteps: PlannedStep[];
+  planStepNumbers: number[];
+  planProblemLedger: PlanProblemLedger;
   sessionId: string;
   stallWindow: number;
   modeDirective?: StepVerificationModeDirective;
@@ -127,6 +177,44 @@ type VerificationRunParamsArgs = {
   commitPolicy: CommitPolicy;
   refreshSteps?: (indices: number[]) => Promise<Map<number, string>>;
   getSuppressed?: () => number;
+};
+
+const annotateStepTexts = (steps: AssessableStep[], reports: Map<number, PlanProblem>): Map<number, string> =>
+  new Map(steps.map(step => [step.index, annotateWithPlanProblem(step.text, reports.get(step.index))]));
+
+type PlanStepVerificationArgs = {
+  ticket: TicketArtifact;
+  scopedPlan: PlanArtifact;
+  options: ImplementerOptions;
+  resolved: FileResolution;
+  filteredSteps: PlannedStep[];
+  result: ImplementerResult;
+  baseline: { sha: string; branch: string } | null;
+  ledger: PlanProblemLedger;
+};
+
+type FidelityRefresherArgs = {
+  originalSteps: PlannedStep[];
+  repoDir: string;
+  baseRef?: string;
+  assessorTarget?: AssessorTarget;
+  planStepNumbers: number[];
+  planProblemLedger: PlanProblemLedger;
+};
+
+type FidelityRefresher = {
+  refresh: (indices: number[]) => Promise<Map<number, string>>;
+  getSuppressed: () => number;
+};
+
+type EnrichStepsArgs = {
+  steps: AssessableStep[];
+  reports: Map<number, PlanProblem>;
+  repoDir: string;
+  baseRef: string | undefined;
+  raised: Map<string, number>;
+  onSuppressed: () => void;
+  assessorTarget?: AssessorTarget;
 };
 
 @Injectable()
@@ -141,6 +229,8 @@ export class ImplementerAgent {
   private planStepVerificationPassCount = 0;
 
   private verificationPassOffset = 0;
+
+  private latestRunArtifactPath: string | undefined;
 
   constructor(
     private readonly configService: ConfigService,
@@ -186,12 +276,51 @@ export class ImplementerAgent {
     const scopedPlan = scopePlanToSteps(planArtifact, filteredSteps);
     const baseline = await this.captureCommitBaseline(options.repoDir);
     const result = await this.runBackend(ticket, scopedPlan, options, branchName, resolved, baseline);
-    return this.applyPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
+    return this.verifyAndFinalize({ ticket, scopedPlan, options, resolved, filteredSteps, result, baseline });
+  }
+
+  private async verifyAndFinalize(args: Omit<PlanStepVerificationArgs, 'ledger'>): Promise<ImplementerResult> {
+    const { result } = args;
+    const ledger = createPlanProblemLedger(result.type === 'implementation' ? result.planProblems ?? [] : []);
+    const verified = await this.applyPlanStepVerification({ ...args, ledger });
+    return this.finalizePlanProblems(verified, ledger);
   }
 
   private resetRunCounters(): void {
     this.verificationPassOffset = 0;
     this.planStepVerificationPassCount = 0;
+    this.latestRunArtifactPath = undefined;
+  }
+
+  private finalizePlanProblems(result: ImplementerResult, ledger: PlanProblemLedger): ImplementerResult {
+    if (result.type !== 'implementation') return result;
+    const planProblems = ledger.all();
+    this.printPlanProblemNotices(planProblems);
+    this.persistPlanProblems(planProblems);
+    return { ...result, planProblems };
+  }
+
+  private printPlanProblemNotices(planProblems: PlanProblem[]): void {
+    for (const problem of planProblems) {
+      console.log(chalk.yellow(
+        `  Plan problem reported for step ${problem.step}: ${problem.reason} (instead: ${problem.instead})`,
+      ));
+      appendToLogFile('INFO', `plan-problem.reported step=${problem.step}`, 'plan-problem');
+    }
+  }
+
+  private persistPlanProblems(planProblems: PlanProblem[]): void {
+    if (planProblems.length === 0) return;
+    if (!this.latestRunArtifactPath) {
+      appendToLogFile('WARN', 'plan-problem.persist.skipped cause=no-run-artifact-path', 'plan-problem');
+      return;
+    }
+    try {
+      appendPlanProblemsToRunFile(this.latestRunArtifactPath, planProblems);
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('WARN', `plan-problem.persist.failed cause=${cause}`, 'plan-problem');
+    }
   }
 
   private printImplementationHeader(options: ImplementerOptions): void {
@@ -276,43 +405,54 @@ export class ImplementerAgent {
     if (adapterResult === undefined) throw new ExecutionError('adapter returned no result');
     const hasChanges = (await this.gitService.getStatus(options.repoDir)).files.length > 0;
     const { sessionId, verificationOutcomes, passCount, modelsUsed } = adapterResult;
-    return { type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount, modelsUsed };
+    const planProblems = adapterResult.planProblems ?? [];
+    return {
+      type: 'implementation', hasChanges, branchName, sessionId, verificationOutcomes, passCount, modelsUsed,
+      planProblems,
+    };
   }
 
-  private async applyPlanStepVerification(
-    ticket: TicketArtifact, scopedPlan: PlanArtifact,
-    options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: PlannedStep[], result: ImplementerResult,
-    baseline: { sha: string; branch: string } | null,
-  ): Promise<ImplementerResult> {
+  private async applyPlanStepVerification(args: PlanStepVerificationArgs): Promise<ImplementerResult> {
     try {
-      return await this.runPlanStepVerification(ticket, scopedPlan, options, resolved, filteredSteps, result, baseline);
+      return await this.runPlanStepVerification(args);
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
       appendToLogFile('ERROR', `step-verify.unexpected cause=${cause}`, 'step-verification');
-      return result;
+      return args.result;
     }
   }
 
-  private async runPlanStepVerification(
-    ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions, resolved: FileResolution,
-    filteredSteps: PlannedStep[], result: ImplementerResult, baseline: { sha: string; branch: string } | null,
-  ): Promise<ImplementerResult> {
+  private async runPlanStepVerification(args: PlanStepVerificationArgs): Promise<ImplementerResult> {
+    const { scopedPlan, options, filteredSteps, result } = args;
     const cfg = this.configService.get<WfPlanStepVerificationConfig>('stages.implement.planStepVerification');
     if (result.type !== 'implementation' || !result.sessionId) return result;
     const assessedSteps = this.resolveAssessedSteps(filteredSteps, options);
     const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
     const skipReason = this.resolvePlanStepVerificationSkipReason(cfg, result, assessedSteps, options, policy);
     if (skipReason) return (this.planStepVerification.logSkip(skipReason, options.silent), result);
-    const assessorTarget = this.resolveAssessorTarget(cfg);
-    const params = this.buildVerificationRunParams({
-      ticket, scopedPlan, options, resolved, sessionId: result.sessionId, baseline, assessedSteps,
-      ...this.resolveVerificationLoopSettings(cfg, scopedPlan),
-      verificationOutcomes: result.verificationOutcomes, commitPolicy: policy, ...assessorTarget,
-      ...this.createFidelityRefresher(assessedSteps, options, baseline, assessorTarget),
-    });
+    const params = this.buildPlanStepRunParams({ ...args, result }, { cfg, assessedSteps, policy }, result.sessionId);
     this.logVerificationHeading();
     return this.mergeVerificationOutcome(result, await this.planStepVerification.run(params));
+  }
+
+  private buildPlanStepRunParams(
+    args: PlanStepVerificationArgs & { result: Extract<ImplementerResult, { type: 'implementation' }> },
+    plan: { cfg: WfPlanStepVerificationConfig | undefined; assessedSteps: PlannedStep[]; policy: CommitPolicy },
+    sessionId: string,
+  ): PlanStepVerificationRunParams {
+    const { ticket, scopedPlan, options, resolved, filteredSteps, result, baseline, ledger } = args;
+    const assessorTarget = this.resolveAssessorTarget(plan.cfg);
+    const planStepNumbers = buildPlanStepNumbers(filteredSteps, plan.assessedSteps);
+    return this.buildVerificationRunParams({
+      ticket, scopedPlan, options, resolved, sessionId, baseline, assessedSteps: plan.assessedSteps,
+      planStepNumbers, planProblemLedger: ledger,
+      ...this.resolveVerificationLoopSettings(plan.cfg, scopedPlan),
+      verificationOutcomes: result.verificationOutcomes, commitPolicy: plan.policy, ...assessorTarget,
+      ...this.createFidelityRefresher({
+        originalSteps: plan.assessedSteps, repoDir: options.repoDir ?? process.cwd(), baseRef: baseline?.sha,
+        assessorTarget, planStepNumbers, planProblemLedger: ledger,
+      }),
+    });
   }
 
   private logVerificationHeading(): void {
@@ -322,12 +462,9 @@ export class ImplementerAgent {
   }
 
   private createFidelityRefresher(
-    assessedSteps: PlannedStep[], options: ImplementerOptions, baseline: { sha: string; branch: string } | null,
-    assessorTarget: AssessorTarget,
+    args: FidelityRefresherArgs,
   ): Pick<PlanStepVerificationRunParams, 'refreshSteps' | 'getSuppressed'> {
-    const refresher = this.buildFidelityRefresher(
-      assessedSteps, options.repoDir ?? process.cwd(), baseline?.sha, assessorTarget,
-    );
+    const refresher = this.buildFidelityRefresher(args);
     return { refreshSteps: refresher.refresh, getSuppressed: refresher.getSuppressed };
   }
 
@@ -408,9 +545,9 @@ export class ImplementerAgent {
   }
 
   private buildVerificationRunParams(args: VerificationRunParamsArgs): PlanStepVerificationRunParams {
-    const { ticket, scopedPlan, options, resolved, assessedSteps } = args;
+    const { scopedPlan, options, assessedSteps } = args;
     return {
-      steps: assessedSteps.map(step => step.text),
+      steps: assessedSteps.map(step => step.text), planStepNumbers: args.planStepNumbers,
       planSummary: scopedPlan.plan.summary,
       repoDir: options.repoDir ?? process.cwd(),
       affectedFiles: toAffectedFilePaths(scopedPlan.plan.affectedFiles),
@@ -423,15 +560,22 @@ export class ImplementerAgent {
       ...(args.assessorBackend && { assessorBackend: args.assessorBackend }),
       ...(args.verificationOutcomes.length && { verificationOutcomes: args.verificationOutcomes }),
       commitPolicy: args.commitPolicy, silent: options.silent,
-      runFixRound: (prompt, sid) => this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sid),
+      runFixRound: (prompt, sid) => this.runFixRoundRecordingPlanProblems(args, prompt, sid),
       refreshSteps: args.refreshSteps, getSuppressed: args.getSuppressed,
     };
   }
 
-  private async enrichStepsWithFidelityErrors(
-    steps: AssessableStep[], repoDir: string, baseRef: string | undefined, raised: Map<string, number>,
-    onSuppressed: () => void, assessorTarget?: AssessorTarget,
-  ): Promise<Map<number, string>> {
+  private async runFixRoundRecordingPlanProblems(
+    args: VerificationRunParamsArgs, prompt: string, sessionId: string,
+  ): Promise<{ sessionId?: string; passCount?: number }> {
+    const { ticket, scopedPlan, options, resolved } = args;
+    const fix = await this.runVerificationFixRound(ticket, scopedPlan, options, resolved, prompt, sessionId);
+    args.planProblemLedger.add(fix.planProblems);
+    return { sessionId: fix.sessionId, passCount: fix.passCount };
+  }
+
+  private async enrichStepsWithFidelityAndPlanProblems(args: EnrichStepsArgs): Promise<Map<number, string>> {
+    const { steps, reports, repoDir, baseRef, raised, onSuppressed, assessorTarget } = args;
     const strippedSteps = stripRepoNamePrefix(steps, repoDir);
     const result = await this.stepSpecFidelity.verifyAll(strippedSteps, repoDir, baseRef, assessorTarget);
     this.logFidelityFailures(result.failures);
@@ -439,9 +583,10 @@ export class ImplementerAgent {
       const findings = result.findingsPerStep.get(step.index) ?? [];
       const errors = findings.filter((f: StepFidelityFinding) => f.severity === 'error');
       const blocking = this.filterBlockingFidelityErrors(step.index, errors, raised, onSuppressed);
-      if (!blocking.length) return [step.index, step.text];
+      const annotated = annotateWithPlanProblem(step.text, reports.get(step.index));
+      if (!blocking.length) return [step.index, annotated];
       const block = blocking.map(f => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
-      return [step.index, `${step.text}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`];
+      return [step.index, `${annotated}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`];
     }));
   }
 
@@ -473,19 +618,20 @@ export class ImplementerAgent {
     return `${stepIndex}:${claim.trim().toLowerCase().replaceAll(/\s+/g, ' ')}`;
   }
 
-  private buildFidelityRefresher(
-    originalSteps: PlannedStep[], repoDir: string, baseRef?: string, assessorTarget?: AssessorTarget,
-  ): { refresh: (indices: number[]) => Promise<Map<number, string>>; getSuppressed: () => number } {
+  private buildFidelityRefresher(args: FidelityRefresherArgs): FidelityRefresher {
+    const { originalSteps, repoDir, baseRef, assessorTarget, planStepNumbers, planProblemLedger } = args;
     const raised = new Map<string, number>();
     let suppressed = 0;
     return {
       refresh: (indices = originalSteps.map((_, index) => index)) => {
-        const steps = indices.map(index => toAssessableStep(index, originalSteps[index]));
+        const reports = collectPlanProblemReports(indices, planStepNumbers, planProblemLedger);
+        const steps = indices.map(index => toAssessableStep(index, originalSteps[index], reports.get(index)));
         const incrementSuppressed = (): void => {
           suppressed += 1;
         };
-        return this.enrichStepsWithFidelityErrors(steps, repoDir, baseRef, raised, incrementSuppressed, assessorTarget)
-          .catch(() => new Map(steps.map(step => [step.index, step.text])));
+        return this.enrichStepsWithFidelityAndPlanProblems({
+          steps, reports, repoDir, baseRef, raised, onSuppressed: incrementSuppressed, assessorTarget,
+        }).catch(() => annotateStepTexts(steps, reports));
       },
       getSuppressed: () => suppressed,
     };
@@ -494,7 +640,7 @@ export class ImplementerAgent {
   private async runVerificationFixRound(
     ticket: TicketArtifact, scopedPlan: PlanArtifact, options: ImplementerOptions,
     resolved: FileResolution, prompt: string, sessionId: string,
-  ): Promise<{ sessionId?: string; passCount?: number }> {
+  ): Promise<{ sessionId?: string; passCount?: number; planProblems?: PlanProblem[] }> {
     try {
       const policy = resolveCommitPolicy(scopedPlan.plan.estimatedComplexity);
       const baseline = await this.captureCommitBaseline(options.repoDir);
@@ -504,7 +650,7 @@ export class ImplementerAgent {
         resolved,
       );
       await this.enforceCommitPolicy(policy, baseline, options.repoDir);
-      return { sessionId: res.sessionId, passCount: res.passCount };
+      return { sessionId: res.sessionId, passCount: res.passCount, planProblems: res.planProblems ?? [] };
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
       appendToLogFile('ERROR', `step-verify.fix.failed cause=${cause}`, 'step-verification');
@@ -518,6 +664,7 @@ export class ImplementerAgent {
   ): Promise<{
     adapterResult?: {
       sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount?: number; modelsUsed?: string[];
+      planProblems?: PlanProblem[];
     };
     error?: unknown;
   }> {
@@ -690,7 +837,7 @@ export class ImplementerAgent {
     const conventionsSection = this.buildConventionsSection(options.repoDir, repoName, planArtifact, ticket.ticketKey);
     const backendSelection = this.resolveImplementBackendSelection();
     console.log(chalk.cyan(`  ${formatBackendSelection(backendSelection)}`));
-    this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
+    this.latestRunArtifactPath = this.writeRunArtifact(ticket, options, backendSelection, verificationScripts);
     const skillParams = await this.resolveSkillParams(ticket, options, planArtifact.path);
     this.stageAgentService.logResolvedStageTarget('implement');
     const res = await this.createAdapter(backendSelection).generateAndVerify({
@@ -1208,7 +1355,7 @@ export class ImplementerAgent {
     options: ImplementerOptions,
     backendSelection: ImplementBackendSelection,
     verificationScripts: VerificationScript[]
-  ): void {
+  ): string {
     const filePath = this.getImplementVerificationRunPath(ticket.ticketKey, options.repoDir);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     writeImplementVerificationRunFile(filePath, {
@@ -1220,6 +1367,7 @@ export class ImplementerAgent {
       verificationScripts: verificationScripts.map(({ id, command }) => ({ id, command })),
       startedAt: new Date().toISOString(),
     });
+    return filePath;
   }
 
   private async executeInvestigation(ticket: TicketArtifact, planArtifact: PlanArtifact): Promise<ImplementerResult> {

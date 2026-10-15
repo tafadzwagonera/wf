@@ -323,6 +323,72 @@ describe('CodexCliAdapter', () => {
     expect(result.modelsUsed).toEqual([expect.any(String)]);
   });
 
+  describe('plan problem reports', () => {
+    const agentMessage = (text: string) => ({ type: 'item.completed', item: { type: 'agent_message', text } });
+
+    const run = async (messages: unknown[]) => {
+      mockSpawnCodex.mockReturnValue(
+        (async function* () {
+          for (const message of messages) yield message as never;
+        })()
+      );
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      return new CodexCliAdapter(createMockConfigService() as ConfigService).generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1', 'step 2'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles: [],
+        repoName: 'repo',
+        trackedFilePaths: [],
+      } as never);
+    };
+
+    it('tells the agent how to report a plan problem', async () => {
+      await run([agentMessage('Done.')]);
+
+      expect(mockBuildCodexCliArgs).toHaveBeenCalled();
+      expect(mockBuildCodexCliArgs.mock.calls[0][0].prompt).toContain('PLAN-PROBLEM: <step number');
+    });
+
+    it('returns no reports when the agent reports nothing', async () => {
+      const result = await run([agentMessage('Done.')]);
+
+      expect(result.planProblems).toEqual([]);
+    });
+
+    it('records a report from the last agent message', async () => {
+      const result = await run([
+        agentMessage('Working on it.'),
+        agentMessage('Done.\nPLAN-PROBLEM: 2 | wrong path | used src/b.ts'),
+      ]);
+
+      expect(result.planProblems).toEqual([{ step: 2, reason: 'wrong path', instead: 'used src/b.ts' }]);
+    });
+
+    it('ignores a report that only appears in an earlier interim agent message', async () => {
+      const result = await run([
+        agentMessage('PLAN-PROBLEM: 1 | interim | thought'),
+        agentMessage('Done.'),
+      ]);
+
+      expect(result.planProblems).toEqual([]);
+    });
+
+    it('drops a step number above the plan step count', async () => {
+      const result = await run([agentMessage('PLAN-PROBLEM: 3 | a | b')]);
+
+      expect(result.planProblems).toEqual([]);
+    });
+  });
+
   describe('implement stage stall threshold', () => {
     const makeState = (readOnly: number) => ({
       outcomes: [], codeFailures: [{}], sessionId: 's1',

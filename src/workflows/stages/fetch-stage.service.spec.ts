@@ -4,12 +4,11 @@ import { IssueTrackerService } from '../../integrations/issue-trackers/issue-tra
 import { FetchStageService } from './fetch-stage.service';
 import * as agentUtils from '../../agents/utils';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
 
 describe('FetchStageService', () => {
-  const testHomeDir = path.join(os.tmpdir(), 'wf-fetch-home');
+  let testHomeDir: string;
   const mockTicket = {
     key: 'WBP-123',
     title: 'Fix broken auth flow',
@@ -57,11 +56,12 @@ describe('FetchStageService', () => {
     );
   };
 
+  beforeEach(() => {
+    testHomeDir = createManagedTempDir('fetch-home');
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
-    if (fs.existsSync(testHomeDir)) {
-      fs.rmSync(testHomeDir, { recursive: true, force: true });
-    }
   });
 
   it('fetches a ticket using a formatted Bitbucket reference for repo names', async () => {

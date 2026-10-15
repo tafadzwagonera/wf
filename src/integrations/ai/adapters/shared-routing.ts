@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { exec } from 'node:child_process';
+import { appendToLogFile } from '../../../shared/logger/log-file-writer';
 import { ConfigurationError } from '../../../shared/utils/errors';
 import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
@@ -15,7 +16,7 @@ import type { WfImplementStageModelRoutingThresholdsConfig } from '../../../shar
 
 export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
-import type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
+import type { BuildTaskBriefParams, BuildPlanContextParams, PlanProblem } from '../../../shared/types/agent.types';
 export type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
 
 const execAsync = promisify(exec);
@@ -231,14 +232,90 @@ export const noChangeInstruction
   = 'If a listed file already satisfies the plan and requires no change, do not edit it; '
     + 'instead include a line `NO-CHANGE: <path>` (one per file) in your final summary.';
 
+export const planProblemInstruction
+  = 'Only when a plan step cannot or should not be implemented as written, include a final-message line '
+    + '`PLAN-PROBLEM: <step number from the Plan steps list> | <reason> | <what you did instead>` '
+    + 'with a non-empty reason and alternative.';
+
 export const continuationTail
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
     + 'After addressing all listed files, run each verification command above exactly as written. '
     + 'Then use Grep to search for the needle, case-insensitive, across the whole repository including non-code files, '
     + 'and continue editing until zero matches remain. '
     + `${noChangeInstruction} `
+    + `${planProblemInstruction} `
     + 'Begin by taking action: read the first listed file and apply its edit or declare it NO-CHANGE. '
     + 'Save narration for after you\'ve made the changes.';
+
+const PLAN_PROBLEM_LINE_PATTERN = /^\s*(?:[-*]\s+)?[*`]*PLAN-PROBLEM[*`]*:[*`]*\s*(.*)$/i;
+const PLAN_PROBLEM_STEP_PATTERN = /^(?:step\s*)?#?(\d+)\.?$/i;
+
+const MAX_PLAN_PROBLEM_TEXT_CHARS = 500;
+export const MAX_PLAN_PROBLEMS = 20;
+
+const countOccurrences = (text: string, token: string): number => text.split(token).length - 1;
+
+const stripUnbalancedWrapper = (text: string): string =>
+  ['`', '**'].reduce(
+    (current, token) => current.endsWith(token) && countOccurrences(current, token) % 2 === 1
+      ? current.slice(0, -token.length)
+      : current,
+    text,
+  );
+
+const parsePlanProblemBody = (body: string, stepCount: number): PlanProblem | null => {
+  const parts = stripUnbalancedWrapper(body.trim()).split('|').map(part => part.trim());
+  if (parts.length !== 3 || parts.includes('')) return null;
+  const stepMatch = PLAN_PROBLEM_STEP_PATTERN.exec(parts[0].replaceAll(/[*`]/g, ''));
+  const step = stepMatch ? Number(stepMatch[1]) : 0;
+  if (step < 1 || step > stepCount) return null;
+  return {
+    step,
+    reason: parts[1].slice(0, MAX_PLAN_PROBLEM_TEXT_CHARS),
+    instead: parts[2].slice(0, MAX_PLAN_PROBLEM_TEXT_CHARS),
+  };
+};
+
+const extractPlanProblemLines = (resultText: string): Array<{ line: string; body: string }> =>
+  resultText.split('\n').flatMap(line => {
+    const body = PLAN_PROBLEM_LINE_PATTERN.exec(line)?.[1];
+    return body === undefined ? [] : [{ line: line.trim(), body }];
+  });
+
+type ParsedPlanProblemLine = { line: string; problem: PlanProblem | null };
+
+const isDuplicateStep = (entry: ParsedPlanProblemLine, index: number, entries: ParsedPlanProblemLine[]): boolean =>
+  entry.problem !== null
+  && entries.findIndex(other => other.problem?.step === entry.problem?.step) !== index;
+
+export const parsePlanProblems = (
+  resultText: string,
+  stepCount: number
+): { problems: PlanProblem[]; ignored: string[] } => {
+  const entries = extractPlanProblemLines(resultText)
+    .map(entry => ({ line: entry.line, problem: parsePlanProblemBody(entry.body, stepCount) }));
+  const accepted = entries.filter((entry, index) => entry.problem && !isDuplicateStep(entry, index, entries));
+  const rejected = entries.filter(entry => !accepted.includes(entry));
+  return {
+    problems: accepted.flatMap(entry => entry.problem ? [entry.problem] : []),
+    ignored: rejected.map(entry => entry.line),
+  };
+};
+
+export const collectPlanProblems = (sink: PlanProblem[], resultText: string, stepCount: number): number => {
+  const { problems, ignored } = parsePlanProblems(resultText, stepCount);
+  for (const line of ignored) {
+    appendToLogFile('WARN', `plan-problem.ignored line=${line}`, 'plan-problem');
+  }
+  const fresh = problems
+    .filter(problem => !sink.some(existing => existing.step === problem.step))
+    .slice(0, Math.max(0, MAX_PLAN_PROBLEMS - sink.length));
+  for (const problem of fresh) {
+    sink.push(problem);
+    appendToLogFile('INFO', `plan-problem.recorded step=${problem.step}`, 'plan-problem');
+  }
+  return fresh.length;
+};
 
 const NO_CHANGE_LINE_PATTERN = /^\s*(?:[-*]\s+)?\**NO-CHANGE\**:\**\s*`?([^`\s]+)`?(?:\s.*)?$/i;
 
@@ -423,10 +500,10 @@ export const redGreenWorkflowInstruction
   = 'Work one behavior at a time: write that behavior\'s failing test first, run its matching verification command exactly as written and confirm it fails because the behavior is absent, then implement the minimal change and re-run until it passes.';
 
 const implementTail
-  = 'Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.';
+  = `Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. ${planProblemInstruction} Do not output any text or plan before making your first tool call.`;
 
 const tddImplementTail
-  = `Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. Do not output any text or plan before making your first tool call.`;
+  = `Implement the changes described above now. Use Read to inspect existing files, then Write or Edit to apply changes. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order, using Bash. Do not modify or pipe the commands. ${planProblemInstruction} Do not output any text or plan before making your first tool call.`;
 
 export const buildInitialUserPrompt = (params: BuildTaskBriefParams): string =>
   [

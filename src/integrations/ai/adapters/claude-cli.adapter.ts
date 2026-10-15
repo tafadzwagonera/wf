@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
+import type { PlanProblem } from '../../../shared/types/agent.types';
 import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
 import { AiProviderError, ExecutionError } from '../../../shared/utils/errors';
 import { formatPlanRisks } from '../../../shared/utils/plan-risk';
@@ -32,6 +33,7 @@ import {
   continuationTail,
   parseNoChangeDeclarations,
   acceptNoChangeDeclarations,
+  collectPlanProblems,
   type BuildPlanContextParams,
 } from './shared-routing';
 import {
@@ -53,6 +55,7 @@ const implementTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'
 type ActivityState = {
   lastVerificationCommand?: string;
   verificationOutcomes: VerificationOutcome[];
+  planProblems: PlanProblem[];
 };
 
 type ToolBlock = {
@@ -94,6 +97,7 @@ type CliSessionParams = {
   model: string;
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
+  planStepCount: number;
   uiDesignScreenshotPaths?: string[];
   verificationPassOffset?: number;
 };
@@ -111,6 +115,7 @@ type ContinuationLoopParams = {
   activityState: ActivityState;
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
+  planStepCount: number;
   verificationPassOffset?: number;
 };
 
@@ -430,7 +435,7 @@ const buildCliTaskBriefParams = (
 
 const createCliSessionParams = async (
   params: GenerateAndVerifyParams, repoDir: string, model: string, appendSystemPrompt: string,
-): Promise<CliSessionParams> => {
+): Promise<Omit<CliSessionParams, 'planStepCount'>> => {
   const skillFragment = params.skillNames?.length
     ? await buildSkillPromptFragment(params.skillNames, CLI_ADAPTER_LABEL, chalk.gray)
     : '';
@@ -479,7 +484,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams,
   ): Promise<{
     sessionId?: string; verificationOutcomes: VerificationOutcome[];
-    passCount: number; modelsUsed: string[]; verificationPassCount: number;
+    passCount: number; modelsUsed: string[]; verificationPassCount: number; planProblems: PlanProblem[];
   }> {
     assertClaudeCliAvailable();
     const sessionParams = await this.buildCliSessionParams(params);
@@ -498,6 +503,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return {
       ...await createCliSessionParams(params, repoDir, modelRoutingResult.model, appendSystemPrompt),
       verificationPassOffset: params.verificationPassOffset,
+      planStepCount: params.planArtifact.plan.steps.length,
     };
   }
 
@@ -536,6 +542,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     activityState: ActivityState
   ): Promise<{
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+    planProblems: PlanProblem[];
   }> {
     await discoverChangedFiles(p.repoDir, touchedFiles);
     const notApplicableFiles = new Set<string>();
@@ -548,19 +555,30 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return spawnCli(buildImplementCliArgs(p), p.repoDir, prompt, undefined, timeoutMs, inactivityTimeoutMs);
   }
 
+  private async readImplementStream(
+    p: CliSessionParams, activityState: ActivityState, touchedFiles: Set<string>,
+  ): Promise<{ sessionId: string | undefined; resultText: string }> {
+    let sessionId: string | undefined = p.options.resumeProviderSessionId;
+    let resultText = '';
+    for await (const message of this.openImplementStream(p)) {
+      this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
+      sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
+      if (message.type === 'result' && !message.is_error) resultText = message.result ?? '';
+    }
+    return { sessionId, resultText };
+  }
+
   private async runCliSession(
     p: CliSessionParams,
   ): Promise<{
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+    planProblems: PlanProblem[];
   }> {
     console.log(chalk.bold.cyan(`\n  [${CLI_ADAPTER_LABEL}] Running CLI agent in ${p.repoDir}...`));
     const touchedFiles = new Set<string>();
-    const activityState: ActivityState = { verificationOutcomes: [] };
-    let sessionId: string | undefined = p.options.resumeProviderSessionId;
-    for await (const message of this.openImplementStream(p)) {
-      this.logCliMessage(message, p.repoDir, activityState, touchedFiles);
-      sessionId = processCliStream(message, p.repoDir, sessionId, touchedFiles);
-    }
+    const activityState: ActivityState = { verificationOutcomes: [], planProblems: [] };
+    const { sessionId, resultText } = await this.readImplementStream(p, activityState, touchedFiles);
+    collectPlanProblems(activityState.planProblems, resultText, p.planStepCount);
     return this.completeCliSession(p, sessionId, touchedFiles, activityState);
   }
 
@@ -568,12 +586,16 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     p: ContinuationLoopParams,
   ): Promise<{
     sessionId?: string; verificationOutcomes: VerificationOutcome[]; passCount: number; verificationPassCount: number;
+    planProblems: PlanProblem[];
   }> {
     const { sessionId, passCount } = await this.runContinuationLoop(p);
     logFileSummary(p.touchedFiles, p.notApplicableFiles);
     const { outcomes, verificationPassCount } = await this.runProgrammaticVerificationLoop(p, sessionId);
     printVerificationReport(outcomes);
-    return { sessionId, verificationOutcomes: outcomes, passCount, verificationPassCount };
+    return {
+      sessionId, verificationOutcomes: outcomes, passCount, verificationPassCount,
+      planProblems: p.activityState.planProblems,
+    };
   }
 
   private async runVerificationFixPass(
@@ -586,6 +608,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
       repoDir: p.repoDir, additionalRepoDirs: p.additionalRepoDirs,
       touchedFiles: p.touchedFiles, activityState: p.activityState,
     });
+    collectPlanProblems(p.activityState.planProblems, result.resultText, p.planStepCount);
     if (result.sessionId) await discoverChangedFiles(p.repoDir, p.touchedFiles);
     return result;
   }
@@ -707,6 +730,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const pass = await this.runSinglePass(buildContinuationPassParams(p, { passNumber, sessionId, currentUnvisited }));
     await discoverChangedFiles(p.repoDir, p.touchedFiles);
     const accepted = acceptPassDeclarations(p, pass.resultText);
+    collectPlanProblems(p.activityState.planProblems, pass.resultText, p.planStepCount);
     const madeProgress = pass.wrote || p.touchedFiles.size > touchedBefore || accepted > 0;
     return { sessionId: pass.sessionId, madeProgress };
   }

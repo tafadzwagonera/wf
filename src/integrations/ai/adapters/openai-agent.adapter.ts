@@ -58,6 +58,8 @@ import {
   buildImplementerRulesSection,
   redGreenWorkflowInstruction,
   noChangeInstruction,
+  planProblemInstruction,
+  collectPlanProblems,
   parseNoChangeDeclarations,
   acceptNoChangeDeclarations,
   type BuildPlanContextParams,
@@ -66,6 +68,7 @@ import { TDD_SKILL_ID } from '../../../skills/skill-content';
 import { buildSkillPromptFragment } from '../../../skills';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 import type { ResolutionPlan } from '../ai.service';
+import type { PlanProblem } from '../../../shared/types/agent.types';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;
@@ -1064,7 +1067,7 @@ export const buildContinuationPrompt = (p: OaiContinuationPromptParams): string 
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following work is still incomplete:\n\n${sections.join('\n\n')}`,
-    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for the needle, case-insensitive, across the whole repository including non-code files, and continue editing until zero matches remain. ${noChangeInstruction} Do not output any text or plan before calling your first tool.`,
+    `\nFor each file listed above, read the full file first with read_file, then apply edit_file to complete the required changes. After addressing all listed files, search for the needle, case-insensitive, across the whole repository including non-code files, and continue editing until zero matches remain. ${noChangeInstruction} ${planProblemInstruction} Do not output any text or plan before calling your first tool.`,
   ].join('\n');
 };
 
@@ -1137,6 +1140,8 @@ type ContinuationLoopParams = {
   failures: ValidationFailure[];
   notApplicableFiles: Set<string>;
   taskBriefParams: BuildPlanContextParams;
+  planProblems: PlanProblem[];
+  planStepCount: number;
   stallThresholdOverride?: number;
 };
 
@@ -1205,14 +1210,18 @@ const buildIterationPrompt = (
   taskBriefParams: p.taskBriefParams,
 });
 
-const acceptPassDeclarations = (p: ContinuationLoopParams, run: OaiStreamedRun): number =>
-  acceptNoChangeDeclarations({
-    declared: parseNoChangeDeclarations(typeof run.finalOutput === 'string' ? run.finalOutput : ''),
+const finalOutputText = (run: OaiStreamedRun): string => typeof run.finalOutput === 'string' ? run.finalOutput : '';
+
+const acceptPassDeclarations = (p: ContinuationLoopParams, run: OaiStreamedRun): number => {
+  collectPlanProblems(p.planProblems, finalOutputText(run), p.planStepCount);
+  return acceptNoChangeDeclarations({
+    declared: parseNoChangeDeclarations(finalOutputText(run)),
     repoName: p.repoName,
     plannedFiles: p.repoFiles,
     touchedFiles: new Set(p.loop.fileChangeStatus.keys()),
     notApplicableFiles: p.notApplicableFiles,
   });
+};
 
 const runContinuationLoop = async (p: ContinuationLoopParams): Promise<void> => {
   const fileCount = p.repoFiles.filter(f => !isGlobPattern(f)).length;
@@ -1266,11 +1275,11 @@ const buildPriorStagePreamble = (summary?: string): string =>
     ? `<prior-stage-context>\n${summary}\n</prior-stage-context>\n\nNote: The above is background context from a previous workflow stage.\nYour current stage's instructions take precedence over any conflicting details above.\n\n`
     : '';
 
-const oaiImplementTail
-  = 'Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.';
+export const oaiImplementTail
+  = `Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. After ALL edits are complete, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done. ${planProblemInstruction}`;
 
-const oaiTddImplementTail
-  = `Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done.`;
+export const oaiTddImplementTail
+  = `Implement ALL plan steps completely. Do not output any text at any point — every response must be a tool call. Start editing files immediately after minimal exploration. ${redGreenWorkflowInstruction} After all behaviors are green, run each command listed under "Verification commands:" exactly as written, in order. Do not modify or pipe the commands. Output text only as the final summary after all work is done. ${planProblemInstruction}`;
 
 const buildInitialPrompt = (
   taskBriefParams: BuildPlanContextParams, contextMd: string | null, tail: string,
@@ -1350,12 +1359,16 @@ const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: strin
   phases: params.planArtifact.plan.phases ?? undefined,
 });
 
+type OpenAiRunResult = {
+  sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[]; planProblems?: PlanProblem[];
+};
+
 export class OpenAIAgentAdapter implements ImplementerBackend {
   constructor(private readonly configService: ConfigService) {}
 
   async generateAndVerify(
     params: GenerateAndVerifyParams & { options: ImplementerOptions }
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
+  ): Promise<OpenAiRunResult> {
     const repoDir = params.options.repoDir ?? process.cwd();
     const c = await this.buildRunComponents(params, repoDir, params.options);
     return this.executeAgentRun(params, c);
@@ -1365,29 +1378,40 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>,
     verificationScripts: VerificationScript[],
     notApplicableFiles: Set<string>,
-  ): { sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] } {
+    planProblems: PlanProblem[],
+  ): OpenAiRunResult {
     logFileSummary(
       c.mutable.fileChangeStatus, notApplicableFiles, verificationScripts, buildAllowedCommands(verificationScripts),
     );
     const verificationOutcomes = resolveSkippedSteps(verificationScripts, c.vs.verificationOutcomes);
     printVerificationReport(verificationOutcomes);
-    return { sessionId: undefined, verificationOutcomes, modelsUsed: [c.model] };
+    return { sessionId: undefined, verificationOutcomes, modelsUsed: [c.model], planProblems };
   }
 
   private async executeAgentRun(
     params: GenerateAndVerifyParams & { options: ImplementerOptions },
     c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[] }> {
+  ): Promise<OpenAiRunResult> {
     const run = await runStreamWithRetry(await this.startInitialRun(c), c.config, c.loop, '');
     throwOnRunError(run, '');
     logCompletion(run, c.loop.usageSummary, c.model);
     const notApplicableFiles = new Set<string>();
-    await runContinuationLoop({
-      run, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
-      failures: c.mutable.validationFailures, notApplicableFiles,
+    const planProblems: PlanProblem[] = [];
+    collectPlanProblems(planProblems, finalOutputText(run), params.planArtifact.plan.steps.length);
+    await runContinuationLoop(this.buildContinuationLoopParams(params, c, { run, notApplicableFiles, planProblems }));
+    return this.buildRunResult(c, params.verificationScripts, notApplicableFiles, planProblems);
+  }
+
+  private buildContinuationLoopParams(
+    params: GenerateAndVerifyParams & { options: ImplementerOptions },
+    c: Awaited<ReturnType<OpenAIAgentAdapter['buildRunComponents']>>,
+    state: { run: OaiStreamedRun; notApplicableFiles: Set<string>; planProblems: PlanProblem[] },
+  ): ContinuationLoopParams {
+    return {
+      ...state, config: c.config, loop: c.loop, repoFiles: params.repoFiles, repoName: params.repoName,
+      failures: c.mutable.validationFailures, planStepCount: params.planArtifact.plan.steps.length,
       taskBriefParams: buildOaiTaskBriefParams(params, params.options.repoDir ?? process.cwd()),
-    });
-    return this.buildRunResult(c, params.verificationScripts, notApplicableFiles);
+    };
   }
 
   private startInitialRun(

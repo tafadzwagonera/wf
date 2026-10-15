@@ -8,7 +8,7 @@ import { GitError, InvalidBranchNameError } from '../shared/errors/app.error';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import { PlanStepVerificationService } from './plan-step-verification.service';
+import { PlanStepVerificationService, buildPlanStepVerificationPrompt } from './plan-step-verification.service';
 import { StepSpecFidelityService } from './step-spec-fidelity.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
@@ -18,6 +18,7 @@ import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, Tic
 import { knownSkills, registerSkill } from '../skills/skill-registry';
 import { isRepoResolvable } from './utils';
 import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conventions';
+import * as implementVerification from '../shared/utils/implement-verification';
 import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
 
 jest.mock('inquirer');
@@ -1377,7 +1378,7 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
       expect(result).toEqual({
-        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [], planProblems: [],
       });
     });
 
@@ -1395,7 +1396,7 @@ describe('ImplementerAgent', () => {
       });
 
       expect(result).toEqual({
-        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [], planProblems: [],
       });
       expect(gitService.getBranchInfo).not.toHaveBeenCalled();
       expect(gitService.checkoutBranch).not.toHaveBeenCalled();
@@ -1444,7 +1445,7 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).toHaveBeenCalledWith('origin', 'main', '/tmp/repo-a');
       expect(result).toEqual({
-        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [], planProblems: [],
       });
     });
 
@@ -1732,7 +1733,7 @@ describe('ImplementerAgent', () => {
       expect(gitService.createBranch).not.toHaveBeenCalled();
       expect(gitService.pull).not.toHaveBeenCalled();
       expect(result).toEqual({
-        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [],
+        type: 'implementation', hasChanges: false, branchName: 'main', sessionId: undefined, verificationOutcomes: [], planProblems: [],
       });
     });
 
@@ -2570,6 +2571,198 @@ describe('ImplementerAgent', () => {
 
       expect(investigationAiService.generateFindings).toHaveBeenCalled();
       expect(stageAgentService.chatTurn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('plan problem reports', () => {
+    const resolvedFiles = {
+      repoName: 'repo-a', repoDir: '/tmp/repo-a', repoFiles: ['repo-a/src/example.ts'], contextFiles: [],
+    };
+    const baseOptions = { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true } as const;
+    const reportOne = { step: 1, reason: 'resolver differs from plan text', instead: 'matched the runtime resolver' };
+
+    const setupWithChanges = () => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+      jest.spyOn(require('fs'), 'mkdirSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => undefined);
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((p: string) =>
+        String(p).endsWith('/package.json') || String(p).startsWith('/tmp/repo-a/src/')
+      );
+      (gitService.getStatus as jest.Mock).mockResolvedValue({
+        isClean: () => false, modified: ['src/example.ts'], staged: [], deleted: [], renamed: [], conflicted: [],
+        not_added: [], files: [{ path: 'src/example.ts' }],
+      });
+      stepSpecFidelityService.verifyAll.mockResolvedValue({ findingsPerStep: new Map(), failures: [] });
+      planStepVerificationService.run.mockResolvedValue({
+        sessionId: undefined, summary: undefined, extraPassCount: 0,
+      });
+    };
+
+    const mockAdapter = (...planProblemsPerCall: Array<Array<typeof reportOne> | undefined>) => {
+      const spy = jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify');
+      for (const planProblems of planProblemsPerCall) {
+        spy.mockResolvedValueOnce({ sessionId: 'sess-1', verificationOutcomes: [], planProblems });
+      }
+      spy.mockResolvedValue({ sessionId: 'sess-1', verificationOutcomes: [], planProblems: undefined });
+      return spy;
+    };
+
+    const executeWith = (steps: string[], extraOptions: Record<string, unknown> = {}) =>
+      agent.execute(
+        ticketArtifact,
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps }),
+        { ...baseOptions, ...extraOptions },
+      );
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('returns the planProblems reported by the adapter', async () => {
+      setupWithChanges();
+      mockAdapter([reportOne]);
+
+      const result = await executeWith(['repo-a/src/example.ts: update handler']);
+
+      expect(result).toMatchObject({ type: 'implementation', planProblems: [reportOne] });
+    });
+
+    it('maps a reported plan step number to the assessed index when generic steps are filtered out', async () => {
+      setupWithChanges();
+      const report = { step: 3, reason: 'wrong helper', instead: 'used the shared helper' };
+      const outOfScope = { step: 1, reason: 'generic step is moot', instead: 'skipped it' };
+      mockAdapter([report, outOfScope]);
+      let refreshed: Map<number, string> | undefined;
+      planStepVerificationService.run.mockImplementation(async (params: {
+        refreshSteps: (indices: number[]) => Promise<Map<number, string>>;
+      }) => {
+        refreshed = await params.refreshSteps([0, 1]);
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+
+      const result = await executeWith(
+        ['Generic setup', 'repo-a/src/example.ts: change A', 'repo-a/src/example.ts: change B'],
+        { additionalRepoDirs: ['/tmp/repo-b'] },
+      );
+
+      expect(planStepVerificationService.run).toHaveBeenCalledWith(
+        expect.objectContaining({ planStepNumbers: [2, 3] }),
+      );
+      const runParams = planStepVerificationService.run.mock.calls[0][0];
+      const fixPrompt = buildPlanStepVerificationPrompt({
+        pending: [{ index: 1, status: 'not-done', missing: 'x' }],
+        round: 1,
+        stepTexts: new Map([[1, 'src/example.ts: change B']]),
+        planStepNumbers: runParams.planStepNumbers,
+      });
+      expect(fixPrompt).toContain('Step 1 (not-done) - plan step 3');
+      expect(stepSpecFidelityService.verifyAll.mock.calls[0][0]).toEqual([
+        { index: 0, text: 'src/example.ts: change A' },
+        { index: 1, text: 'src/example.ts: change B', planProblem: { reason: 'wrong helper', instead: 'used the shared helper' } },
+      ]);
+      expect(refreshed?.get(0)).toBe('src/example.ts: change A');
+      expect(refreshed?.get(1)).toContain('[IMPLEMENTER REPORTED PLAN PROBLEM - plan step 3]');
+      expect(refreshed?.get(1)).toContain('Reason: wrong helper');
+      expect(refreshed?.get(1)).toContain('Done instead: used the shared helper');
+      expect(result).toMatchObject({ planProblems: [report, outOfScope] });
+    });
+
+    it('keeps the report in the refreshed text when the fidelity audit fails', async () => {
+      setupWithChanges();
+      stepSpecFidelityService.verifyAll.mockRejectedValue(new Error('ai error'));
+      mockAdapter([reportOne]);
+      let refreshed: Map<number, string> | undefined;
+      planStepVerificationService.run.mockImplementation(async (params: {
+        refreshSteps: (indices: number[]) => Promise<Map<number, string>>;
+      }) => {
+        refreshed = await params.refreshSteps([0]);
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+
+      await executeWith(['repo-a/src/example.ts: update handler']);
+
+      expect(refreshed?.get(0)).toContain('[IMPLEMENTER REPORTED PLAN PROBLEM - plan step 1]');
+    });
+
+    it('keeps the first report for a step across the first pass and fix rounds', async () => {
+      setupWithChanges();
+      const laterSameStep = { step: 1, reason: 'later reason', instead: 'later alternative' };
+      const laterNewStep = { step: 2, reason: 'second reason', instead: 'second alternative' };
+      mockAdapter([reportOne], [laterSameStep, laterNewStep]);
+      planStepVerificationService.run.mockImplementation(async (params: {
+        runFixRound: (prompt: string, sessionId: string) => Promise<unknown>;
+      }) => {
+        await params.runFixRound('fix prompt', 'sess-1');
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+
+      const result = await executeWith(['repo-a/src/example.ts: one', 'repo-a/src/example.ts: two']);
+
+      expect(result).toMatchObject({ planProblems: [reportOne, laterNewStep] });
+    });
+
+    it('returns the fix adapter planProblems from runVerificationFixRound', async () => {
+      setupWithChanges();
+      mockAdapter([reportOne]);
+
+      const fix = await (agent as any).runVerificationFixRound(
+        ticketArtifact, buildPlan(), baseOptions, resolvedFiles, 'prompt', 'sess-1',
+      );
+
+      expect(fix).toEqual({ sessionId: 'sess-1', passCount: undefined, planProblems: [reportOne] });
+    });
+
+    it('returns no planProblems when the fix round fails', async () => {
+      setupWithChanges();
+      jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockRejectedValue(new Error('boom'));
+
+      const fix = await (agent as any).runVerificationFixRound(
+        ticketArtifact, buildPlan(), baseOptions, resolvedFiles, 'prompt', 'sess-1',
+      );
+
+      expect(fix).toEqual({ sessionId: undefined });
+    });
+
+    it('keeps planProblems when merging the verification outcome', () => {
+      const merged = (agent as any).mergeVerificationOutcome(
+        { type: 'implementation', hasChanges: true, branchName: null, verificationOutcomes: [], planProblems: [reportOne] },
+        { sessionId: 'sess-2', summary: undefined, extraPassCount: 1 },
+      );
+
+      expect(merged.planProblems).toEqual([reportOne]);
+      expect(merged.sessionId).toBe('sess-2');
+    });
+
+    it('prints one notice per report and writes all reports into the run artifact', async () => {
+      setupWithChanges();
+      const second = { step: 2, reason: 'second reason', instead: 'second alternative' };
+      mockAdapter([reportOne, second]);
+      const appendSpy = jest.spyOn(implementVerification, 'appendPlanProblemsToRunFile')
+        .mockImplementation(() => ({}) as never);
+      const logSpy = jest.spyOn(console, 'log');
+
+      await executeWith(['repo-a/src/example.ts: one', 'repo-a/src/example.ts: two']);
+
+      const lines = logSpy.mock.calls.map(([line]) => String(line));
+      expect(lines.filter(line => line.includes('Plan problem reported for step'))).toHaveLength(2);
+      expect(lines.some(line => line.includes(
+        'Plan problem reported for step 1: resolver differs from plan text (instead: matched the runtime resolver)',
+      ))).toBe(true);
+      expect(lines.some(line => line.includes(
+        'Plan problem reported for step 2: second reason (instead: second alternative)',
+      ))).toBe(true);
+      expect(appendSpy).toHaveBeenCalledTimes(1);
+      expect(appendSpy).toHaveBeenCalledWith(expect.stringContaining('implement-verification'), [reportOne, second]);
+    });
+
+    it('prints nothing and writes no artifact update when there are no reports', async () => {
+      setupWithChanges();
+      mockAdapter(undefined);
+      const appendSpy = jest.spyOn(implementVerification, 'appendPlanProblemsToRunFile');
+      const logSpy = jest.spyOn(console, 'log');
+
+      await executeWith(['repo-a/src/example.ts: one']);
+
+      expect(logSpy.mock.calls.some(([line]) => String(line).includes('Plan problem reported'))).toBe(false);
+      expect(appendSpy).not.toHaveBeenCalled();
     });
   });
 

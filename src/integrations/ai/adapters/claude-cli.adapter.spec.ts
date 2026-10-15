@@ -1083,6 +1083,100 @@ describe('ClaudeCliAdapter', () => {
     });
   });
 
+  describe('plan problem reports', () => {
+    const resultOnly = (result = 'done') => (async function* () {
+      yield { type: 'result', result, session_id: 's1', num_turns: 1 } as never;
+    })();
+
+    const run = async (repoFiles: string[] = []) => {
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      return adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1', 'step 2'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature',
+          path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles,
+        repoName: 'repo',
+        trackedFilePaths: repoFiles,
+      } as never);
+    };
+
+    beforeEach(() => {
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns no reports when the agent reports nothing', async () => {
+      mockSpawnCli.mockImplementation(() => resultOnly());
+
+      const result = await run();
+
+      expect(result.planProblems).toEqual([]);
+    });
+
+    it('records a report from the initial pass result', async () => {
+      mockSpawnCli.mockImplementation(() => resultOnly('PLAN-PROBLEM: 1 | wrong path | used src/b.ts'));
+
+      const result = await run();
+
+      expect(result.planProblems).toEqual([{ step: 1, reason: 'wrong path', instead: 'used src/b.ts' }]);
+    });
+
+    it('records a report from a continuation pass', async () => {
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => resultOnly('PLAN-PROBLEM: 2 | stale | skipped\nNO-CHANGE: src/app.ts'))
+        .mockImplementation(() => resultOnly());
+
+      const result = await run(['repo/src/app.ts']);
+
+      expect(result.planProblems).toEqual([{ step: 2, reason: 'stale', instead: 'skipped' }]);
+    });
+
+    it('records a report from a verification fix pass', async () => {
+      mockRunProgrammaticVerification.mockResolvedValue([
+        { id: 'test', command: 'yarn test', policy: 'enforced', status: 'failed', output: 'boom' },
+      ] as never);
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly())
+        .mockImplementationOnce(() => resultOnly('PLAN-PROBLEM: 1 | fix reason | fix instead'))
+        .mockImplementation(() => resultOnly());
+
+      const result = await run();
+
+      expect(result.planProblems).toEqual([{ step: 1, reason: 'fix reason', instead: 'fix instead' }]);
+    });
+
+    it('keeps the first report when a later pass reports the same step', async () => {
+      mockSpawnCli
+        .mockImplementationOnce(() => resultOnly('PLAN-PROBLEM: 1 | first | one'))
+        .mockImplementationOnce(() => resultOnly('PLAN-PROBLEM: 1 | second | two\nNO-CHANGE: src/app.ts'))
+        .mockImplementation(() => resultOnly());
+
+      const result = await run(['repo/src/app.ts']);
+
+      expect(result.planProblems).toEqual([{ step: 1, reason: 'first', instead: 'one' }]);
+    });
+
+    it('drops a step number above the plan step count', async () => {
+      mockSpawnCli.mockImplementation(() => resultOnly('PLAN-PROBLEM: 3 | a | b'));
+
+      const result = await run();
+
+      expect(result.planProblems).toEqual([]);
+    });
+  });
+
   describe('verification pass numbering', () => {
     const yieldCliResult = () =>
       (async function* () {

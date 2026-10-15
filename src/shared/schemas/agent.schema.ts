@@ -45,6 +45,12 @@ export const verificationFailureClassificationSchema = z.object({
   confidence: z.enum(['high', 'medium', 'low']),
 });
 
+export const planProblemSchema = z.object({
+  step: z.number().int().positive(),
+  reason: z.string().min(1),
+  instead: z.string().min(1),
+});
+
 export const implementRunArtifactSchema = z.object({
   ticketKey: z.string(),
   repoDir: z.string(),
@@ -58,6 +64,7 @@ export const implementRunArtifactSchema = z.object({
     })
   ),
   startedAt: z.string(),
+  planProblems: z.array(planProblemSchema).optional(),
 });
 
 export const verificationAttemptArtifactSchema = z.object({

@@ -1,4 +1,6 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail, stripRepoPrefix, isGlobPattern, parsePlanProblems, collectPlanProblems, planProblemInstruction } from './shared-routing';
+import * as logFileWriter from '../../../shared/logger/log-file-writer';
+import type { PlanProblem } from '../../../shared/types/agent.types';
 import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';
@@ -675,6 +677,141 @@ describe('continuationTail', () => {
   });
 });
 
+describe('plan problem reports', () => {
+  const baseParams = {
+    ticketKey: 'WBP-42',
+    repoName: 'repo-b',
+    repoFiles: ['repo-b/src/widget.ts'],
+    trackedFilePaths: ['repo-b/src/widget.ts'],
+    verificationScripts: [{ id: 'test', command: 'yarn test', policy: 'enforced' }] as VerificationScript[],
+    planSteps: ['Read existing code', 'Apply fix'],
+    planSummary: 'Fix the widget bug',
+    planAction: 'fix' as const,
+  };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe('parsePlanProblems', () => {
+    const expected = [{ step: 2, reason: 'resolver differs', instead: 'used runtime resolver' }];
+
+    it.each([
+      ['plain line', 'PLAN-PROBLEM: 2 | resolver differs | used runtime resolver'],
+      ['bullet', '- PLAN-PROBLEM: 2 | resolver differs | used runtime resolver'],
+      ['bold', '**PLAN-PROBLEM:** 2 | resolver differs | used runtime resolver'],
+      ['backticked', '`PLAN-PROBLEM: 2 | resolver differs | used runtime resolver`'],
+      ['lowercase', 'plan-problem: 2 | resolver differs | used runtime resolver'],
+      ['Step token', 'PLAN-PROBLEM: Step 2 | resolver differs | used runtime resolver'],
+      ['dotted token', 'PLAN-PROBLEM: 2. | resolver differs | used runtime resolver'],
+    ])('parses a %s', (_name, line) => {
+      expect(parsePlanProblems(`done\n${line}\nbye`, 3).problems).toEqual(expected);
+    });
+
+    it('keeps a colon inside the reason', () => {
+      expect(parsePlanProblems('PLAN-PROBLEM: 1 | type: wrong | fixed it', 3).problems).toEqual([
+        { step: 1, reason: 'type: wrong', instead: 'fixed it' },
+      ]);
+    });
+
+    it.each([
+      ['two parts', 'PLAN-PROBLEM: 1 | reason'],
+      ['four parts', 'PLAN-PROBLEM: 1 | a | b | c'],
+      ['non-numeric step', 'PLAN-PROBLEM: one | a | b'],
+      ['empty reason', 'PLAN-PROBLEM: 1 |  | b'],
+      ['empty alternative', 'PLAN-PROBLEM: 1 | a | '],
+      ['step zero', 'PLAN-PROBLEM: 0 | a | b'],
+      ['step above count', 'PLAN-PROBLEM: 4 | a | b'],
+    ])('ignores %s', (_name, line) => {
+      const result = parsePlanProblems(line, 3);
+      expect(result.problems).toEqual([]);
+      expect(result.ignored).toEqual([line.trim()]);
+    });
+
+    it('keeps backticks and asterisks inside the reason and alternative', () => {
+      expect(parsePlanProblems('PLAN-PROBLEM: 1 | `foo` ignores *.ts | used `bar`', 3).problems).toEqual([
+        { step: 1, reason: '`foo` ignores *.ts', instead: 'used `bar`' },
+      ]);
+    });
+
+    it('rejects a line whose reason contains a pipe', () => {
+      expect(parsePlanProblems('PLAN-PROBLEM: 1 | a|b | c', 3).problems).toEqual([]);
+    });
+
+    it('truncates very long reason and alternative text', () => {
+      const [problem] = parsePlanProblems(`PLAN-PROBLEM: 1 | ${'r'.repeat(900)} | ${'i'.repeat(900)}`, 3).problems;
+      expect(problem.reason).toHaveLength(500);
+      expect(problem.instead).toHaveLength(500);
+    });
+
+    it('keeps the first report for a duplicate step', () => {
+      const text = 'PLAN-PROBLEM: 1 | first | one\n- **plan-problem:** 1 | second | two';
+      const result = parsePlanProblems(text, 3);
+      expect(result.problems).toEqual([{ step: 1, reason: 'first', instead: 'one' }]);
+      expect(result.ignored).toEqual(['- **plan-problem:** 1 | second | two']);
+    });
+  });
+
+  describe('collectPlanProblems', () => {
+    it('pushes new reports into the sink and returns the number added', () => {
+      const sink: PlanProblem[] = [];
+      const added = collectPlanProblems(sink, 'PLAN-PROBLEM: 1 | a | b', 2);
+      expect(added).toBe(1);
+      expect(sink).toEqual([{ step: 1, reason: 'a', instead: 'b' }]);
+    });
+
+    it('keeps the first report when a step is reported again', () => {
+      const sink: PlanProblem[] = [];
+      collectPlanProblems(sink, 'PLAN-PROBLEM: 1 | a | b', 2);
+      const added = collectPlanProblems(sink, 'PLAN-PROBLEM: 1 | c | d', 2);
+      expect(added).toBe(0);
+      expect(sink).toEqual([{ step: 1, reason: 'a', instead: 'b' }]);
+    });
+
+    it('stops recording once the sink holds the maximum number of reports', () => {
+      const sink: PlanProblem[] = [];
+      const text = Array.from({ length: 25 }, (_, i) => `PLAN-PROBLEM: ${i + 1} | r | i`).join('\n');
+      expect(collectPlanProblems(sink, text, 30)).toBe(20);
+      expect(sink).toHaveLength(20);
+    });
+
+    it('logs an ignored line at WARN', () => {
+      const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      collectPlanProblems([], 'PLAN-PROBLEM: 9 | a | b', 2);
+      expect(spy).toHaveBeenCalledWith('WARN', 'plan-problem.ignored line=PLAN-PROBLEM: 9 | a | b', 'plan-problem');
+    });
+
+    it('logs a recorded report at INFO', () => {
+      const spy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      collectPlanProblems([], 'PLAN-PROBLEM: 1 | a | b', 2);
+      expect(spy).toHaveBeenCalledWith('INFO', 'plan-problem.recorded step=1', 'plan-problem');
+    });
+  });
+
+  describe('instruction wording', () => {
+    it('names the report format', () => {
+      expect(planProblemInstruction).toContain('PLAN-PROBLEM: <step number');
+    });
+
+    it('is carried by the continuation tail', () => {
+      expect(continuationTail).toContain(planProblemInstruction);
+    });
+
+    it('is carried by the initial prompt without the TDD fragment', () => {
+      expect(buildInitialUserPrompt(baseParams)).toContain(planProblemInstruction);
+    });
+
+    it('is carried by the initial prompt with the TDD fragment', () => {
+      const result = buildInitialUserPrompt({ ...baseParams, skillFragment: '\n\n## Skill: test-driven-development\nX' });
+      expect(result).toContain(planProblemInstruction);
+    });
+
+    it('keeps the no-text-before-first-tool rule last', () => {
+      expect(buildInitialUserPrompt(baseParams).endsWith('Do not output any text or plan before making your first tool call.')).toBe(true);
+    });
+  });
+});
+
 describe('shared needle search wording', () => {
   const rules = buildImplementerRulesSection({
     read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
@@ -689,5 +826,25 @@ describe('shared needle search wording', () => {
     expect(rules).toContain(implementerSearchRule);
     expect(rules).toContain(implementerDeleteOrphanRule('Grep'));
     expect(rules).not.toContain('remaining migration patterns');
+  });
+});
+
+describe('stripRepoPrefix', () => {
+  it('strips a matching repo prefix', () => {
+    expect(stripRepoPrefix('primary/src/foo.ts', 'primary')).toBe('src/foo.ts');
+  });
+
+  it('returns the path unchanged when the prefix does not match', () => {
+    expect(stripRepoPrefix('src/foo.ts', 'primary')).toBe('src/foo.ts');
+  });
+});
+
+describe('isGlobPattern', () => {
+  it.each(['src/**/*.ts', 'src/*.controller.ts', 'src/foo?.ts'])('detects wildcards in %s', filePath => {
+    expect(isGlobPattern(filePath)).toBe(true);
+  });
+
+  it.each(['src/main.ts', 'src/app.module.ts'])('treats %s as a concrete path', filePath => {
+    expect(isGlobPattern(filePath)).toBe(false);
   });
 });

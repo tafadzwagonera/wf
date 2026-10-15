@@ -10,6 +10,7 @@ import type {
   implementerOptionsSchema,
   modelRoutingSchema,
   planArtifactSchema,
+  planProblemSchema,
   resolutionActionSchema,
   retryScopeStrategySchema,
   reviewArtifactSchema,
@@ -27,6 +28,7 @@ export type ImplementBackendName = z.infer<typeof implementBackendNameSchema>;
 export type ImplementBackendSelection = z.infer<typeof implementBackendSelectionSchema>;
 export type ImplementerOptions = z.infer<typeof implementerOptionsSchema>;
 export type ImplementRunArtifact = z.infer<typeof implementRunArtifactSchema>;
+export type PlanProblem = z.infer<typeof planProblemSchema>;
 export type ModelRouting = z.infer<typeof modelRoutingSchema>;
 export type PlanArtifact = z.infer<typeof planArtifactSchema>;
 export type ResolutionAction = z.infer<typeof resolutionActionSchema>;

@@ -13,7 +13,8 @@ export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
 export type FakeClaudeMode
   = | 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan'
-    | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope' | 'intentFidelity';
+    | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope' | 'intentFidelity'
+    | 'planProblem' | 'planProblemMalformed';
 
 export type PlanOverrides = {
   steps?: string[];
@@ -70,7 +71,12 @@ const respondAsAssessor = () => {
   ));
   const secondRound = mode === 'assessorOmitOne' && call === 2 ? tags.filter(index => index !== 9).map(done) : tags.map(done);
   const laterRound = mode === 'assessorRenumber' ? [0, 1, 2, 3].map(done) : secondRound;
-  const statuses = mode === 'assessorPullOutOfScope' ? [done(9)] : call === 1 ? firstRound : laterRound;
+  const planProblemRound = tags.map(index => (
+    call === 1 ? { index, status: 'not-done', missing: 'still missing' } : done(index)
+  ));
+  const statuses = mode.startsWith('planProblem')
+    ? planProblemRound
+    : mode === 'assessorPullOutOfScope' ? [done(9)] : call === 1 ? firstRound : laterRound;
   const checklistPaths = [
     ...[...fullPrompt.matchAll(/^- changed: .* -- (\\S+)\\x60$/gm)].map(match => match[1]),
     ...[...fullPrompt.matchAll(/^- untracked: read the file (\\S+)$/gm)].map(match => match[1]),
@@ -86,6 +92,16 @@ const respondAsAssessor = () => {
 const isAssessorPrompt = fullPrompt.includes('Index each step ONLY by its [Plan step N] tag');
 const respondAsImplementer = () => {
 let text = 'done';
+if (mode === 'planProblem' && n === 1) {
+  fs.appendFileSync('src/a.ts', '// implemented\\n');
+  toolUse('Edit', 'src/a.ts');
+  text = 'Done.\\nPLAN-PROBLEM: 1 | resolver differs from plan text | matched the runtime resolver';
+}
+if (mode === 'planProblemMalformed' && n === 1) {
+  fs.appendFileSync('src/a.ts', '// implemented\\n');
+  toolUse('Edit', 'src/a.ts');
+  text = 'Done.\\nPLAN-PROBLEM: 1 | only two parts';
+}
 if (mode === 'intentFidelity' && n === 1) {
   fs.appendFileSync('src/a.ts', '// implemented\\n');
   toolUse('Edit', 'src/a.ts');
@@ -111,8 +127,9 @@ if (mode === 'declareAndEdit' && n === 2) {
 result(text);
 };
 const isFidelityPrompt = fullPrompt.includes('## Plan step') && fullPrompt.includes('## Your task');
-if (mode === 'intentFidelity' && isFidelityPrompt) result('{"findings":[]}');
-else if ((mode.startsWith('assessor') || mode === 'intentFidelity') && isAssessorPrompt) respondAsAssessor();
+const usesFidelityStub = mode === 'intentFidelity' || mode.startsWith('planProblem');
+if (usesFidelityStub && isFidelityPrompt) result('{"findings":[]}');
+else if ((mode.startsWith('assessor') || usesFidelityStub) && isAssessorPrompt) respondAsAssessor();
 else respondAsImplementer();
 `;
 

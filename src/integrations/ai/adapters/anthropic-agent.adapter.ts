@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError } from '../../../shared/utils/errors';
 import { formatPlanRisks } from '../../../shared/utils/plan-risk';
+import type { PlanProblem } from '../../../shared/types/agent.types';
 import {
   type CanUseTool,
   type SDKResultMessage,
@@ -43,6 +44,7 @@ import {
   continuationTail,
   parseNoChangeDeclarations,
   acceptNoChangeDeclarations,
+  collectPlanProblems,
   type BuildTaskBriefParams,
 } from './shared-routing';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
@@ -56,6 +58,7 @@ const MAX_CONSECUTIVE_IDLE_PASSES = 3;
 const FALLBACK_VERIFICATION_LABEL = 'verification command';
 
 type ActivityState = {
+  planProblems?: PlanProblem[];
   lastVerificationCommand?: string;
   verificationScripts?: VerificationScript[];
   verificationOutcomes?: VerificationOutcome[];
@@ -516,6 +519,7 @@ type ContinuationPassParams = {
   touchedFiles: Set<string>;
   notApplicableFiles: Set<string>;
   activityState: ActivityState;
+  planStepCount: number;
   passNumber: number;
   totalPlanned: number;
   taskBriefParams: BuildTaskBriefParams;
@@ -535,9 +539,19 @@ const finalizeContinuationResult = (
   return { sessionId: validateAndLogPassResult(result, passNumber - 1), numTurns: result.num_turns ?? 2, madeChanges };
 };
 
+const successResultText = (result: SDKResultMessage | undefined): string =>
+  result?.subtype === 'success' ? result.result : '';
+
+export const collectResultPlanProblems = (
+  activityState: ActivityState, result: SDKResultMessage | undefined, planStepCount: number,
+): void => {
+  activityState.planProblems ??= [];
+  collectPlanProblems(activityState.planProblems, successResultText(result), planStepCount);
+};
+
 const acceptPassDeclarations = (p: ContinuationPassParams, result: SDKResultMessage | undefined): number =>
   acceptNoChangeDeclarations({
-    declared: parseNoChangeDeclarations(result?.subtype === 'success' ? result.result : ''),
+    declared: parseNoChangeDeclarations(successResultText(result)),
     repoName: p.repoName,
     plannedFiles: p.repoFiles,
     touchedFiles: p.touchedFiles,
@@ -555,6 +569,7 @@ const runContinuationPass = async (p: ContinuationPassParams): Promise<Continuat
   const result = await runSdkSession(session, repoDir, p.touchedFiles, p.activityState);
   await discoverChangedFiles(repoDir, p.touchedFiles);
   const accepted = acceptPassDeclarations(p, result);
+  collectResultPlanProblems(p.activityState, result, p.planStepCount);
   return finalizeContinuationResult(result, p.passNumber, p.touchedFiles.size > touchedBefore || accepted > 0);
 };
 
@@ -627,6 +642,7 @@ type ContinuationLoopParams = {
   touchedFiles: Set<string>;
   notApplicableFiles: Set<string>;
   activityState: ActivityState;
+  planStepCount: number;
   initialSessionId: string;
   taskBriefParams: BuildTaskBriefParams;
   conventionsSection?: string;
@@ -657,6 +673,7 @@ const buildContinuationPassParams = (
   sessionId: state.sessionId, currentUnvisited: unvisited,
   repoFiles: p.repoFiles, repoName: p.repoName,
   touchedFiles: p.touchedFiles, notApplicableFiles: p.notApplicableFiles, activityState: p.activityState,
+  planStepCount: p.planStepCount,
   passNumber: state.passNumber, totalPlanned: fileCount,
   taskBriefParams: p.taskBriefParams, conventionsSection: p.conventionsSection,
 });
@@ -788,6 +805,7 @@ type AgentSessionParams = {
   touchedFiles: Set<string>;
   notApplicableFiles: Set<string>;
   activityState: ActivityState;
+  planStepCount: number;
 };
 
 const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: string): BuildTaskBriefParams => ({
@@ -806,6 +824,7 @@ const buildSdkContinuationParams = (
 ): ContinuationLoopParams => ({
   query: s.query, sdkOptions: s.sdkOptions, repoFiles: s.params.repoFiles, repoName: s.params.repoName,
   touchedFiles: s.touchedFiles, notApplicableFiles: s.notApplicableFiles, activityState: s.activityState,
+  planStepCount: s.planStepCount,
   initialSessionId: finalResult.session_id,
   taskBriefParams, conventionsSection: s.params.conventionsSection,
 });
@@ -821,6 +840,7 @@ const executeAgentSession = async (s: AgentSessionParams): Promise<string> => {
     promptOverride: s.params.options.initialPromptOverride,
   });
   logSdkCompletion(finalResult);
+  collectResultPlanProblems(s.activityState, finalResult, s.planStepCount);
   return runSdkContinuationLoop(buildSdkContinuationParams(s, finalResult, taskBriefParams));
 };
 
@@ -840,7 +860,7 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
   }
 
   private buildActivityState(params: GenerateAndVerifyParams): ActivityState {
-    return { verificationScripts: params.verificationScripts, verificationOutcomes: [] };
+    return { verificationScripts: params.verificationScripts, verificationOutcomes: [], planProblems: [] };
   }
 
   private async prepareSession(params: GenerateAndVerifyParams, activityState: ActivityState) {
@@ -862,18 +882,22 @@ export class AnthropicAgentAdapter implements ImplementerBackend {
     const sessionId = await executeAgentSession({
       query, sdkOptions: sdkOptions as Record<string, unknown>,
       params, repoDir, touchedFiles, notApplicableFiles: new Set<string>(), activityState,
+      planStepCount: params.planArtifact.plan.steps.length,
     });
     return { sessionId, activityState, model };
   }
 
   async generateAndVerify(
     params: GenerateAndVerifyParams,
-  ): Promise<{ sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[] }> {
+  ): Promise<{
+    sessionId?: string; verificationOutcomes: VerificationOutcome[]; modelsUsed?: string[];
+    planProblems?: PlanProblem[];
+  }> {
     const { sessionId, activityState, model } = await this.buildAndExecuteSession(params);
     const verificationOutcomes = resolveSkippedSteps(
       params.verificationScripts, activityState.verificationOutcomes ?? []
     );
     printVerificationReport(verificationOutcomes);
-    return { sessionId, verificationOutcomes, modelsUsed: [model] };
+    return { sessionId, verificationOutcomes, modelsUsed: [model], planProblems: activityState.planProblems ?? [] };
   }
 }

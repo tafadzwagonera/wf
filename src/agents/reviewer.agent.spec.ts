@@ -868,6 +868,45 @@ describe('ReviewerAgent', () => {
       );
     });
 
+    it('includes the implementer plan-problem lines from the newest run artifact in the reviewDiff context', async () => {
+      const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-reviewer-plan-problem-'));
+      const previousWfHome = process.env.WF_HOME;
+      process.env.WF_HOME = wfHome;
+      try {
+        const runDir = path.join(wfHome, 'state', 'implement-verification', 'repo');
+        fs.mkdirSync(runDir, { recursive: true });
+        fs.writeFileSync(path.join(runDir, 'WBP-123-2026-01-01T00-00-00-000Z.json'), JSON.stringify({
+          run: {
+            ticketKey: 'WBP-123', repoDir: '/repo', backendConfigured: 'claude-cli', backendSelected: 'claude-cli',
+            provider: 'anthropic', verificationScripts: [], startedAt: '2026-01-01T00:00:00.000Z',
+            planProblems: [{ step: 1, reason: 'resolver differs from plan text', instead: 'matched the runtime resolver' }],
+          },
+          attempts: [],
+        }));
+        mockResolveVerificationSummary.mockImplementation(
+          jest.requireActual<typeof import('../shared/utils/implement-verification')>(
+            '../shared/utils/implement-verification',
+          ).resolveVerificationSummary,
+        );
+        const { agent, reviewStageService } = await buildModule();
+
+        await agent.execute(ticket, { repoDir: '/repo' });
+
+        expect(reviewStageService.reviewDiff).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            context: expect.stringContaining(
+              '- step 1: resolver differs from plan text | instead: matched the runtime resolver',
+            ),
+          }),
+        );
+      } finally {
+        if (previousWfHome === undefined) delete process.env.WF_HOME;
+        else process.env.WF_HOME = previousWfHome;
+        fs.rmSync(wfHome, { recursive: true, force: true });
+      }
+    });
+
     it('includes a non-empty repo conventions section in the reviewDiff context', async () => {
       mockFormatRepoConventionsPromptSection.mockReturnValue('Repository conventions (repo):\n- Language: typescript');
       const { agent, reviewStageService } = await buildModule();
