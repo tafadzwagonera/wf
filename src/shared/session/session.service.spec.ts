@@ -3,7 +3,7 @@ import * as logFileWriter from '../logger/log-file-writer';
 import { ConfigService } from '@nestjs/config';
 import { SessionService } from './session.service';
 import { SessionModule } from './session.module';
-import type { SessionState, StageConfigFingerprint } from '../types/session.types';
+import type { SessionState, StageConfigFingerprint, StageRecordEntry } from '../types/session.types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -142,7 +142,9 @@ describe('SessionService', () => {
       createdAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
       stages: {
         plan: {
-          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          config: mockFingerprint, model: 'claude', modelsUsed: [],
+          records: [],
+          providerSessionId: 'provider-abc',
           summary: null, startedAt: new Date().toISOString(), completedAt: null,
         },
       },
@@ -152,7 +154,9 @@ describe('SessionService', () => {
       createdAt: new Date('2026-02-01T00:00:00.000Z').toISOString(),
       stages: {
         plan: {
-          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          config: mockFingerprint, model: 'claude', modelsUsed: [],
+          records: [],
+          providerSessionId: 'provider-abc',
           summary: null, startedAt: new Date().toISOString(), completedAt: null,
         },
       },
@@ -169,7 +173,9 @@ describe('SessionService', () => {
     const session = createMockSessionState({
       stages: {
         plan: {
-          config: mockFingerprint, model: 'claude', modelsUsed: [], providerSessionId: 'provider-abc',
+          config: mockFingerprint, model: 'claude', modelsUsed: [],
+          records: [],
+          providerSessionId: 'provider-abc',
           summary: null, startedAt: new Date().toISOString(), completedAt: null,
         },
       },
@@ -358,6 +364,113 @@ describe('SessionService', () => {
     expect(filtered.every(s => s.ticketKey === 'PROJ-123')).toBe(true);
   });
 
+  describe('stage records', () => {
+    const createMockRecordEntry = (overrides?: Partial<StageRecordEntry>): StageRecordEntry => ({
+      kind: 'plan-problem',
+      repo: 'app',
+      stepIndex: 2,
+      text: 'step 2 cannot be done as written',
+      at: '2026-10-15T00:00:00.000Z',
+      ...overrides,
+    });
+
+    const writeRawSession = (stageOverrides: Record<string, unknown>): SessionState => {
+      const session = createMockSessionState();
+      const rawStage = {
+        config: { provider: 'anthropic', backend: 'cli' },
+        model: 'm',
+        modelsUsed: [],
+        providerSessionId: null,
+        summary: null,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        ...stageOverrides,
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, buildSessionFileName(session)),
+        JSON.stringify({ ...session, stages: { implement: rawStage } })
+      );
+      return session;
+    };
+
+    const readSessionFile = (session: SessionState): string =>
+      fs.readFileSync(path.join(tmpDir, buildSessionFileName(session)), 'utf-8');
+
+    it('loads an old session with no records key as records: []', async () => {
+      const session = writeRawSession({});
+
+      const loaded = await service.load(session.sessionId);
+
+      expect(loaded?.stages['implement'].records).toEqual([]);
+    });
+
+    it('loads a non-array records value as []', async () => {
+      const session = writeRawSession({ records: 'oops' });
+
+      const loaded = await service.load(session.sessionId);
+
+      expect(loaded).not.toBeNull();
+      expect(loaded?.stages['implement'].records).toEqual([]);
+    });
+
+    it('drops malformed and unknown-kind entries but keeps the valid one', async () => {
+      const valid = createMockRecordEntry();
+      const session = writeRawSession({
+        records: [{ kind: 'plan-problem', text: 5 }, { ...valid, kind: 'mystery' }, valid],
+      });
+
+      const loaded = await service.load(session.sessionId);
+
+      expect(loaded).not.toBeNull();
+      expect(loaded?.stages['implement'].records).toEqual([valid]);
+    });
+
+    it('persists appended records to the session file', async () => {
+      const started = await service.recordStageStart(createMockSessionState(), 'implement', mockFingerprint, 'm');
+      const entry = createMockRecordEntry();
+
+      const updated = await service.appendStageRecords(started, 'implement', 'app', [entry]);
+
+      expect(updated.stages['implement'].records).toEqual([entry]);
+      const reloaded = await service.load(started.sessionId);
+      expect(reloaded?.stages['implement'].records).toEqual([entry]);
+    });
+
+    it('leaves the session file unchanged when the same records are appended again', async () => {
+      const started = await service.recordStageStart(createMockSessionState(), 'implement', mockFingerprint, 'm');
+      const entry = createMockRecordEntry();
+      const first = await service.appendStageRecords(started, 'implement', 'app', [entry]);
+      const fileAfterFirst = readSessionFile(first);
+
+      const second = await service.appendStageRecords(first, 'implement', 'app', [entry]);
+
+      expect(second).toBe(first);
+      expect(readSessionFile(first)).toBe(fileAfterFirst);
+    });
+
+    it('swallows a failing persist, returns the unchanged session and logs a WARN', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const started = await service.recordStageStart(createMockSessionState(), 'implement', mockFingerprint, 'm');
+      const saveSpy = jest.spyOn(service, 'save').mockRejectedValueOnce(new Error('disk full'));
+
+      const result = await service.appendStageRecords(started, 'implement', 'app', [createMockRecordEntry()]);
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(result).toBe(started);
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('disk full'), 'session');
+    });
+
+    it('logs a no-op and returns the same session when the stage has no record', async () => {
+      const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+      const session = createMockSessionState();
+
+      const result = await service.appendStageRecords(session, 'implement', 'app', [createMockRecordEntry()]);
+
+      expect(result).toBe(session);
+      expect(appendSpy).toHaveBeenCalledWith('WARN', expect.stringContaining('stage=implement'), 'session');
+    });
+  });
+
   describe('inferNextStage', () => {
     it('returns plan when no stages are completed for a custom session', () => {
       const session = createMockSessionState({ sourceType: 'custom' });
@@ -379,6 +492,7 @@ describe('SessionService', () => {
             config: mockFingerprint,
             model: 'claude-sonnet-4-20250514',
             modelsUsed: [],
+            records: [],
             providerSessionId: null,
             summary: null,
             startedAt: completedAt,
@@ -397,6 +511,7 @@ describe('SessionService', () => {
             config: mockFingerprint,
             model: 'claude-sonnet-4-20250514',
             modelsUsed: [],
+            records: [],
             providerSessionId: null,
             summary: 'done',
             startedAt: new Date().toISOString(),
@@ -414,6 +529,7 @@ describe('SessionService', () => {
         config: mockFingerprint,
         model: 'claude-sonnet-4-20250514',
         modelsUsed: [],
+        records: [],
         providerSessionId: null,
         summary: 'done',
         startedAt: completedAt,
@@ -444,6 +560,7 @@ describe('SessionService', () => {
           config: mockFingerprint,
           model: 'claude-sonnet-4-20250514',
           modelsUsed: [],
+          records: [],
           providerSessionId: null,
           summary: null,
           startedAt: new Date().toISOString(),

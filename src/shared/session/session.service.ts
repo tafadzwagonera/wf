@@ -4,10 +4,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { sessionStateSchema } from '../schemas/session.schema';
+import { appendRecords, defaultRecordLimits, stageOrder } from './session-records';
 import type {
   SessionState,
   StageConfigFingerprint,
   StageRecord,
+  StageRecordEntry,
   ProviderSessionCandidate,
   SessionValidationResult,
 } from '../types/session.types';
@@ -15,7 +17,8 @@ import { getWfSessionDir } from '../utils/wf-paths';
 import { buildSessionFileName, stripSessionDatePrefix } from '../utils/session-file-name';
 import { appendToLogFile } from '../logger/log-file-writer';
 
-const stageOrder = ['plan', 'implement', 'review', 'commit'];
+type StageRecordsWrite = { stage: string; repoKey: string; appended: StageRecordEntry[] };
+
 const resumeStageOrder = ['fetch', ...stageOrder];
 const DEFAULT_TTL_DAYS = 7;
 
@@ -244,6 +247,46 @@ export class SessionService {
     );
   }
 
+  /**
+   * Appends typed records to a stage. Best-effort: a failed write or a missing stage record is
+   * logged at WARN and the unchanged session is returned, so a bookkeeping failure never fails
+   * the stage that produced the records.
+   *
+   * @param session - Session being updated
+   * @param stage - Stage the records belong to
+   * @param repoKey - Repo the records were reported for
+   * @param records - Newly reported records; duplicates of stored records are ignored
+   * @returns The persisted session, or the unchanged session when nothing was written
+   */
+  async appendStageRecords(
+    session: SessionState, stage: string, repoKey: string, records: StageRecordEntry[]
+  ): Promise<SessionState> {
+    const record = session.stages[stage];
+    if (!record) return this.skipStageRecords(session, stage, repoKey);
+    const appended = appendRecords(record.records, records, defaultRecordLimits);
+    if (JSON.stringify(appended) === JSON.stringify(record.records)) return session;
+    return this.persistStageRecords(session, { stage, repoKey, appended });
+  }
+
+  private skipStageRecords(session: SessionState, stage: string, repoKey: string): SessionState {
+    appendToLogFile(
+      'WARN', `issue.session.records-skipped stage=${stage} repo=${repoKey} cause=no-stage-record`, 'session'
+    );
+    return session;
+  }
+
+  private async persistStageRecords(
+    session: SessionState, { stage, repoKey, appended }: StageRecordsWrite
+  ): Promise<SessionState> {
+    try {
+      return await this.persistSession(this.updateStage(session, stage, record => ({ ...record, records: appended })));
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('WARN', `issue.session.records-failed stage=${stage} repo=${repoKey} cause=${cause}`, 'session');
+      return session;
+    }
+  }
+
   async recordStageComplete(session: SessionState, stage: string, summary: string | null): Promise<SessionState> {
     if (!session.stages[stage]) return session;
     const record = session.stages[stage];
@@ -420,6 +463,7 @@ export class SessionService {
       summary: null,
       startedAt: new Date().toISOString(),
       completedAt: null,
+      records: [],
     };
   }
 

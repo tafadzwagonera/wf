@@ -9,7 +9,7 @@ import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
 import { ValidationError } from '../shared/utils/errors';
 import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
+import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo, toRepoKeys } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifestPath,
@@ -44,8 +44,9 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
-import type { ProviderSessionIdCallback } from '../shared/types/agent.types';
+import type { ProviderSessionIdCallback, RecordsCallback } from '../shared/types/agent.types';
 import { isResumableBackend, SessionService } from '../shared/session/session.service';
+import { collectPriorRecords } from '../shared/session/session-records';
 import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
 import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } from '../shared/types/session.types';
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
@@ -156,6 +157,41 @@ type InteractiveChatOptions = {
   workflowState: any;
 };
 
+type ImplementSessionContext = {
+  resumeProviderSessionId?: string;
+  priorStageSummary?: string;
+  onRecords?: RecordsCallback;
+};
+
+type SessionRef = {
+  current: SessionState | undefined;
+  pending: Promise<void>;
+  update: (fn: (session: SessionState) => Promise<SessionState>) => Promise<void>;
+};
+
+const createSessionRef = (initial: SessionState | undefined): SessionRef => {
+  const ref: SessionRef = {
+    current: initial,
+    pending: Promise.resolve(),
+    update: fn => {
+      const run = ref.pending.then(async () => {
+        ref.current &&= await fn(ref.current);
+      });
+      ref.pending = run.catch(() => undefined);
+      return run;
+    },
+  };
+  return ref;
+};
+
+const withPriorRecords = <T extends { priorStageSummary?: string }>(
+  context: T, sessionRef: SessionRef, stage: string, repoKey: string
+): T => {
+  const records = sessionRef.current ? collectPriorRecords(sessionRef.current, stage, repoKey) : '';
+  if (!records) return context;
+  return { ...context, priorStageSummary: [context.priorStageSummary, records].filter(Boolean).join('\n\n') };
+};
+
 type ReviewRepoContext = {
   isMultiRepo: boolean;
   options: IssueOptions;
@@ -169,7 +205,8 @@ type ReviewRepoContext = {
 
 type ReviewCollectionState = {
   reviewArtifacts: ReviewArtifact[];
-  sessionRef: { current: SessionState | undefined };
+  sessionRef: SessionRef;
+  repoKeys: string[];
   onProviderSessionId?: ProviderSessionIdCallback;
 };
 
@@ -1484,7 +1521,7 @@ export class IssueCommand extends CommandRunner {
 
   private buildImplementerOptions(
     repo: string | undefined, repos: (string | undefined)[], options: IssueOptions, isMultiRepo: boolean,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
+    sessionContext: ImplementSessionContext,
     planArtifact?: PlanArtifact
   ): ImplementerOptions {
     return {
@@ -1507,7 +1544,7 @@ export class IssueCommand extends CommandRunner {
   private async runImplementLoop(
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
     repos: (string | undefined)[], options: IssueOptions,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string },
+    sessionContext: ImplementSessionContext,
     primaryRepo: string | undefined,
     sessionState?: SessionState
   ): Promise<{
@@ -1517,27 +1554,48 @@ export class IssueCommand extends CommandRunner {
     sessionState: SessionState | undefined;
   }> {
     const isMultiRepo = repos.length > 1;
+    const repoKeys = toRepoKeys(repos);
+    const sessionRef = createSessionRef(sessionState);
     let implementerResult: ImplementerResult | undefined;
     let anyHasChanges = false;
     let primaryRepoSessionId: string | undefined;
-    for (const repo of repos) {
-      await initializeWfConfig(resolveRepoBasePath(repo));
-      if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-      const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
-      const result = await this.executeRepoImplementation(
-        ticketArtifact, planArtifact, repo, repos, options, isMultiRepo, scopedContext
-      );
-      if (result.implementerResult?.type === 'implementation'
-        && resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo)) {
-        primaryRepoSessionId = result.implementerResult.sessionId;
-        if (sessionState && primaryRepoSessionId) {
-          sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', primaryRepoSessionId);
+    let earlyResult: { implementerResult: ImplementerResult | undefined; earlyReturn: boolean } | undefined;
+    try {
+      for (const [index, repo] of repos.entries()) {
+        await initializeWfConfig(resolveRepoBasePath(repo));
+        if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
+        const onRecords = this.createRecordsRecorder(sessionRef, 'implement', repoKeys[index]);
+        const scopedContext: ImplementSessionContext = {
+          ...withPriorRecords(
+            this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo), sessionRef, 'implement', repoKeys[index]
+          ),
+          ...(onRecords && { onRecords }),
+        };
+        const result = await this.executeRepoImplementation(
+          ticketArtifact, planArtifact, repo, repos, options, isMultiRepo, scopedContext
+        );
+        if (result.implementerResult?.type === 'implementation'
+          && resolveRepoBasePath(repo) === resolveRepoBasePath(primaryRepo)) {
+          primaryRepoSessionId = result.implementerResult.sessionId;
+          if (primaryRepoSessionId) {
+            const providerSessionId = primaryRepoSessionId;
+            await sessionRef.update(session => this.sessionService.recordProviderSessionId(session, 'implement', providerSessionId));
+          }
         }
+        if (result.earlyReturn) {
+          earlyResult = result;
+          break;
+        }
+        ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));
       }
-      if (result.earlyReturn) return { ...result, primaryRepoSessionId, sessionState };
-      ({ implementerResult, anyHasChanges } = this.mergeImplementResult(result.implementerResult, anyHasChanges));
+    } finally {
+      await sessionRef.pending;
     }
-    return { ...this.finalizeImplementResult(implementerResult, anyHasChanges), primaryRepoSessionId, sessionState };
+    if (earlyResult) return { ...earlyResult, primaryRepoSessionId, sessionState: sessionRef.current };
+    return {
+      ...this.finalizeImplementResult(implementerResult, anyHasChanges), primaryRepoSessionId,
+      sessionState: sessionRef.current,
+    };
   }
 
   private mergeImplementResult(
@@ -1562,7 +1620,7 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact,
     repo: string | undefined, repos: (string | undefined)[],
     options: IssueOptions, isMultiRepo: boolean,
-    sessionContext: { resumeProviderSessionId?: string; priorStageSummary?: string }
+    sessionContext: ImplementSessionContext
   ): Promise<{ implementerResult: ImplementerResult | undefined; earlyReturn: boolean }> {
     const implOpts = this.buildImplementerOptions(
       repo, repos, options, isMultiRepo, sessionContext, planArtifact);
@@ -1578,19 +1636,21 @@ export class IssueCommand extends CommandRunner {
     sessionState: SessionState | undefined, result: ImplementerResult | undefined,
     planArtifact: PlanArtifact, primaryRepoSessionId: string | undefined
   ): Promise<SessionState | undefined> {
+    const sessionRef = createSessionRef(sessionState);
     const resumableSessionId = primaryRepoSessionId
       ?? (result?.type === 'implementation' ? result.sessionId : undefined);
-    if (sessionState && resumableSessionId) {
-      sessionState = await this.sessionService.recordProviderSessionId(sessionState, 'implement', resumableSessionId);
+    if (resumableSessionId) {
+      await sessionRef.update(session => this.sessionService.recordProviderSessionId(session, 'implement', resumableSessionId));
     }
-    if (sessionState && result?.type === 'implementation' && result.modelsUsed?.length) {
-      sessionState = await this.sessionService.recordStageModels(sessionState, 'implement', result.modelsUsed);
+    if (result?.type === 'implementation' && result.modelsUsed?.length) {
+      const { modelsUsed } = result;
+      await sessionRef.update(session => this.sessionService.recordStageModels(session, 'implement', modelsUsed));
     }
-    if (sessionState && result?.type === 'implementation') {
-      sessionState = await this.recordSessionSourceBranch(sessionState, planArtifact);
+    if (result?.type === 'implementation') {
+      await sessionRef.update(session => this.recordSessionSourceBranch(session, planArtifact));
     }
-    sessionState &&= await this.sessionService.recordStageComplete(sessionState, 'implement', null);
-    return sessionState;
+    await sessionRef.update(session => this.sessionService.recordStageComplete(session, 'implement', null));
+    return sessionRef.current;
   }
 
   /**
@@ -1648,11 +1708,10 @@ export class IssueCommand extends CommandRunner {
     return { prepared, forkSession };
   }
 
-  private async recordReviewProviderSession(
-    sessionState: SessionState | undefined, artifact: ReviewArtifact | null
-  ): Promise<SessionState | undefined> {
-    if (!sessionState || !artifact?.sessionId) return sessionState;
-    return this.sessionService.recordProviderSessionId(sessionState, 'review', artifact.sessionId);
+  private async recordReviewProviderSession(sessionRef: SessionRef, artifact: ReviewArtifact | null): Promise<void> {
+    if (!artifact?.sessionId) return;
+    const { sessionId } = artifact;
+    await sessionRef.update(session => this.sessionService.recordProviderSessionId(session, 'review', sessionId));
   }
 
   private async prepareReviewSession(
@@ -1686,16 +1745,16 @@ export class IssueCommand extends CommandRunner {
   }
 
   private async recordAndPresentReviewArtifact(
-    reviewArtifact: ReviewArtifact, reviewContext: ReviewRepoContext, sessionState: SessionState | undefined
-  ): Promise<SessionState | undefined> {
-    sessionState = await this.recordReviewProviderSession(sessionState, reviewArtifact);
-    if (sessionState && reviewArtifact.modelUsed) {
-      sessionState = await this.sessionService.recordStageModels(sessionState, 'review', [reviewArtifact.modelUsed]);
+    reviewArtifact: ReviewArtifact, reviewContext: ReviewRepoContext, sessionRef: SessionRef
+  ): Promise<void> {
+    await this.recordReviewProviderSession(sessionRef, reviewArtifact);
+    if (reviewArtifact.modelUsed) {
+      const { modelUsed } = reviewArtifact;
+      await sessionRef.update(session => this.sessionService.recordStageModels(session, 'review', [modelUsed]));
     }
     await this.persistAndPresentReview(
       reviewContext.ticketArtifact, reviewContext.planArtifact, reviewArtifact, reviewContext
     );
-    return sessionState;
   }
 
   private async collectReviewArtifacts(
@@ -1703,29 +1762,30 @@ export class IssueCommand extends CommandRunner {
     reviewContext: ReviewRepoContext,
     sessionState: SessionState | undefined
   ): Promise<{ reviewArtifacts: ReviewArtifact[]; sessionState: SessionState | undefined }> {
-    const sessionRef = { current: sessionState };
+    const sessionRef = createSessionRef(sessionState);
     const state: ReviewCollectionState = {
-      reviewArtifacts: [], sessionRef,
+      reviewArtifacts: [], sessionRef, repoKeys: toRepoKeys(repos),
       onProviderSessionId: this.createEarlyReviewSessionRecorder(sessionRef),
     };
-    for (const repo of repos) {
+    for (const [index, repo] of repos.entries()) {
       try {
-        await this.reviewRepoIntoState(repo, reviewContext, state);
+        await this.reviewRepoIntoState(repo, reviewContext, state, state.repoKeys[index]);
       } catch (error) {
         this.handleReviewLoopError(error, repo, repos, reviewContext.options);
       }
     }
+    await sessionRef.pending;
     return { reviewArtifacts: state.reviewArtifacts, sessionState: sessionRef.current };
   }
 
   private async reviewRepoIntoState(
-    repo: string | undefined, reviewContext: ReviewRepoContext, state: ReviewCollectionState
+    repo: string | undefined, reviewContext: ReviewRepoContext, state: ReviewCollectionState, repoKey: string
   ): Promise<void> {
-    const reviewArtifact = await this.runReviewForRepo(repo, reviewContext, state.onProviderSessionId);
-    if (!reviewArtifact) return;
-    state.sessionRef.current = await this.recordAndPresentReviewArtifact(
-      reviewArtifact, reviewContext, state.sessionRef.current
+    const reviewArtifact = await this.runReviewForRepo(
+      repo, reviewContext, state.onProviderSessionId, { sessionRef: state.sessionRef, repoKey }
     );
+    if (!reviewArtifact) return;
+    await this.recordAndPresentReviewArtifact(reviewArtifact, reviewContext, state.sessionRef);
     state.reviewArtifacts.push(reviewArtifact);
   }
 
@@ -1735,18 +1795,28 @@ export class IssueCommand extends CommandRunner {
    * review would otherwise leave `providerSessionId` null in the session file, making the
    * stage unresumable.
    */
-  private createEarlyReviewSessionRecorder(
-    sessionRef: { current: SessionState | undefined }
-  ): ProviderSessionIdCallback | undefined {
+  private createEarlyReviewSessionRecorder(sessionRef: SessionRef): ProviderSessionIdCallback | undefined {
     if (!sessionRef.current) return undefined;
     return providerSessionId => {
-      const session = sessionRef.current;
-      if (!session || session.stages.review?.providerSessionId === providerSessionId) return;
-      this.sessionService.recordProviderSessionId(session, 'review', providerSessionId)
-        .then(updated => { sessionRef.current = updated; })
+      if (sessionRef.current?.stages.review?.providerSessionId === providerSessionId) return;
+      sessionRef.update(session => this.sessionService.recordProviderSessionId(session, 'review', providerSessionId))
         .catch((error: unknown) => appendToLogFile(
           'WARN',
           `issue.session.early-record-failed stage=review session=${providerSessionId} `
+          + `error=${error instanceof Error ? error.message : String(error)}`,
+          'session'
+        ));
+    };
+  }
+
+  private createRecordsRecorder(sessionRef: SessionRef, stage: string, repoKey: string): RecordsCallback | undefined {
+    if (!sessionRef.current) return undefined;
+    return records => {
+      const stamped = records.map(record => ({ ...record, repo: repoKey }));
+      sessionRef.update(session => this.sessionService.appendStageRecords(session, stage, repoKey, stamped))
+        .catch((error: unknown) => appendToLogFile(
+          'WARN',
+          `issue.session.records-failed stage=${stage} repo=${repoKey} `
           + `error=${error instanceof Error ? error.message : String(error)}`,
           'session'
         ));
@@ -1784,21 +1854,33 @@ export class IssueCommand extends CommandRunner {
   private async runReviewForRepo(
     repo: string | undefined,
     reviewContext: ReviewRepoContext,
-    onProviderSessionId?: ProviderSessionIdCallback
+    onProviderSessionId?: ProviderSessionIdCallback,
+    priorRecordsSource?: { sessionRef: SessionRef; repoKey: string }
   ): Promise<ReviewArtifact | null> {
     await initializeWfConfig(resolveRepoBasePath(repo));
     const { isMultiRepo, options, planArtifact, primaryRepo, repos, sessionContext, ticketArtifact } = reviewContext;
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
-    const scopedContext = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
-    const reviewArtifact = await this.agents.reviewer.execute(ticketArtifact, {
+    const scopedContext = this.scopeReviewContext(sessionContext, { repo, primaryRepo, priorRecordsSource });
+    return this.agents.reviewer.execute(ticketArtifact, {
       skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
       suppressHeader: isMultiRepo, silent: options?.silent,
       sonar: options?.sonar, figma: options?.figma,
       planArtifactPath: planArtifact?.path, onProviderSessionId, ...scopedContext,
     });
-    if (!reviewArtifact) return null;
+  }
 
-    return reviewArtifact;
+  private scopeReviewContext(
+    sessionContext: ReviewLoopContext,
+    { repo, primaryRepo, priorRecordsSource }: {
+      repo: string | undefined;
+      primaryRepo: string | undefined;
+      priorRecordsSource?: { sessionRef: SessionRef; repoKey: string };
+    }
+  ): ReviewLoopContext {
+    const repoScoped = this.scopeSessionContextToRepo(sessionContext, repo, primaryRepo);
+    if (!priorRecordsSource) return repoScoped;
+    const { sessionRef, repoKey } = priorRecordsSource;
+    return withPriorRecords(repoScoped, sessionRef, 'review', repoKey);
   }
 
   private createReviewRepoContext(

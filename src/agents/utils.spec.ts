@@ -1,6 +1,6 @@
 import * as path from 'path';
 import chalk from 'chalk';
-import { extractSummary, isRepoResolvable, resolveRepoBasePath, scaffoldNewRepo, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
+import { extractSummary, isRepoResolvable, resolveRepoBasePath, scaffoldNewRepo, slugify, toRepoKeys, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
@@ -196,5 +196,29 @@ describe('scaffoldNewRepo', () => {
     expect(() => scaffoldNewRepo('new-repo', '/tmp/current-app')).toThrow(
       `scaffoldNewRepo: git commit failed in ${repoPath}. Ensure git user.name and user.email are configured.`
     );
+  });
+});
+
+describe('toRepoKeys', () => {
+  beforeEach(() => {
+    jest.spyOn(process, 'cwd').mockReturnValue('/tmp/current-app');
+    existsSync.mockReset();
+    existsSync.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('returns basenames for distinct repos', () => {
+    expect(toRepoKeys(['/work/a/api', '/work/a/web'])).toEqual(['api', 'web']);
+  });
+
+  it('returns the full resolved path for every repo whose basename collides', () => {
+    expect(toRepoKeys(['/work/a/app', '/work/b/app', '/work/a/web'])).toEqual(['/work/a/app', '/work/b/app', 'web']);
+  });
+
+  it('returns the cwd basename for an undefined repo', () => {
+    expect(toRepoKeys([undefined])).toEqual(['current-app']);
   });
 });

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isValidRegexPattern, verificationPolicySchema } from './verification.schema';
 import { planPhaseSchema, resolutionPlanSchema } from './ai.schema';
 import { codeReviewSchema } from './review.schema';
+import type { RecordsCallback } from '../types/agent.types';
 
 export const verificationScriptSchema = z.object({
   id: z.string(),
@@ -142,6 +143,7 @@ export const implementerOptionsSchema = z.object({
   figma: z.boolean().optional(),
   /** Skip post-pull dependency install (use when node_modules is known-clean). */
   skipInstall: z.boolean().optional(),
+  onRecords: z.custom<RecordsCallback>().optional(),
 });
 
 export const agentStageNameSchema = z.enum(['plan', 'review', 'generate', 'implement']);

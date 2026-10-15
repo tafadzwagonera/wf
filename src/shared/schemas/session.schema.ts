@@ -7,6 +7,17 @@ export const stageConfigFingerprintSchema = z.object({
   model: z.string().optional(),
 });
 
+export const stageRecordEntrySchema = z.object({
+  kind: z.enum(['plan-problem', 'deviation']),
+  repo: z.string().nullable(),
+  stepIndex: z.number().int().nullable(),
+  text: z.string(),
+  at: z.string(),
+});
+
+const sanitiseRecords = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value.filter(item => stageRecordEntrySchema.safeParse(item).success) : [];
+
 export const stageRecordSchema = z.object({
   config: stageConfigFingerprintSchema,
   model: z.string(),
@@ -23,6 +34,7 @@ export const stageRecordSchema = z.object({
   summary: z.string().nullable().default(null),
   startedAt: z.string(),
   completedAt: z.string().nullable().default(null),
+  records: z.preprocess(sanitiseRecords, z.array(stageRecordEntrySchema)).default([]),
 });
 
 export const sessionStateSchema = z.object({

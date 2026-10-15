@@ -51,6 +51,19 @@ export const resolveRepoBasePath = (repo?: string): string => {
   return process.cwd();
 };
 
+export const toRepoKeys = (repos: (string | undefined)[]): string[] => {
+  const resolved = repos.map(repo => resolveRepoBasePath(repo));
+  const pathsByBasename = new Map<string, Set<string>>();
+  for (const repoPath of resolved) {
+    const basename = path.basename(repoPath);
+    pathsByBasename.set(basename, (pathsByBasename.get(basename) ?? new Set()).add(repoPath));
+  }
+  return resolved.map(repoPath => {
+    const basename = path.basename(repoPath);
+    return (pathsByBasename.get(basename)?.size ?? 0) > 1 ? repoPath : basename;
+  });
+};
+
 export const isRepoResolvable = (repo: string): boolean =>
   (tryResolvePath(repo) ?? tryResolveSegmentFallback(repo)) !== null;
 

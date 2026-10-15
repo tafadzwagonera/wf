@@ -5,6 +5,8 @@ import { violatesUppercaseDescription } from '../shared/utils/commit-subject-cas
 import { GitService } from '../integrations/git/git.service';
 import { safeBranchNamePattern, sanitizeBranchNameInput, validateBranchNameInput } from '../integrations/git/branch-name';
 import type { BranchInfo } from '../shared/types/git.types';
+import type { StageRecordEntry } from '../shared/types/session.types';
+import type { RecordsCallback } from '../shared/types/agent.types';
 import { AiService, buildFindingsPrompt, findingsSystemPrompt, normalizeFileEntries, parseJsonResponse } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import type { FindingsDocument } from '../shared/types/ai.types';
@@ -105,6 +107,24 @@ const toAssessableStep = (index: number, { text, intent }: PlannedStep, report?:
   ...(report && { planProblem: { reason: report.reason, instead: report.instead } }),
 });
 
+const toPlanProblemRecords = (planProblems: PlanProblem[]): StageRecordEntry[] =>
+  planProblems.map(problem => ({
+    kind: 'plan-problem',
+    repo: null,
+    stepIndex: problem.step,
+    text: `${problem.reason} | instead: ${problem.instead}`,
+    at: new Date().toISOString(),
+  }));
+
+const toDeviationRecords = (stepIndex: number, findings: StepFidelityFinding[]): StageRecordEntry[] =>
+  findings.map(finding => ({
+    kind: 'deviation',
+    repo: null,
+    stepIndex,
+    text: `${finding.claim} | ${finding.deviation}`,
+    at: new Date().toISOString(),
+  }));
+
 type PlanProblemLedger = {
   add: (problems?: PlanProblem[]) => void;
   forStep: (planStepNumber: number) => PlanProblem | undefined;
@@ -200,6 +220,7 @@ type FidelityRefresherArgs = {
   assessorTarget?: AssessorTarget;
   planStepNumbers: number[];
   planProblemLedger: PlanProblemLedger;
+  onRecords?: RecordsCallback;
 };
 
 type FidelityRefresher = {
@@ -215,6 +236,7 @@ type EnrichStepsArgs = {
   raised: Map<string, number>;
   onSuppressed: () => void;
   assessorTarget?: AssessorTarget;
+  onBlocking?: (stepIndex: number, findings: StepFidelityFinding[]) => void;
 };
 
 @Injectable()
@@ -298,6 +320,13 @@ export class ImplementerAgent {
     this.printPlanProblemNotices(planProblems);
     this.persistPlanProblems(planProblems);
     return { ...result, planProblems };
+  }
+
+  private recordPassOutcome(
+    options: ImplementerOptions, res: { verificationPassCount?: number; planProblems?: PlanProblem[] }
+  ): void {
+    this.verificationPassOffset += res.verificationPassCount ?? 0;
+    options.onRecords?.(toPlanProblemRecords(res.planProblems ?? []));
   }
 
   private printPlanProblemNotices(planProblems: PlanProblem[]): void {
@@ -450,7 +479,7 @@ export class ImplementerAgent {
       verificationOutcomes: result.verificationOutcomes, commitPolicy: plan.policy, ...assessorTarget,
       ...this.createFidelityRefresher({
         originalSteps: plan.assessedSteps, repoDir: options.repoDir ?? process.cwd(), baseRef: baseline?.sha,
-        assessorTarget, planStepNumbers, planProblemLedger: ledger,
+        assessorTarget, planStepNumbers, planProblemLedger: ledger, onRecords: options.onRecords,
       }),
     });
   }
@@ -575,7 +604,7 @@ export class ImplementerAgent {
   }
 
   private async enrichStepsWithFidelityAndPlanProblems(args: EnrichStepsArgs): Promise<Map<number, string>> {
-    const { steps, reports, repoDir, baseRef, raised, onSuppressed, assessorTarget } = args;
+    const { steps, reports, repoDir, baseRef, raised, onSuppressed, assessorTarget, onBlocking } = args;
     const strippedSteps = stripRepoNamePrefix(steps, repoDir);
     const result = await this.stepSpecFidelity.verifyAll(strippedSteps, repoDir, baseRef, assessorTarget);
     this.logFidelityFailures(result.failures);
@@ -585,6 +614,7 @@ export class ImplementerAgent {
       const blocking = this.filterBlockingFidelityErrors(step.index, errors, raised, onSuppressed);
       const annotated = annotateWithPlanProblem(step.text, reports.get(step.index));
       if (!blocking.length) return [step.index, annotated];
+      onBlocking?.(step.index, blocking);
       const block = blocking.map(f => `- claim "${f.claim}" — ${f.deviation}`).join('\n');
       return [step.index, `${annotated}\n\n[SPEC FIDELITY ERRORS — must fix before this step is considered done]\n${block}`];
     }));
@@ -619,7 +649,7 @@ export class ImplementerAgent {
   }
 
   private buildFidelityRefresher(args: FidelityRefresherArgs): FidelityRefresher {
-    const { originalSteps, repoDir, baseRef, assessorTarget, planStepNumbers, planProblemLedger } = args;
+    const { originalSteps, repoDir, baseRef, assessorTarget, planStepNumbers, planProblemLedger, onRecords } = args;
     const raised = new Map<string, number>();
     let suppressed = 0;
     return {
@@ -631,6 +661,8 @@ export class ImplementerAgent {
         };
         return this.enrichStepsWithFidelityAndPlanProblems({
           steps, reports, repoDir, baseRef, raised, onSuppressed: incrementSuppressed, assessorTarget,
+          onBlocking: (stepIndex, findings) =>
+            onRecords?.(toDeviationRecords(planStepNumbers[stepIndex] ?? stepIndex + 1, findings)),
         }).catch(() => annotateStepTexts(steps, reports));
       },
       getSuppressed: () => suppressed,
@@ -845,7 +877,7 @@ export class ImplementerAgent {
       repoName, ...tracked, conventionsSection, ...skillParams,
       verificationPassOffset: this.verificationPassOffset,
     });
-    this.verificationPassOffset += res.verificationPassCount ?? 0;
+    this.recordPassOutcome(options, res);
     return res;
   }
 

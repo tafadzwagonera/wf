@@ -41,6 +41,9 @@ jest.mock('../agents/utils', () => {
     resolveRepoBasePath: jest.fn((repo?: string) =>
       repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app',
     ),
+    toRepoKeys: jest.fn((repos: (string | undefined)[]) =>
+      repos.map(repo => path.basename(repo ? path.join('/tmp/consumer-app', repo) : '/tmp/consumer-app')),
+    ),
     isRepoResolvable: jest.fn(() => true),
     scaffoldNewRepo: jest.fn((repo: string, baseDir: string) =>
       path.resolve(baseDir, '..', repo),
@@ -97,6 +100,7 @@ import { createTempDir as createManagedTempDir } from '../shared/testing/temp-di
 import * as logFileWriter from '../shared/logger/log-file-writer';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { selectProviderSession } from '../shared/utils/provider-session-prompt';
+import { toRepoKeys } from '../agents/utils';
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -105,6 +109,7 @@ const mockSessionService = {
   recordStageStart: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordProviderSessionId: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordStageModels: jest.fn().mockImplementation(session => Promise.resolve(session)),
+  appendStageRecords: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordStageComplete: jest.fn().mockImplementation(session => Promise.resolve(session)),
   recordSourceBranch: jest.fn().mockImplementation((session, sourceBranch) =>
     Promise.resolve({ ...session, sourceBranch })),
@@ -164,6 +169,8 @@ const resetMockSessionService = (): void => {
   mockSessionService.recordProviderSessionId.mockImplementation(session => Promise.resolve(session));
   mockSessionService.recordStageModels.mockReset();
   mockSessionService.recordStageModels.mockImplementation(session => Promise.resolve(session));
+  mockSessionService.appendStageRecords.mockReset();
+  mockSessionService.appendStageRecords.mockImplementation(session => Promise.resolve(session));
   mockSessionService.recordStageComplete.mockReset();
   mockSessionService.recordStageComplete.mockImplementation(session => Promise.resolve(session));
   mockSessionService.markComplete.mockReset();
@@ -3325,6 +3332,237 @@ describe('IssueCommand', () => {
       await (command as any).finalizeImplementSession(sessionState, undefined, mockPlanArtifact, 'primary-sid');
 
       expect(mockSessionService.recordProviderSessionId).toHaveBeenCalledWith(sessionState, 'implement', 'primary-sid');
+    });
+  });
+
+  describe('session stage records', () => {
+    const mockTicketArtifact: any = {
+      ticketKey: 'WBP-REC',
+      content: '# WBP-REC',
+      path: '/tmp/.wf/consumer-app/jira/WBP-REC.md',
+    };
+
+    const mockPlanArtifact: any = {
+      action: 'fix',
+      path: '/tmp/.wf/consumer-app/jira/WBP-REC-plan.json',
+      plan: {
+        action: 'fix', summary: 'Test', steps: [], estimatedComplexity: 'low',
+        affectedFiles: [], affectedRepositories: ['repoA', 'repoB'],
+      },
+    };
+
+    const createMockStageFixture = (overrides?: Record<string, unknown>) => ({
+      config: { provider: 'anthropic', backend: 'cli' },
+      model: 'm',
+      modelsUsed: [],
+      providerSessionId: null,
+      summary: null,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      records: [],
+      ...overrides,
+    });
+
+    const createMockRecord = (overrides?: Record<string, unknown>) => ({
+      kind: 'plan-problem', repo: null, stepIndex: 1, text: 'a note', at: new Date().toISOString(), ...overrides,
+    });
+
+    const updateStageFixture = (session: any, stage: string, patch: Record<string, unknown>) => ({
+      ...session,
+      stages: { ...session.stages, [stage]: { ...session.stages[stage], ...patch } },
+    });
+
+    beforeEach(() => {
+      mockSessionService.appendStageRecords.mockImplementation(
+        async (session: any, stage: string, _repoKey: string, records: any[]) => {
+          await Promise.resolve();
+          return updateStageFixture(session, stage, {
+            records: [...(session.stages[stage]?.records ?? []), ...records],
+          });
+        }
+      );
+      mockSessionService.recordProviderSessionId.mockImplementation(
+        async (session: any, stage: string, providerSessionId: string) =>
+          updateStageFixture(session, stage, { providerSessionId })
+      );
+      mockSessionService.recordStageComplete.mockImplementation(
+        async (session: any, stage: string) => updateStageFixture(session, stage, { completedAt: 'done' })
+      );
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('passes onRecords to the implementer only when a session exists', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockResolvedValue({
+        type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [],
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const session = createMockSessionState({ stages: { implement: createMockStageFixture() } });
+
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA'], { silent: true }, {}, 'repoA', session
+      );
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA'], { silent: true }, {}, 'repoA'
+      );
+
+      expect(executeMock).toHaveBeenCalledTimes(2);
+      expect(typeof executeMock.mock.calls[0][2].onRecords).toBe('function');
+      expect(executeMock.mock.calls[1][2].onRecords).toBeUndefined();
+    });
+
+    it('stamps the repo key from toRepoKeys onto the appended records', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockImplementation(async (_t: unknown, _p: unknown, options: any) => {
+        options.onRecords([createMockRecord()]);
+        return { type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] };
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const session = createMockSessionState({ stages: { implement: createMockStageFixture() } });
+
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true }, {}, 'repoA', session
+      );
+
+      const [, stage, repoKey, records] = mockSessionService.appendStageRecords.mock.calls[0];
+      expect(stage).toBe('implement');
+      expect(repoKey).toBe(toRepoKeys(['repoA', 'repoB'])[0]);
+      expect(records).toEqual([expect.objectContaining({ repo: repoKey, text: 'a note' })]);
+    });
+
+    it('keeps both records when two callbacks fire in the same tick', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockImplementation(async (_t: unknown, _p: unknown, options: any) => {
+        options.onRecords([createMockRecord({ text: 'first' })]);
+        options.onRecords([createMockRecord({ text: 'second' })]);
+        return { type: 'implementation', hasChanges: true, branchName: null, sessionId: undefined, verificationOutcomes: [] };
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const session = createMockSessionState({ stages: { implement: createMockStageFixture() } });
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA'], { silent: true }, {}, 'repoA', session
+      );
+
+      expect(result.sessionState.stages.implement.records.map((r: any) => r.text)).toEqual(['first', 'second']);
+    });
+
+    it('keeps earlier records when the provider session id is recorded afterwards', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockImplementation(async (_t: unknown, _p: unknown, options: any) => {
+        options.onRecords([createMockRecord({ text: 'kept' })]);
+        return { type: 'implementation', hasChanges: true, branchName: null, sessionId: 'sid', verificationOutcomes: [] };
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const session = createMockSessionState({ stages: { implement: createMockStageFixture() } });
+
+      const result = await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA'], { silent: true }, {}, 'repoA', session
+      );
+
+      expect(result.sessionState.stages.implement.providerSessionId).toBe('sid');
+      expect(result.sessionState.stages.implement.records.map((r: any) => r.text)).toEqual(['kept']);
+    });
+
+    it('keeps earlier records when the stage is finalized', async () => {
+      const command = await buildCommand();
+      jest.spyOn(command as any, 'recordSessionSourceBranch').mockImplementation(async (s: unknown) => s);
+      mockSessionService.recordStageModels.mockImplementation(
+        async (session: any, stage: string, modelsUsed: string[]) => updateStageFixture(session, stage, { modelsUsed })
+      );
+      const session = createMockSessionState({
+        stages: { implement: createMockStageFixture({ records: [createMockRecord({ text: 'kept' })] }) },
+      });
+      const result: any = {
+        type: 'implementation', hasChanges: true, branchName: null, sessionId: 'sid',
+        verificationOutcomes: [], modelsUsed: ['model-x'],
+      };
+
+      const finalized = await (command as any).finalizeImplementSession(session, result, mockPlanArtifact, undefined);
+
+      expect(finalized.stages.implement.completedAt).toBe('done');
+      expect(finalized.stages.implement.modelsUsed).toEqual(['model-x']);
+      expect(finalized.stages.implement.records.map((r: any) => r.text)).toEqual(['kept']);
+    });
+
+    it('waits for queued record writes before rethrowing an implement failure', async () => {
+      const command = await buildCommand();
+      let writeFinished = false;
+      mockSessionService.appendStageRecords.mockImplementation(async (session: any) => {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        writeFinished = true;
+        return session;
+      });
+      const executeMock = jest.fn().mockImplementation(async (_t: unknown, _p: unknown, options: any) => {
+        options.onRecords([createMockRecord()]);
+        throw new Error('implement failed');
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const session = createMockSessionState({ stages: { implement: createMockStageFixture() } });
+
+      await expect((command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA'], { silent: true }, {}, 'repoA', session
+      )).rejects.toThrow();
+
+      expect(writeFinished).toBe(true);
+    });
+
+    it('does not leak the first repo records into the second repo prior context', async () => {
+      const command = await buildCommand();
+      const executeMock = jest.fn().mockResolvedValue({
+        type: 'implementation', hasChanges: false, branchName: null, sessionId: undefined, verificationOutcomes: [],
+      });
+      (command as any).agents = { implementer: { execute: executeMock } };
+      const [keyA, keyB] = toRepoKeys(['repoA', 'repoB']);
+      const session = createMockSessionState({
+        stages: {
+          plan: createMockStageFixture({
+            records: [createMockRecord({ repo: keyA, text: 'note-for-A' }), createMockRecord({ repo: keyB, text: 'note-for-B' })],
+          }),
+          implement: createMockStageFixture(),
+        },
+      });
+
+      await (command as any).runImplementLoop(
+        mockTicketArtifact, mockPlanArtifact, ['repoA', 'repoB'], { silent: true },
+        { priorStageSummary: 'plan summary' }, 'repoA', session
+      );
+
+      const secondContext: string = executeMock.mock.calls[1][2].priorStageSummary;
+      expect(secondContext).toContain('plan summary');
+      expect(secondContext).toContain('note-for-B');
+      expect(secondContext).not.toContain('note-for-A');
+    });
+
+    it('feeds implement records into the review prior context', async () => {
+      const command = await buildCommand();
+      const reviewerExecute = jest.fn().mockResolvedValue(null);
+      (command as any).agents = { reviewer: { execute: reviewerExecute, persistArtifact: jest.fn() } };
+      const session = createMockSessionState({
+        stages: {
+          implement: createMockStageFixture({
+            records: [createMockRecord({ repo: toRepoKeys(['repoA'])[0], text: 'implement-note' })],
+          }),
+          review: createMockStageFixture(),
+        },
+      });
+
+      await (command as any).collectReviewArtifacts(
+        ['repoA'],
+        {
+          isMultiRepo: false, options: { silent: true }, planArtifact: undefined, primaryRepo: 'repoA',
+          repos: ['repoA'], sessionContext: { priorStageSummary: 'summary' },
+          ticketArtifact: mockTicketArtifact, ticketKey: 'WBP-REC',
+        },
+        session,
+      );
+
+      expect(reviewerExecute).toHaveBeenCalledTimes(1);
+      expect(reviewerExecute.mock.calls[0][1].priorStageSummary).toContain('summary');
+      expect(reviewerExecute.mock.calls[0][1].priorStageSummary).toContain('implement-note');
     });
   });
 

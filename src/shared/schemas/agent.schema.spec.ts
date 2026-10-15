@@ -35,3 +35,19 @@ describe('implementerOptionsSchema initialPromptOverride', () => {
     ).toThrow();
   });
 });
+
+describe('implementerOptionsSchema onRecords', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('keeps an onRecords callback when provided', () => {
+    const onRecords = jest.fn();
+
+    const result = implementerOptionsSchema.parse({ trackerName: 'jira', onRecords });
+
+    expect(result.onRecords).toBe(onRecords);
+  });
+
+  it('accepts options without onRecords', () => {
+    expect(implementerOptionsSchema.parse({ trackerName: 'jira' }).onRecords).toBeUndefined();
+  });
+});

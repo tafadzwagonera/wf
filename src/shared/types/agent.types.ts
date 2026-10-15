@@ -21,6 +21,7 @@ import type {
   verificationScriptSchema,
 } from '../schemas/agent.schema';
 import type { verificationOutcomeSchema } from '../schemas/verification.schema';
+import type { StageRecordEntry } from './session.types';
 
 export type AgentStageName = z.infer<typeof agentStageNameSchema>;
 export type FindingsArtifact = z.infer<typeof findingsArtifactSchema>;
@@ -36,6 +37,7 @@ export type RetryScopeStrategy = z.infer<typeof retryScopeStrategySchema>;
 export type ReviewArtifact = z.infer<typeof reviewArtifactSchema>;
 export type StageProgressCallback = (line: string) => void;
 export type ProviderSessionIdCallback = (providerSessionId: string) => void;
+export type RecordsCallback = (records: StageRecordEntry[]) => void;
 export type TicketArtifact = z.infer<typeof ticketArtifactSchema>;
 export type VerificationAttemptArtifact = z.infer<typeof verificationAttemptArtifactSchema>;
 export type VerificationFailureCategory = z.infer<typeof verificationFailureCategorySchema>;

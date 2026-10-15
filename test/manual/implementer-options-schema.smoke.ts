@@ -161,8 +161,9 @@ function testImplementerOptionsSchemaShapeKeys(): void {
     const keys = Object.keys(implementerOptionsSchema.shape).sort();
     const expected = [
       'additionalRepoDirs', 'allowMultiRepoScope', 'branchNamePattern', 'conversationContext',
-      'customBranchSlug', 'initialPromptOverride', 'isNewRepo', 'modelRouting', 'noBranch',
-      'priorStageSummary', 'repoDir', 'resumeProviderSessionId', 'silent', 'suppressHeader', 'trackerName',
+      'customBranchSlug', 'figma', 'initialPromptOverride', 'isNewRepo', 'modelRouting', 'noBranch',
+      'onRecords', 'priorStageSummary', 'repoDir', 'resumeProviderSessionId', 'silent', 'skipInstall',
+      'suppressHeader', 'trackerName',
     ];
     assert.deepEqual(keys, expected);
   });

@@ -2699,6 +2699,74 @@ describe('ImplementerAgent', () => {
       expect(result).toMatchObject({ planProblems: [reportOne, laterNewStep] });
     });
 
+    it('calls onRecords once for the first pass with its plan problems as records', async () => {
+      setupWithChanges();
+      mockAdapter([reportOne]);
+      const onRecords = jest.fn();
+
+      await executeWith(['repo-a/src/example.ts: one'], { onRecords });
+
+      expect(onRecords).toHaveBeenCalledTimes(1);
+      expect(onRecords.mock.calls[0][0]).toEqual([{
+        kind: 'plan-problem', repo: null, stepIndex: 1,
+        text: 'resolver differs from plan text | instead: matched the runtime resolver',
+        at: expect.any(String),
+      }]);
+    });
+
+    it('calls onRecords again for each fix round that reports plan problems', async () => {
+      setupWithChanges();
+      const laterNewStep = { step: 2, reason: 'second reason', instead: 'second alternative' };
+      mockAdapter([reportOne], [laterNewStep]);
+      planStepVerificationService.run.mockImplementation(async (params: {
+        runFixRound: (prompt: string, sessionId: string) => Promise<unknown>;
+      }) => {
+        await params.runFixRound('fix prompt', 'sess-1');
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+      const onRecords = jest.fn();
+
+      await executeWith(['repo-a/src/example.ts: one', 'repo-a/src/example.ts: two'], { onRecords });
+
+      expect(onRecords).toHaveBeenCalledTimes(2);
+      expect(onRecords.mock.calls[1][0]).toEqual([expect.objectContaining({ stepIndex: 2, kind: 'plan-problem' })]);
+    });
+
+    it('calls onRecords once with no records when a pass reports no plan problems', async () => {
+      setupWithChanges();
+      mockAdapter(undefined);
+      const onRecords = jest.fn();
+
+      await executeWith(['repo-a/src/example.ts: one'], { onRecords });
+
+      expect(onRecords).toHaveBeenCalledTimes(1);
+      expect(onRecords.mock.calls[0][0]).toEqual([]);
+    });
+
+    it('calls onRecords with deviation records for blocking spec-fidelity errors', async () => {
+      setupWithChanges();
+      stepSpecFidelityService.verifyAll.mockResolvedValue({
+        findingsPerStep: new Map([[0, [{ severity: 'error', claim: 'uses helper', deviation: 'helper missing' }]]]),
+        failures: [],
+      });
+      mockAdapter(undefined);
+      planStepVerificationService.run.mockImplementation(async (params: {
+        refreshSteps: (indices: number[]) => Promise<Map<number, string>>;
+      }) => {
+        await params.refreshSteps([0]);
+        return { sessionId: undefined, summary: undefined, extraPassCount: 0 };
+      });
+      const onRecords = jest.fn();
+
+      await executeWith(['repo-a/src/example.ts: one'], { onRecords });
+
+      const deviationCalls = onRecords.mock.calls.filter(([records]) => records.some((r: any) => r.kind === 'deviation'));
+      expect(deviationCalls).toHaveLength(1);
+      expect(deviationCalls[0][0]).toEqual([{
+        kind: 'deviation', repo: null, stepIndex: 1, text: 'uses helper | helper missing', at: expect.any(String),
+      }]);
+    });
+
     it('returns the fix adapter planProblems from runVerificationFixRound', async () => {
       setupWithChanges();
       mockAdapter([reportOne]);
