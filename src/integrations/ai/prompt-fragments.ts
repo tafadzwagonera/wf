@@ -259,7 +259,10 @@ export function formatUiDesignScreenshotPathsPromptSection(paths: string[]): str
     + 'You MUST open and inspect every screenshot listed above with your file-reading tool before doing any UI '
     + 'work. Derive layout structure, alignment, spacing, sizing, spatial relationships between components, '
     + 'colour, typography, iconography, border radii, elevation, exact copy and label casing, content order, '
-    + 'and component states from these images — do not guess, and do not rely on the plan text alone.';
+    + 'component states, affordance types (button vs link), divider usage, badge and count formatting, '
+    + 'truncation and ellipsis rules, image treatment (crops, overlays, gradients), responsive behaviour across '
+    + 'frame widths, and any empty, loading, or error layouts shown from these images — do not guess, and do '
+    + 'not rely on the plan text alone.';
 }
 
 export function buildUiDesignComplianceSystemPromptSection(
