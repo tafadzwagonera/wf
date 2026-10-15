@@ -1,48 +1,17 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { ConfigurationError } from '../shared/errors/app.error';
+import { repoDirCandidates, resolveExistingRepoDir } from '../shared/utils/repo-resolution';
 
 const repoFlags = new Set(['-r', '--repos']);
 
-const resolvePath = (candidate: string): string | null => {
-  if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
-    return candidate;
-  }
-
-  const relPath = path.resolve(process.cwd(), candidate);
-  if (fs.existsSync(relPath)) {
-    return relPath;
-  }
-
-  const siblingPath = path.resolve(process.cwd(), '..', candidate);
-  if (fs.existsSync(siblingPath)) {
-    return siblingPath;
-  }
-
-  return null;
-};
-
-const resolveExistingRepoDir = (repo: string): string | null => {
-  const repoDir = resolvePath(repo);
-  if (repoDir) {
-    return repoDir;
-  }
-
-  const repoSegments = repo.split(/\//).filter(Boolean);
-  const localRepoName = repoSegments.length > 1 ? repoSegments[1] : null;
-  return localRepoName ? resolvePath(localRepoName) : null;
-};
-
 const resolveOrThrow = (repo: string, currentCwd: string): string => {
-  const resolved = resolveExistingRepoDir(repo);
+  const resolved = resolveExistingRepoDir(repo, currentCwd);
   if (resolved) return resolved;
 
-  const searched = [...new Set([
-    path.resolve(currentCwd, repo),
-    path.resolve(currentCwd, '..', repo),
-  ])];
+  const searched = repoDirCandidates(repo, currentCwd);
   throw new ConfigurationError(
-    `Repository '${repo}' not found. Searched:\n${searched.map(p => `  - ${p}`).join('\n')}\nUse an absolute path or run from a parent/sibling directory.`
+    `Repository '${repo}' not found. Searched:\n${searched.map(p => `  - ${p}`).join('\n')}\n`
+    + 'Use an absolute path, run from a parent/sibling directory, '
+    + 'or set WF_REPOS_DIR to the directory containing your repositories.'
   );
 };
 
@@ -66,7 +35,7 @@ const findRepoFlag = (argv: string[]): string | null => {
  * Resolve the config cwd to use during CLI bootstrap.
  *
  * When `-r`/`--repos` is provided, the repo must resolve locally (absolute,
- * CWD-relative, or CWD-sibling). Throws `ConfigurationError` if resolution
+ * CWD-relative, CWD-sibling, or under a repos directory). Throws `ConfigurationError` if resolution
  * fails — the user explicitly requested that repo's config.
  *
  * @param argv - Raw CLI argv values

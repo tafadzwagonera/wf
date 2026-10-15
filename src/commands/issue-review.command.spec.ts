@@ -84,8 +84,11 @@ import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { restoreEnv, withEnv } from '../shared/testing/env';
 
 const mockTicket = {
   key: 'TAD-575',
@@ -627,6 +630,51 @@ describe('IssueReviewCommand', () => {
 
       expect(() => command.parseFormat('xml')).toThrow('Invalid format');
       expect(() => command.parseFormat('text')).toThrow('Invalid format');
+    });
+  });
+
+  describe('repos directory resolution', () => {
+    let reposDir: string;
+    let cwdSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      reposDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-review-repos-'));
+      fs.mkdirSync(path.join(reposDir, 'only-in-repos-dir'));
+      cwdSpy = jest.spyOn(process, 'cwd').mockReturnValue('/nonexistent/work/app');
+      withEnv({ WF_REPOS_DIR: reposDir });
+    });
+
+    afterEach(() => {
+      restoreEnv();
+      cwdSpy.mockRestore();
+      fs.rmSync(reposDir, { recursive: true, force: true });
+    });
+
+    it('treats a repo that exists only under WF_REPOS_DIR as locally resolvable', async () => {
+      const { command } = await buildCommand();
+
+      expect((command as any).canResolveRepoLocally('only-in-repos-dir')).toBe(true);
+      expect((command as any).canResolveRepoLocally('missing-repo')).toBe(false);
+    });
+
+    it('treats a workspace/repo token as resolvable through its second segment', async () => {
+      const { command } = await buildCommand();
+
+      expect((command as any).canResolveRepoLocally('workspace/only-in-repos-dir')).toBe(true);
+    });
+
+    it('uses the repos-dir checkout as the ticket-mode output base directory', async () => {
+      const { command } = await buildCommand();
+
+      expect((command as any).resolveOutputBaseDir(true, ['only-in-repos-dir'])).toBe(
+        path.join(reposDir, 'only-in-repos-dir')
+      );
+    });
+
+    it('falls back to cwd as the ticket-mode output base directory when no repo resolves', async () => {
+      const { command } = await buildCommand();
+
+      expect((command as any).resolveOutputBaseDir(true, ['missing-repo'])).toBe('/nonexistent/work/app');
     });
   });
 

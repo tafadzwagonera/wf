@@ -2,6 +2,11 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const WF_HOME_ENV = 'WF_HOME';
+const WF_REPOS_DIR_ENV = 'WF_REPOS_DIR';
+
+const defaultReposDirNames = ['Apps', 'Projects', 'apps', 'projects'];
+
+let hasWarnedRelativeReposDir = false;
 
 interface WfPathOverrides {
   logDir?: string;
@@ -45,6 +50,35 @@ export const resetWfPathOverrides = (): void => {
 export const getWfHomeDir = (): string => {
   const fromEnv = process.env[WF_HOME_ENV];
   return fromEnv && path.isAbsolute(fromEnv) ? fromEnv : path.join(os.homedir(), '.wf');
+};
+
+export const resetWfReposDirWarning = (): void => {
+  hasWarnedRelativeReposDir = false;
+};
+
+const warnRelativeReposDirOnce = (value: string): void => {
+  if (hasWarnedRelativeReposDir) return;
+  hasWarnedRelativeReposDir = true;
+  console.warn(
+    `WF_REPOS_DIR is set to a relative path ('${value}') and will be ignored; `
+    + 'falling back to default repo directories. Set an absolute path.'
+  );
+};
+
+/**
+ * Resolve the base directories probed for `-r/--repos` tokens.
+ *
+ * An absolute `WF_REPOS_DIR` is the only base. Otherwise the defaults under the user's home
+ * directory are returned in order. Defaults never derive from `WF_HOME`, which would place
+ * checkouts inside the wf-owned artifact tree. No existence checks are made here.
+ *
+ * @returns Ordered absolute base directories
+ */
+export const getWfReposDirs = (): string[] => {
+  const fromEnv = process.env[WF_REPOS_DIR_ENV];
+  if (fromEnv && path.isAbsolute(fromEnv)) return [fromEnv];
+  if (fromEnv) warnRelativeReposDirOnce(fromEnv);
+  return defaultReposDirNames.map(name => path.join(os.homedir(), name));
 };
 
 /**

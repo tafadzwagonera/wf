@@ -21,7 +21,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--session-id <id>",
@@ -77,7 +77,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning"
+        "description": "Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "-s, --silent",
@@ -133,7 +133,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "-s, --silent",
@@ -161,7 +161,7 @@
     "options": [
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; only the first repo is used for lookup scope"
+        "description": "Space-separated repositories; only the first repo is used for lookup scope. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "-s, --silent",
@@ -201,7 +201,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI"
+        "description": "Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--save",
@@ -289,7 +289,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos"
+        "description": "Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--session-id <id>",
@@ -453,7 +453,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning"
+        "description": "Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "-s, --silent",
@@ -521,7 +521,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk"
+        "description": "Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--session-id <id>",
@@ -661,7 +661,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue"
+        "description": "Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--session-id <id>",

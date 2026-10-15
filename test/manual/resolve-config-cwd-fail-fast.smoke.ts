@@ -39,11 +39,12 @@ function buildCliError(err: any): CliResult {
   };
 }
 
-const runCli = (args: string, cwd: string): CliResult => {
+const runCli = (args: string, cwd: string, reposDir: string): CliResult => {
   try {
     const stdout = execSync(`node ${DIST_MAIN} ${args}`, {
       encoding: 'utf-8',
       cwd,
+      env: { ...process.env, WF_REPOS_DIR: reposDir },
       timeout: 15_000,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -82,7 +83,10 @@ function checkCaseASearchedPaths(result: CliResult, tempRoot: string): void {
 }
 
 function checkCaseAGuidance(result: CliResult): void {
-  if (result.stderr.includes('Use an absolute path or run from a parent/sibling directory')) {
+  const guidance
+    = 'Use an absolute path, run from a parent/sibling directory, '
+      + 'or set WF_REPOS_DIR to the directory containing your repositories.';
+  if (result.stderr.includes(guidance)) {
     pass('Case A: stderr includes actionable guidance');
   } else {
     fail('Case A: stderr missing guidance line');
@@ -111,11 +115,13 @@ function checkCaseB(result: CliResult): void {
 function main(): void {
   console.log('\nManual smoke test: resolve-config-cwd fail-fast on unresolvable -r repo\n');
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fail-fast-'));
+  const emptyReposDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-fail-fast-repos-'));
   try {
-    checkCaseA(runCli('issue:plan FAKE-123 -r nonexistent-repo', tempRoot), tempRoot);
-    checkCaseB(runCli('issue:plan FAKE-123 --repos=nonexistent-repo', tempRoot));
+    checkCaseA(runCli('issue:plan FAKE-123 -r nonexistent-repo', tempRoot, emptyReposDir), tempRoot);
+    checkCaseB(runCli('issue:plan FAKE-123 --repos=nonexistent-repo', tempRoot, emptyReposDir));
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(emptyReposDir, { recursive: true, force: true });
   }
   summarise(counts);
 }

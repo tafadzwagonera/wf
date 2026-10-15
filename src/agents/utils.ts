@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
+import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
 import { GitError } from '../shared/utils/errors';
 
@@ -21,32 +22,17 @@ export const extractSummary = (content: string): string => {
   return 'Implementation';
 };
 
-const tryResolvePath = (candidate: string): string | null => {
-  if (path.isAbsolute(candidate) && fs.existsSync(candidate)) return candidate;
-
-  const relPath = path.resolve(process.cwd(), candidate);
-  if (fs.existsSync(relPath)) return relPath;
-
-  const siblingPath = path.resolve(process.cwd(), '..', candidate);
-  if (fs.existsSync(siblingPath)) return siblingPath;
-
-  return null;
-};
-
-const tryResolveSegmentFallback = (repo: string): string | null => {
-  const segments = repo.split(/\//).filter(Boolean);
-  const localRepoName = segments.length > 1 ? segments[1] : null;
-  return localRepoName ? tryResolvePath(localRepoName) : null;
-};
-
 export const resolveRepoBasePath = (repo?: string): string => {
   if (!repo) return process.cwd();
 
-  const resolved = tryResolvePath(repo) ?? tryResolveSegmentFallback(repo);
+  const resolved = resolveExistingRepoDir(repo, process.cwd());
   if (resolved) return resolved;
 
   console.log(
-    chalk.yellow(`⚠ Repository '${repo}' not found as a path or sibling directory. Using current directory.`)
+    chalk.yellow(
+      `⚠ Repository '${repo}' not found as a path, sibling directory, or under any repos directory. `
+      + 'Using current directory.'
+    )
   );
   return process.cwd();
 };
@@ -64,8 +50,7 @@ export const toRepoKeys = (repos: (string | undefined)[]): string[] => {
   });
 };
 
-export const isRepoResolvable = (repo: string): boolean =>
-  (tryResolvePath(repo) ?? tryResolveSegmentFallback(repo)) !== null;
+export const isRepoResolvable = (repo: string): boolean => resolveExistingRepoDir(repo, process.cwd()) !== null;
 
 export const scaffoldNewRepo = (repo: string, baseDir: string): string => {
   const repoPath = path.resolve(baseDir, '..', repo);

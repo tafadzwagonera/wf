@@ -385,7 +385,7 @@ wf issue:fetch WBP-2971 --tracker jira --format md
 | ---- | ----------- |
 | `--dry-run` | Preview the fetch operation without making changes |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
-| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the file path for piping |
 | `-t, --tracker <tracker>` | Target tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:fetch -->
@@ -524,7 +524,7 @@ wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
 | `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
-| `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk |
+| `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID). For --sonar, also looked up as the originating wf session to recover its recorded source branch, ahead of the --ticket-key/plan-manifest/reflog/prompt chain. |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
 | `--skip-verification` | Skip pre-review verification (lint, typecheck, test) in the target repository |
@@ -553,7 +553,7 @@ When `--ticket-key` is supplied, `issue:review` fetches ticket context from the 
 
 If no `--repos` value is supplied and adapters cannot determine a remote repository on their own, the command now exits with an actionable error instead of guessing from the current directory.
 
-If `--repos` is supplied for ticket review but a listed repository is not available as a local path or sibling directory, remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
+If `--repos` is supplied for ticket review but a listed repository is not available as a local path, sibling directory, or entry under a repos directory (`WF_REPOS_DIR`), remote PR review can still succeed. However, if no PR is found, the command now exits with an actionable error instead of falling back to reviewing the current directory.
 
 `--criteria <path>` appends a markdown file's guidelines onto the default review rubric; `--replace-criteria <path>` uses only the file's guidelines instead (the two flags are mutually exclusive). Either way, ticket context and any Sonar findings are still threaded into the review prompt so switching criteria never discards the review signal gathered earlier in the run. The criteria file is parsed by heading: each `#`/`##` line sets the section context for the bullets that follow, each `-`/`*`/`1.` bullet becomes one guideline prefixed with its nearest heading, and a bullet's wrapped continuation lines (indented, no leading marker) are rejoined into that same guideline rather than becoming separate entries — so a file with `## Section` headers and hand-wrapped prose bullets parses the same as one written with single-line bullets and no headings.
 
@@ -603,7 +603,7 @@ yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /U
 | `--dry-run` | Validate without creating - preview only |
 | `-f, --format <format>` | Input format (json\|md\|yaml\|yml) - overrides file extension detection; required when reading from stdin |
 | `--priority <priority>` | Override normalized ticket priority (highest\|high\|medium\|low\|lowest); Jira resolves it to an allowed project value |
-| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used for artifact lookup and others are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the ticket key for piping |
 | `--ticket-project <project>` | Project key (Jira) or repository (Bitbucket: workspace/repo) - overrides input file |
 | `--tracker <tracker>` | Target tracker (jira\|github\|bitbucket) - default from config |
@@ -658,7 +658,7 @@ wf issue:generate ./spec.md --save --silent | xargs wf issue:create
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Output file path - default: stdout |
 | `--priority <priority>` | Override ticket priority (highest\|high\|medium\|low\|lowest) |
-| `-r, --repos <repos...>` | Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI |
+| `-r, --repos <repos...>` | Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `--save` | Save generated ticket to tracker directory |
 | `-s, --silent` | Suppress decorative output and interactive prompts (clarification, disambiguation). Emits only file paths (with --save/--output) or raw ticket content for piping |
 | `-t, --title <title>` | Override generated title with custom title |
@@ -701,7 +701,7 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 | `-c, --conventional` | Force conventional commits format |
 | `--dry-run` | Preview the commit operation without making changes |
 | `-m, --message <message>` | Manual commit message (bypasses AI generation) |
-| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
 | `-s, --silent` | Suppress decorative output; emits no header |
 | `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971); validated against the branch-embedded ticket key |
@@ -736,7 +736,7 @@ wf issue:pr WBP-2971 --dry-run
 | `-a, --action <action>` | Resolution action type (feature\|fix\|investigate) |
 | `-b, --base <base>` | Target branch for the PR (default: main) |
 | `--dry-run` | Preview the PR creation without making changes |
-| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning |
+| `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the PR URL for piping |
 | `-t, --title <title>` | Override the PR title |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
@@ -868,7 +868,7 @@ wf issue:implement -k PROJ-123 --model-routing mechanical
 | `--figma` | Force the Figma implementation pass on, fetching design context via the Figma REST API when Figma links are present in the plan manifest. Requires `figma.token` in `wf.config`. |
 | `--model-routing <mode>` | Model selection strategy: auto (complexity, targeted-write, step-count, and pattern routing), default (force default model), mechanical (force cheaper model). Defaults to auto. |
 | `--no-branch` | Suppress branch creation; work directly on the current branch |
-| `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos |
+| `-r, --repos <repos...>` | Space-separated repositories; the first repository reference anchors artifact lookup and is an execution context. The remaining repository references are execution contexts for a multi-repository issue. Implementation runs per-repo with cross-repo read context from all other repos. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Auto-stash without prompting; branch selection and naming still prompt when a TTY is available |
 | `--skip-install` | Skip automatic dependency install after branch pull |
@@ -1100,7 +1100,9 @@ The orchestrator command (`wf issue`) chains stages together, passing artifacts 
 
 wf home is `$WF_HOME` when that variable is set to an absolute path; otherwise it is `~/.wf`. A relative `$WF_HOME` is silently ignored.
 
-Custom artifacts use the `~/.wf/<repo>/` namespace. Ticket-backed artifacts use `~/.wf/<repo>/<tracker>/`. `<repo>` is `path.basename(path.resolve(baseDir))`, where `baseDir` is the current working directory or the `--repos` value resolved as an absolute path, cwd-relative path, sibling directory, or `workspace/repo` segment. If no repository can be resolved, wf falls back to cwd and emits a warning.
+`$WF_REPOS_DIR` is the directory containing your repository checkouts, used to resolve `-r/--repos` values from any working directory. When it is set to an absolute path it is the only repos directory probed. When it is unset, wf probes `$HOME/Apps`, `$HOME/Projects`, `$HOME/apps`, and `$HOME/projects` in that order. A relative `$WF_REPOS_DIR` is ignored with a one-time warning and the defaults apply. These bases come from the home directory, never from `$WF_HOME`.
+
+Custom artifacts use the `~/.wf/<repo>/` namespace. Ticket-backed artifacts use `~/.wf/<repo>/<tracker>/`. `<repo>` is `path.basename(path.resolve(baseDir))`, where `baseDir` is the current working directory or the `--repos` value resolved as an absolute path, cwd-relative path, sibling directory, entry under a repos directory (`$WF_REPOS_DIR` or the default bases), or `workspace/repo` segment (the second `/`-separated segment, retried through the same chain). Earlier matches win, so a sibling beats a repos-directory entry of the same name. If no repository can be resolved, wf falls back to cwd and emits a warning.
 
 Custom sources resolve in this order:
 

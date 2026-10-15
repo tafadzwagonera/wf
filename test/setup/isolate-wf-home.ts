@@ -21,4 +21,6 @@ const runDir = process.env['WF_TEST_RUN_DIR'] ?? path.join(os.tmpdir(), 'wf-test
 const wfHome = path.join(runDir, '.wf');
 
 fs.mkdirSync(wfHome, { recursive: true });
+const emptyReposDir = fs.mkdtempSync(path.join(runDir, 'wf-repos-'));
 process.env['WF_HOME'] = wfHome;
+process.env['WF_REPOS_DIR'] = emptyReposDir;

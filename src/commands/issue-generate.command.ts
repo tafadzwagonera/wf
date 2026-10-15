@@ -9,6 +9,7 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
 import { parseReposOption } from './utils/repos-option';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import {
@@ -430,7 +431,7 @@ export class IssueGenerateCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI',
+      'Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -1122,7 +1123,9 @@ export class IssueGenerateCommand extends CommandRunner {
     return repos.flatMap(repo => {
       const resolvedRepo = this.resolveRepoDirectory(repo);
       if (!resolvedRepo) {
-        console.log(chalk.yellow(`⚠ Repository '${repo}' not found as a path or sibling directory.`));
+        console.log(
+          chalk.yellow(`⚠ Repository '${repo}' not found as a path, sibling directory, or under any repos directory.`)
+        );
         return [];
       }
 
@@ -1137,21 +1140,7 @@ export class IssueGenerateCommand extends CommandRunner {
    * @returns Absolute repo path, or undefined when not found
    */
   private resolveRepoDirectory(repo: string): string | undefined {
-    if (path.isAbsolute(repo) && fs.existsSync(repo)) {
-      return repo;
-    }
-
-    const relativeRepoPath = path.resolve(process.cwd(), repo);
-    if (fs.existsSync(relativeRepoPath)) {
-      return relativeRepoPath;
-    }
-
-    const siblingRepoPath = path.resolve(process.cwd(), '..', repo);
-    if (fs.existsSync(siblingRepoPath)) {
-      return siblingRepoPath;
-    }
-
-    return undefined;
+    return resolveExistingRepoDir(repo, process.cwd()) ?? undefined;
   }
 
   /**

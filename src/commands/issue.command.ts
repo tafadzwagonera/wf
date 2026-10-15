@@ -316,7 +316,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue',
+      'Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);

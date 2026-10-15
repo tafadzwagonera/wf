@@ -1,5 +1,6 @@
 import * as path from 'path';
 import chalk from 'chalk';
+import { restoreEnv, withEnv } from '../shared/testing/env';
 import { extractSummary, isRepoResolvable, resolveRepoBasePath, scaffoldNewRepo, slugify, toRepoKeys, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 
 jest.mock('fs', () => ({
@@ -59,11 +60,38 @@ describe('resolveRepoBasePath', () => {
     existsSync.mockReturnValue(false);
 
     expect(resolveRepoBasePath('workspace/repo-a')).toBe('/tmp/current-app');
-    expect(consoleLogSpy).toHaveBeenCalledWith(
+    expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+    expect(consoleLogSpy.mock.calls[0][0]).toBe(
       chalk.yellow(
-        '⚠ Repository \'workspace/repo-a\' not found as a path or sibling directory. Using current directory.'
+        '⚠ Repository \'workspace/repo-a\' not found as a path, sibling directory, '
+        + 'or under any repos directory. Using current directory.'
       )
     );
+  });
+
+  describe('when the repo exists only under WF_REPOS_DIR', () => {
+    const reposDirPath = path.resolve('/srv/checkouts', 'repo-a');
+
+    beforeEach(() => {
+      withEnv({ WF_REPOS_DIR: '/srv/checkouts' });
+      existsSync.mockImplementation((input: string) => String(input) === reposDirPath);
+    });
+
+    afterEach(() => {
+      restoreEnv();
+    });
+
+    it('resolves to the repos directory entry without warning', () => {
+      expect(resolveRepoBasePath('repo-a')).toBe(reposDirPath);
+      expect(existsSync.mock.calls.map((call: unknown[]) => String(call[0]))).toContain(reposDirPath);
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+    });
+
+    it('reports the repo as resolvable', () => {
+      expect(isRepoResolvable('repo-a')).toBe(true);
+      expect(existsSync.mock.calls.map((call: unknown[]) => String(call[0]))).toContain(reposDirPath);
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+    });
   });
 });
 

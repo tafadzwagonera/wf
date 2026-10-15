@@ -29,7 +29,7 @@ describe('getCommandHelpCatalog', () => {
         expect.objectContaining({
           flags: '-r, --repos <repos...>',
           description:
-            'Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI',
+            'Space-separated repositories; the first repo anchors artifact storage and read context, remaining repos provide additional read context for the AI. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
         }),
       ])
     );

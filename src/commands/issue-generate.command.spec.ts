@@ -84,6 +84,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { restoreEnv, withEnv } from '../shared/testing/env';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -587,6 +588,52 @@ describe('IssueGenerateCommand', () => {
 
     const preview = dryRunPreview.previewFileWrite.mock.calls[0][0];
     expect(path.dirname(preview.filePath)).toBe(path.join(getWfHomeDir(), 'repo-a', 'jira'));
+  });
+
+  describe('repos directory resolution', () => {
+    const reposDirRepo = path.join('/srv/checkouts', 'service-tourv3');
+
+    beforeEach(() => {
+      withEnv({ WF_REPOS_DIR: '/srv/checkouts' });
+    });
+
+    afterEach(() => {
+      restoreEnv();
+    });
+
+    it('resolves a repo that exists only under WF_REPOS_DIR', async () => {
+      const { command } = await buildCommand();
+      const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+      mockExistsSync.mockImplementation(input => String(input) === reposDirRepo);
+
+      const resolved = (command as any).resolveRepos(['service-tourv3']);
+
+      expect(resolved).toEqual([{ input: 'service-tourv3', basePath: reposDirRepo }]);
+      expect(mockExistsSync.mock.calls.map(call => String(call[0]))).toContain(reposDirRepo);
+    });
+
+    it('resolves a workspace/repo token through its second segment', async () => {
+      const { command } = await buildCommand();
+      const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+      mockExistsSync.mockImplementation(input => String(input) === reposDirRepo);
+
+      const resolved = (command as any).resolveRepos(['workspace/service-tourv3']);
+
+      expect(resolved).toEqual([{ input: 'workspace/service-tourv3', basePath: reposDirRepo }]);
+    });
+
+    it('warns with the repos-directory wording when a repo cannot be resolved', async () => {
+      const { command } = await buildCommand();
+      (fs.existsSync as jest.MockedFunction<typeof fs.existsSync>).mockReturnValue(false);
+
+      const resolved = (command as any).resolveRepos(['missing-repo']);
+
+      expect(resolved).toEqual([]);
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      expect(consoleLogSpy.mock.calls[0][0]).toBe(
+        "⚠ Repository 'missing-repo' not found as a path, sibling directory, or under any repos directory."
+      );
+    });
   });
 
   describe('repo-aware local source resolution', () => {

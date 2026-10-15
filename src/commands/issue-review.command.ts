@@ -24,6 +24,7 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
+import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
@@ -1009,7 +1010,7 @@ export class IssueReviewCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk',
+      'Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -1372,7 +1373,7 @@ export class IssueReviewCommand extends CommandRunner {
     urls: string[], adapterName: string, repoHint: string,
     discovered: Map<string, DiscoveredPullRequestTarget>
   ): void {
-    const repoDir = repoHint ? (this.resolveExistingLocalRepoDir(repoHint) ?? undefined) : undefined;
+    const repoDir = repoHint ? (resolveExistingRepoDir(repoHint, process.cwd()) ?? undefined) : undefined;
     for (const url of urls) {
       const key = adapterName + ':' + url;
       if (discovered.has(key)) continue;
@@ -1427,7 +1428,7 @@ export class IssueReviewCommand extends CommandRunner {
    */
   private resolveLocalRepoDirForReview(repoInputs: string[]): string | undefined {
     if (repoInputs.length > 0) {
-      return this.resolveExistingLocalRepoDir(repoInputs[0]) ?? undefined;
+      return resolveExistingRepoDir(repoInputs[0], process.cwd()) ?? undefined;
     }
 
     return process.cwd();
@@ -1591,7 +1592,7 @@ export class IssueReviewCommand extends CommandRunner {
   private resolveOutputBaseDir(isTicketKeyMode: boolean, repoInputs: string[]): string {
     if (isTicketKeyMode) {
       const firstLocalRepoDir = repoInputs
-        .map(repo => this.resolveExistingLocalRepoDir(repo))
+        .map(repo => resolveExistingRepoDir(repo, process.cwd()))
         .find(repoDir => repoDir != null);
       return firstLocalRepoDir ?? process.cwd();
     }
@@ -1607,33 +1608,7 @@ export class IssueReviewCommand extends CommandRunner {
    * @returns True when the repo resolves locally
    */
   private canResolveRepoLocally(repo: string): boolean {
-    return this.resolveExistingLocalRepoDir(repo) != null;
-  }
-
-  /**
-   * Resolve a repo input to an existing local directory without warning.
-   * @param repo Repository name or path
-   * @returns Absolute local directory or null when unresolved
-   */
-  private resolveExistingLocalRepoDir(repo: string): string | null {
-    const resolved = this.resolveLocalPath(repo);
-    if (resolved) return resolved;
-
-    const segments = repo.split(/\//).filter(Boolean);
-    const localName = segments.length > 1 ? segments[1] : null;
-    return localName ? this.resolveLocalPath(localName) : null;
-  }
-
-  private resolveLocalPath(candidate: string): string | null {
-    if (path.isAbsolute(candidate) && fs.existsSync(candidate)) return candidate;
-
-    const relPath = path.resolve(process.cwd(), candidate);
-    if (fs.existsSync(relPath)) return relPath;
-
-    const siblingPath = path.resolve(process.cwd(), '..', candidate);
-    if (fs.existsSync(siblingPath)) return siblingPath;
-
-    return null;
+    return resolveExistingRepoDir(repo, process.cwd()) != null;
   }
 
   /**

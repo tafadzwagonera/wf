@@ -74,7 +74,7 @@ export class IssueGenerateLookupCommand extends CommandRunner {
 
   @Option({
     flags: '-r, --repos <repos...>',
-    description: 'Space-separated repositories; only the first repo is used for lookup scope',
+    description: 'Space-separated repositories; only the first repo is used for lookup scope. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
