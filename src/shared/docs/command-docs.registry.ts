@@ -261,7 +261,11 @@ export const COMMAND_DOCS = {
     summary: 'Create a pull request from a plan artifact (auto-detects ticket from branch).',
     examples: [
       {
-        comment: 'Create a PR from a fix plan',
+        comment: "Create a PR from the ticket's plan, resolved via its artifact manifest",
+        command: 'wf issue:pr WBP-2971',
+      },
+      {
+        comment: 'Narrow to the fix plan when the ticket has plans for more than one action',
         command: 'wf issue:pr WBP-2971 --action fix',
       },
       {

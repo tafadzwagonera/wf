@@ -722,7 +722,10 @@ wf issue:commit -k WBP-2971 --conventional --tracker jira
 Create a pull request from a plan artifact (auto-detects ticket from branch).
 
 ```bash
-# Create a PR from a fix plan
+# Create a PR from the ticket's plan, resolved via its artifact manifest
+wf issue:pr WBP-2971
+
+# Narrow to the fix plan when the ticket has plans for more than one action
 wf issue:pr WBP-2971 --action fix
 
 # Dry-run to preview PR title and body
@@ -733,7 +736,7 @@ wf issue:pr WBP-2971 --dry-run
 
 | Flag | Description |
 | ---- | ----------- |
-| `-a, --action <action>` | Resolution action type (feature\|fix\|investigate) |
+| `-a, --action <action>` | Resolution action type (feature\|fix\|investigate). Narrows the plan match when the ticket has multiple plans |
 | `-b, --base <base>` | Target branch for the PR (default: main) |
 | `--dry-run` | Preview the PR creation without making changes |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
@@ -1113,12 +1116,65 @@ Custom sources resolve in this order:
 
 Plan tokens use the `YYYY-MM-DD-<hash>-<action>-plan` stem. Resolution searches `~/.wf/<repo>/<tracker>/` first, then `~/.wf/<repo>/`. Within each directory, wf first matches manifest sidecars against `{hash, ticketKey, customArtifactName, sourceName, artifactStem}` case-insensitively or by canonical-stem hash, then falls back to a direct file-path lookup. Ambiguity in a directory aborts the whole search rather than falling through to the next directory. Plan-token resolution is enabled only for `--from implement` or later.
 
+`issue:pr` resolves the ticket's plan through the same manifest-based resolver, matching the ticket key against the sidecar manifests in `~/.wf/<repo>/<tracker>/`. `--action` narrows the match; without it, more than one plan for the ticket aborts with an ambiguity error instead of guessing an action.
+
+**Artifact namespace layout**
+
+```
+~/.wf/                                                    $WF_HOME when absolute; otherwise ~/.wf
+└── <repo>/                                               basename(resolve(baseDir))
+    ├── <custom-source>.<ext>                             custom sources and custom plans
+    ├── YYYY-MM-DD-<hash>-<action>-plan.<ext>             issue:plan --custom-plan artifact
+    ├── YYYY-MM-DD-<hash>-<action>-plan.sources.json      sidecar manifest
+    └── <tracker>/                                        jira | github | bitbucket
+        ├── <ticketKey>.md                                issue:fetch ticket artifact
+        ├── <ticketKey>[-<repo>]-review.md                issue:review artifact (repo-scoped in multi-repo runs)
+        ├── YYYY-MM-DD-<hash>-<action>-plan.<ext>         issue:plan ticket-backed artifact
+        ├── YYYY-MM-DD-<hash>-<action>-plan.sources.json  sidecar manifest
+        └── <date>-<hash>-ticket-description.<ext>        issue:generate artifact (+ .sources.json sidecar)
+```
+
+**Plan artifact resolution flow**
+
+```
+resolvePlanArtifactReference(identifier, { artifactDir, action? })
+  └── stem = identifier minus extension; non-canonical short-hash stems are rejected
+  └── read every *.sources.json manifest in artifactDir
+        └── keep manifests whose artifactPath is canonical AND whose
+            { hash | ticketKey | customArtifactName | sourceName | artifact stem }
+            equals the identifier case-insensitively, filtered by action when given
+  └── 0 matches  → PlanArtifactNotFoundError
+  └── 2+ matches → AmbiguousPlanArtifactError   (aborts; never guesses an action)
+  └── 1 match    → PlanArtifactReference { artifactPath, action, format, hash, manifestPath, ... }
+```
+
+**Artifact flow between stages**
+
+Children of a command are the artifacts it writes; children of an artifact are the commands that resolve it.
+
+```
+issue:fetch
+└── <tracker>/<ticketKey>.md                                  # ticket artifact
+    ├── issue:plan                                            # reads the ticket
+    │   └── <tracker>/YYYY-MM-DD-<hash>-<action>-plan.<ext>   # plan artifact
+    │       └── YYYY-MM-DD-<hash>-<action>-plan.sources.json  # sidecar manifest (resolution key)
+    │           ├── issue:implement                           # plan token or -k <ticketKey>
+    │           ├── issue:pr                                  # <ticketKey>; --action narrows the match
+    │           └── issue                                     # orchestrator plan token
+    └── issue:review                                          # reads the ticket; reviews the diff
+        └── <tracker>/<ticketKey>[-<repo>]-review.md          # review artifact
+            └── issue:commit                                  # scope summary: review summary first,
+                                                              #   then in-memory plan, then prior
+                                                              #   plan matched by ticket key
+```
+
 The following surfaces currently follow these rules or intentionally document their differences:
 
 | Surface | Follows the rules? | Evidence |
 | --- | --- | --- |
 | `--custom-plan` (`issue`, `issue:plan`) | Yes — the reference implementation | `custom-source.ts:27-36` |
 | `[plan-token]` (`issue`, `issue:implement`) | Yes | `plan-artifact.ts:625-637` |
+| `issue:pr [ticket-key]` | Yes — resolves the ticket's plan via the manifest resolver | `issue-pr.command.ts:121-141` |
 | `issue:review --output` | Yes — relative values land in `~/.wf/<repo>/`, including subdirectory-prefixed values | `issue-review.command.ts:1749-1756` |
 | `issue:generate` local sources | Variant — artifact directory first, then live checkout | `issue-generate.command.ts:871,977` |
 | `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:146-158,221-225`; `custom-source.ts:27-36` |

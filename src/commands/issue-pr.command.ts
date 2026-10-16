@@ -4,17 +4,20 @@ import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service'
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
-import { ValidationError, FileSystemError } from '../shared/utils/errors';
+import { ValidationError, FileSystemError, PlanArtifactNotFoundError } from '../shared/utils/errors';
 import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
+import { parsePlanArtifact, resolvePlanArtifactReference } from '../shared/utils/plan-artifact';
+import type { PlanArtifactReference, ResolutionAction } from '../shared/types/plan-artifact.types';
+import type { ResolutionPlan } from '../integrations/ai/ai.service';
 import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 interface IssuePrOptions {
-  action?: string;
+  action?: ResolutionAction;
   base?: string;
   dryRun?: boolean;
   tracker?: string;
@@ -30,11 +33,10 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
   }
 };
 
-const validActions = ['feature', 'fix', 'investigate'] as const;
-
 /**
  * Command to create a pull request from a plan artifact.
- * Reads the plan JSON, builds a PR title and body, then calls the tracker adapter.
+ * Resolves the ticket's canonical plan through its sidecar manifest, parses it
+ * (json, md, or yaml), builds a PR title and body, then calls the tracker adapter.
  */
 @Command({
   name: 'issue:pr',
@@ -95,7 +97,7 @@ export class IssuePrCommand extends CommandRunner {
     console.log(options?.silent ? prUrl : chalk.bold.cyan(`\n✔ Pull request created: ${prUrl}\n`));
   }
 
-  private async buildPrParams(ticketKey: string, plan: any, planPath: string, options?: IssuePrOptions) {
+  private async buildPrParams(ticketKey: string, plan: ResolutionPlan, planPath: string, options?: IssuePrOptions) {
     const branchInfo = await this.gitService.getBranchInfo().catch(() => null);
     return {
       head: branchInfo?.current ?? ticketKey.toLowerCase(),
@@ -117,16 +119,27 @@ export class IssuePrCommand extends CommandRunner {
     return { adapter, trackerDir };
   }
 
-  private loadPlan(trackerDir: string, ticketKey: string, action?: string) {
-    const planPath = this.findPlanArtifact(trackerDir, ticketKey, action);
-    if (!planPath) {
-      throw new FileSystemError(
-        `No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.\n`
-        + `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`
-      );
-    }
-    const plan = JSON.parse(fs.readFileSync(planPath, 'utf-8')) as { summary?: string; action?: string; steps?: string[] };
+  private loadPlan(trackerDir: string, ticketKey: string, action?: ResolutionAction) {
+    const reference = this.resolvePlanReference(trackerDir, ticketKey, action);
+    const planPath = reference.artifactPath;
+    const plan = parsePlanArtifact(fs.readFileSync(planPath, 'utf-8'), planPath);
     return { plan, planPath };
+  }
+
+  private resolvePlanReference(
+    trackerDir: string, ticketKey: string, action?: ResolutionAction
+  ): PlanArtifactReference {
+    try {
+      return resolvePlanArtifactReference(ticketKey, { artifactDir: trackerDir, action });
+    } catch (error) {
+      if (error instanceof PlanArtifactNotFoundError) {
+        throw new FileSystemError(
+          `No plan artifact found for ticket '${ticketKey}' under ${trackerDir}.\n`
+          + `Run 'wf issue:plan ${ticketKey} --action <feature|fix|investigate>' first.`
+        );
+      }
+      throw error;
+    }
   }
 
   private printPrHeader(ticketKey: string, head: string, base: string, title: string): void {
@@ -139,10 +152,15 @@ export class IssuePrCommand extends CommandRunner {
 
   @Option({
     flags: '-a, --action <action>',
-    description: 'Resolution action type (feature|fix|investigate)',
+    description:
+      'Resolution action type (feature|fix|investigate). Narrows the plan match when the ticket has multiple plans',
   })
-  parseAction(val: string): string {
-    return val;
+  parseAction(action: string): ResolutionAction {
+    const validActions: ResolutionAction[] = ['feature', 'fix', 'investigate'];
+    if (!validActions.includes(action as ResolutionAction)) {
+      throw new ValidationError(`Invalid action: ${action}. Valid actions: ${validActions.join(', ')}`);
+    }
+    return action as ResolutionAction;
   }
 
   @Option({
@@ -192,29 +210,6 @@ export class IssuePrCommand extends CommandRunner {
   })
   parseTracker(val: string): string {
     return val;
-  }
-
-  /**
-   * Find a plan artifact on disk for the given ticket key.
-   * If action is provided, looks for that specific variant first.
-   * Otherwise tries all valid action types.
-   *
-   * @param trackerDir - Directory containing artifacts
-   * @param ticketKey - Ticket identifier (e.g. "WBP-2971")
-   * @param action - Optional action type to narrow the search
-   * @returns Absolute path to the plan file, or null if not found
-   */
-  private findPlanArtifact(trackerDir: string, ticketKey: string, action?: string): string | null {
-    const candidates: string[] = action ? [action, ...validActions.filter(a => a !== action)] : [...validActions];
-
-    for (const a of candidates) {
-      const candidate = path.join(trackerDir, `${ticketKey}-plan-${a}.json`);
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    return null;
   }
 
   /**
