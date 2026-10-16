@@ -24,10 +24,19 @@ describe('resolveCustomSourcePath', () => {
     fs.rmSync(repoTwoDir, { recursive: true, force: true });
   });
 
-  it('returns an absolute source path unchanged', () => {
+  it('returns an existing absolute source path unchanged', () => {
     const absoluteSource = path.join(repoOneDir, 'plan.md');
+    fs.writeFileSync(absoluteSource, 'plan');
 
     expect(resolveCustomSourcePath(absoluteSource, repoOneDir)).toBe(absoluteSource);
+  });
+
+  it('throws a not-found AppError when an absolute source does not exist', () => {
+    const absoluteSource = path.join(repoOneDir, 'missing.md');
+
+    expect(() => resolveCustomSourcePath(absoluteSource, repoOneDir)).toThrow(
+      `Custom source not found: ${absoluteSource}`
+    );
   });
 
   it('resolves a filename-only source against the single matching repo', () => {

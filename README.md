@@ -1116,11 +1116,12 @@ Custom artifacts use the `~/.wf/<repo>/` namespace. Ticket-backed artifacts use 
 
 Custom sources resolve in this order:
 
-1. **Absolute path**: returned verbatim, without an existence check.
+1. **Absolute path**: returned verbatim if the file exists; otherwise fails with `FILE_SYSTEM_ERROR`.
 
    ```bash
    wf issue:plan --custom-plan /home/me/notes/spec.md
    # -> /home/me/notes/spec.md
+   # missing file -> FILE_SYSTEM_ERROR: Custom source not found: /home/me/notes/spec.md
    ```
 
 2. **Filename-only source with `--repos`**: wf probes `~/.wf/<repo>/<source>` for each repository. More than one match is fatal.

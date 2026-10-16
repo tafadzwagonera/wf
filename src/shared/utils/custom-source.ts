@@ -25,7 +25,10 @@ const findInRepos = (source: string, repos: string[]): string | null => {
  * @returns Absolute path within the artifact repository
  */
 export const resolveCustomSourcePath = (source: string, baseDir: string, repos?: string[]): string => {
-  if (path.isAbsolute(source)) return source;
+  if (path.isAbsolute(source)) {
+    if (!fs.existsSync(source)) throw new AppError('FILE_SYSTEM_ERROR', `Custom source not found: ${source}`);
+    return source;
+  }
   if (repos?.length && path.dirname(source) === '.') {
     const match = findInRepos(source, repos);
     if (match) return match;
