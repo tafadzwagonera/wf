@@ -218,9 +218,12 @@ const assertScenarioResult = (status: number | null, output: string, paths: Scen
   }
 };
 
+const isReviewInvocation = (args: string[]): boolean =>
+  args.includes('--json-schema') && args.some(arg => arg.includes('You are a code reviewer'));
+
 const assertPriorCompatibleSessionResult = (status: number | null, output: string, paths: ScenarioPaths): void => {
   try {
-    const invocations = readInvocations(paths.invocationPath).filter(args => args.includes('--json-schema'));
+    const invocations = readInvocations(paths.invocationPath).filter(isReviewInvocation);
     const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
     assert.strictEqual(status, 0, output);
     assert.strictEqual(invocations.length, 1, JSON.stringify(invocations));
@@ -248,7 +251,7 @@ const assertInterruptedReviewPersistsEarlySessionId = (
 };
 
 const assertResumedInvocationUsedEarlySession = (invocationPath: string): void => {
-  const invocations = readInvocations(invocationPath).filter(args => args.includes('--json-schema'));
+  const invocations = readInvocations(invocationPath).filter(isReviewInvocation);
   const resumedInvocation = invocations.at(-1) ?? [];
   assert.ok(resumedInvocation.includes('--resume'), JSON.stringify(resumedInvocation));
   assert.ok(resumedInvocation.includes('early-session'), JSON.stringify(resumedInvocation));
@@ -277,7 +280,7 @@ const assertDroppedSessionNamed = (output: string, logContent: string): void => 
 
 const assertFallbackAssertions = (status: number | null, output: string, paths: ScenarioPaths): void => {
   const invocations = readInvocations(paths.invocationPath);
-  const stageInvocations = invocations.filter((args: string[]) => args.includes('--json-schema'));
+  const stageInvocations = invocations.filter(isReviewInvocation);
   const logPath = path.join(paths.homeDir, '.wf/logs', `agent-${new Date().toISOString().split('T')[0]}.log`);
   const state = JSON.parse(fs.readFileSync(paths.statePath, 'utf8'));
   assert.strictEqual(status, 0, output);

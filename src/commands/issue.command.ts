@@ -332,7 +332,7 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-r, --repos <repos...>',
     description:
-      'Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
+      'Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue; with --custom-plan the source is located from the first repository only and a warning names the others. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)',
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
@@ -615,7 +615,8 @@ export class IssueCommand extends CommandRunner {
       if (!options.customPlan.toLowerCase().endsWith('.md')) {
         throw new ValidationError('--custom-plan only accepts Markdown (.md) sources');
       }
-      customSourcePath = resolveCustomSourcePath(options.customPlan, repoBaseDir, options?.repos);
+      this.warnWhenExtraReposAreNotSearched(options);
+      customSourcePath = resolveCustomSourcePath(options.customPlan, repoBaseDir);
       ticketKey = path.basename(options.customPlan, '.md');
     }
 
@@ -624,6 +625,14 @@ export class IssueCommand extends CommandRunner {
     if (planTokenResolution?.kind === 'custom') ticketKey = planTokenResolution.sourceName;
 
     return { ticketKey, customSourcePath, planTokenResolution };
+  }
+
+  private warnWhenExtraReposAreNotSearched(options: IssueOptions): void {
+    const [primaryRepo, ...otherRepos] = options.repos ?? [];
+    if (!primaryRepo || otherRepos.length === 0) return;
+    console.warn(chalk.yellow(
+      `--custom-plan uses only the first --repos value "${primaryRepo}" to locate the source; not searched: ${otherRepos.join(', ')}`
+    ));
   }
 
   private resolvePlanTokenIfNeeded(

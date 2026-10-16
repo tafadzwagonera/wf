@@ -91,18 +91,21 @@ export const setupPlanHarness = (
   return harness;
 };
 
-export const runPlanCli = (harness: PlanHarness, args: string[], timeoutMs = 90_000): PlanRunResult => {
+export const runWfCli = (harness: PlanHarness, args: string[], timeoutMs = 90_000): PlanRunResult => {
   const env = {
     ...process.env,
     HOME: harness.homeDir,
     PATH: `${harness.binDir}${path.delimiter}${process.env['PATH'] ?? ''}`,
     WF_SKIP_CLI_VERSION_CHECK: '1',
   };
-  const result = spawnSync('node', [distMainPath, 'issue:plan', ...args], {
+  const result = spawnSync('node', [distMainPath, ...args], {
     cwd: harness.repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10, timeout: timeoutMs,
   });
   return { exitCode: result.status, output: `${result.stdout ?? ''}\n${result.stderr ?? ''}` };
 };
+
+export const runPlanCli = (harness: PlanHarness, args: string[], timeoutMs = 90_000): PlanRunResult =>
+  runWfCli(harness, ['issue:plan', ...args], timeoutMs);
 
 export const runPlan = (harness: PlanHarness, timeoutMs = 90_000): PlanRunResult =>
   runPlanCli(harness, ['--action', 'fix', '--custom-plan', path.join(harness.repoDir, 'source.md'), '--silent'], timeoutMs);

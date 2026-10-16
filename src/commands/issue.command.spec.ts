@@ -608,6 +608,35 @@ describe('IssueCommand', () => {
     existsSyncSpy.mockRestore();
   });
 
+  describe('--custom-plan with multiple --repos', () => {
+    const runCustomPlan = async (repos: string[]) => {
+      const command = await buildCommand();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+      const ctx = await (command as any).validateAndResolveInputs([], {
+        customPlan: 'spec.md', action: 'fix', repos, silent: true,
+      });
+      const warnings = warnSpy.mock.calls.map(call => call.join(' '));
+      warnSpy.mockRestore();
+      existsSyncSpy.mockRestore();
+      return { ctx, warnings };
+    };
+
+    it('warns that only the first repository is used to locate the source', async () => {
+      const { ctx, warnings } = await runCustomPlan(['api', 'web']);
+
+      expect(warnings.join('\n')).toContain('uses only the first --repos value "api" to locate the source; not searched: web');
+      expect(path.basename(path.dirname(ctx.customSourcePath))).toBe('api');
+      expect(ctx.repos).toEqual(['api', 'web']);
+    });
+
+    it('does not warn for a single repository', async () => {
+      const { warnings } = await runCustomPlan(['api']);
+
+      expect(warnings.join('\n')).not.toContain('--custom-plan uses only the first');
+    });
+  });
+
   it('merges legacy session defaults but still requires a known action', async () => {
     const command = await buildCommand();
     const legacySession = createMockSessionState({

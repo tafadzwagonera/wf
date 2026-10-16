@@ -39,45 +39,23 @@ describe('resolveCustomSourcePath', () => {
     );
   });
 
-  it('resolves a filename-only source against the single matching repo', () => {
-    const repoOneName = path.basename(repoOneDir);
-    const artifactDir = path.join(wfHomeDir, '.wf', repoOneName);
+  it('resolves a relative source inside the base directory artifact namespace', () => {
+    const artifactDir = path.join(wfHomeDir, '.wf', path.basename(repoOneDir));
     fs.mkdirSync(artifactDir, { recursive: true });
     fs.writeFileSync(path.join(artifactDir, 'plan.md'), 'plan');
 
-    const resolved = resolveCustomSourcePath('plan.md', repoOneDir, [repoOneDir]);
-
-    expect(resolved).toBe(path.join(artifactDir, 'plan.md'));
+    expect(resolveCustomSourcePath('plan.md', repoOneDir)).toBe(path.join(artifactDir, 'plan.md'));
   });
 
-  it('throws an AppError when the source matches multiple repositories', () => {
-    const repoOneName = path.basename(repoOneDir);
-    const repoTwoName = path.basename(repoTwoDir);
-    const artifactDirOne = path.join(wfHomeDir, '.wf', repoOneName);
-    const artifactDirTwo = path.join(wfHomeDir, '.wf', repoTwoName);
-    fs.mkdirSync(artifactDirOne, { recursive: true });
-    fs.mkdirSync(artifactDirTwo, { recursive: true });
-    fs.writeFileSync(path.join(artifactDirOne, 'plan.md'), 'plan');
-    fs.writeFileSync(path.join(artifactDirTwo, 'plan.md'), 'plan');
+  it('does not search the artifact namespace of any other repository', () => {
+    const otherArtifactDir = path.join(wfHomeDir, '.wf', path.basename(repoTwoDir));
+    fs.mkdirSync(otherArtifactDir, { recursive: true });
+    fs.writeFileSync(path.join(otherArtifactDir, 'plan.md'), 'plan');
 
-    expect(() => resolveCustomSourcePath('plan.md', repoOneDir, [repoOneDir, repoTwoDir])).toThrow(
-      /matches multiple repositories/
-    );
-  });
-
-  it('falls back to the base directory artifact dir when no repo matches', () => {
-    const baseArtifactDir = path.join(wfHomeDir, '.wf', path.basename(repoOneDir));
-    fs.mkdirSync(baseArtifactDir, { recursive: true });
-    fs.writeFileSync(path.join(baseArtifactDir, 'plan.md'), 'plan');
-
-    const resolved = resolveCustomSourcePath('plan.md', repoOneDir, [repoTwoDir]);
-
-    expect(resolved).toBe(path.join(baseArtifactDir, 'plan.md'));
+    expect(() => resolveCustomSourcePath('plan.md', repoOneDir)).toThrow('not found in artifact repository');
   });
 
   it('throws a not-found AppError when the artifact does not exist anywhere', () => {
-    const baseArtifactDir = path.join(wfHomeDir, '.wf', path.basename(repoOneDir));
-
     expect(() => resolveCustomSourcePath('missing.md', repoOneDir)).toThrow(
       'not found in artifact repository'
     );

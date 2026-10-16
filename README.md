@@ -517,13 +517,13 @@ wf issue:review --ticket-key WBP-2971 --figma https://figma.com/design/abc/Page?
 | ---- | ----------- |
 | `--comment` | Post review as a comment on supported pull requests |
 | `--comment-policy` | Enable deterministic new-comment detection, overriding stages.review.commentPolicy config. |
-| `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults |
+| `--criteria <path>` | Path to a markdown file with additional review criteria to append to the defaults; a relative path resolves from the first --repos repository |
 | `--dry-run` | Preview the review operation without making changes |
 | `--figma [urls...]` | Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`. |
 | `--force` | Force recreate review artifacts, ignoring any cached files |
 | `-f, --format <format>` | Output format (json\|md\|yaml\|yml) - default: md |
 | `-o, --output <path>` | Save review to file |
-| `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely |
+| `--replace-criteria <path>` | Path to a markdown file whose criteria replace the default review guidelines entirely; a relative path resolves from the first --repos repository |
 | `-r, --repos <repos...>` | Space-separated repositories; used as remote PR-discovery hints for ticket review, and as local review roots when the repositories exist on disk. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID). For --sonar, also looked up as the originating wf session to recover its recorded source branch, ahead of the --ticket-key/plan-manifest/reflog/prompt chain. |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the review artifact path for piping |
@@ -774,6 +774,9 @@ wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review
 # Custom plan (--from defaults to plan)
 wf issue --custom-plan dark-building-creek-fix.md --action fix
 
+# Custom plan across repos: the source is read from ~/.wf/repo-a/ only; repo-b stays an execution context
+wf issue --custom-plan dark-building-creek-fix.md --action fix --repos repo-a repo-b
+
 # Resume a saved workflow session without restating source flags
 wf issue --session-id 550e8400-e29b-41d4-a716-446655440000
 
@@ -815,7 +818,7 @@ wf issue -k WBP-2971 --from fetch --action fix --figma
 | `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                                         | —                  |
 | `--sonar`                   | Enable the SonarQube CLI scan during the REVIEW stage, overriding `stages.review.sonar` config                                                    | —                  |
 | `--figma`                   | Enable Figma link extraction during PLAN and design-conformance checks during IMPLEMENT and REVIEW, overriding `stages.plan.figma`, `stages.implement.figma`, and `stages.review.figma` config. Requires `figma.token` in `wf.config`. | —                  |
-| `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence                             | current repo       |
+| `-r, --repos <repos...>`    | First repo anchors artifact storage; when multiple repos are given, the implement stage runs once per repo in sequence. With `--custom-plan` the source is read from the first repo only and a warning names the others | current repo       |
 | `-k, --ticket-key <key>`    | Ticket key to run the full workflow for (e.g. WBP-2971)                                                                                            | —                  |
 
 **Stage order and artifacts:**
@@ -1124,22 +1127,20 @@ Custom sources resolve in this order:
    # missing file -> FILE_SYSTEM_ERROR: Custom source not found: /home/me/notes/spec.md
    ```
 
-2. **Filename-only source with `--repos`**: wf probes `~/.wf/<repo>/<source>`. `issue:plan` uses only the first repository and warns that the others are ignored. `issue` and `issue:review` probe every repository, and more than one match is fatal.
+2. **Filename-only source with `--repos`**: wf looks only in `~/.wf/<first-repo>/<source>`. Every command that reads a custom source (`issue:plan`, `issue`, and the `issue:review` criteria flags) uses the first repository and never searches the others. `issue:plan` ignores the remaining repositories and warns about them. `issue` keeps them as execution context and warns that they are not searched for the source.
 
    ```bash
    wf issue:plan --custom-plan spec.md --repos api web
    # warns: --custom-plan uses only the first --repos value "api"; ignoring: web
-   # probes ~/.wf/api/spec.md
-   # exists  -> that file is used
-   # missing -> falls through to step 3
+   # reads ~/.wf/api/spec.md
+   # missing -> FILE_SYSTEM_ERROR: Custom source "spec.md" not found in artifact repository: ~/.wf/api/spec.md
    ```
 
    ```bash
    wf issue --custom-plan spec.md --repos api web
-   # probes ~/.wf/api/spec.md and ~/.wf/web/spec.md
-   # exactly one exists -> that file is used
-   # both exist         -> FILE_SYSTEM_ERROR: Custom source "spec.md" matches multiple repositories: ...
-   # neither exists     -> falls through to step 3
+   # warns: --custom-plan uses only the first --repos value "api" to locate the source; not searched: web
+   # reads ~/.wf/api/spec.md; web is still an execution context for implement, review and commit
+   # ~/.wf/web/spec.md is never consulted, even when ~/.wf/api/spec.md is missing
    ```
 
 3. **Anything else**: wf resolves `~/.wf/<basename(baseDir)>/<source>`. This is also the only branch for subdirectory-prefixed sources such as `jira/x.md`.

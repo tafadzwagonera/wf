@@ -509,7 +509,7 @@
       },
       {
         "flags": "--criteria <path>",
-        "description": "Path to a markdown file with additional review criteria to append to the defaults"
+        "description": "Path to a markdown file with additional review criteria to append to the defaults; a relative path resolves from the first --repos repository"
       },
       {
         "flags": "--dry-run",
@@ -533,7 +533,7 @@
       },
       {
         "flags": "--replace-criteria <path>",
-        "description": "Path to a markdown file whose criteria replace the default review guidelines entirely"
+        "description": "Path to a markdown file whose criteria replace the default review guidelines entirely; a relative path resolves from the first --repos repository"
       },
       {
         "flags": "-r, --repos <repos...>",
@@ -677,7 +677,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
+        "description": "Space-separated repositories; the first repository reference acts as both the artefact repository and execution context. The remaining repository references are strictly execution contexts for a multi-repository issue; with --custom-plan the source is located from the first repository only and a warning names the others. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects)"
       },
       {
         "flags": "--session-id <id>",
@@ -724,6 +724,10 @@
       {
         "comment": "Run the workflow from a custom markdown plan source (--from defaults to plan)",
         "command": "wf issue -c bar.md --action fix"
+      },
+      {
+        "comment": "Locate the custom source in the first repo only; the other repos stay execution context",
+        "command": "wf issue -c bar.md --action fix --repos repo-a repo-b"
       },
       {
         "comment": "Resume from a hashed plan artifact without --action (--from defaults to implement)",

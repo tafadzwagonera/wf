@@ -347,23 +347,6 @@ describe('IssuePlanCommand', () => {
     statSyncSpy.mockRestore();
   });
 
-  it('resolves from the targeted repo artifact namespace when --repos is provided', async () => {
-    await buildCommand();
-    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
-    const repoName = 'repo-a';
-    const sourceName = 'bar.md';
-    const repoCandidate = path.join(getWfHomeDir(), repoName, sourceName);
-    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
-      return String(input) === repoCandidate;
-    });
-
-    const resolvedPath = resolveCustomSourcePath(sourceName, '/tmp/consumer-app', [repoName]);
-
-    expect(resolvedPath).toBe(repoCandidate);
-
-    existsSyncSpy.mockRestore();
-  });
-
   it('throws when custom source is not found in the artifact repository', async () => {
     await buildCommand();
     const { resolveCustomSourcePath } = require('../shared/utils/custom-source');

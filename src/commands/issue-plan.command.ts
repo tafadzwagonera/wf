@@ -416,7 +416,7 @@ export class IssuePlanCommand extends CommandRunner {
     const extension = getPlanArtifactExtension(format);
     const planFilename = buildPlanArtifactFilename({ hash, action: options.action, format: extension });
     const planPath = path.join(artifactDir, planFilename);
-    const sourcePath = resolveCustomSourcePath(customPlan, baseDir, options?.repos);
+    const sourcePath = resolveCustomSourcePath(customPlan, baseDir);
     return { baseDir, format, stem, hash, artifactDir, planFilename, planPath, sourcePath };
   }
 

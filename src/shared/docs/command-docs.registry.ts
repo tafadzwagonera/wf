@@ -20,6 +20,10 @@ export const COMMAND_DOCS = {
         command: 'wf issue -c bar.md --action fix',
       },
       {
+        comment: 'Locate the custom source in the first repo only; the other repos stay execution context',
+        command: 'wf issue -c bar.md --action fix --repos repo-a repo-b',
+      },
+      {
         comment: 'Resume from a hashed plan artifact without --action (--from defaults to implement)',
         command: 'wf issue 2026-05-04-1a2b3c4d-fix-plan.json --to review',
       },

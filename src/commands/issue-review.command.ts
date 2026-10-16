@@ -160,12 +160,11 @@ const parseCriteriaMarkdown = (content: string): string[] => {
 /**
  * Load and parse a markdown criteria file into an array of guideline strings.
  * @param filePath Absolute or relative path to the criteria markdown file
- * @param baseDir
- * @param repos
+ * @param baseDir Repo-aware base directory derived from the first `--repos` value
  * @returns Array of non-empty guideline strings
  */
-const loadCriteriaFromFile = (filePath: string, baseDir: string, repos?: string[]): string[] => {
-  const resolved = resolveCustomSourcePath(filePath, baseDir, repos);
+const loadCriteriaFromFile = (filePath: string, baseDir: string): string[] => {
+  const resolved = resolveCustomSourcePath(filePath, baseDir);
 
   if (path.extname(resolved).toLowerCase() !== '.md') {
     throw new ValidationError(`Criteria file must be a Markdown (.md) file: ${filePath}`);
@@ -244,7 +243,7 @@ export class IssueReviewCommand extends CommandRunner {
     const criteriaPath = runtimeOptions?.replaceCriteria ?? runtimeOptions?.criteria;
     const baseDir = criteriaPath ? resolveRepoBasePath(runtimeOptions?.repos?.[0]) : undefined;
     const extraCriteria: string[] | null = criteriaPath
-      ? loadCriteriaFromFile(criteriaPath, baseDir as string, runtimeOptions?.repos)
+      ? loadCriteriaFromFile(criteriaPath, baseDir as string)
       : null;
 
     if (runtimeOptions?.dryRun) {
@@ -990,7 +989,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--criteria <path>',
-    description: 'Path to a markdown file with additional review criteria to append to the defaults',
+    description: 'Path to a markdown file with additional review criteria to append to the defaults; a relative path resolves from the first --repos repository',
   })
   parseCriteria(val: string): string {
     return val;
@@ -1034,7 +1033,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '--replace-criteria <path>',
-    description: 'Path to a markdown file whose criteria replace the default review guidelines entirely',
+    description: 'Path to a markdown file whose criteria replace the default review guidelines entirely; a relative path resolves from the first --repos repository',
   })
   parseReplaceCriteria(val: string): string {
     return val;
