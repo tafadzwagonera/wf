@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveArtifactDir } from '../../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir } from '../../agents/utils';
 import { deriveReviewArtifactPath } from './plan-artifact';
 
 /**
@@ -18,6 +18,9 @@ export const resolveReviewArtifactPath = (
   const ticketPath = path.join(resolveArtifactDir(repoBaseDir, trackerName), `${ticketKey}.md`);
   return deriveReviewArtifactPath(ticketPath);
 };
+
+export const resolveCustomReviewArtifactPath = (repoBaseDir: string, planStem: string): string =>
+  deriveReviewArtifactPath(path.join(resolveCustomArtifactDir(repoBaseDir), `${planStem}.md`));
 
 /**
  * Read and extract the summary from a code review artifact.

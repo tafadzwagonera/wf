@@ -22,7 +22,11 @@ import {
   resolvePlanToken,
 } from '../shared/utils/plan-artifact';
 import { resolveCustomSourcePath } from '../shared/utils/custom-source';
+import { Inject } from '@nestjs/common';
 import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
+import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
+import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
+import { GitService } from '../integrations/git/git.service';
 import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
@@ -192,7 +196,16 @@ const withPriorRecords = <T extends { priorStageSummary?: string }>(
   return { ...context, priorStageSummary: [context.priorStageSummary, records].filter(Boolean).join('\n\n') };
 };
 
+type ReviewRunIdentity = {
+  ticketKey: string;
+  primaryRepo: string | undefined;
+  trackerName: string;
+  isCustomSource: boolean;
+};
+
 type ReviewRepoContext = {
+  isCustomSource: boolean;
+  trackerName: string;
   isMultiRepo: boolean;
   options: IssueOptions;
   planArtifact: PlanArtifact | undefined;
@@ -232,6 +245,9 @@ export class IssueCommand extends CommandRunner {
   ) {
     super();
   }
+
+  @Inject(GitService)
+  private readonly gitService: GitService;
 
   @Option({
     flags: '-a, --action <action>',
@@ -584,6 +600,10 @@ export class IssueCommand extends CommandRunner {
     return { fromStage, toStage, stagesToRun: this.getStagesToRun(fromStage, toStage) };
   }
 
+  private isCustomSourceRun(ctx: Pick<ResolvedWorkflowContext, 'customSourcePath' | 'planTokenResolution'>): boolean {
+    return Boolean(ctx.customSourcePath) || ctx.planTokenResolution?.kind === 'custom';
+  }
+
   private resolveSourceInputs(
     planToken: string | undefined, options: IssueOptions,
     stagesToRun: WorkflowStage[], repoBaseDir: string, trackerDir: string
@@ -771,7 +791,10 @@ export class IssueCommand extends CommandRunner {
     if (stagesToRun.includes(WorkflowStage.REVIEW) && planArtifact?.action !== 'investigate' && !skipReview) {
       const result = await this.executeReviewStage(
         ticketArtifact, planArtifact, ctx.repos, options, sessionState,
-        implementerResult, { ticketKey: ctx.ticketKey, primaryRepo }
+        implementerResult, {
+          ticketKey: ctx.ticketKey, primaryRepo, trackerName: ctx.trackerName,
+          isCustomSource: this.isCustomSourceRun(ctx),
+        }
       );
       sessionState = result.sessionState;
     } else if (skipReview && !options?.silent) {
@@ -779,7 +802,9 @@ export class IssueCommand extends CommandRunner {
     }
 
     if (stagesToRun.includes(WorkflowStage.COMMIT) && planArtifact?.action !== 'investigate') {
-      await this.executeCommitStage(ctx.ticketKey, planArtifact, ctx.repos, options, ctx.trackerName);
+      await this.executeCommitStage(
+        ctx.ticketKey, planArtifact, ctx.repos, options, ctx.trackerName, this.isCustomSourceRun(ctx)
+      );
     }
 
     return { sessionState, earlyReturn: false };
@@ -1671,7 +1696,7 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions, sessionState: SessionState | undefined,
     implementerResult: ImplementerResult | undefined,
-    { ticketKey, primaryRepo }: { ticketKey: string; primaryRepo: string | undefined }
+    reviewRun: ReviewRunIdentity
   ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
     const passCount = implementerResult?.type === 'implementation' ? implementerResult.passCount : undefined;
     const estimatedComplexity = planArtifact?.plan.estimatedComplexity;
@@ -1680,7 +1705,7 @@ export class IssueCommand extends CommandRunner {
     const { reviewArtifact, sessionState: loopState } = await this.runReviewLoop(
       ticketArtifact, planArtifact, repos, options,
       { ...prepared.sessionContext, forkSession, estimatedComplexity, passCount },
-      { ticketKey, primaryRepo },
+      reviewRun,
       prepared.sessionState
     );
     sessionState = loopState;
@@ -1732,11 +1757,11 @@ export class IssueCommand extends CommandRunner {
     ticketArtifact: TicketArtifact, planArtifact: PlanArtifact | undefined,
     repos: (string | undefined)[], options: IssueOptions,
     sessionContext: ReviewLoopContext,
-    { ticketKey, primaryRepo }: { ticketKey: string; primaryRepo: string | undefined },
+    reviewRun: ReviewRunIdentity,
     sessionState: SessionState | undefined
   ): Promise<{ reviewArtifact: ReviewArtifact | null; sessionState: SessionState | undefined }> {
     const reviewContext = this.createReviewRepoContext(
-      ticketArtifact, planArtifact, repos, options, sessionContext, ticketKey, primaryRepo
+      ticketArtifact, planArtifact, repos, options, sessionContext, reviewRun
     );
     const { reviewArtifacts, sessionState: updated } = await this.collectReviewArtifacts(
       repos, reviewContext, sessionState
@@ -1861,12 +1886,23 @@ export class IssueCommand extends CommandRunner {
     const { isMultiRepo, options, planArtifact, primaryRepo, repos, sessionContext, ticketArtifact } = reviewContext;
     if (isMultiRepo && !options?.silent) this.printRepoSubheader(repos, repo);
     const scopedContext = this.scopeReviewContext(sessionContext, { repo, primaryRepo, priorRecordsSource });
+    const repoDir = resolveRepoBasePath(repo);
     return this.agents.reviewer.execute(ticketArtifact, {
-      skipExisting: !options?.force, repoDir: resolveRepoBasePath(repo),
+      skipExisting: !options?.force, repoDir,
+      commitDescriptionPath: this.resolveCommitDescriptionPath(repoDir, reviewContext),
       suppressHeader: isMultiRepo, silent: options?.silent,
       sonar: options?.sonar, figma: options?.figma,
       planArtifactPath: planArtifact?.path, onProviderSessionId, ...scopedContext,
     });
+  }
+
+  private resolveCommitDescriptionPath(
+    repoDir: string, { isCustomSource, trackerName, ticketKey }: ReviewRepoContext
+  ): string {
+    const reviewPath = isCustomSource
+      ? resolveCustomReviewArtifactPath(repoDir, ticketKey)
+      : resolveReviewArtifactPath(repoDir, trackerName, ticketKey);
+    return deriveCommitDescriptionPath(reviewPath);
   }
 
   private scopeReviewContext(
@@ -1889,18 +1925,11 @@ export class IssueCommand extends CommandRunner {
     repos: (string | undefined)[],
     options: IssueOptions,
     sessionContext: ReviewLoopContext,
-    ticketKey: string,
-    primaryRepo: string | undefined
+    { ticketKey, primaryRepo, trackerName, isCustomSource }: ReviewRunIdentity
   ): ReviewRepoContext {
     return {
-      isMultiRepo: repos.length > 1,
-      options,
-      planArtifact,
-      primaryRepo,
-      repos,
-      sessionContext,
-      ticketArtifact,
-      ticketKey,
+      trackerName, isCustomSource, isMultiRepo: repos.length > 1, options, planArtifact,
+      primaryRepo, repos, sessionContext, ticketArtifact, ticketKey,
     };
   }
 
@@ -1952,14 +1981,16 @@ export class IssueCommand extends CommandRunner {
 
   private async commitForRepo(
     repo: string | undefined, ticketKey: string, planArtifact: PlanArtifact | undefined,
-    options: IssueOptions, trackerName: string, isMultiRepo: boolean
+    options: IssueOptions, trackerName: string, isMultiRepo: boolean, isCustomSource: boolean
   ): Promise<void> {
     await initializeWfConfig(resolveRepoBasePath(repo));
     this.printRepoHeader(isMultiRepo, repo, options);
     const repoDir = resolveRepoBasePath(repo);
-    const scopeSummary = resolveCommitScopeSummary(
-      repoDir, trackerName, ticketKey, planArtifact?.plan?.summary
-    ) ?? undefined;
+    const stagedDiff = await this.gitService.getDiff(true, repoDir);
+    const scopeSummary = resolveCommitScopeSummary({
+      repoBaseDir: repoDir, trackerName, ticketKey, knownPlanSummary: planArtifact?.plan?.summary, stagedDiff,
+      ...(isCustomSource && { reviewArtifactPath: resolveCustomReviewArtifactPath(repoDir, ticketKey) }),
+    }) ?? undefined;
     if (scopeSummary && scopeSummary !== planArtifact?.plan?.summary && !options?.silent) {
       console.log(chalk.gray('  Using scope summary from prior review/plan'));
     }
@@ -1968,12 +1999,12 @@ export class IssueCommand extends CommandRunner {
 
   private async executeCommitStage(
     ticketKey: string, planArtifact: PlanArtifact | undefined,
-    repos: (string | undefined)[], options: IssueOptions, trackerName: string
+    repos: (string | undefined)[], options: IssueOptions, trackerName: string, isCustomSource: boolean
   ): Promise<void> {
     const isMultiRepo = repos.length > 1;
     this.printStageHeader(isMultiRepo, options?.silent, '💾 STAGE 5: Commit Changes');
     for (const repo of repos) {
-      await this.commitForRepo(repo, ticketKey, planArtifact, options, trackerName, isMultiRepo);
+      await this.commitForRepo(repo, ticketKey, planArtifact, options, trackerName, isMultiRepo, isCustomSource);
     }
   }
 

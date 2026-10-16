@@ -52,7 +52,10 @@ jest.mock('inquirer', () => ({
 
 jest.mock('../shared/utils/resolve-commit-scope-summary', () => ({
   resolveCommitScopeSummary: jest.fn().mockReturnValue(null),
+  resolveFreshCommitDescription: jest.fn().mockReturnValue(null),
 }));
+
+jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
@@ -63,6 +66,11 @@ import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import inquirer from 'inquirer';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
+import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
+import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { OptionMeta } from 'nest-commander/src/constants';
 
 const setInteractiveSession = (isTTY: boolean): void => {
   Object.defineProperty(process.stdin, 'isTTY', { value: isTTY, configurable: true });
@@ -86,6 +94,7 @@ const mockAiService = {
 async function buildCommand(): Promise<{
   command: IssueCommitCommand;
   commitStageService: jest.Mocked<CommitStageService>;
+  commitDescriptionStageService: jest.Mocked<CommitDescriptionStageService>;
 }> {
   const module = await Test.createTestingModule({
     providers: [
@@ -99,8 +108,12 @@ async function buildCommand(): Promise<{
         },
       },
       {
+        provide: CommitDescriptionStageService,
+        useValue: { generate: jest.fn().mockResolvedValue(null) },
+      },
+      {
         provide: ConfigService,
-        useValue: { get: jest.fn() },
+        useValue: { get: jest.fn((_key: string, defaultValue?: unknown) => defaultValue) },
       },
       {
         provide: LoggerService,
@@ -127,6 +140,7 @@ async function buildCommand(): Promise<{
   return {
     command: module.get(IssueCommitCommand),
     commitStageService: module.get(CommitStageService),
+    commitDescriptionStageService: module.get(CommitDescriptionStageService),
   };
 }
 
@@ -333,5 +347,130 @@ describe('IssueCommitCommand', () => {
     expect(allOutput).not.toContain('Examples:');
 
     consoleSpy.mockRestore();
+  });
+
+  describe('--review artifact locator', () => {
+    const trackerPath = resolveReviewArtifactPath('/tmp/current-app', 'jira', 'WBP-1');
+    const customPath = resolveCustomReviewArtifactPath('/tmp/current-app', 'plan');
+    const stagedDiff = 'diff --git a/file b/file';
+
+    const candidatePaths = [
+      trackerPath,
+      customPath,
+      resolveReviewArtifactPath('/tmp/current-app', 'jira', 'plan'),
+      resolveCustomReviewArtifactPath('/tmp/current-app', 'WBP-1'),
+    ];
+
+    const mockExistingFiles = (...existing: string[]): void => {
+      const realExistsSync = jest.requireActual('fs').existsSync;
+      jest.spyOn(require('fs'), 'existsSync').mockImplementation((target: unknown) =>
+        candidatePaths.includes(String(target)) ? existing.includes(String(target)) : realExistsSync(target));
+    };
+
+    it('resolves the tracker-dir review path first for --review <ticket>', async () => {
+      mockExistingFiles(trackerPath, resolveCustomReviewArtifactPath('/tmp/current-app', 'WBP-1'));
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'WBP-1', tracker: 'jira', message: undefined });
+
+      expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({
+        reviewArtifactPath: trackerPath, stagedDiff,
+      }));
+    });
+
+    it('resolves the custom-dir review path for --review plan.md when the tracker path is missing', async () => {
+      mockExistingFiles(customPath);
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'plan.md', tracker: 'jira' });
+
+      expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewArtifactPath: customPath })
+      );
+    });
+
+    it('warns, logs, and still generates inline when no review artifact exists', async () => {
+      mockExistingFiles();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const { command, commitDescriptionStageService } = await buildCommand();
+
+      await command.run([], { review: 'plan.md', tracker: 'jira' });
+
+      expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('plan.md'))).toBe(true);
+      expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('plan.md'), 'issue-commit');
+      expect(commitDescriptionStageService.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ diff: stagedDiff })
+      );
+    });
+
+    it('suppresses the missing-artifact console line under --silent but still logs', async () => {
+      mockExistingFiles();
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'plan.md', tracker: 'jira', silent: true });
+
+      expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('plan.md'))).toBe(false);
+      expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('plan.md'), 'issue-commit');
+    });
+  });
+
+  describe('inline commit description generation', () => {
+    const stagedDiff = 'diff --git a/file b/file';
+
+    it('does not generate when a fresh description record exists', async () => {
+      (resolveFreshCommitDescription as jest.Mock).mockReturnValueOnce('D (change nature: fix)');
+      (resolveCommitScopeSummary as jest.Mock).mockReturnValueOnce('D (change nature: fix)');
+      const { command, commitDescriptionStageService, commitStageService } = await buildCommand();
+
+      await command.run([], { ticketKey: 'WBP-123', tracker: 'jira' });
+
+      expect(commitDescriptionStageService.generate).not.toHaveBeenCalled();
+      expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ scopeSummary: 'D (change nature: fix)' })
+      );
+    });
+
+    it('generates and uses the rendered description when no fresh record exists', async () => {
+      const { command, commitDescriptionStageService, commitStageService } = await buildCommand();
+      commitDescriptionStageService.generate.mockResolvedValueOnce({ nature: 'fix', description: 'D' });
+
+      await command.run([], { ticketKey: 'WBP-123', tracker: 'jira' });
+
+      expect(commitDescriptionStageService.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ diff: stagedDiff })
+      );
+      expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ scopeSummary: 'D (change nature: fix)' })
+      );
+    });
+
+    it('falls back to the prose-tier summary when generation returns null', async () => {
+      (resolveCommitScopeSummary as jest.Mock).mockReturnValueOnce('Review prose summary');
+      const { command, commitDescriptionStageService, commitStageService } = await buildCommand();
+
+      await command.run([], { ticketKey: 'WBP-123', tracker: 'jira' });
+
+      expect(commitDescriptionStageService.generate).toHaveBeenCalledTimes(1);
+      expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ scopeSummary: 'Review prose summary' })
+      );
+    });
+
+    it('skips description lookup and generation when --message is provided', async () => {
+      const { command, commitDescriptionStageService } = await buildCommand();
+
+      await command.run([], { ticketKey: 'WBP-123', message: 'manual' });
+
+      expect(commitDescriptionStageService.generate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('--conventional flag', () => {
+    it('registers only the long form with no -c alias', () => {
+      const meta = Reflect.getMetadata(OptionMeta, IssueCommitCommand.prototype.parseConventional);
+
+      expect(meta.flags).toBe('--conventional');
+    });
   });
 });

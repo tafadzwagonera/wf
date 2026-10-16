@@ -32,6 +32,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
+jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: {
@@ -84,6 +85,8 @@ import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
+import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -293,6 +296,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
   sessionService: { findByTicketKey: jest.Mock; findByProviderSessionId: jest.Mock };
   sonarStageService: { scanIfEnabled: jest.Mock };
   commentPolicyStageService: { scanIfEnabled: jest.Mock };
+  commitDescriptionStageService: { generateAndPersist: jest.Mock };
   dryRunPreview: {
     showHeader: jest.Mock;
     showSkipped: jest.Mock;
@@ -445,6 +449,12 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
           scanIfEnabled: jest.fn().mockResolvedValue(undefined),
         },
       },
+      {
+        provide: CommitDescriptionStageService,
+        useValue: {
+          generateAndPersist: jest.fn().mockResolvedValue(undefined),
+        },
+      },
     ],
   }).compile();
 
@@ -472,6 +482,7 @@ async function buildCommand(overrides?: { ticketAdapterName?: 'jira' | 'github' 
     sessionService: module.get(SessionService),
     sonarStageService: module.get(SonarStageService),
     commentPolicyStageService: module.get(CommentPolicyStageService),
+    commitDescriptionStageService: module.get(CommitDescriptionStageService),
   };
 }
 
@@ -1949,6 +1960,50 @@ describe('IssueReviewCommand', () => {
         expect(output).toContain('yarn run lint');
       }
       expect(markdown.indexOf('## Verification')).toBeLessThan(markdown.indexOf('SUMMARY:'));
+    });
+  });
+
+  describe('commit description generation', () => {
+    const localTarget = { title: 'local', diff: 'diff --git a/a b/a\n+x', context: 'ctx', repoDir: '/tmp/repo', repoCount: 1 };
+    const reviewPath = '/tmp/.wf/repo/jira/TAD-1-review.md';
+
+    const runLive = async (
+      targets: Record<string, unknown>[],
+      options: Record<string, unknown>,
+      resultReviewPath: string | null = reviewPath,
+    ) => {
+      const built = await buildCommand();
+      const reviewed = targets.map(t => ({ ...t, review: { summary: 's', issues: [], suggestions: [], approved: true } }));
+      jest.spyOn(built.command as any, 'buildReviewTargets').mockResolvedValue({ targets, reviewPath: resultReviewPath ?? undefined });
+      jest.spyOn(built.command as any, 'executeReviews').mockResolvedValue(reviewed);
+      jest.spyOn(built.command as any, 'ensureReviewBatchSucceeded').mockImplementation(() => undefined);
+      jest.spyOn(built.command as any, 'cacheReviewArtifact').mockImplementation(() => undefined);
+      jest.spyOn(built.command as any, 'offerInteractiveChat').mockResolvedValue(undefined);
+      jest.spyOn(built.command as any, 'saveReviewOutput').mockImplementation(() => undefined);
+      await (built.command as any).runLiveReview(undefined, [], null, { silent: true, ...options });
+      return built.commitDescriptionStageService.generateAndPersist;
+    };
+
+    it('persists a description for a local single-repo ticket-keyed review', async () => {
+      const generateAndPersist = await runLive([localTarget], { ticketKey: 'TAD-1' });
+
+      expect(generateAndPersist).toHaveBeenCalledTimes(1);
+      expect(generateAndPersist).toHaveBeenCalledWith(expect.objectContaining({
+        diff: localTarget.diff,
+        artifactPath: deriveCommitDescriptionPath(reviewPath),
+      }));
+    });
+
+    it.each([
+      ['a discovered PR commentRef', [{ ...localTarget, commentRef: 'https://x/pr/1' }], { ticketKey: 'TAD-1' }, reviewPath],
+      ['an adapterName', [{ ...localTarget, adapterName: 'bitbucket' }], { ticketKey: 'TAD-1' }, reviewPath],
+      ['two repos', [{ ...localTarget, repoCount: 2 }], { ticketKey: 'TAD-1' }, reviewPath],
+      ['no ticketKey', [localTarget], {}, reviewPath],
+      ['no reviewPath', [localTarget], { ticketKey: 'TAD-1' }, null],
+    ])('does not persist a description for %s', async (_label, targets, options, resultReviewPath) => {
+      const generateAndPersist = await runLive(targets, options, resultReviewPath);
+
+      expect(generateAndPersist).not.toHaveBeenCalled();
     });
   });
 });

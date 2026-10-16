@@ -49,6 +49,9 @@ import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
 import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
 import type { ReviewVerification, VerificationCommandResult } from '../shared/utils/review-verification.types';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
+import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
 
 interface IssueReviewOptions {
   format?: OutputFormat;
@@ -213,7 +216,8 @@ export class IssueReviewCommand extends CommandRunner {
     private readonly sessionService: SessionService,
     private readonly sonarStageService: SonarStageService,
     private readonly figmaStageService: FigmaStageService,
-    private readonly commentPolicyStageService: CommentPolicyStageService
+    private readonly commentPolicyStageService: CommentPolicyStageService,
+    private readonly commitDescriptionStageService: CommitDescriptionStageService
   ) {
     super();
   }
@@ -483,9 +487,37 @@ export class IssueReviewCommand extends CommandRunner {
     const reviewed = await this.executeReviews(reviewable, extraCriteria, options);
     this.ensureReviewBatchSucceeded(reviewable, reviewed);
     this.cacheReviewArtifact(result.reviewPath, reviewed, options);
+    await this.persistCommitDescription(result.reviewPath, reviewed, options);
     await this.offerInteractiveChat(reviewed, options);
     if (!options?.silent) console.log(chalk.green('✔ Code review complete\n'));
     this.saveReviewOutput(reviewed, repoInputs, options);
+  }
+
+  private async persistCommitDescription(
+    reviewPath: string | undefined, reviewed: ReviewedTarget[], options?: IssueReviewOptions
+  ): Promise<void> {
+    const skipReason = this.resolveCommitDescriptionSkipReason(reviewPath, reviewed, options);
+    if (skipReason || !reviewPath) {
+      appendToLogFile('DEBUG', `commit-description.skip reason=${skipReason}`, 'issue-review');
+      return;
+    }
+    await this.commitDescriptionStageService.generateAndPersist({
+      diff: reviewed[0].diff,
+      artifactPath: deriveCommitDescriptionPath(reviewPath),
+      onProgress: options?.silent ? undefined : line => console.log(chalk.gray(`  ${line}`)),
+    });
+  }
+
+  private resolveCommitDescriptionSkipReason(
+    reviewPath: string | undefined, reviewed: ReviewedTarget[], options?: IssueReviewOptions
+  ): string | null {
+    if (!options?.ticketKey) return 'no-ticket-key';
+    if (!reviewPath) return 'no-review-path';
+    if (reviewed.length !== 1) return 'multiple-targets';
+    const [target] = reviewed;
+    if (target.commentRef || target.adapterName) return 'discovered-pull-request';
+    if ((target.repoCount ?? 1) !== 1) return 'multi-repo';
+    return null;
   }
 
   private async enrichReviewOptions(options?: IssueReviewOptions): Promise<IssueReviewOptions | undefined> {
@@ -577,6 +609,7 @@ export class IssueReviewCommand extends CommandRunner {
       }
       return false;
     }
+    appendToLogFile('DEBUG', 'commit-description.skip reason=cached-review-served', 'issue-review');
     if (!options?.silent) {
       console.log(chalk.gray('  Review artifact exists: ' + reviewPath));
       console.log(chalk.gray('  Use --force to regenerate.\n'));
@@ -1259,6 +1292,7 @@ export class IssueReviewCommand extends CommandRunner {
     let diff = await this.gitService.getDiff(true, repoDir);
     if (!diff || diff.trim().length === 0) {
       diff = await this.gitService.getDiff(false, repoDir);
+      appendToLogFile('DEBUG', `commit-description.unstaged-diff repo=${repoDir} record-may-not-match-at-commit`, 'issue-review');
     }
 
     return diff;

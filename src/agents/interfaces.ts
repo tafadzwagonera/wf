@@ -77,6 +77,7 @@ export interface ReviewerOptions {
   commentPolicy?: boolean;
   trackerName?: string;
   planArtifactPath?: string;
+  commitDescriptionPath?: string;
 }
 
 export interface ImplementerBackend {

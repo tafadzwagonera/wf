@@ -1,4 +1,6 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
@@ -8,7 +10,12 @@ import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
-import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
+import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
+import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
+import { renderCommitDescriptionContext } from '../shared/utils/commit-description-artifact';
+import { appendToLogFile } from '../shared/logger/log-file-writer';
+import type { CommitDescriptionResponse } from '../shared/types/commit-description.types';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import { withRepoLock } from '../shared/utils/repo-lock';
 import chalk from 'chalk';
@@ -21,6 +28,7 @@ interface IssueCommitOptions {
   ticketKey?: string;
   tracker?: string;
   repos?: string[];
+  review?: string;
   sessionId?: string;
   silent?: boolean;
 }
@@ -45,7 +53,9 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
     + 'When a code review or plan artifact already exists for the ticket, its summary is used to scope '
     + 'the commit message automatically. '
-    + 'When running from source, use yarn start issue:commit -c.',
+    + 'Use --review <plan.md|ticket-key> to point at a specific review artifact (tracker directory first, then custom directory). '
+    + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
+    + 'When running from source, use yarn start issue:commit --conventional.',
   options: { isDefault: false },
 })
 export class IssueCommitCommand extends CommandRunner {
@@ -54,7 +64,8 @@ export class IssueCommitCommand extends CommandRunner {
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
     private readonly dryRunPreview: DryRunPreviewService,
-    private readonly commitStageService: CommitStageService
+    private readonly commitStageService: CommitStageService,
+    private readonly commitDescriptionStageService: CommitDescriptionStageService
   ) {
     super();
   }
@@ -230,7 +241,7 @@ export class IssueCommitCommand extends CommandRunner {
     }
     console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
 
-    const scopeSummary = this.resolveScopeSummary(ticketKey, repoBaseDir, options);
+    const scopeSummary = await this.resolveScopeSummary({ diff, ticketKey, repoBaseDir, options });
     const msg = await this.commitStageService.generateCommitMessage({
       diff, ticketKey: ticketKey || undefined, conventional: options?.conventional, scopeSummary,
     });
@@ -240,20 +251,64 @@ export class IssueCommitCommand extends CommandRunner {
     return msg;
   }
 
-  private resolveScopeSummary(
-    ticketKey: string | null, repoBaseDir: string, options?: IssueCommitOptions
-  ): string | undefined {
-    if (!ticketKey) return undefined;
-    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
-    const scopeSummary = resolveCommitScopeSummary(repoBaseDir, trackerName, ticketKey) ?? undefined;
-    if (scopeSummary && !options?.silent) {
-      console.log(chalk.gray('  Using scope summary from prior review/plan'));
+  private async resolveScopeSummary(
+    { diff, ticketKey, repoBaseDir, options }: {
+      diff: string; ticketKey: string | null; repoBaseDir: string; options?: IssueCommitOptions;
     }
+  ): Promise<string | undefined> {
+    const trackerName = options?.tracker || this.configService.get<string>('tracker', 'jira');
+    const lookup = { diff, ticketKey, repoBaseDir, trackerName };
+    const reviewArtifactPath = this.resolveReviewOverride(repoBaseDir, trackerName, options);
+    const proseSummary = resolveCommitScopeSummary({
+      repoBaseDir, trackerName, ticketKey, stagedDiff: diff, reviewArtifactPath,
+    }) ?? undefined;
+    const isFresh = this.findFreshDescription({ ...lookup, reviewArtifactPath }) === proseSummary;
+    const generated = isFresh ? null : await this.generateDescription(diff, options);
+    const scopeSummary = generated ? renderCommitDescriptionContext(generated) : proseSummary;
+    if (scopeSummary && !generated) this.printScopeSummarySource(options);
     return scopeSummary;
   }
 
+  private findFreshDescription(
+    { diff, ticketKey, repoBaseDir, trackerName, reviewArtifactPath }: {
+      diff: string; ticketKey: string | null; repoBaseDir: string; trackerName: string; reviewArtifactPath?: string;
+    }
+  ): string | null {
+    const reviewPath = reviewArtifactPath
+      ?? (ticketKey ? resolveReviewArtifactPath(repoBaseDir, trackerName, ticketKey) : null);
+    return reviewPath ? resolveFreshCommitDescription(reviewPath, diff) : null;
+  }
+
+  private printScopeSummarySource(options?: IssueCommitOptions): void {
+    if (!options?.silent) console.log(chalk.gray('  Using scope summary from prior review/plan'));
+  }
+
+  private async generateDescription(
+    diff: string, options?: IssueCommitOptions
+  ): Promise<CommitDescriptionResponse | null> {
+    if (!options?.silent) console.log(chalk.gray('  Generating commit description from staged diff...'));
+    return this.commitDescriptionStageService.generate({ diff });
+  }
+
+  private resolveReviewOverride(
+    repoBaseDir: string, trackerName: string, options?: IssueCommitOptions
+  ): string | undefined {
+    if (!options?.review) return undefined;
+    const stem = path.basename(options.review, '.md');
+    const candidates = [
+      resolveReviewArtifactPath(repoBaseDir, trackerName, stem),
+      resolveCustomReviewArtifactPath(repoBaseDir, stem),
+    ];
+    const found = candidates.find(candidate => fs.existsSync(candidate));
+    if (found) return found;
+    const message = `--review '${options.review}' matched no review artifact (searched: ${candidates.join(', ')})`;
+    appendToLogFile('WARN', message, 'issue-commit');
+    if (!options?.silent) console.log(chalk.yellow(`  ⚠  ${message}`));
+    return undefined;
+  }
+
   @Option({
-    flags: '-c, --conventional',
+    flags: '--conventional',
     description: 'Force conventional commits format',
   })
   parseConventional(): boolean {
@@ -283,6 +338,15 @@ export class IssueCommitCommand extends CommandRunner {
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
     return parseReposOption(val, previous);
+  }
+
+  @Option({
+    flags: '--review <planOrTicket>',
+    description:
+      'Plan file or ticket key whose review artifact supplies the commit description (tracker directory first, then custom directory)',
+  })
+  parseReview(val: string): string {
+    return val;
   }
 
   @Option({

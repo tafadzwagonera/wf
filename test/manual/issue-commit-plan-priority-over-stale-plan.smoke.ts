@@ -115,8 +115,8 @@ async function runWithCapturedConsole(
   const capture = setupConsoleCapture();
   try {
     await (command as unknown as {
-      executeCommitStage: (k: string, p: PlanArtifact, r: string[], o: unknown, t: string) => Promise<void>;
-    }).executeCommitStage(TICKET_KEY, planArtifact, [tmpRepo], { silent: false }, TRACKER_NAME);
+      executeCommitStage: (k: string, p: PlanArtifact, r: string[], o: unknown, t: string, c: boolean) => Promise<void>;
+    }).executeCommitStage(TICKET_KEY, planArtifact, [tmpRepo], { silent: false }, TRACKER_NAME, false);
   } finally {
     capture.restore();
   }
@@ -124,7 +124,9 @@ async function runWithCapturedConsole(
 }
 
 function checkSanityStaleDiscoverable(tmpRepo: string): void {
-  const diskOnly = resolveCommitScopeSummary(tmpRepo, TRACKER_NAME, TICKET_KEY);
+  const diskOnly = resolveCommitScopeSummary({
+    repoBaseDir: tmpRepo, trackerName: TRACKER_NAME, ticketKey: TICKET_KEY,
+  });
   assert('sanity check: stale plan is genuinely discoverable via the generic disk search', diskOnly === 'STALE PLAN SUMMARY', `got: ${diskOnly}`);
 }
 

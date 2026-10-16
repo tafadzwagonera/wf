@@ -7,6 +7,7 @@ import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -1346,6 +1347,81 @@ describe('ReviewerAgent', () => {
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'WARN', expect.stringContaining(planArtifactPath), 'plan-risks'
       );
+    });
+  });
+
+  describe('commit description generation', () => {
+    const stagedDiff = 'diff --git a/src/auth.ts b/src/auth.ts\n+change';
+    const ticket = { ticketKey: 'WBP-123', content: '# WBP-123: Fix', path: '/tmp/.wf/repo/jira/WBP-123.md' };
+
+    const buildAgent = async () => {
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/auth.ts'], staged: ['src/auth.ts'] }),
+              stageAll: jest.fn().mockResolvedValue(undefined),
+              getDiff: jest.fn().mockResolvedValue(stagedDiff),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: jest.fn().mockResolvedValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+              }),
+              buildReviewArtifact: jest.fn().mockReturnValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true },
+                path: '/tmp/.wf/repo/jira/WBP-123-review.md',
+                approved: true,
+              }),
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+          {
+            provide: CommitDescriptionStageService,
+            useValue: { generateAndPersist: jest.fn().mockResolvedValue(undefined) },
+          },
+        ],
+      }).compile();
+      return { agent: module.get(ReviewerAgent), description: module.get(CommitDescriptionStageService) };
+    };
+
+    it('persists a commit description from the reviewed staged diff', async () => {
+      const { agent, description } = await buildAgent();
+
+      await agent.execute(ticket, { repoDir: '/tmp/repo', commitDescriptionPath: '/tmp/x-review.commit-description.json' });
+
+      expect(description.generateAndPersist).toHaveBeenCalledTimes(1);
+      expect(description.generateAndPersist).toHaveBeenCalledWith(expect.objectContaining({
+        diff: stagedDiff,
+        artifactPath: '/tmp/x-review.commit-description.json',
+      }));
+    });
+
+    it('skips generation with a debug log when no commitDescriptionPath is given', async () => {
+      const { agent, description } = await buildAgent();
+
+      await agent.execute(ticket, { repoDir: '/tmp/repo' });
+
+      expect(description.generateAndPersist).not.toHaveBeenCalled();
+      expect(mockAppendToLogFile).toHaveBeenCalledWith('DEBUG', expect.stringContaining('commit-description'), 'reviewer');
+    });
+
+    it('skips generation when the cached review is returned', async () => {
+      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+      jest.spyOn(require('fs'), 'readFileSync').mockReturnValue('## Approval Status\n✔ Approved');
+      const { agent, description } = await buildAgent();
+
+      await agent.execute(ticket, {
+        repoDir: '/tmp/repo', skipExisting: true, commitDescriptionPath: '/tmp/x-review.commit-description.json',
+      });
+
+      expect(description.generateAndPersist).not.toHaveBeenCalled();
     });
   });
 });

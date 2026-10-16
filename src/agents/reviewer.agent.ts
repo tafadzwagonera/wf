@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CliPresenter } from '../shared/presentation/cli-presenter.service';
@@ -7,6 +7,7 @@ import { REVIEW_VERDICT_APPROVED } from '../shared/types/review.types';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
+import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
 import { deriveReviewArtifactPath, parsePlanArtifact } from '../shared/utils/plan-artifact';
 import { formatPlanRisksSection } from '../review/format-plan-risks-section';
 import type { SonarScanResult } from '../review/sonar-scanner';
@@ -46,6 +47,10 @@ export class ReviewerAgent {
     @Optional() private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService
   ) {}
 
+  @Optional()
+  @Inject(CommitDescriptionStageService)
+  private readonly commitDescriptionStageService?: CommitDescriptionStageService;
+
   private presentReviewHeader(options: ReviewerOptions): void {
     if (!options.suppressHeader && !options.silent) {
       this.presenter.stageHeader(4, 'Code Review');
@@ -74,10 +79,27 @@ export class ReviewerAgent {
     const onProgress = options.onProgress
       ?? (options.silent ? undefined : (line: string) => this.presenter.progress(line));
     const repoDir = options.repoDir ?? process.cwd();
-    const { review, sessionId, modelUsed } = await this.runStages(ticket, repoDir, options, onProgress);
+    const { review, sessionId, modelUsed, diff } = await this.runStages(ticket, repoDir, options, onProgress);
+    await this.persistCommitDescription(diff, options, onProgress);
     return this.reviewStageService.buildReviewArtifact(
       ticket, review, sessionId, this.deriveRepoScope(options), modelUsed
     );
+  }
+
+  private async persistCommitDescription(
+    diff: string, options: ReviewerOptions, onProgress: ((line: string) => void) | undefined,
+  ): Promise<void> {
+    if (!options.commitDescriptionPath) {
+      appendToLogFile('DEBUG', 'commit-description.skip reason=no-artifact-path', 'reviewer');
+      return;
+    }
+    if (!this.commitDescriptionStageService) {
+      appendToLogFile('WARN', 'commit-description.skip reason=service-not-provided', 'reviewer');
+      return;
+    }
+    await this.commitDescriptionStageService.generateAndPersist({
+      diff, artifactPath: options.commitDescriptionPath, onProgress,
+    });
   }
 
   private async runStages(
@@ -133,7 +155,7 @@ export class ReviewerAgent {
     ticket: TicketArtifact, repoDir: string, options: ReviewerOptions,
     onProgress?: (line: string) => void, sonarResult?: SonarScanResult, figmaResult?: FigmaResolveResult,
     uiResult?: UiDesignScreenshotsResult
-  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string }> {
+  ): Promise<{ review: CodeReview; sessionId?: string; modelUsed?: string; diff: string }> {
     const diff = await this.gitService.getDiff(true, repoDir);
     const commentPolicyResult = await this.commentPolicyStageService?.scanIfEnabled(
       { diff, force: options.commentPolicy });
@@ -142,7 +164,7 @@ export class ReviewerAgent {
     const reviewOptions = this.buildDiffReviewOptions(ticket, repoDir, options,
       { onProgress, sonarResult, figmaResult, uiResult, commentPolicyEnabled });
     const { review, sessionId, modelUsed } = await this.reviewStageService.reviewDiff(diff, reviewOptions);
-    return { review: mergeCommentPolicyIssues(review, commentPolicyResult), sessionId, modelUsed };
+    return { review: mergeCommentPolicyIssues(review, commentPolicyResult), sessionId, modelUsed, diff };
   }
 
   private buildDiffReviewOptions(

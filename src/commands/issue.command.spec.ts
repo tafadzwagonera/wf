@@ -83,6 +83,8 @@ import { ConfigService } from '@nestjs/config';
 import { CommandMeta } from 'nest-commander/src/constants';
 import { IssueCommand, shouldForkReviewSession, FORK_PASS_THRESHOLD } from './issue.command';
 import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
+import { GitService } from '../integrations/git/git.service';
+import * as scopeSummaryModule from '../shared/utils/resolve-commit-scope-summary';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { LoggerService } from '../shared/logger/logger.service';
 import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
@@ -101,6 +103,10 @@ import * as logFileWriter from '../shared/logger/log-file-writer';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { selectProviderSession } from '../shared/utils/provider-session-prompt';
 import { toRepoKeys } from '../agents/utils';
+
+const mockGitService = {
+  getDiff: jest.fn().mockResolvedValue(''),
+};
 
 const mockSessionService = {
   load: jest.fn().mockResolvedValue(null),
@@ -260,6 +266,7 @@ async function buildCommand(): Promise<IssueCommand> {
         },
       },
       { provide: SessionService, useValue: mockSessionService },
+      { provide: GitService, useValue: mockGitService },
       {
         provide: ReviewPresenter,
         useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -794,6 +801,7 @@ describe('IssueCommand', () => {
           },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -935,6 +943,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1061,6 +1070,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1195,6 +1205,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1301,6 +1312,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1415,6 +1427,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1523,6 +1536,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1665,6 +1679,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1759,6 +1774,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1826,6 +1842,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -1915,6 +1932,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2006,6 +2024,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2108,6 +2127,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2193,6 +2213,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2275,6 +2296,7 @@ describe('IssueCommand', () => {
           useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
         },
         { provide: SessionService, useValue: mockSessionService },
+        { provide: GitService, useValue: mockGitService },
         {
           provide: ReviewPresenter,
           useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2359,6 +2381,7 @@ describe('IssueCommand', () => {
             useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI') },
           },
           { provide: SessionService, useValue: mockSessionService },
+          { provide: GitService, useValue: mockGitService },
           {
             provide: ReviewPresenter,
             useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -2544,7 +2567,7 @@ describe('IssueCommand', () => {
         ['repo-1', 'repo-2'],
         {},
         { resumeProviderSessionId: 'review-sess-1', forkSession: true },
-        { ticketKey: 'WBP-SKIP', primaryRepo: undefined }
+        { ticketKey: 'WBP-SKIP', primaryRepo: undefined, trackerName: 'jira', isCustomSource: false }
       );
 
       expect(result.reviewArtifact).toEqual(expect.objectContaining({ path: '/tmp/review-2.md', sessionId: 'review-sess-2' }));
@@ -2569,6 +2592,9 @@ describe('IssueCommand', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await (command as any).runReviewForRepo(undefined, {
+        trackerName: 'jira',
+        ticketKey: 'WBP-123',
+        isCustomSource: false,
         isMultiRepo: false,
         options: { sonar: true },
         planArtifact: undefined,
@@ -3091,7 +3117,7 @@ describe('IssueCommand', () => {
       await (command as any).runWorkflowStages(ctx, { ticketArtifact: {} as any, planArtifact }, undefined);
 
       expect(commitSpy).toHaveBeenCalledWith(
-        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything()
+        expect.anything(), expect.anything(), ['repoA', 'newRepo'], expect.anything(), expect.anything(), expect.any(Boolean)
       );
     });
   });
@@ -3554,6 +3580,7 @@ describe('IssueCommand', () => {
         ['repoA'],
         {
           isMultiRepo: false, options: { silent: true }, planArtifact: undefined, primaryRepo: 'repoA',
+          trackerName: 'jira', isCustomSource: false,
           repos: ['repoA'], sessionContext: { priorStageSummary: 'summary' },
           ticketArtifact: mockTicketArtifact, ticketKey: 'WBP-REC',
         },
@@ -3577,6 +3604,8 @@ describe('IssueCommand', () => {
       (command as any).agents = { reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() } };
 
       await (command as any).runReviewForRepo('repoA', {
+        trackerName: 'jira',
+        isCustomSource: false,
         isMultiRepo: true,
         options: { silent: true },
         planArtifact: undefined,
@@ -3596,6 +3625,8 @@ describe('IssueCommand', () => {
       (command as any).agents = { reviewer: { execute: mockReviewerExecute, persistArtifact: jest.fn() } };
 
       await (command as any).runReviewForRepo('repoB', {
+        trackerName: 'jira',
+        isCustomSource: false,
         isMultiRepo: true,
         options: { silent: true },
         planArtifact: undefined,
@@ -3671,6 +3702,7 @@ describe('IssueCommand', () => {
           },
           { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'), getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions') } },
           { provide: SessionService, useValue: mockSessionService },
+          { provide: GitService, useValue: mockGitService },
           {
             provide: ReviewPresenter,
             useValue: { displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]) },
@@ -3715,6 +3747,9 @@ describe('IssueCommand', () => {
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
       await (command as any).runReviewForRepo('repo-a', {
+        trackerName: 'jira',
+        ticketKey: 'WBP-123',
+        isCustomSource: false,
         isMultiRepo: true,
         options: {},
         planArtifact: undefined,
@@ -3730,7 +3765,7 @@ describe('IssueCommand', () => {
       const command = await buildLoopTestCommand();
       jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await (command as any).executeCommitStage('WBP-123', undefined, ['repo-a', 'repo-b'], { silent: true }, 'jira');
+      await (command as any).executeCommitStage('WBP-123', undefined, ['repo-a', 'repo-b'], { silent: true }, 'jira', false);
 
       expect(initializeWfConfig).toHaveBeenCalledTimes(2);
       expect(initializeWfConfig).toHaveBeenNthCalledWith(1, '/tmp/consumer-app/repo-a');
@@ -3779,6 +3814,7 @@ describe('IssueCommand', () => {
           { provide: AgentOrchestrator, useValue: mockOrchestrator },
           { provide: AiService, useValue: { getProviderDisplayName: jest.fn().mockReturnValue('OpenAI'), getProviderEndpoint: jest.fn().mockReturnValue('/chat/completions') } },
           { provide: SessionService, useValue: mockSessionService },
+          { provide: GitService, useValue: mockGitService },
           { provide: ReviewPresenter, useValue: {
             displayReview: jest.fn(), formatTraceSectionNotes: jest.fn().mockReturnValue([]),
           } },
@@ -3972,6 +4008,8 @@ describe('IssueCommand', () => {
       await (command as any).collectReviewArtifacts(
         ['repo-1', 'repo-2'],
         {
+          trackerName: 'jira',
+          isCustomSource: false,
           isMultiRepo: true,
           options: {},
           planArtifact: undefined,
@@ -4067,6 +4105,69 @@ describe('IssueCommand', () => {
 
       expect(startChat).toHaveBeenCalledWith(expect.objectContaining({
         ticketKey: 'TAD-1', artifactDir: '/wf-home/shop/jira',
+      }));
+    });
+  });
+
+  describe('commit description wiring', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const runReview = async (reviewContextOverrides: Record<string, unknown>, repo: string) => {
+      const reviewerExecute = jest.fn().mockResolvedValue(null);
+      const command = await buildCommand();
+      (command as any).agents = { reviewer: { execute: reviewerExecute, persistArtifact: jest.fn() } };
+      await (command as any).runReviewForRepo(repo, {
+        trackerName: 'jira',
+        ticketKey: 'WBP-123',
+        isCustomSource: false,
+        isMultiRepo: false,
+        options: { silent: true },
+        planArtifact: undefined,
+        repos: [repo],
+        sessionContext: {},
+        ticketArtifact: { ticketKey: 'WBP-123', content: '#', path: '/tmp/consumer-app/jira/WBP-123.md' },
+        ...reviewContextOverrides,
+      });
+      return reviewerExecute.mock.calls[0][1].commitDescriptionPath as string;
+    };
+
+    it('gives a tracker-keyed run the per-repo tracker-dir sidecar path', async () => {
+      const sidecar = await runReview({}, 'repo-a');
+
+      expect(sidecar).toMatch(/repo-a\/jira\/WBP-123-review\.commit-description\.json$/);
+    });
+
+    it('gives a custom-source run the per-repo custom-dir sidecar path', async () => {
+      const sidecar = await runReview({ isCustomSource: true, ticketKey: 'my-plan' }, 'repo-a');
+
+      expect(sidecar).toMatch(/repo-a\/my-plan-review\.commit-description\.json$/);
+      expect(sidecar).not.toContain('/jira/');
+    });
+
+    it('passes the staged diff to resolveCommitScopeSummary when committing', async () => {
+      const scopeSpy = jest.spyOn(scopeSummaryModule, 'resolveCommitScopeSummary').mockReturnValue(null);
+      mockGitService.getDiff.mockResolvedValueOnce('diff --git a/a b/a');
+      const command = await buildCommand();
+      (command as any).agents = { committer: { execute: jest.fn().mockResolvedValue(undefined) } };
+
+      await (command as any).commitForRepo('repo-a', 'WBP-123', undefined, { silent: true }, 'jira', false, false);
+
+      expect(mockGitService.getDiff).toHaveBeenCalledWith(true, '/tmp/consumer-app/repo-a');
+      expect(scopeSpy).toHaveBeenCalledWith(expect.objectContaining({ stagedDiff: 'diff --git a/a b/a', ticketKey: 'WBP-123' }));
+      expect(scopeSpy.mock.calls[0][0]).not.toHaveProperty('reviewArtifactPath');
+    });
+
+    it('passes the custom-dir review path to resolveCommitScopeSummary for custom-source runs', async () => {
+      const scopeSpy = jest.spyOn(scopeSummaryModule, 'resolveCommitScopeSummary').mockReturnValue(null);
+      const command = await buildCommand();
+      (command as any).agents = { committer: { execute: jest.fn().mockResolvedValue(undefined) } };
+
+      await (command as any).commitForRepo('repo-a', 'my-plan', undefined, { silent: true }, 'jira', false, true);
+
+      expect(scopeSpy).toHaveBeenCalledWith(expect.objectContaining({
+        reviewArtifactPath: expect.stringMatching(/repo-a\/my-plan-review\.md$/),
       }));
     });
   });

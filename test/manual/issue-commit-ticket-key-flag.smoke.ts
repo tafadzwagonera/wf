@@ -67,10 +67,10 @@ function checkHelpShowsTicketKeyFlag(help: string): void {
 }
 
 function checkHelpShowsConventionalFlag(help: string): void {
-  if (help.includes('-c, --conventional')) {
-    pass('issue:commit --help shows -c, --conventional');
+  if (help.includes('--conventional') && !/-c,\s+--conventional/.test(help)) {
+    pass('issue:commit --help shows --conventional without a -c alias');
   } else {
-    fail('issue:commit --help does NOT show -c, --conventional', help.slice(0, 300));
+    fail('issue:commit --help does NOT show --conventional without a -c alias', help.slice(0, 300));
   }
 }
 

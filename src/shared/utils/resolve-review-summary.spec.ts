@@ -1,9 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  resolveCustomReviewArtifactPath,
   resolveReviewArtifactPath,
   readReviewArtifactSummary,
 } from './resolve-review-summary';
+
+describe('resolveCustomReviewArtifactPath', () => {
+  it('returns a review path in the custom artifact dir, not the tracker dir', () => {
+    const result = resolveCustomReviewArtifactPath('/tmp/current-app', 'my-plan');
+    expect(result).toMatch(/current-app\/my-plan-review\.md$/);
+    expect(result).not.toMatch(/jira|bitbucket/);
+  });
+});
 
 describe('resolveReviewArtifactPath', () => {
   it('returns path ending with jira/TICKET_KEY-review.md', () => {

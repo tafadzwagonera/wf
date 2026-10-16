@@ -283,11 +283,19 @@ export const COMMAND_DOCS = {
       },
       {
         comment: 'Run from source with conventional commits enabled',
-        command: 'yarn start issue:commit -c',
+        command: 'yarn start issue:commit --conventional',
       },
       {
         comment: 'Force conventional format',
         command: 'wf issue:commit -k WBP-2971 --conventional --tracker jira',
+      },
+      {
+        comment: 'Use the review artifact of a custom plan file',
+        command: 'wf issue:commit --review plan.md',
+      },
+      {
+        comment: 'Use the review artifact of a ticket',
+        command: 'wf issue:commit --review WBP-2971',
       },
     ],
   },

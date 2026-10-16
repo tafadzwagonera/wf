@@ -12,7 +12,7 @@ Goal: every commit contains exactly the intended changes, and the built CLI refl
 
 ## Commit command
 
-- Commit code changes with `wf issue:commit -c` instead of `git commit`.
+- Commit code changes with `wf issue:commit --conventional` instead of `git commit`.
 - Keep the commit message subject line under 100 characters. This applies to messages passed via `-m` and to any message drafted for the user.
 - Run `git add` before every `git commit`, and never assume files are pre-staged. The committer reads the staged diff, so unstaged changes are silently left out.
 - Do not append a Co-Authored-By trailer to commit messages in this project. This overrides any default or global instruction to add one, and applies to new commits, amends, and commit descriptions drafted for the user.
