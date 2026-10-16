@@ -1116,10 +1116,35 @@ Custom artifacts use the `~/.wf/<repo>/` namespace. Ticket-backed artifacts use 
 
 Custom sources resolve in this order:
 
-1. An absolute path is returned verbatim, without an existence check.
-2. When `--repos` is given and the source is filename-only, wf probes `~/.wf/<repo>/<source>` for each repository. More than one match is fatal.
-3. Otherwise, wf resolves `~/.wf/<basename(baseDir)>/<source>`. This is also the only branch for subdirectory-prefixed sources such as `jira/x.md`.
-4. wf never falls back to cwd. A missing source fails with `FILE_SYSTEM_ERROR`.
+1. **Absolute path**: returned verbatim, without an existence check.
+
+   ```bash
+   wf issue:plan --custom-plan /home/me/notes/spec.md
+   # -> /home/me/notes/spec.md
+   ```
+
+2. **Filename-only source with `--repos`**: wf probes `~/.wf/<repo>/<source>` for each repository. More than one match is fatal.
+
+   ```bash
+   wf issue:plan --custom-plan spec.md --repos api,web
+   # -> ~/.wf/api/spec.md   (found)
+   # -> ~/.wf/web/spec.md   (missing; fine)
+   # If both exist, wf aborts.
+   ```
+
+3. **Anything else**: wf resolves `~/.wf/<basename(baseDir)>/<source>`. This is also the only branch for subdirectory-prefixed sources such as `jira/x.md`.
+
+   ```bash
+   wf issue:plan --custom-plan spec.md        # -> ~/.wf/<basename(baseDir)>/spec.md
+   wf issue:plan --custom-plan jira/x.md      # -> ~/.wf/<basename(baseDir)>/jira/x.md
+   ```
+
+4. **No cwd fallback**: a missing source fails with `FILE_SYSTEM_ERROR`.
+
+   ```bash
+   wf issue:plan --custom-plan missing.md
+   # -> fails with FILE_SYSTEM_ERROR
+   ```
 
 Plan tokens use the `YYYY-MM-DD-<hash>-<action>-plan` stem. Resolution searches `~/.wf/<repo>/<tracker>/` first, then `~/.wf/<repo>/`. Within each directory, wf first matches manifest sidecars against `{hash, ticketKey, customArtifactName, sourceName, artifactStem}` case-insensitively or by canonical-stem hash, then falls back to a direct file-path lookup. Ambiguity in a directory aborts the whole search rather than falling through to the next directory. Plan-token resolution is enabled only for `--from implement` or later.
 
