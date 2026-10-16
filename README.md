@@ -1127,9 +1127,10 @@ Custom sources resolve in this order:
 
    ```bash
    wf issue:plan --custom-plan spec.md --repos api,web
-   # -> ~/.wf/api/spec.md   (found)
-   # -> ~/.wf/web/spec.md   (missing; fine)
-   # If both exist, wf aborts.
+   # probes ~/.wf/api/spec.md and ~/.wf/web/spec.md
+   # exactly one exists -> that file is used
+   # both exist         -> FILE_SYSTEM_ERROR: Custom source "spec.md" matches multiple repositories: ...
+   # neither exists     -> falls through to step 3
    ```
 
 3. **Anything else**: wf resolves `~/.wf/<basename(baseDir)>/<source>`. This is also the only branch for subdirectory-prefixed sources such as `jira/x.md`.
@@ -1143,7 +1144,7 @@ Custom sources resolve in this order:
 
    ```bash
    wf issue:plan --custom-plan missing.md
-   # -> fails with FILE_SYSTEM_ERROR
+   # -> FILE_SYSTEM_ERROR: Custom source "missing.md" not found in artifact repository: ~/.wf/<basename(baseDir)>/missing.md
    ```
 
 Plan tokens use the `YYYY-MM-DD-<hash>-<action>-plan` stem. Resolution searches `~/.wf/<repo>/<tracker>/` first, then `~/.wf/<repo>/`. Within each directory, wf first matches manifest sidecars against `{hash, ticketKey, customArtifactName, sourceName, artifactStem}` case-insensitively or by canonical-stem hash, then falls back to a direct file-path lookup. Ambiguity in a directory aborts the whole search rather than falling through to the next directory. Plan-token resolution is enabled only for `--from implement` or later.
