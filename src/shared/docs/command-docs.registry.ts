@@ -41,7 +41,7 @@ export const COMMAND_DOCS = {
         command: 'wf issue:plan --action feature --custom-plan bar.md',
       },
       {
-        comment: 'Prefer the repo-scoped custom artifact when a repo is supplied',
+        comment: 'Prefer the repo-scoped custom artifact when a repo is supplied (only the first --repos value is used with --custom-plan)',
         command: 'wf issue:plan --action feature --custom-plan bar.md --repos repo-a',
       },
       {

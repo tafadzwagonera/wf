@@ -389,7 +389,7 @@
       },
       {
         "flags": "-r, --repos <repos...>",
-        "description": "Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)"
+        "description": "Space-separated list of repositories affected by this ticket (workspace/repo or repo-name). With --custom-plan only the first repository is used; the rest are ignored with a warning"
       },
       {
         "flags": "--session-id <id>",
@@ -418,7 +418,7 @@
         "command": "wf issue:plan --action feature --custom-plan bar.md"
       },
       {
-        "comment": "Prefer the repo-scoped custom artifact when a repo is supplied",
+        "comment": "Prefer the repo-scoped custom artifact when a repo is supplied (only the first --repos value is used with --custom-plan)",
         "command": "wf issue:plan --action feature --custom-plan bar.md --repos repo-a"
       },
       {

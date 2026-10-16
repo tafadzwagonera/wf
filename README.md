@@ -403,7 +403,7 @@ Plan ticket implementation from a local artifact or repo-scoped custom artifact.
 # Create a custom feature plan from a markdown artifact
 wf issue:plan --action feature --custom-plan bar.md
 
-# Prefer the repo-scoped custom artifact when a repo is supplied
+# Prefer the repo-scoped custom artifact when a repo is supplied (only the first --repos value is used with --custom-plan)
 wf issue:plan --action feature --custom-plan bar.md --repos repo-a
 
 # Plan a fix for a ticket
@@ -435,7 +435,7 @@ wf issue:plan -k WBP-2971 --action fix --ui-design-screenshots hero.png card.web
 | `--figma` | Enable Figma link extraction; inline Figma links in the ticket are stored in the plan manifest for use by `issue:implement --figma` and `issue:review --figma`. Overrides `stages.plan.figma` config. |
 | `--force` | Force fetch and recreate ticket artifact before planning |
 | `-f, --format <format>` | Output format for plan (json\|md\|yaml\|yml) - default: json |
-| `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name) |
+| `-r, --repos <repos...>` | Space-separated list of repositories affected by this ticket (workspace/repo or repo-name). With --custom-plan only the first repository is used; the rest are ignored with a warning |
 | `--session-id <id>` | Resume an AI provider session (e.g. Anthropic sess_*, Claude CLI, or Codex CLI session ID) |
 | `-s, --silent` | Suppress decorative output and interactive prompts. Emits only the plan path for piping |
 | `-k, --ticket-key <key>` | Ticket key to fetch and plan (e.g. WBP-2971) |
@@ -1124,10 +1124,18 @@ Custom sources resolve in this order:
    # missing file -> FILE_SYSTEM_ERROR: Custom source not found: /home/me/notes/spec.md
    ```
 
-2. **Filename-only source with `--repos`**: wf probes `~/.wf/<repo>/<source>` for each repository. More than one match is fatal.
+2. **Filename-only source with `--repos`**: wf probes `~/.wf/<repo>/<source>`. `issue:plan` uses only the first repository and warns that the others are ignored. `issue` and `issue:review` probe every repository, and more than one match is fatal.
 
    ```bash
-   wf issue:plan --custom-plan spec.md --repos api,web
+   wf issue:plan --custom-plan spec.md --repos api web
+   # warns: --custom-plan uses only the first --repos value "api"; ignoring: web
+   # probes ~/.wf/api/spec.md
+   # exists  -> that file is used
+   # missing -> falls through to step 3
+   ```
+
+   ```bash
+   wf issue --custom-plan spec.md --repos api web
    # probes ~/.wf/api/spec.md and ~/.wf/web/spec.md
    # exactly one exists -> that file is used
    # both exist         -> FILE_SYSTEM_ERROR: Custom source "spec.md" matches multiple repositories: ...

@@ -91,6 +91,7 @@ async function buildCommand(): Promise<{
   command: IssuePlanCommand;
   fetchStageService: jest.Mocked<FetchStageService>;
   planStageService: jest.Mocked<PlanStageService>;
+  logger: jest.Mocked<LoggerService>;
 }> {
   const module = await Test.createTestingModule({
     providers: [
@@ -164,6 +165,7 @@ async function buildCommand(): Promise<{
     command: module.get(IssuePlanCommand),
     fetchStageService: module.get(FetchStageService),
     planStageService: module.get(PlanStageService),
+    logger: module.get(LoggerService),
   };
 }
 
@@ -308,6 +310,38 @@ describe('IssuePlanCommand', () => {
 
     expect(readPreview.filePath).toBe(artifactPath);
     expect(path.dirname(writePreview.filePath)).toBe(path.join(getWfHomeDir(), 'repo-a'));
+
+    existsSyncSpy.mockRestore();
+    statSyncSpy.mockRestore();
+  });
+
+  it('uses only the first --repos value for a custom plan and warns about the rest', async () => {
+    const { command, logger } = await buildCommand();
+    const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
+    const firstRepoArtifact = path.join(getWfHomeDir(), 'repo-a', 'bar.md');
+    const secondRepoArtifact = path.join(getWfHomeDir(), 'repo-b', 'bar.md');
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
+      return [firstRepoArtifact, secondRepoArtifact].includes(String(input));
+    });
+    const statSyncSpy = jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 1024 });
+
+    await command.run([], { action: 'fix', customPlan: 'bar.md', repos: ['repo-a', 'repo-b'], dryRun: true });
+
+    expect(dryRunPreview.previewFileRead.mock.calls[0][0].filePath).toBe(firstRepoArtifact);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('ignoring: repo-b'));
+
+    existsSyncSpy.mockRestore();
+    statSyncSpy.mockRestore();
+  });
+
+  it('does not warn when a custom plan receives a single --repos value', async () => {
+    const { command, logger } = await buildCommand();
+    const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockReturnValue(true);
+    const statSyncSpy = jest.spyOn(require('fs'), 'statSync').mockReturnValue({ size: 1024 });
+
+    await command.run([], { action: 'fix', customPlan: 'bar.md', repos: ['repo-a'], dryRun: true });
+
+    expect(logger.warn).not.toHaveBeenCalled();
 
     existsSyncSpy.mockRestore();
     statSyncSpy.mockRestore();

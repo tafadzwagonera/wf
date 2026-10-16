@@ -91,20 +91,21 @@ export const setupPlanHarness = (
   return harness;
 };
 
-export const runPlan = (harness: PlanHarness, timeoutMs = 90_000): PlanRunResult => {
+export const runPlanCli = (harness: PlanHarness, args: string[], timeoutMs = 90_000): PlanRunResult => {
   const env = {
     ...process.env,
     HOME: harness.homeDir,
     PATH: `${harness.binDir}${path.delimiter}${process.env['PATH'] ?? ''}`,
     WF_SKIP_CLI_VERSION_CHECK: '1',
   };
-  const result = spawnSync(
-    'node',
-    [distMainPath, 'issue:plan', '--action', 'fix', '--custom-plan', path.join(harness.repoDir, 'source.md'), '--silent'],
-    { cwd: harness.repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10, timeout: timeoutMs },
-  );
+  const result = spawnSync('node', [distMainPath, 'issue:plan', ...args], {
+    cwd: harness.repoDir, env, encoding: 'utf-8', maxBuffer: 1024 * 1024 * 10, timeout: timeoutMs,
+  });
   return { exitCode: result.status, output: `${result.stdout ?? ''}\n${result.stderr ?? ''}` };
 };
+
+export const runPlan = (harness: PlanHarness, timeoutMs = 90_000): PlanRunResult =>
+  runPlanCli(harness, ['--action', 'fix', '--custom-plan', path.join(harness.repoDir, 'source.md'), '--silent'], timeoutMs);
 
 export const countPlanSpawns = (harness: PlanHarness): number =>
   fs.readFileSync(harness.countFile, 'utf-8').split('\n').filter(Boolean).length;

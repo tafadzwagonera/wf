@@ -256,7 +256,7 @@ export class IssuePlanCommand extends CommandRunner {
 
   @Option({
     flags: '-r, --repos <repos...>',
-    description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name)',
+    description: 'Space-separated list of repositories affected by this ticket (workspace/repo or repo-name). With --custom-plan only the first repository is used; the rest are ignored with a warning',
     required: false,
   })
   parseRepos(val: string | string[], previous: string[] = []): string[] {
@@ -324,7 +324,7 @@ export class IssuePlanCommand extends CommandRunner {
       await ensureWfHome();
       this.validatePlanInputs(options);
 
-      if (options?.customPlan) return this.executeCustomPlan(options);
+      if (options?.customPlan) return this.executeCustomPlan(this.restrictToPrimaryRepo(options));
 
       if (!options?.ticketKey) throw new ValidationError('Provide --ticket-key <key> or --custom-plan <source.md> for a custom plan');
       await this.executeTicketPlan(options.ticketKey, options);
@@ -357,6 +357,15 @@ export class IssuePlanCommand extends CommandRunner {
       || (this.configService.get<string>('stages.plan.outputFormat') as OutputFormat | undefined)
       || 'json'
     );
+  }
+
+  private restrictToPrimaryRepo(options: IssuePlanOptions): IssuePlanOptions {
+    const [primaryRepo, ...ignoredRepos] = options.repos ?? [];
+    if (!primaryRepo || ignoredRepos.length === 0) return options;
+    this.logger.warn(
+      `--custom-plan uses only the first --repos value "${primaryRepo}"; ignoring: ${ignoredRepos.join(', ')}`
+    );
+    return { ...options, repos: [primaryRepo] };
   }
 
   private async executeCustomPlan(options: IssuePlanOptions): Promise<void> {
