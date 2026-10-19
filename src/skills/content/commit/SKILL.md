@@ -9,6 +9,7 @@ Goal: every commit contains exactly the intended changes, and the built CLI refl
 
 - Remove a stale `.git/index.lock` before `git add` or `git commit` (e.g. `rm -f .git/index.lock && git add ...`). Denied or interrupted git tool calls leave one behind because the process is killed before git cleans up.
 - Never commit unrelated staged changes without reporting them to the user first. If `git status` shows pre-staged files at conversation start, flag them before proceeding.
+- Never stage or commit `.wf.config.*` or `verification.policy.json` files. Before committing, check the staged diff (`git diff --cached --name-only`) for them; if any are present, do not commit — unstage them (`git restore --staged <file>`), report it to the user, and only then proceed with the remaining changes.
 
 ## Commit command
 
