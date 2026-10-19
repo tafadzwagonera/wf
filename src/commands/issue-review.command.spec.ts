@@ -1990,6 +1990,7 @@ describe('IssueReviewCommand', () => {
       expect(generateAndPersist).toHaveBeenCalledTimes(1);
       expect(generateAndPersist).toHaveBeenCalledWith(expect.objectContaining({
         diff: localTarget.diff,
+        stage: 'review',
         artifactPath: deriveCommitDescriptionPath(reviewPath),
       }));
     });

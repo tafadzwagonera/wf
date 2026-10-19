@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type {
+  aiStageName,
   aiRequestSchema,
   aiResponseSchema,
   aiConversationRequestSchema,
@@ -12,6 +13,7 @@ import type {
   planModelOutputSchema,
 } from '../schemas/ai.schema';
 
+export type AIStageName = z.infer<typeof aiStageName>;
 export type AIRequest = z.infer<typeof aiRequestSchema>;
 export type AIResponse = z.infer<typeof aiResponseSchema>;
 export type AIConversationRequest = z.infer<typeof aiConversationRequestSchema>;

@@ -16,6 +16,7 @@ import {
   commitDescriptionResponseSchema,
 } from '../../shared/schemas/commit-description.schema';
 import type { StageProgressCallback } from '../../shared/types/agent.types';
+import type { AIStageName } from '../../shared/types/ai.types';
 import type { CommitDescriptionResponse } from '../../shared/types/commit-description.types';
 import { hashCommitDescriptionDiff } from '../../shared/utils/commit-description-artifact';
 import {
@@ -36,6 +37,7 @@ const COMMIT_DESCRIPTION_SYSTEM_PROMPT = [
 
 interface GenerateParams {
   diff: string;
+  stage: AIStageName;
   onProgress?: StageProgressCallback;
 }
 
@@ -85,34 +87,34 @@ const describeError = (error: unknown): string => (error instanceof Error ? erro
 export class CommitDescriptionStageService {
   constructor(private readonly aiService: AiService) {}
 
-  async generate({ diff, onProgress }: GenerateParams): Promise<CommitDescriptionResponse | null> {
+  async generate({ diff, stage, onProgress }: GenerateParams): Promise<CommitDescriptionResponse | null> {
     if (!diff.trim()) {
       appendToLogFile('DEBUG', 'commit-description.skip reason=empty-diff', LOG_CONTEXT);
       return null;
     }
     try {
       onProgress?.('Generating commit description...');
-      return await this.requestDescription(diff);
+      return await this.requestDescription(diff, stage);
     } catch (error) {
       appendToLogFile('WARN', `commit-description.generate.failed reason=${describeError(error)}`, LOG_CONTEXT);
       return null;
     }
   }
 
-  private async requestDescription(diff: string): Promise<CommitDescriptionResponse> {
+  private async requestDescription(diff: string, stage: AIStageName): Promise<CommitDescriptionResponse> {
     const response = await this.aiService.execute({
       prompt: buildDescriptionPrompt(diff),
       systemPrompt: COMMIT_DESCRIPTION_SYSTEM_PROMPT,
       temperature: 0,
       maxTokens: 512,
-      stage: 'review',
+      stage,
       structuredOutput: { name: 'commit_description', schema: commitDescriptionResponseJsonSchema },
     });
     return commitDescriptionResponseSchema.parse(parseJsonResponse<unknown>(response.content));
   }
 
-  async generateAndPersist({ diff, artifactPath, onProgress }: GenerateAndPersistParams): Promise<void> {
-    const description = await this.generate({ diff, onProgress });
+  async generateAndPersist({ diff, stage, artifactPath, onProgress }: GenerateAndPersistParams): Promise<void> {
+    const description = await this.generate({ diff, stage, onProgress });
     if (!description) return;
     const record = { ...description, diffSha256: hashCommitDescriptionDiff(diff) };
     try {

@@ -43,17 +43,17 @@ describe('CommitDescriptionStageService', () => {
   });
 
   describe('generating a description from a diff', () => {
-    it('calls the AI once with deterministic settings and the structured schema', async () => {
+    it('calls the AI once with deterministic settings and the caller-provided stage', async () => {
       const { service, execute } = await buildService();
 
-      await service.generate({ diff: multiFileDiff });
+      await service.generate({ diff: multiFileDiff, stage: 'commit' });
 
       expect(execute).toHaveBeenCalledTimes(1);
       const request = execute.mock.calls[0][0];
       expect(request).toEqual(expect.objectContaining({
         temperature: 0,
         maxTokens: 512,
-        stage: 'review',
+        stage: 'commit',
         structuredOutput: { name: 'commit_description', schema: commitDescriptionResponseJsonSchema },
       }));
       expect(request).not.toHaveProperty('provider');
@@ -64,7 +64,7 @@ describe('CommitDescriptionStageService', () => {
     it('includes every changed file name and its diff text in the prompt', async () => {
       const { service, execute } = await buildService();
 
-      await service.generate({ diff: multiFileDiff });
+      await service.generate({ diff: multiFileDiff, stage: 'review' });
 
       const { prompt } = execute.mock.calls[0][0];
       expect(prompt).toContain('src/alpha.ts');
@@ -80,7 +80,7 @@ describe('CommitDescriptionStageService', () => {
         createFileDiff('src/huge-b.ts', 'b'.repeat(200_000)),
       ].join('\n');
 
-      await service.generate({ diff: oversized });
+      await service.generate({ diff: oversized, stage: 'review' });
 
       expect(execute.mock.calls[0][0].prompt).toContain('## Evidence completeness');
     });
@@ -89,7 +89,7 @@ describe('CommitDescriptionStageService', () => {
       const { service } = await buildService();
       const onProgress = jest.fn();
 
-      const result = await service.generate({ diff: multiFileDiff, onProgress });
+      const result = await service.generate({ diff: multiFileDiff, stage: 'review', onProgress });
 
       expect(result).toEqual(validResponse);
       expect(onProgress).toHaveBeenCalledWith('Generating commit description...');
@@ -98,7 +98,7 @@ describe('CommitDescriptionStageService', () => {
     it('returns null and logs a warning when the AI call rejects', async () => {
       const { service } = await buildService(jest.fn().mockRejectedValue(new Error('boom')));
 
-      const result = await service.generate({ diff: multiFileDiff });
+      const result = await service.generate({ diff: multiFileDiff, stage: 'review' });
 
       expect(result).toBeNull();
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'commit-description');
@@ -109,7 +109,7 @@ describe('CommitDescriptionStageService', () => {
         jest.fn().mockResolvedValue({ content: JSON.stringify({ nature: 'bogus', description: '' }) }),
       );
 
-      const result = await service.generate({ diff: multiFileDiff });
+      const result = await service.generate({ diff: multiFileDiff, stage: 'review' });
 
       expect(result).toBeNull();
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'commit-description');
@@ -118,7 +118,7 @@ describe('CommitDescriptionStageService', () => {
     it('makes no AI call for an empty diff', async () => {
       const { service, execute } = await buildService();
 
-      const result = await service.generate({ diff: '   ' });
+      const result = await service.generate({ diff: '   ', stage: 'review' });
 
       expect(result).toBeNull();
       expect(execute).not.toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('CommitDescriptionStageService', () => {
       const { service } = await buildService();
       const artifactPath = path.join(tmpDir, 'nested', 'WBP-1-review.commit-description.json');
 
-      await service.generateAndPersist({ diff: multiFileDiff, artifactPath });
+      await service.generateAndPersist({ diff: multiFileDiff, stage: 'review', artifactPath });
 
       const written = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
       expect(written).toEqual({ ...validResponse, diffSha256: hashCommitDescriptionDiff(multiFileDiff) });
@@ -140,7 +140,7 @@ describe('CommitDescriptionStageService', () => {
       const { service } = await buildService(jest.fn().mockRejectedValue(new Error('boom')));
       const artifactPath = path.join(tmpDir, 'WBP-1-review.commit-description.json');
 
-      await service.generateAndPersist({ diff: multiFileDiff, artifactPath });
+      await service.generateAndPersist({ diff: multiFileDiff, stage: 'review', artifactPath });
 
       expect(fs.existsSync(artifactPath)).toBe(false);
     });

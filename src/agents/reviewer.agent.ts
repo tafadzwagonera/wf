@@ -98,7 +98,7 @@ export class ReviewerAgent {
       return;
     }
     await this.commitDescriptionStageService.generateAndPersist({
-      diff, artifactPath: options.commitDescriptionPath, onProgress,
+      diff, stage: 'review', artifactPath: options.commitDescriptionPath, onProgress,
     });
   }
 

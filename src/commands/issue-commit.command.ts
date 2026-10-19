@@ -287,7 +287,7 @@ export class IssueCommitCommand extends CommandRunner {
     diff: string, options?: IssueCommitOptions
   ): Promise<CommitDescriptionResponse | null> {
     if (!options?.silent) console.log(chalk.gray('  Generating commit description from staged diff...'));
-    return this.commitDescriptionStageService.generate({ diff });
+    return this.commitDescriptionStageService.generate({ diff, stage: 'commit' });
   }
 
   private resolveReviewOverride(

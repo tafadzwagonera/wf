@@ -502,6 +502,7 @@ export class IssueReviewCommand extends CommandRunner {
     }
     await this.commitDescriptionStageService.generateAndPersist({
       diff: reviewed[0].diff,
+      stage: 'review',
       artifactPath: deriveCommitDescriptionPath(reviewPath),
       onProgress: options?.silent ? undefined : line => console.log(chalk.gray(`  ${line}`)),
     });

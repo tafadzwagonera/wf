@@ -1399,6 +1399,7 @@ describe('ReviewerAgent', () => {
       expect(description.generateAndPersist).toHaveBeenCalledTimes(1);
       expect(description.generateAndPersist).toHaveBeenCalledWith(expect.objectContaining({
         diff: stagedDiff,
+        stage: 'review',
         artifactPath: '/tmp/x-review.commit-description.json',
       }));
     });

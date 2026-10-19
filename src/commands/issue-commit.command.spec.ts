@@ -438,7 +438,7 @@ describe('IssueCommitCommand', () => {
       await command.run([], { ticketKey: 'WBP-123', tracker: 'jira' });
 
       expect(commitDescriptionStageService.generate).toHaveBeenCalledWith(
-        expect.objectContaining({ diff: stagedDiff })
+        expect.objectContaining({ diff: stagedDiff, stage: 'commit' })
       );
       expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith(
         expect.objectContaining({ scopeSummary: 'D (change nature: fix)' })
