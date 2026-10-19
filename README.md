@@ -25,6 +25,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 - [Workflows](#workflows)
 - [Key Design Decisions](#key-design-decisions)
   - [Artifact Resolution Rules](#artifact-resolution-rules)
+  - [Skill Loading](#skill-loading)
 - [Development](#development)
 - [Testing](#testing)
 - [Known Issues](#known-issues)
@@ -1225,6 +1226,121 @@ The following surfaces currently follow these rules or intentionally document th
 | `issue:commit --review` | Yes — probes the tracker directory first, then the custom directory; first existing review artifact wins | `issue-commit.command.ts:288-303` |
 | `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:146-158,221-225`; `custom-source.ts:27-36` |
 | `--ui-design-screenshots` | Yes in no-arg mode — scans `~/.wf/<repo>/<ticketKey>/`; explicit paths remain repo-relative by design | `resolve-ui-design-screenshots.ts:7-18,42-47`; call sites `issue.command.ts:1254`, `issue-plan.command.ts:493` |
+
+### Skill Loading
+
+Skills are single-source: each skill is one `SKILL.md` under `src/skills/content/<skill-id>/`, registered at module load time (`src/skills/index.ts` imports every `*.skill.ts`, which calls `registerSkill` into the `knownSkills` map). A skill declares the stages it supports (`plan`, `implement`) and, optionally, quality rules that validate the generated plan.
+
+The same content serves two independent distribution channels, declared per skill in `src/skills/skill-taxonomy.ts`:
+
+- **Headless (runtime) channel** — `headless: true`. During `issue:plan` and `issue:implement`, the configured skill IDs (`stages.plan.skills` / `stages.implement.skills`) pass through `resolveSkills`, which enforces stage support and known IDs (interactive sessions prompt to correct an unknown ID; headless runs throw `ConfigurationError`). Every backend then inlines the full `SKILL.md` text into its prompt via `buildSkillPromptFragment` (`src/skills/skill-content.ts`), reading from the compiled bundle (`dist/skills/content/`). The runtime never consults `~/.claude/skills/` or `~/.codex/skills/`, so headless behaviour is identical across the Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI backends.
+- **Interactive channel** — `interactive: ['claude', 'codex']`. `yarn skills:sync` (`scripts/sync-interactive-skills.ts`) symlinks each listed skill into `~/.claude/skills/` and `~/.codex/skills/`, making it natively invocable in interactive CLI sessions. This channel only affects developers working in those CLIs; wf-managed runs are unaffected.
+
+```
+stages.<stage>.skills (wf.config.ts)
+  └── resolveSkills(ids, { interactive, stage })        // src/skills/skill-registry.ts
+        ├── plan:      collectQualityRules(skills)      // validated against the generated plan
+        └── buildSkillPromptFragment(skillNames, ...)   // per backend adapter
+              └── "## Skill: <id>\n<SKILL.md content>"  // appended to the stage prompt
+```
+
+#### Call Stacks
+
+Registration is a module-load side effect — any consumer importing from `src/skills` populates `knownSkills` first:
+
+```
+## Call Stack: import '../skills'
+src/skills/index.ts
+  ├── import './coding-style.skill'                                              // index.ts:1
+  │     └── registerSkill({ id: 'coding-style', stages: ['implement'] })         // coding-style.skill.ts:3
+  │           └── knownSkills.set('coding-style', skill)                         // skill-registry.ts:11
+  ├── import './frontend-design-nuxt.skill'                                      // index.ts:2
+  ├── import './test-driven-development.skill'                                   // index.ts:3
+  └── import './writing-plans.skill'                                             // index.ts:4
+        └── registerSkill({ id: 'writing-plans', stages: ['plan'], getQualityRules })  // writing-plans.skill.ts:5
+              └── duplicate-id guard throws ValidationError                      // skill-registry.ts:8-9
+```
+
+Content loading is shared by every stage and backend, and resolves against the compiled bundle:
+
+```
+## Call Stack: buildSkillPromptFragment(skillIds, backend, color)
+buildSkillPromptFragment(skillIds, ...)                                          // skill-content.ts:35
+  └── skillIds.map(id => loadOneSkill(id, ...))                                  // skill-content.ts:41
+        └── readSkillContent(skillId)                                            // skill-content.ts:23
+              └── fs.readFile(path.join(__dirname, 'content', skillId, 'SKILL.md'))  // skill-content.ts:16
+        └── null → throw ConfigurationError                                      // skill-content.ts:25
+        └── returns `## Skill: ${skillId}\n${content.trimEnd()}`                 // skill-content.ts:31
+  └── return `\n\n${sections.join('\n\n')}`                                      // skill-content.ts:42
+```
+
+The plan stage consumes skills twice — SKILL.md text goes into the prompt, and quality rules run against the generated plan:
+
+```
+## Call Stack: wf issue:plan
+PlanStageService.generatePlan()                                                  // plan-stage.service.ts:91
+  ├── buildPlanContext()                                                         // plan-stage.service.ts:407
+  │     ├── configService.get('stages.plan.skills') ?? []                        // plan-stage.service.ts:413
+  │     ├── resolveSkills(skillIds, { interactive, stage: 'plan' })              // plan-stage.service.ts:415
+  │     └── collectQualityRules(skills)                                          // plan-stage.service.ts:417
+  ├── AiService.generatePlan()                                                   // ai.service.ts:1106
+  │     └── buildPlanPromptBody()                                                // ai.service.ts:692
+  │           ├── buildSkillPromptFragment(skillNames, 'ai-service', ...)        // ai.service.ts:700
+  │           └── assemblePlanPrompt(..., skillFragment)                         // ai.service.ts:661-669
+  └── validatePlanViolations(plan, ctx)                                          // plan-stage.service.ts:421
+        └── detectSkillViolations: skillRules.flatMap(rule => rule.validate(plan))  // plan-quality.ts:453
+```
+
+The implement stage resolves once, then fans out per backend:
+
+```
+## Call Stack: wf issue:implement
+ImplementerAgent.execute()                                                       // implementer.agent.ts:281
+  └── resolveImplementSkillNames()                                               // implementer.agent.ts:403
+        ├── configService.get('stages.implement.skills') ?? []                   // implementer.agent.ts:404
+        ├── resolveSkills(ids, { interactive, stage: 'implement' })              // implementer.agent.ts:406
+        └── skills.map(s => s.id) → skillNames                                   // implementer.agent.ts:407
+  └── adapter.generateAndVerify({ ..., skillNames })
+        ├── ClaudeCliAdapter: createCliSessionParams()                           // claude-cli.adapter.ts:437
+        │     ├── buildSkillPromptFragment(params.skillNames, ...)               // claude-cli.adapter.ts:440-442
+        │     └── buildCliTaskBriefParams(params, repoDir, skillFragment)        // claude-cli.adapter.ts:448
+        ├── AnthropicAgentAdapter: executeAgentSession()                         // anthropic-agent.adapter.ts:832
+        │     └── buildAgentSessionTaskBriefParams(s, skillFragment)             // anthropic-agent.adapter.ts:836
+        ├── OpenAIAgentAdapter: createAgent()                                    // openai-agent.adapter.ts:1490
+        │     └── buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, ...)  // openai-agent.adapter.ts:1504
+        └── CodexCliAdapter: buildCodexImplementPrompt()                         // codex-cli.adapter.ts:98
+              └── `${preamble}${systemPrompt}...${skillFragment}\n\n${tail}`     // codex-cli.adapter.ts:106
+```
+
+#### State Transitions
+
+The skill data changes shape four times between config and prompt:
+
+```json
+// 1. wf.config.ts — plain ID strings
+stages.implement.skills: ["coding-style", "test-driven-development"]
+
+// 2. resolveSkills() — registered definitions (skill-registry.ts:38)
+SkillDefinition {
+  id: "writing-plans",
+  stages: ["plan"],
+  getQualityRules: () => [{ ruleId: "no-placeholders", validate(plan) => string[] }]
+}
+
+// 3. buildSkillPromptFragment() — inlined fragment (skill-content.ts:42)
+skillFragment: "\n\n## Skill: coding-style\n<SKILL.md content, trimmed>\n\n## Skill: test-driven-development\n<...>"
+
+// 4. prompt assembly — fragment embedded, tail chosen (shared-routing.ts:516-520)
+BuildTaskBriefParams {
+  ticketKey, repoDir, planSteps, verificationScripts, ...,
+  skillFragment: "\n\n## Skill: ..."
+}
+fragmentIncludesSkill(skillFragment, TDD_SKILL_ID) ? tddImplementTail : implementTail
+```
+
+Line references were verified against the source at the time of writing (commit `335d1f29`); treat them as orientation, not as a contract.
+
+Two stage-specific behaviours key off the loaded skills: the plan stage runs each skill's quality rules against the generated plan (for example `writing-plans`' `no-placeholders` rule), and the implement stage switches its closing instruction to a red-green loop on every backend when the inlined fragment contains `test-driven-development` (`fragmentIncludesSkill` in `src/skills/skill-content.ts`).
 
 ### Project Structure
 
