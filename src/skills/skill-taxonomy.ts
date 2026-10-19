@@ -8,7 +8,7 @@ export const skillTaxonomy: Record<string, SkillAudience> = {
   verify: { interactive: ['claude', 'codex'], headless: false },
   'figma-implement': { interactive: ['claude'], headless: false },
   'figma-design-check': { interactive: ['claude'], headless: false },
-  'test-driven-development': { interactive: [], headless: true },
-  'writing-plans': { interactive: [], headless: true },
-  'frontend-design-nuxt': { interactive: [], headless: true },
+  'test-driven-development': { interactive: ['claude', 'codex'], headless: true },
+  'writing-plans': { interactive: ['claude', 'codex'], headless: true },
+  'frontend-design-nuxt': { interactive: ['claude', 'codex'], headless: true },
 };
