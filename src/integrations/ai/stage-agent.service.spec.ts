@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, buildRipgrepCommand, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
+import { headlessPipelineInstruction } from './prompt-fragments';
 import { z } from 'zod';
 import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
 import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
@@ -2120,6 +2121,7 @@ describe('StageAgentService', () => {
           prompt: expect.stringContaining('Summarize the review for the developer'),
           appendSystemPrompt:
             'You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.\n'
+            + `${headlessPipelineInstruction}\n`
             + 'You may inspect repository files with read-only tools before answering.\n'
             + 'Ignore JSON or markdown files under .wf/ and tracker artifact directories.\n'
             + 'Return your response as a JSON object matching the CodeReview interface.',

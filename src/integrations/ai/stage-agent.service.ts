@@ -28,6 +28,7 @@ import {
   deriveModelSource,
   formatFigmaPlanPromptSection,
   formatUiDesignScreenshotPathsPromptSection,
+  headlessPipelineInstruction,
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
@@ -192,15 +193,18 @@ type CliStagePassOpts = {
 };
 
 const planSystemPrompt = `You are a software architect producing resolution plans. Prioritize correctness and minimal blast radius.
+${headlessPipelineInstruction}
 You may inspect repository files with read-only tools before answering.
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
 const reviewSystemPrompt = `You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.
+${headlessPipelineInstruction}
 You may inspect repository files with read-only tools before answering.
 Ignore JSON or markdown files under .wf/ and tracker artifact directories.
 Return your response as a JSON object matching the CodeReview interface.`;
 
 const generateSystemPrompt = `You are a Jira ticket author. Return ONLY a valid JSON object matching the provided output schema.
+${headlessPipelineInstruction}
 Use formal British English, active voice, and no contractions.
 Do not inspect local repository files in this run.`;
 

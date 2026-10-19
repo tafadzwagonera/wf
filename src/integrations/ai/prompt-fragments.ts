@@ -2,6 +2,12 @@ import * as path from 'node:path';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import { FigmaFrameContext, FigmaNodeLayout } from '../figma/figma-rest.client';
 
+export const headlessPipelineInstruction
+  = 'You run headless inside an automated CLI pipeline — no user reads or answers mid-run output, so a question '
+    + 'ends the run unanswered. Resolve ambiguity yourself using the guidance in this prompt, the loaded skills, '
+    + 'and the conventions already in the repository. End your response with your result, never with questions '
+    + 'or offers of further work.';
+
 export const implementerSearchRule = 'For a rename or terminology migration, search with a broad case-insensitive '
   + 'substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\\boldterm\\b/) — the latter misses '
   + 'kebab-case identifiers (old-term-thing), capitalized prose (OldTerm), and other non-word-boundary forms that are '

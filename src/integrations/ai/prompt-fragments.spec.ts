@@ -1,4 +1,5 @@
 import {
+  headlessPipelineInstruction,
   formatUiDesignScreenshotPathsPromptSection,
   formatUiDesignScreenshotsPlanPromptSection,
   buildUiDesignComplianceSystemPromptSection,
@@ -12,6 +13,14 @@ import {
   reviewTraceGuidance,
   reviewOutputSchema,
 } from './prompt-fragments';
+
+describe('headlessPipelineInstruction', () => {
+  it('frames headless operation: decide from guidance, no final questions', () => {
+    expect(headlessPipelineInstruction).toContain('You run headless inside an automated CLI pipeline');
+    expect(headlessPipelineInstruction).toContain('Resolve ambiguity yourself');
+    expect(headlessPipelineInstruction).toContain('never with questions or offers of further work');
+  });
+});
 
 describe('buildReviewPrompt', () => {
   afterEach(() => {

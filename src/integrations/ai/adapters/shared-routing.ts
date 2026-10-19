@@ -4,7 +4,7 @@ import { exec } from 'node:child_process';
 import { appendToLogFile } from '../../../shared/logger/log-file-writer';
 import { ConfigurationError } from '../../../shared/utils/errors';
 import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
-import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
+import { headlessPipelineInstruction, implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -237,6 +237,11 @@ export const planProblemInstruction
     + '`PLAN-PROBLEM: <step number from the Plan steps list> | <reason> | <what you did instead>` '
     + 'with a non-empty reason and alternative.';
 
+export const headlessOperationInstruction
+  = headlessPipelineInstruction
+    + ' When resolving ambiguity forces you off the plan as written, implement your best judgment and report the '
+    + 'deviation as a PLAN-PROBLEM line — the pipeline persists it in the session record for later review.';
+
 export const continuationTail
   = '\nFor each file listed above, read the full file first with Read, then apply Edit to complete the required changes. '
     + 'After addressing all listed files, run each verification command above exactly as written. '
@@ -446,14 +451,17 @@ const resolveContextFileSection = (params: BuildTaskBriefParams): string =>
   params.contextFiles?.length ? `\n\nFiles for context (read-only — do NOT edit these):\n${formatRepoFileList(params.contextFiles, params.repoName)}` : '';
 
 /**
- * Returns the role identity and repository directory — the stable behavioral
- * context that belongs in the system prompt and never changes between passes.
+ * Returns the role identity, headless-operation framing, and repository
+ * directory — the stable behavioral context that belongs in the system prompt
+ * and never changes between passes.
  *
  * @param repoDir - Primary repository root
- * @returns Role line and repository directory line
+ * @returns Role line, headless-operation framing, and repository directory line
  */
 export const buildBehavioralContext = (repoDir: string): string =>
-  'You are an expert software engineer implementing code changes inside a repository.\n\nRepository directory: ' + repoDir;
+  'You are an expert software engineer implementing code changes inside a repository.\n\n'
+  + headlessOperationInstruction
+  + '\n\nRepository directory: ' + repoDir;
 
 /**
  * Builds the task-specific brief injected into user messages (pass 0 and every

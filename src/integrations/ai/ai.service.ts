@@ -67,6 +67,7 @@ import {
   deriveModelSource,
   formatFigmaPlanPromptSection,
   formatUiDesignScreenshotsPlanPromptSection,
+  headlessPipelineInstruction,
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
@@ -752,14 +753,18 @@ const throwIfTruncated = (response: AIResponse, stage: string): void => {
 };
 
 const planSystemPrompt = `You are a software architect producing resolution plans. Prioritize correctness and minimal blast radius.
+${headlessPipelineInstruction}
 Return your response as a JSON object matching the ResolutionPlan interface.`;
 
 export const findingsSystemPrompt = `You are a software investigator. Distinguish root causes from symptoms, and ground every finding in concrete evidence.
+${headlessPipelineInstruction}
 Return your response as a JSON object.`;
 
-const commitSystemPrompt = `You are a commit message author. Capture intent over mechanics — the reader should understand "why" without opening the diff.`;
+const commitSystemPrompt = `You are a commit message author. Capture intent over mechanics — the reader should understand "why" without opening the diff.
+${headlessPipelineInstruction}`;
 
 const reviewSystemPrompt = `You are a code reviewer. Assess quality, correctness, and security using your judgment — flag what matters, skip noise.
+${headlessPipelineInstruction}
 Ignore JSON or markdown files under \`.wf/\` or tracker artefact directories (jira/, bitbucket/) — review only application source code.
 Return your response as a JSON object matching the CodeReview interface.`;
 

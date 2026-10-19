@@ -983,7 +983,7 @@ When the first implementation pass (which may use a mechanical model in `auto` r
 
 Each pass in the incomplete-work loop opens a new agent session seeded with a **continuation prompt** — a self-sufficient user message that carries the full task brief so the model can orient itself even after provider-side history compaction has summarised or dropped earlier messages.
 
-The system prompt contains only stable behavioral context (role identity, repository scope rules, tool list, implementer rules, summary template). All task-specific content lives in user messages via `buildTaskBrief` — see the [Continuation Prompt Architecture](#continuation-prompt-architecture-1) section for the full field table.
+The system prompt contains only stable behavioral context (role identity, headless-operation framing, repository scope rules, tool list, implementer rules, summary template). All task-specific content lives in user messages via `buildTaskBrief` — see the [Continuation Prompt Architecture](#continuation-prompt-architecture-1) section for the full field table.
 
 All three backends (Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI) embed the complete task brief in every continuation pass. The loop stops after 2 consecutive no-op passes, and the agent can mark a planned file `NO-CHANGE: <path>` instead of editing it — see [Ending the loop](#ending-the-loop-no-op-cutoff-and-no-change-declarations). The OpenAI backend additionally includes structural edit validation failures from prior passes, letting the model fix file-level errors alongside unvisited work.
 
@@ -1423,7 +1423,7 @@ Context is split across two layers with different lifetimes:
 
 | Layer | Content | Lifetime |
 |---|---|---|
-| System prompt | Role identity, repository scope rules, tool list, implementer rules, summary template | Entire session — never compacted |
+| System prompt | Role identity, headless-operation framing, repository scope rules, tool list, implementer rules, summary template | Entire session — never compacted |
 | User message (pass 0 and pass 1+) | Ticket key, plan summary, action type, plan steps, files to implement, context files, tracked files, verification commands, risks, phase checkpoints, skill instructions | Every message — resent on each pass |
 
 This means the system prompt is intentionally minimal (no task-specific content), and every continuation prompt is a complete task brief that would allow the model to resume work from scratch.
@@ -1502,6 +1502,8 @@ NO-CHANGE: src/app.ts
 Bold markers, bullets, backticks, quotes, a trailing period, and any keyword casing are tolerated, and a leading `./` or repo prefix is stripped. Each declaration is one path after a mandatory colon: a comma-separated list (`NO-CHANGE: a.ts, b.ts`) or `NO-CHANGE - a.ts` is ignored. Repeating an already accepted declaration is still valid but no longer counts as progress, so the no-op cutoff still applies. A declaration is accepted only for a concrete planned file that has not been touched; it is ignored for unplanned files, glob entries, and files the pass actually edited. Accepted files appear in the end-of-run summary as `no change required (agent-declared): <path>`. A declaration only proves the file was not edited, not that no edit was needed, so plan-step verification still assesses step fidelity. The plan-step verification fix prompt also asks the agent to answer a step whose target is already absent with a single-line proof (for example the grep command and its empty result) plus `NO-CHANGE: <path>`, rather than re-reading files.
 
 #### Reporting a plan problem: PLAN-PROBLEM
+
+Every stage system prompt (plan, implement, review, commit, generate, and investigation findings) carries a shared headless-operation instruction (`headlessPipelineInstruction` in `prompt-fragments.ts`): the model runs headless inside the CLI pipeline where no user answers mid-run output, so it must resolve ambiguity from the prompt guidance, loaded skills, and repository conventions, and end with its result rather than questions or offers of further work. The implement stage extends this with a deviation channel — when resolving ambiguity forces the agent off the plan as written, it implements its best judgment and reports the deviation as a `PLAN-PROBLEM` line, which is persisted in the session record. The interactive chat prompts (`wf issue` workflow chat and the review discussion) are exempt because a developer is present.
 
 When a plan step cannot or should not be implemented as written, the agent is told to add one line to its final message:
 

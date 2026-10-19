@@ -1,4 +1,4 @@
-import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail, stripRepoPrefix, isGlobPattern, parsePlanProblems, collectPlanProblems, planProblemInstruction } from './shared-routing';
+import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail, stripRepoPrefix, isGlobPattern, parsePlanProblems, collectPlanProblems, planProblemInstruction, headlessOperationInstruction } from './shared-routing';
 import * as logFileWriter from '../../../shared/logger/log-file-writer';
 import type { PlanProblem } from '../../../shared/types/agent.types';
 import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
@@ -479,6 +479,14 @@ describe('buildBehavioralContext', () => {
     const result = buildBehavioralContext('/tmp/my-repo');
     expect(result).toContain('You are an expert software engineer implementing code changes inside a repository.');
     expect(result).toContain('Repository directory: /tmp/my-repo');
+  });
+
+  it('frames headless operation: decide from guidance, persist deviations, no final questions', () => {
+    const result = buildBehavioralContext('/tmp/my-repo');
+    expect(result).toContain(headlessOperationInstruction);
+    expect(result).toContain('You run headless inside an automated CLI pipeline');
+    expect(result).toContain('report the deviation as a PLAN-PROBLEM line');
+    expect(result).toContain('never with questions or offers of further work');
   });
 
   it('does not contain ticket key or plan summary', () => {

@@ -7,6 +7,7 @@ import {
   normalizeFileEntries,
   requireAiResponseContent,
 } from '../integrations/ai/ai.service';
+import { headlessPipelineInstruction } from '../integrations/ai/prompt-fragments';
 import { ensureWfHome } from '../shared/utils/ensure-wf-home';
 import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { LoggerService } from '../shared/logger/logger.service';
@@ -653,6 +654,7 @@ export class IssueImplementCommand extends CommandRunner {
 
   private async generateFindings(plan: ResolutionPlan): Promise<any> {
     const systemPrompt = 'You are an expert software investigator providing structured findings and recommendations.\n'
+      + `${headlessPipelineInstruction}\n`
       + 'Analyse the investigation plan and generate comprehensive findings based on the plan\'s investigation steps.\n'
       + 'Return your response as a JSON object.';
 
