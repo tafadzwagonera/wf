@@ -6,31 +6,33 @@
  *
  * Spins up the real NestJS app context and drives IssueCommitCommand's real
  * `.run()` against a real git repo with a staged change and a real review
- * artifact on disk. Only the outbound AI calls are stubbed: CommitStageService.
- * generateCommitMessage returns a canned message, and
- * CommitDescriptionStageService.generate returns null (inline generation
- * unavailable), so the review-summary fallback path — trackerName lookup,
- * resolveArtifactDir, readReviewArtifactSummary, the printed note — is
- * exercised through real DI-wired collaborators, not by calling
- * resolveCommitScopeSummary directly. The fresh-sidecar tier is covered by
- * src/shared/utils/resolve-commit-scope-summary.spec.ts and
- * src/shared/utils/commit-description-artifact.spec.ts.
+ * artifact on disk. Only the outbound commit-message call (CommitStageService.
+ * generateCommitMessage) is stubbed, so the resolution path — trackerName
+ * lookup, resolveArtifactDir, the commit-description freshness guard, the
+ * printed note — is exercised through real DI-wired collaborators, not by
+ * calling resolveCommitScopeSummary directly. Run 2 makes one live AI call
+ * (inline commit-description generation from the staged diff).
  *
  * Verifies:
- *   1. With a real review artifact on disk, the command prints the
- *      "prior review/plan" note and threads the exact review summary into
- *      the commit message generator
+ *   1. With a review artifact and a FRESH commit-description sidecar (sha256
+ *      matching the staged diff) on disk, the command prints the
+ *      "prior review/plan" note and threads the sidecar's rendered
+ *      description into the commit message generator without regenerating
  *   2. A real git commit is created reflecting the (stubbed) generated message
- *   3. With the review artifact removed, a second real run neither prints the
- *      note nor passes any scope summary
+ *   3. With both artifacts removed, a second real run prints no note and
+ *      falls back to a live inline-generated diff-grounded description
+ *      ("... (change nature: <nature>)"), never an empty scope summary
  */
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommitCommand } from '../../src/commands/issue-commit.command';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
-import { CommitDescriptionStageService } from '../../src/workflows/stages/commit-description-stage.service';
 import { resolveReviewArtifactPath } from '../../src/shared/utils/resolve-review-summary';
+import {
+  deriveCommitDescriptionPath,
+  hashCommitDescriptionDiff,
+} from '../../src/shared/utils/commit-description-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -49,15 +51,6 @@ const stageChange = (repoDir: string, contents: string): void => {
   fs.writeFileSync(path.join(repoDir, 'a.ts'), contents);
   run('add .');
 };
-
-function stubDescriptionStage(service: CommitDescriptionStageService): { restore: () => void } {
-  const original = service.generate.bind(service);
-  service.generate = async () => null;
-  const restore = (): void => {
-    service.generate = original;
-  };
-  return { restore };
-}
 
 function stubCommitStage(service: CommitStageService): { getCaptured: () => any; restore: () => void } {
   const original = service.generateCommitMessage.bind(service);
@@ -136,32 +129,54 @@ function checkRun1Note(consoleOutput: string): void {
 }
 
 function checkRun1Summary(capturedOptions: any): void {
-  assert('run 1: commit message generator received the exact review summary', capturedOptions?.scopeSummary === 'LIVE REVIEW SCOPE SUMMARY', `got: ${JSON.stringify(capturedOptions)}`);
+  assert(
+    'run 1: commit message generator received the fresh sidecar description without regenerating',
+    capturedOptions?.scopeSummary === 'LIVE SIDECAR DESCRIPTION (change nature: fix)',
+    `got: ${JSON.stringify(capturedOptions)}`
+  );
 }
 
 function checkRun1Commit(gitLog: string): void {
-  assert('run 1: a real git commit was created', gitLog.includes('Canned commit message #1'), gitLog);
+  assert('run 1: a real git commit was created', gitLog.toLowerCase().includes('canned commit message #1'), gitLog);
 }
 
 function checkRun2Note(consoleOutput: string): void {
-  assert('run 2: no prior review/plan note once the artifact is gone', !consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
+  assert('run 2: no prior review/plan note once the artifacts are gone', !consoleOutput.includes('Using scope summary from prior review/plan'), consoleOutput);
 }
 
 function checkRun2Summary(capturedOptions: any): void {
-  assert('run 2: no scope summary is passed once the artifact is gone', capturedOptions?.scopeSummary === undefined, `got: ${JSON.stringify(capturedOptions)}`);
+  assert(
+    'run 2: an inline diff-grounded description is generated once the artifacts are gone',
+    /\(change nature: [a-z]+\)$/.test(capturedOptions?.scopeSummary ?? ''),
+    `got: ${JSON.stringify(capturedOptions)}`
+  );
 }
 
 function checkRun2Commit(gitLog: string): void {
-  assert('run 2: a second real git commit was created', gitLog.includes('Canned commit message #2'), gitLog);
+  assert('run 2: a second real git commit was created', gitLog.toLowerCase().includes('canned commit message #2'), gitLog);
+}
+
+function writeFreshSidecar(tmpRepo: string, reviewPath: string): void {
+  const stagedDiff = execSync('git diff --staged', { cwd: tmpRepo, encoding: 'utf-8' });
+  fs.writeFileSync(
+    deriveCommitDescriptionPath(reviewPath),
+    JSON.stringify({
+      nature: 'fix',
+      description: 'LIVE SIDECAR DESCRIPTION',
+      diffSha256: hashCommitDescriptionDiff(stagedDiff),
+    })
+  );
 }
 
 async function executeRun1(
   commitCmd: IssueCommitCommand,
   getCaptured: () => any,
   tmpRepo: string,
+  reviewPath: string,
   opts: object,
 ): Promise<void> {
   stageChange(tmpRepo, 'export const a = 2;\n');
+  writeFreshSidecar(tmpRepo, reviewPath);
   const run1Output = await captureRun(commitCmd, opts);
   checkRun1Note(run1Output);
   checkRun1Summary(getCaptured());
@@ -176,6 +191,7 @@ async function executeRun2(
   opts: object,
 ): Promise<void> {
   fs.rmSync(reviewPath);
+  fs.rmSync(deriveCommitDescriptionPath(reviewPath), { force: true });
   stageChange(tmpRepo, 'export const a = 3;\n');
   const run2Output = await captureRun(commitCmd, opts);
   checkRun2Note(run2Output);
@@ -190,7 +206,7 @@ async function executeRuns(
   reviewPath: string,
   opts: object,
 ): Promise<void> {
-  await executeRun1(commitCmd, getCaptured, tmpRepo, opts);
+  await executeRun1(commitCmd, getCaptured, tmpRepo, reviewPath, opts);
   await executeRun2(commitCmd, getCaptured, tmpRepo, reviewPath, opts);
 }
 
@@ -215,11 +231,9 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const commitCmd = app.get(IssueCommitCommand);
   const stub = stubCommitStage(app.get(CommitStageService));
-  const descriptionStub = stubDescriptionStage(app.get(CommitDescriptionStageService));
   try {
     await runScenario(commitCmd, stub.getCaptured, 'WBP-9002', 'jira');
   } finally {
-    descriptionStub.restore();
     stub.restore();
     await app.close();
   }

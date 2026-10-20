@@ -58,8 +58,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
     + 'When a code review or plan artifact already exists for the ticket, its summary is used to scope '
     + 'the commit message automatically. '
-    + 'Use --review <plan-file|ticket-key> to point at a specific review artifact; the stem is matched against all '
-    + 'supported review formats (json|md|yaml|yml) in the tracker directory first, then the custom directory. '
+    + 'Use --review <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
+    + 'directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). '
     + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
     + 'When running from source, use yarn start issue:commit --conventional.',
   options: { isDefault: false },
@@ -349,7 +349,8 @@ export class IssueCommitCommand extends CommandRunner {
   @Option({
     flags: '--review <planOrTicket>',
     description:
-      'Plan file or ticket key whose review artifact supplies the commit description; probes json|md|yaml|yml review variants in the tracker directory first, then the custom directory',
+      'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
+      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml)',
   })
   parseReview(val: string): string {
     return val;

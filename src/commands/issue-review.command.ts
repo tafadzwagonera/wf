@@ -188,7 +188,7 @@ const loadCriteriaFromFile = (filePath: string, baseDir: string): string[] => {
   name: 'issue:review',
   description:
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
-    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. The cached ticket review artifact is written as `<ticket>-review.<format>` in the `-f/--format` format (json|md|yaml|yml, default md), replacing any stale variant in another format; later runs serve a cached artifact in any supported format regardless of the format requested, and `--force` regenerates it in the requested one. In multi-repo runs, the review artifact is written to `<ticket>-<repo-basename>-review.md` — one file per repository — so each repo\'s cached result is stored independently; the first repository\'s cached review is never served to subsequent repositories in the same run; single-repository runs write the unscoped `<ticket>-review.<format>` name. '
+    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Ticket-keyed reviews are cached to `<ticket>-review.<format>`, where the format comes from `-f/--format` or `stages.review.outputFormat` (default md); a cached artifact is served regardless of the format it was written in, and regenerating with `--force` under a different format replaces the stale variant so each ticket keeps exactly one review artifact. In multi-repo runs the artifact gains a repo-scope suffix — `<ticket>-<repo-basename>-review.<ext>`, one file per repository — so each repo\'s cached result is stored independently and the first repository\'s cached review is never served to subsequent repositories in the same run; mono-repo runs stay unscoped so the artifact shares its stem with the commit-description sidecar. '
     + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. The verdict follows severity: a review that contains any `error` issue is recorded as Changes requested even when the model returned `approved: true`, while warning and info issues do not block approval. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and structured verification results; for eligible PR and single-repository reviews, lint, typecheck, and test run live in an invocation-scoped disposable git worktree after the exact reviewed diff is applied, leaving the target repository untouched. Verification records passed, failed, or not-run status and are persisted beside the review in Markdown, JSON, and YAML output. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors; Codex CLI schema/configuration rejections preserve the provider detail and are not reported as rate-limit failures. '
@@ -1021,7 +1021,9 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format for --output files and the cached ticket review artifact (json|md|yaml|yml) - default: md',
+    description:
+      'Output format for --output and the cached ticket review artifact (json|md|yaml|yml) - '
+      + 'default: stages.review.outputFormat, then md',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
