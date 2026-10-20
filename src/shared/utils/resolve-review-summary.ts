@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { resolveArtifactDir, resolveCustomArtifactDir } from '../../agents/utils';
 import { deriveReviewArtifactPath, stripSupportedPlanExtension, supportedPlanExtensions } from './plan-artifact';
+import { readDirEntries } from './read-dir-entries';
 import type { PlanArtifactFormat } from '../types/plan-artifact.types';
 
 /**
@@ -55,15 +56,10 @@ const datePrefixPattern = '\\d{4}-\\d{2}-\\d{2}-';
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const listTokenReviewMatches = (dir: string, pattern: RegExp): string[] => {
-  try {
-    return fs.readdirSync(dir, { withFileTypes: true })
-      .filter(entry => (entry.isFile() || entry.isSymbolicLink()) && pattern.test(entry.name))
-      .map(entry => path.join(dir, entry.name));
-  } catch {
-    return [];
-  }
-};
+const listTokenReviewMatches = (dir: string, pattern: RegExp): string[] =>
+  readDirEntries(dir)
+    .filter(entry => (entry.isFile() || entry.isSymbolicLink()) && pattern.test(entry.name))
+    .map(entry => path.join(dir, entry.name));
 
 const sortByMtimeDesc = (paths: string[]): string[] => {
   const stamped = paths.flatMap(candidate => {
