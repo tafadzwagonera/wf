@@ -17,6 +17,7 @@ import {
   hashPlanArtifactSources,
   resolvePlanToken,
   readUiDesignScreenshotsFromPlanArtifact,
+  stripSupportedPlanExtension,
 } from './plan-artifact';
 import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, WorkflowParseError } from '../errors/app.error';
 import { formatPlanRisk } from './plan-risk';
@@ -552,6 +553,30 @@ describe('deriveReviewArtifactPath', () => {
     expect(deriveReviewArtifactPath('/tmp/.wf/WBP-123', 'api-gw')).toBe(
       '/tmp/.wf/WBP-123-api-gw-review.md',
     );
+  });
+});
+
+describe('stripSupportedPlanExtension', () => {
+  it.each(['json', 'md', 'yaml', 'yml'])('strips the .%s extension', extension => {
+    expect(stripSupportedPlanExtension(`2026-06-30-b37ef1d4-fix-plan.${extension}`)).toBe(
+      '2026-06-30-b37ef1d4-fix-plan'
+    );
+  });
+
+  it('strips a supported extension regardless of case', () => {
+    expect(stripSupportedPlanExtension('plan.YAML')).toBe('plan');
+  });
+
+  it('keeps a ticket key without an extension intact', () => {
+    expect(stripSupportedPlanExtension('WBP-2971')).toBe('WBP-2971');
+  });
+
+  it('keeps an unsupported extension intact', () => {
+    expect(stripSupportedPlanExtension('plan.txt')).toBe('plan.txt');
+  });
+
+  it('only strips the last extension from multi-dot filenames', () => {
+    expect(stripSupportedPlanExtension('file.backup.json')).toBe('file.backup');
   });
 });
 

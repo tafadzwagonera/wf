@@ -6,7 +6,7 @@ import {
   readCommitDescriptionRecord,
   renderCommitDescriptionContext,
 } from './commit-description-artifact';
-import { readReviewArtifactSummary, resolveReviewArtifactPath } from './resolve-review-summary';
+import { findExistingReviewArtifact, readReviewArtifactSummary, resolveReviewArtifactPath } from './resolve-review-summary';
 import { detectPriorPlans } from './detect-prior-plans';
 
 export interface ResolveCommitScopeSummaryOptions {
@@ -43,7 +43,8 @@ export interface ResolveCommitScopeSummaryOptions {
 export const resolveCommitScopeSummary = (options: ResolveCommitScopeSummaryOptions): string | null => {
   const { repoBaseDir, trackerName, ticketKey, knownPlanSummary, stagedDiff, reviewArtifactPath } = options;
   if (!ticketKey && !reviewArtifactPath) return null;
-  const effectivePath = reviewArtifactPath ?? resolveReviewArtifactPath(repoBaseDir, trackerName, ticketKey as string);
+  const defaultPath = reviewArtifactPath ?? resolveReviewArtifactPath(repoBaseDir, trackerName, ticketKey as string);
+  const effectivePath = findExistingReviewArtifact(defaultPath) ?? defaultPath;
   const tierZero = resolveFreshCommitDescription(effectivePath, stagedDiff);
   if (tierZero) return tierZero;
   const reviewSummary = readReviewArtifactSummary(effectivePath);

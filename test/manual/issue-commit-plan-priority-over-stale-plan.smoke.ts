@@ -143,7 +143,7 @@ function checkNoDivergenceNote(consoleOutput: string): void {
 }
 
 function checkCommitCreated(gitLog: string): void {
-  assert('a real git commit was created', gitLog.includes('canned commit message for live smoke test'), gitLog);
+  assert('a real git commit was created', gitLog.includes('Canned commit message for live smoke test'), gitLog);
 }
 
 async function runScenarioBody(

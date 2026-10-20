@@ -20,7 +20,7 @@ import {
   parsePlanArtifact,
   buildPlanArtifactResolutionNotice,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
-  SUPPORTED_PLAN_EXTENSIONS,
+  supportedPlanExtensions,
 } from '../shared/utils/plan-artifact';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
@@ -726,8 +726,8 @@ export class IssueImplementCommand extends CommandRunner {
 
   private assertSupportedExtension(extension: string): void {
     if (!extension) return;
-    const supported = extension as (typeof SUPPORTED_PLAN_EXTENSIONS)[number];
-    if (!SUPPORTED_PLAN_EXTENSIONS.includes(supported)) {
+    const supported = extension as (typeof supportedPlanExtensions)[number];
+    if (!supportedPlanExtensions.includes(supported)) {
       throw new ValidationError(
         'Custom plan artifacts must include a supported file extension: .json, .md, .yaml, or .yml'
       );
@@ -824,7 +824,7 @@ export class IssueImplementCommand extends CommandRunner {
     const basePath = path.isAbsolute(identifier)
       ? identifier
       : path.join(resolveCustomArtifactDir(baseDir), identifier);
-    const candidates = SUPPORTED_PLAN_EXTENSIONS.map(ext => `${basePath}.${ext}`);
+    const candidates = supportedPlanExtensions.map(ext => `${basePath}.${ext}`);
     const matches = candidates.filter(c => fs.existsSync(c));
 
     if (matches.length === 1) return matches[0];

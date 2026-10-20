@@ -2007,4 +2007,58 @@ describe('IssueReviewCommand', () => {
       expect(generateAndPersist).not.toHaveBeenCalled();
     });
   });
+
+  describe('format-aware review artifact cache', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-cache-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    const reviewedTargets = [{
+      title: 'T', context: 'ctx', diff: 'd',
+      review: { summary: 'Cached summary.', issues: [], suggestions: [], approved: true },
+    }];
+
+    it('caches the artifact in the requested format and removes stale variants', async () => {
+      const { command } = await buildCommand();
+      const mdPath = path.join(tmpDir, 'TAD-1-review.md');
+      fs.writeFileSync(mdPath, 'stale markdown artifact');
+      const jsonPath = path.join(tmpDir, 'TAD-1-review.json');
+
+      (command as any).cacheReviewArtifact(
+        jsonPath, reviewedTargets, { ticketKey: 'TAD-1', format: 'json', silent: true }
+      );
+
+      expect(JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))[0].review.summary).toBe('Cached summary.');
+      expect(fs.existsSync(mdPath)).toBe(false);
+    });
+
+    it('serves a cached review stored in a different format than requested', async () => {
+      const { command } = await buildCommand();
+      fs.writeFileSync(path.join(tmpDir, 'TAD-1-review.yaml'), 'summary: x');
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const served = (command as any).serveCachedReview(
+        path.join(tmpDir, 'TAD-1-review.md'), [], { silent: true }
+      );
+
+      expect(served).toBe(true);
+      consoleSpy.mockRestore();
+    });
+
+    it('regenerates instead of serving the cache when no variant exists', async () => {
+      const { command } = await buildCommand();
+
+      const served = (command as any).serveCachedReview(
+        path.join(tmpDir, 'TAD-1-review.md'), [], { silent: true }
+      );
+
+      expect(served).toBe(false);
+    });
+  });
 });

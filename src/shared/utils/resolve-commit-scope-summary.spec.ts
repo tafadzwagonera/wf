@@ -46,6 +46,18 @@ describe('resolveCommitScopeSummary', () => {
     expect(mockDetectPriorPlans).not.toHaveBeenCalled();
   });
 
+  it('reads the summary from the review artifact variant found on disk', () => {
+    mockResolveReviewArtifactPath.mockReturnValueOnce('/path/to/WBP-123-review.md');
+    (jest.spyOn(reviewModule, 'findExistingReviewArtifact') as jest.Mock)
+      .mockReturnValueOnce('/path/to/WBP-123-review.json');
+    mockReadReviewArtifactSummary.mockReturnValueOnce('JSON review summary');
+
+    const result = resolveCommitScopeSummary({ repoBaseDir: '/tmp/repo', trackerName: 'jira', ticketKey: 'WBP-123' });
+
+    expect(result).toBe('JSON review summary');
+    expect(mockReadReviewArtifactSummary).toHaveBeenCalledWith('/path/to/WBP-123-review.json');
+  });
+
   it('returns knownPlanSummary when review is null and knownPlanSummary is provided, without calling detectPriorPlans', () => {
     mockResolveReviewArtifactPath.mockReturnValueOnce('/path/to/WBP-123-review.md');
     mockReadReviewArtifactSummary.mockReturnValueOnce(null);

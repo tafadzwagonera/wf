@@ -24,6 +24,12 @@ describe('commit description artifact', () => {
     expect(deriveCommitDescriptionPath('/x/WBP-1-review.md')).toBe('/x/WBP-1-review.commit-description.json');
   });
 
+  it.each(['json', 'yaml', 'yml'])('derives the same sidecar path from a .%s review artifact', extension => {
+    expect(deriveCommitDescriptionPath(`/x/WBP-1-review.${extension}`)).toBe(
+      '/x/WBP-1-review.commit-description.json'
+    );
+  });
+
   it('hashes identical diffs identically and different diffs differently', () => {
     const first = hashCommitDescriptionDiff('diff a');
     expect(first).toMatch(/^[a-f0-9]{64}$/);

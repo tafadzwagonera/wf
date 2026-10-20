@@ -1,6 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as YAML from 'yaml';
 import {
+  findExistingReviewArtifact,
+  listReviewArtifactVariants,
   resolveCustomReviewArtifactPath,
   resolveReviewArtifactPath,
   readReviewArtifactSummary,
@@ -25,6 +28,53 @@ describe('resolveReviewArtifactPath', () => {
     const bitbucketPath = resolveReviewArtifactPath('/tmp/test-app', 'bitbucket', 'TICKET-1');
     expect(jiraPath).toMatch(/jira\/TICKET-1-review\.md$/);
     expect(bitbucketPath).toMatch(/bitbucket\/TICKET-1-review\.md$/);
+  });
+});
+
+describe('resolveReviewArtifactPath format variants', () => {
+  it.each(['json', 'yaml', 'yml'] as const)('returns a -review.%s path for that format', format => {
+    const result = resolveReviewArtifactPath('/tmp/current-app', 'jira', 'WBP-123', format);
+    expect(result).toMatch(new RegExp(`jira/WBP-123-review\\.${format}$`));
+  });
+
+  it('returns a custom-dir -review path in the requested format', () => {
+    const result = resolveCustomReviewArtifactPath('/tmp/current-app', 'my-plan', 'json');
+    expect(result).toMatch(/current-app\/my-plan-review\.json$/);
+  });
+});
+
+describe('listReviewArtifactVariants', () => {
+  it('lists one candidate per supported format sharing the stem', () => {
+    const variants = listReviewArtifactVariants('/tmp/.wf/app/jira/WBP-1-review.md');
+    expect(variants).toEqual([
+      '/tmp/.wf/app/jira/WBP-1-review.json',
+      '/tmp/.wf/app/jira/WBP-1-review.md',
+      '/tmp/.wf/app/jira/WBP-1-review.yaml',
+      '/tmp/.wf/app/jira/WBP-1-review.yml',
+    ]);
+  });
+});
+
+describe('findExistingReviewArtifact', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join('/tmp', 'find-review-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('finds the artifact when it was written in a different format', () => {
+    const yamlPath = path.join(tmpDir, 'WBP-1-review.yaml');
+    fs.writeFileSync(yamlPath, 'summary: x', 'utf-8');
+
+    expect(findExistingReviewArtifact(path.join(tmpDir, 'WBP-1-review.md'))).toBe(yamlPath);
+  });
+
+  it('returns null when no variant exists', () => {
+    expect(findExistingReviewArtifact(path.join(tmpDir, 'WBP-1-review.md'))).toBeNull();
   });
 });
 
@@ -111,6 +161,36 @@ None`;
 
     const result = readReviewArtifactSummary(filePath);
     expect(result).toBeNull();
+  });
+
+  it('extracts the first target summary from a JSON cache artifact', () => {
+    const reviewed = [{ title: 'T', diff: 'd', review: { summary: 'JSON summary text.', approved: true } }];
+    const filePath = path.join(tmpDir, 'review.json');
+    fs.writeFileSync(filePath, JSON.stringify(reviewed, null, 2), 'utf-8');
+
+    expect(readReviewArtifactSummary(filePath)).toBe('JSON summary text.');
+  });
+
+  it.each(['yaml', 'yml'] as const)('extracts the first target summary from a %s cache artifact', extension => {
+    const reviewed = [{ title: 'T', diff: 'd', review: { summary: 'YAML summary text.', approved: true } }];
+    const filePath = path.join(tmpDir, `review.${extension}`);
+    fs.writeFileSync(filePath, YAML.stringify(reviewed), 'utf-8');
+
+    expect(readReviewArtifactSummary(filePath)).toBe('YAML summary text.');
+  });
+
+  it('returns null for a JSON artifact without a review summary', () => {
+    const filePath = path.join(tmpDir, 'review.json');
+    fs.writeFileSync(filePath, JSON.stringify([{ title: 'T', diff: 'd' }]), 'utf-8');
+
+    expect(readReviewArtifactSummary(filePath)).toBeNull();
+  });
+
+  it('returns null for a malformed JSON artifact', () => {
+    const filePath = path.join(tmpDir, 'review.json');
+    fs.writeFileSync(filePath, '{not json', 'utf-8');
+
+    expect(readReviewArtifactSummary(filePath)).toBeNull();
   });
 
   it('trims leading and trailing whitespace from summary', () => {

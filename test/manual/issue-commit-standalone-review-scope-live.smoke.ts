@@ -6,11 +6,15 @@
  *
  * Spins up the real NestJS app context and drives IssueCommitCommand's real
  * `.run()` against a real git repo with a staged change and a real review
- * artifact on disk. Only the outbound AI call (CommitStageService.
- * generateCommitMessage) is stubbed, so the resolution path — trackerName
- * lookup, resolveArtifactDir, readReviewArtifactSummary, the printed note —
- * is exercised through real DI-wired collaborators, not by calling
- * resolveCommitScopeSummary directly.
+ * artifact on disk. Only the outbound AI calls are stubbed: CommitStageService.
+ * generateCommitMessage returns a canned message, and
+ * CommitDescriptionStageService.generate returns null (inline generation
+ * unavailable), so the review-summary fallback path — trackerName lookup,
+ * resolveArtifactDir, readReviewArtifactSummary, the printed note — is
+ * exercised through real DI-wired collaborators, not by calling
+ * resolveCommitScopeSummary directly. The fresh-sidecar tier is covered by
+ * src/shared/utils/resolve-commit-scope-summary.spec.ts and
+ * src/shared/utils/commit-description-artifact.spec.ts.
  *
  * Verifies:
  *   1. With a real review artifact on disk, the command prints the
@@ -25,6 +29,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommitCommand } from '../../src/commands/issue-commit.command';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
+import { CommitDescriptionStageService } from '../../src/workflows/stages/commit-description-stage.service';
 import { resolveReviewArtifactPath } from '../../src/shared/utils/resolve-review-summary';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -44,6 +49,15 @@ const stageChange = (repoDir: string, contents: string): void => {
   fs.writeFileSync(path.join(repoDir, 'a.ts'), contents);
   run('add .');
 };
+
+function stubDescriptionStage(service: CommitDescriptionStageService): { restore: () => void } {
+  const original = service.generate.bind(service);
+  service.generate = async () => null;
+  const restore = (): void => {
+    service.generate = original;
+  };
+  return { restore };
+}
 
 function stubCommitStage(service: CommitStageService): { getCaptured: () => any; restore: () => void } {
   const original = service.generateCommitMessage.bind(service);
@@ -126,7 +140,7 @@ function checkRun1Summary(capturedOptions: any): void {
 }
 
 function checkRun1Commit(gitLog: string): void {
-  assert('run 1: a real git commit was created', gitLog.includes('canned commit message #1'), gitLog);
+  assert('run 1: a real git commit was created', gitLog.includes('Canned commit message #1'), gitLog);
 }
 
 function checkRun2Note(consoleOutput: string): void {
@@ -138,7 +152,7 @@ function checkRun2Summary(capturedOptions: any): void {
 }
 
 function checkRun2Commit(gitLog: string): void {
-  assert('run 2: a second real git commit was created', gitLog.includes('canned commit message #2'), gitLog);
+  assert('run 2: a second real git commit was created', gitLog.includes('Canned commit message #2'), gitLog);
 }
 
 async function executeRun1(
@@ -201,9 +215,11 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const commitCmd = app.get(IssueCommitCommand);
   const stub = stubCommitStage(app.get(CommitStageService));
+  const descriptionStub = stubDescriptionStage(app.get(CommitDescriptionStageService));
   try {
     await runScenario(commitCmd, stub.getCaptured, 'WBP-9002', 'jira');
   } finally {
+    descriptionStub.restore();
     stub.restore();
     await app.close();
   }

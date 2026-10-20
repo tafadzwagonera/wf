@@ -1898,7 +1898,7 @@ export class IssueCommand extends CommandRunner {
     const scopedContext = this.scopeReviewContext(sessionContext, { repo, primaryRepo, priorRecordsSource });
     const repoDir = resolveRepoBasePath(repo);
     return this.agents.reviewer.execute(ticketArtifact, {
-      skipExisting: !options?.force, repoDir,
+      skipExisting: !options?.force, repoDir, multiRepo: isMultiRepo,
       commitDescriptionPath: this.resolveCommitDescriptionPath(repoDir, reviewContext),
       suppressHeader: isMultiRepo, silent: options?.silent,
       sonar: options?.sonar, figma: options?.figma,

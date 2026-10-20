@@ -119,7 +119,7 @@ export class ReviewerAgent {
   }
 
   private deriveRepoScope(options: ReviewerOptions): string | undefined {
-    return options.repoDir ? path.basename(options.repoDir) : undefined;
+    return options.multiRepo && options.repoDir ? path.basename(options.repoDir) : undefined;
   }
 
   private tryLoadCachedReview(ticketPath: string, options: ReviewerOptions): ReviewArtifact | null {

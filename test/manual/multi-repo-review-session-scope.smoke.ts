@@ -47,6 +47,8 @@ function buildSessionContext(): Record<string, unknown> {
 function buildBaseContext(repoADir: string, repoBDir: string, ticketArtifact: TicketArtifact): Record<string, unknown> {
   return {
     isMultiRepo: true,
+    isCustomSource: false,
+    trackerName: 'jira',
     options: { silent: true },
     planArtifact: undefined,
     repos: [repoADir, repoBDir],

@@ -10,29 +10,37 @@ import { estimatePlanComplexity } from './estimate-plan-complexity';
 import { formatPlanRisk, normalizePlanRisks } from './plan-risk';
 import type { ResolutionAction, TicketArtifact } from '../types/agent.types';
 import { resolveCustomArtifactDir } from '../../agents/utils';
-import type { PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution } from '../types/plan-artifact.types';
+import type {
+  PlanArtifactFormat, PlanArtifactManifest, PlanArtifactReference, PlanTokenResolution,
+} from '../types/plan-artifact.types';
 import { hashGeneratedTicketSources } from './generated-ticket-artifact';
 import { normalizePlanVerification } from './verification-manifest';
 import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, ValidationError, WorkflowParseError } from '../errors/app.error';
 
 export type { PlanArtifactManifest, PlanArtifactReference } from '../types/plan-artifact.types';
 
-export const deriveReviewArtifactPath = (ticketPath: string, repoScope?: string): string => {
+export const deriveReviewArtifactPath = (
+  ticketPath: string, repoScope?: string, format: PlanArtifactFormat = 'md'
+): string => {
   const ext = path.extname(ticketPath);
   const stem = ext ? ticketPath.slice(0, -ext.length) : ticketPath;
-  const suffix = repoScope ? `-${repoScope}-review.md` : '-review.md';
+  const suffix = repoScope ? `-${repoScope}-review.${format}` : `-review.${format}`;
   return stem + suffix;
 };
 
 const validActions: Set<string> = new Set(['feature', 'fix', 'investigate']);
 const PLAN_ARTIFACT_MANIFEST_EXTENSION = '.sources.json';
-const planArtifactExtensions = ['json', 'md', 'yaml', 'yml'] as const;
+export const supportedPlanExtensions = ['json', 'md', 'yaml', 'yml'] as const;
+
+export const stripSupportedPlanExtension = (fileName: string): string => {
+  const extension = path.extname(fileName).slice(1).toLowerCase();
+  const supported = extension as (typeof supportedPlanExtensions)[number];
+  return supportedPlanExtensions.includes(supported) ? fileName.slice(0, -(extension.length + 1)) : fileName;
+};
 export const CANONICAL_PLAN_STEM = /^(\d{4}-\d{2}-\d{2})-([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 const SHORT_HASHED_PLAN_STEM = /^([a-f0-9]+)-(feature|fix|investigate)-plan$/i;
 
 export const isPlanToken = (value: string): boolean => CANONICAL_PLAN_STEM.test(value.replace(/\.[^.]+$/, ''));
-
-type PlanArtifactFormat = 'json' | 'md' | 'yaml' | 'yml';
 
 export type PlanArtifactSourceKind = 'ticket' | 'custom';
 
@@ -82,8 +90,6 @@ export const buildPlanArtifactResolutionNotice = (
 
   return `Detected plan artifact ${path.basename(reference.artifactPath)} for ${sourceLabel}; using action ${reference.action}.`;
 };
-
-export const SUPPORTED_PLAN_EXTENSIONS = ['json', 'md', 'yaml', 'yml'] as const;
 
 const looksLikeTicketKey = (value: string): boolean => /^[A-Z]+-\d+$/i.test(value);
 
@@ -340,7 +346,7 @@ const matchesManifestIdentifier = (
 
 const isCanonicalArtifactPath = (artifactPath: string): boolean => {
   const extension = path.extname(artifactPath).slice(1).toLowerCase();
-  if (!planArtifactExtensions.includes(extension as (typeof planArtifactExtensions)[number])) {
+  if (!supportedPlanExtensions.includes(extension as (typeof supportedPlanExtensions)[number])) {
     return false;
   }
 
@@ -388,7 +394,7 @@ const resolveManifestMatch = (
 
 const buildNotFoundCandidateList = (identifierStem: string, requestedAction?: ResolutionAction): string[] =>
   requestedAction && looksLikeTicketKey(identifierStem)
-    ? planArtifactExtensions.map(
+    ? supportedPlanExtensions.map(
         extension => `YYYY-MM-DD-${hashPlanArtifactSources([identifierStem])}-${requestedAction}-plan.${extension}`
       )
     : ['YYYY-MM-DD-<hash>-<action>-plan.<ext>'];
@@ -522,7 +528,7 @@ const parseMarkdownSections = (content: string): ParsedMarkdownPlan => {
 
 const buildMarkdownStepFields = (stepLines?: string[]) => {
   const steps = extractNumberedList(stepLines);
-  return { steps, stepIntents: extractStepIntents(stepLines, steps.length) };
+  return { steps, stepIntents: extractStepIntents(steps.length, stepLines) };
 };
 
 const buildMarkdownPlanFields = (sections: Map<string, string[]>, metadata: Map<string, string>) => ({
@@ -548,7 +554,7 @@ const collapseSection = (lines?: string[]): string => (lines ?? []).join('\n').t
 const extractNumberedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^\d+\.\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
 
-const extractStepIntents = (lines: string[] = [], stepCount: number): (string | null)[] | undefined => {
+const extractStepIntents = (stepCount: number, lines: string[] = []): (string | null)[] | undefined => {
   const intents: (string | null)[] = [];
   for (const [index, line] of lines.entries()) {
     if (!/^\d+\.\s+\S/.test(line)) continue;

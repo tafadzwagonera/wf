@@ -63,6 +63,7 @@ export interface PlannerOptions {
 export interface ReviewerOptions {
   skipExisting?: boolean;
   repoDir?: string;
+  multiRepo?: boolean;
   suppressHeader?: boolean;
   silent?: boolean;
   resumeProviderSessionId?: string;

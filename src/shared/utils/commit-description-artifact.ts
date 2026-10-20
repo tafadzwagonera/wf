@@ -2,11 +2,10 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { commitDescriptionRecordSchema } from '../schemas/commit-description.schema';
 import type { CommitDescriptionRecord, CommitDescriptionResponse } from '../types/commit-description.types';
-
-const REVIEW_ARTIFACT_SUFFIX_PATTERN = /\.md$/;
+import { stripSupportedPlanExtension } from './plan-artifact';
 
 export const deriveCommitDescriptionPath = (reviewArtifactPath: string): string =>
-  `${reviewArtifactPath.replace(REVIEW_ARTIFACT_SUFFIX_PATTERN, '')}.commit-description.json`;
+  `${stripSupportedPlanExtension(reviewArtifactPath)}.commit-description.json`;
 
 export const hashCommitDescriptionDiff = (diff: string): string =>
   createHash('sha256').update(diff).digest('hex');

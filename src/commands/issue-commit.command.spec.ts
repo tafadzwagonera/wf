@@ -354,8 +354,11 @@ describe('IssueCommitCommand', () => {
     const customPath = resolveCustomReviewArtifactPath('/tmp/current-app', 'plan');
     const stagedDiff = 'diff --git a/file b/file';
 
+    const trackerYamlPath = resolveReviewArtifactPath('/tmp/current-app', 'jira', 'WBP-1', 'yaml');
+
     const candidatePaths = [
       trackerPath,
+      trackerYamlPath,
       customPath,
       resolveReviewArtifactPath('/tmp/current-app', 'jira', 'plan'),
       resolveCustomReviewArtifactPath('/tmp/current-app', 'WBP-1'),
@@ -388,6 +391,31 @@ describe('IssueCommitCommand', () => {
         expect.objectContaining({ reviewArtifactPath: customPath })
       );
     });
+
+    it('resolves a review artifact cached in yaml format for --review <ticket>', async () => {
+      mockExistingFiles(trackerYamlPath);
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'WBP-1', tracker: 'jira', message: undefined });
+
+      expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewArtifactPath: trackerYamlPath })
+      );
+    });
+
+    it.each(['plan.json', 'plan.yaml', 'plan.yml'])(
+      'resolves the custom-dir review path for --review %s',
+      async review => {
+        mockExistingFiles(customPath);
+        const { command } = await buildCommand();
+
+        await command.run([], { review, tracker: 'jira' });
+
+        expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
+          expect.objectContaining({ reviewArtifactPath: customPath })
+        );
+      }
+    );
 
     it('warns, logs, and still generates inline when no review artifact exists', async () => {
       mockExistingFiles();

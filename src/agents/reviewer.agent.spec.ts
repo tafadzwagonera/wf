@@ -1030,14 +1030,52 @@ describe('ReviewerAgent', () => {
 
       const { modulePromise: promiseA, buildArtifactMock: mockA } = buildModuleWithArtifactMock('/tmp/repo-shop');
       const moduleA = await promiseA;
-      await moduleA.get(ReviewerAgent).execute(mockTicket, { repoDir: '/tmp/repo-shop', skipExisting: true });
+      await moduleA.get(ReviewerAgent).execute(
+        mockTicket, { repoDir: '/tmp/repo-shop', multiRepo: true, skipExisting: true }
+      );
 
       const { modulePromise: promiseB, buildArtifactMock: mockB } = buildModuleWithArtifactMock('/tmp/repo-api');
       const moduleB = await promiseB;
-      await moduleB.get(ReviewerAgent).execute(mockTicket, { repoDir: '/tmp/repo-api', skipExisting: true });
+      await moduleB.get(ReviewerAgent).execute(
+        mockTicket, { repoDir: '/tmp/repo-api', multiRepo: true, skipExisting: true }
+      );
 
       expect(mockA.mock.calls[0][3]).toBe('repo-shop');
       expect(mockB.mock.calls[0][3]).toBe('repo-api');
+    });
+
+    it('passes no repoScope to buildReviewArtifact in a mono-repo session', async () => {
+      const mockTicket = { ticketKey: 'WBP-200', content: '# WBP-200', path: '/tmp/.wf/WBP-200.md' };
+      const buildArtifactMock = jest.fn().mockReturnValue({ review: {}, path: '/tmp/irrelevant.md', approved: true });
+      const module = await Test.createTestingModule({
+        providers: [
+          ReviewerAgent,
+          { provide: CliPresenter, useValue: createMockPresenter() },
+          {
+            provide: GitService,
+            useValue: {
+              getStatus: jest.fn().mockResolvedValue({ files: ['src/some.ts'] }),
+              stageAll: jest.fn(),
+              getDiff: jest.fn().mockResolvedValue('diff --git a/src/some.ts b/src/some.ts'),
+            },
+          },
+          {
+            provide: ReviewStageService,
+            useValue: {
+              reviewDiff: jest.fn().mockResolvedValue({
+                review: { summary: 'ok', issues: [], suggestions: [], approved: true }, sessionId: undefined,
+              }),
+              buildReviewArtifact: buildArtifactMock,
+            },
+          },
+          { provide: SonarStageService, useValue: createMockSonarStageService() },
+          { provide: FigmaStageService, useValue: createMockFigmaStageService() },
+        ],
+      }).compile();
+
+      await module.get(ReviewerAgent).execute(mockTicket, { repoDir: '/tmp/repo-shop', skipExisting: true });
+
+      expect(buildArtifactMock.mock.calls[0][3]).toBeUndefined();
     });
   });
 

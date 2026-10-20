@@ -51,6 +51,7 @@ import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-ar
 import type { ReviewVerification, VerificationCommandResult } from '../shared/utils/review-verification.types';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
 import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
+import { findExistingReviewArtifact, listReviewArtifactVariants } from '../shared/utils/resolve-review-summary';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 
 interface IssueReviewOptions {
@@ -187,7 +188,7 @@ const loadCriteriaFromFile = (filePath: string, baseDir: string): string[] => {
   name: 'issue:review',
   description:
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
-    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. In multi-repo runs, the review artifact is written to `<ticket>-<repo-basename>-review.md` — one file per repository — so each repo\'s cached result is stored independently; the first repository\'s cached review is never served to subsequent repositories in the same run. '
+    + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. The cached ticket review artifact is written as `<ticket>-review.<format>` in the `-f/--format` format (json|md|yaml|yml, default md), replacing any stale variant in another format; later runs serve a cached artifact in any supported format regardless of the format requested, and `--force` regenerates it in the requested one. In multi-repo runs, the review artifact is written to `<ticket>-<repo-basename>-review.md` — one file per repository — so each repo\'s cached result is stored independently; the first repository\'s cached review is never served to subsequent repositories in the same run; single-repository runs write the unscoped `<ticket>-review.<format>` name. '
     + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. The verdict follows severity: a review that contains any `error` issue is recorded as Changes requested even when the model returned `approved: true`, while warning and info issues do not block approval. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and structured verification results; for eligible PR and single-repository reviews, lint, typecheck, and test run live in an invocation-scoped disposable git worktree after the exact reviewed diff is applied, leaving the target repository untouched. Verification records passed, failed, or not-run status and are persisted beside the review in Markdown, JSON, and YAML output. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors; Codex CLI schema/configuration rejections preserve the provider detail and are not reported as rate-limit failures. '
@@ -294,14 +295,15 @@ export class IssueReviewCommand extends CommandRunner {
   private resolveReviewDryRunContext(source: string | undefined, repoInputs: string[], options?: IssueReviewOptions) {
     const ticketKey = options?.ticketKey;
     const adapter = ticketKey ? this.resolveTicketAdapter(options?.tracker) : null;
-    const reviewPath = ticketKey && adapter
-      ? this.resolveTicketReviewArtifactPath(ticketKey, repoInputs, adapter.getTrackerName())
+    const outputFormat = this.resolveOutputFormat(options);
+    const requestedPath = ticketKey && adapter
+      ? this.resolveTicketReviewArtifactPath(ticketKey, repoInputs, adapter.getTrackerName(), outputFormat)
       : undefined;
-    const exists = reviewPath ? fs.existsSync(reviewPath) : false;
+    const existingPath = requestedPath ? findExistingReviewArtifact(requestedPath) : null;
+    const reviewPath = existingPath ?? requestedPath;
+    const exists = existingPath !== null;
     const shouldPreview = !ticketKey || options?.force || !reviewPath || !exists;
     const willPostComment = Boolean(options?.comment && source);
-    const outputFormat = options?.format
-      ?? (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined) ?? 'md';
     return { reviewPath, exists, shouldPreview, willPostComment, outputFormat };
   }
 
@@ -424,7 +426,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (options?.ticketKey && ctx.reviewPath && ctx.shouldPreview) {
       this.dryRunPreview.previewFileWrite({
         filePath: ctx.reviewPath, operation: ctx.exists ? 'overwrite' : 'create',
-        sizeEstimate: '2–5 KB', format: 'md',
+        sizeEstimate: '2–5 KB', format: ctx.outputFormat,
         contentPreview: 'Code Review Report\nContext: <source>\n\n## Summary\n<AI review summary>',
       });
       count++;
@@ -587,7 +589,7 @@ export class IssueReviewCommand extends CommandRunner {
     }
     const adapter = this.resolveTicketAdapter(options?.tracker);
     const reviewPath = this.resolveTicketReviewArtifactPath(
-      options.ticketKey || '', repoInputs, adapter.getTrackerName()
+      options.ticketKey || '', repoInputs, adapter.getTrackerName(), this.resolveOutputFormat(options)
     );
     if (this.serveCachedReview(reviewPath, repoInputs, options)) {
       return { targets: [], reviewPath, earlyExit: true };
@@ -602,19 +604,19 @@ export class IssueReviewCommand extends CommandRunner {
   private serveCachedReview(
     reviewPath: string, repoInputs: string[], options: IssueReviewOptions
   ): boolean {
-    const exists = fs.existsSync(reviewPath);
-    if (options?.force || !exists) {
-      if (options?.force && exists && !options?.silent) {
+    const existingPath = findExistingReviewArtifact(reviewPath);
+    if (options?.force || !existingPath) {
+      if (options?.force && existingPath && !options?.silent) {
         this.logger.info('Forcing recreation of review artifact...');
       }
       return false;
     }
     appendToLogFile('DEBUG', 'commit-description.skip reason=cached-review-served', 'issue-review');
     if (!options?.silent) {
-      console.log(chalk.gray('  Review artifact exists: ' + reviewPath));
+      console.log(chalk.gray('  Review artifact exists: ' + existingPath));
       console.log(chalk.gray('  Use --force to regenerate.\n'));
     }
-    this.exportCachedReview(reviewPath, repoInputs, options);
+    this.exportCachedReview(existingPath, repoInputs, options);
     return true;
   }
 
@@ -932,8 +934,15 @@ export class IssueReviewCommand extends CommandRunner {
   ): void {
     if (!options?.ticketKey || !reviewPath || reviewed.length === 0) return;
     fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-    fs.writeFileSync(reviewPath, this.formatReviewOutput(reviewed, 'md'));
+    this.removeStaleReviewVariants(reviewPath);
+    fs.writeFileSync(reviewPath, this.formatReviewOutput(reviewed, this.resolveOutputFormat(options)));
     if (!options?.silent) console.log(chalk.gray('  Cached to: ' + reviewPath));
+  }
+
+  private removeStaleReviewVariants(reviewPath: string): void {
+    for (const variant of listReviewArtifactVariants(reviewPath)) {
+      if (variant !== reviewPath && fs.existsSync(variant)) fs.unlinkSync(variant);
+    }
   }
 
   private async offerInteractiveChat(
@@ -969,9 +978,7 @@ export class IssueReviewCommand extends CommandRunner {
     reviewed: ReviewedTarget[], repoInputs: string[], options?: IssueReviewOptions
   ): void {
     if (!options?.output) return;
-    const format = options?.format
-      ?? (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined)
-      ?? 'md';
+    const format = this.resolveOutputFormat(options);
     const baseDir = this.resolveOutputBaseDir(!!options?.ticketKey, repoInputs);
     const outputPath = this.resolveOutputPath(options.output, baseDir);
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -1014,7 +1021,7 @@ export class IssueReviewCommand extends CommandRunner {
 
   @Option({
     flags: '-f, --format <format>',
-    description: 'Output format (json|md|yaml|yml) - default: md',
+    description: 'Output format for --output files and the cached ticket review artifact (json|md|yaml|yml) - default: md',
   })
   parseFormat(format: string): OutputFormat {
     const validFormats: OutputFormat[] = ['json', 'md', 'yaml', 'yml'];
@@ -1176,13 +1183,22 @@ export class IssueReviewCommand extends CommandRunner {
    * @param source Ticket key under review
    * @param repoInputs Raw `--repos` values
    * @param trackerName Tracker namespace for cache storage
+   * @param format Review artifact output format
    * @returns Absolute review artifact path
    */
-  private resolveTicketReviewArtifactPath(source: string, repoInputs: string[], trackerName: string): string {
+  private resolveTicketReviewArtifactPath(
+    source: string, repoInputs: string[], trackerName: string, format: OutputFormat
+  ): string {
     const repoBaseDir = this.resolveLocalRepoDirForReview(repoInputs) ?? process.cwd();
     const trackerDir = resolveArtifactDir(repoBaseDir, trackerName);
     const ticketPath = path.join(trackerDir, `${source}.md`);
-    return deriveReviewArtifactPath(ticketPath);
+    return deriveReviewArtifactPath(ticketPath, undefined, format);
+  }
+
+  private resolveOutputFormat(options?: IssueReviewOptions): OutputFormat {
+    return options?.format
+      ?? (this.configService.get<string>('stages.review.outputFormat') as OutputFormat | undefined)
+      ?? 'md';
   }
 
   /**

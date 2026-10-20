@@ -11,8 +11,13 @@ import { printCommandHeader } from '../shared/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
 import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
-import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
+import {
+  listReviewArtifactVariants,
+  resolveCustomReviewArtifactPath,
+  resolveReviewArtifactPath,
+} from '../shared/utils/resolve-review-summary';
 import { renderCommitDescriptionContext } from '../shared/utils/commit-description-artifact';
+import { stripSupportedPlanExtension } from '../shared/utils/plan-artifact';
 import { appendToLogFile } from '../shared/logger/log-file-writer';
 import type { CommitDescriptionResponse } from '../shared/types/commit-description.types';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
@@ -53,7 +58,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
     + 'When a code review or plan artifact already exists for the ticket, its summary is used to scope '
     + 'the commit message automatically. '
-    + 'Use --review <plan.md|ticket-key> to point at a specific review artifact (tracker directory first, then custom directory). '
+    + 'Use --review <plan-file|ticket-key> to point at a specific review artifact; the stem is matched against all '
+    + 'supported review formats (json|md|yaml|yml) in the tracker directory first, then the custom directory. '
     + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
     + 'When running from source, use yarn start issue:commit --conventional.',
   options: { isDefault: false },
@@ -294,11 +300,11 @@ export class IssueCommitCommand extends CommandRunner {
     repoBaseDir: string, trackerName: string, options?: IssueCommitOptions
   ): string | undefined {
     if (!options?.review) return undefined;
-    const stem = path.basename(options.review, '.md');
+    const stem = stripSupportedPlanExtension(path.basename(options.review));
     const candidates = [
       resolveReviewArtifactPath(repoBaseDir, trackerName, stem),
       resolveCustomReviewArtifactPath(repoBaseDir, stem),
-    ];
+    ].flatMap(listReviewArtifactVariants);
     const found = candidates.find(candidate => fs.existsSync(candidate));
     if (found) return found;
     const message = `--review '${options.review}' matched no review artifact (searched: ${candidates.join(', ')})`;
@@ -343,7 +349,7 @@ export class IssueCommitCommand extends CommandRunner {
   @Option({
     flags: '--review <planOrTicket>',
     description:
-      'Plan file or ticket key whose review artifact supplies the commit description (tracker directory first, then custom directory)',
+      'Plan file or ticket key whose review artifact supplies the commit description; probes json|md|yaml|yml review variants in the tracker directory first, then the custom directory',
   })
   parseReview(val: string): string {
     return val;
