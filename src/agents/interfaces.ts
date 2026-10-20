@@ -78,6 +78,7 @@ export interface ReviewerOptions {
   trackerName?: string;
   planArtifactPath?: string;
   commitDescriptionPath?: string;
+  action?: ResolutionAction;
 }
 
 export interface ImplementerBackend {

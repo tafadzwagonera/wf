@@ -637,7 +637,7 @@
     "options": [
       {
         "flags": "-a, --action <action>",
-        "description": "Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact"
+        "description": "Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact; also scopes the diff-grounded commit description generated during the REVIEW stage"
       },
       {
         "flags": "--branch-name-pattern <pattern>",

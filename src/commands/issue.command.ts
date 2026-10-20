@@ -252,7 +252,8 @@ export class IssueCommand extends CommandRunner {
   @Option({
     flags: '-a, --action <action>',
     description:
-      'Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact',
+      'Resolution action type (feature|fix|investigate) - required for PLAN stage, optional when resuming from a hashed plan artifact; '
+      + 'also scopes the diff-grounded commit description generated during the REVIEW stage',
   })
   parseAction(val: string): string {
     return val;
@@ -1901,7 +1902,8 @@ export class IssueCommand extends CommandRunner {
       commitDescriptionPath: this.resolveCommitDescriptionPath(repoDir, reviewContext),
       suppressHeader: isMultiRepo, silent: options?.silent,
       sonar: options?.sonar, figma: options?.figma,
-      planArtifactPath: planArtifact?.path, onProviderSessionId, ...scopedContext,
+      planArtifactPath: planArtifact?.path, action: planArtifact?.action,
+      onProviderSessionId, ...scopedContext,
     });
   }
 

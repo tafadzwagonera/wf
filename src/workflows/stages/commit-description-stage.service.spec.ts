@@ -73,6 +73,24 @@ describe('CommitDescriptionStageService', () => {
       expect(prompt).toContain('+betaChange');
     });
 
+    it('scopes the prompt with the declared action when one is provided', async () => {
+      const { service, execute } = await buildService();
+
+      await service.generate({ diff: multiFileDiff, stage: 'review', action: 'fix' });
+
+      const { prompt } = execute.mock.calls[0][0];
+      expect(prompt).toContain('## Declared action');
+      expect(prompt).toContain('action "fix"');
+    });
+
+    it('omits the declared action section when no action is provided', async () => {
+      const { service, execute } = await buildService();
+
+      await service.generate({ diff: multiFileDiff, stage: 'review' });
+
+      expect(execute.mock.calls[0][0].prompt).not.toContain('## Declared action');
+    });
+
     it('adds the completeness section when the diff exceeds the evidence budget', async () => {
       const { service, execute } = await buildService();
       const oversized = [

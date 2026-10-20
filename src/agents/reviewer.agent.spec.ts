@@ -1404,6 +1404,16 @@ describe('ReviewerAgent', () => {
       }));
     });
 
+    it('forwards the resolved action to commit description generation', async () => {
+      const { agent, description } = await buildAgent();
+
+      await agent.execute(ticket, {
+        repoDir: '/tmp/repo', commitDescriptionPath: '/tmp/x-review.commit-description.json', action: 'fix',
+      });
+
+      expect(description.generateAndPersist).toHaveBeenCalledWith(expect.objectContaining({ action: 'fix' }));
+    });
+
     it('skips generation with a debug log when no commitDescriptionPath is given', async () => {
       const { agent, description } = await buildAgent();
 

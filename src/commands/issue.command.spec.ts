@@ -4159,20 +4159,34 @@ describe('IssueCommand', () => {
         ticketArtifact: { ticketKey: 'WBP-123', content: '#', path: '/tmp/consumer-app/jira/WBP-123.md' },
         ...reviewContextOverrides,
       });
-      return reviewerExecute.mock.calls[0][1].commitDescriptionPath as string;
+      return reviewerExecute.mock.calls[0][1] as Record<string, unknown>;
     };
 
     it('gives a tracker-keyed run the per-repo tracker-dir sidecar path', async () => {
-      const sidecar = await runReview({}, 'repo-a');
+      const { commitDescriptionPath } = await runReview({}, 'repo-a');
 
-      expect(sidecar).toMatch(/repo-a\/jira\/WBP-123-review\.commit-description\.json$/);
+      expect(commitDescriptionPath).toMatch(/repo-a\/jira\/WBP-123-review\.commit-description\.json$/);
     });
 
     it('gives a custom-source run the per-repo custom-dir sidecar path', async () => {
-      const sidecar = await runReview({ isCustomSource: true, ticketKey: 'my-plan' }, 'repo-a');
+      const { commitDescriptionPath } = await runReview({ isCustomSource: true, ticketKey: 'my-plan' }, 'repo-a');
 
-      expect(sidecar).toMatch(/repo-a\/my-plan-review\.commit-description\.json$/);
-      expect(sidecar).not.toContain('/jira/');
+      expect(commitDescriptionPath).toMatch(/repo-a\/my-plan-review\.commit-description\.json$/);
+      expect(commitDescriptionPath).not.toContain('/jira/');
+    });
+
+    it('forwards the plan artifact action to the reviewer', async () => {
+      const { action } = await runReview(
+        { planArtifact: { action: 'fix', path: '/tmp/plan.json', plan: { summary: 's' } } }, 'repo-a'
+      );
+
+      expect(action).toBe('fix');
+    });
+
+    it('leaves the reviewer action undefined without a plan artifact', async () => {
+      const { action } = await runReview({}, 'repo-a');
+
+      expect(action).toBeUndefined();
     });
 
     it('passes the staged diff to resolveCommitScopeSummary when committing', async () => {
