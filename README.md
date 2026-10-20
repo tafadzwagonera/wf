@@ -25,6 +25,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 - [Workflows](#workflows)
 - [Key Design Decisions](#key-design-decisions)
   - [Artifact Resolution Rules](#artifact-resolution-rules)
+  - [Session Forking Workflow](#session-forking-workflow)
   - [Skill Loading](#skill-loading)
 - [Development](#development)
 - [Testing](#testing)
@@ -1077,39 +1078,6 @@ When running multi-stage workflows (`wf issue --from plan --to review`), a sessi
 
 ## Key Design Decisions
 
-### High-Level Overview
-
-`wf` follows a layered architecture where CLI commands delegate to domain agents, which call AI providers through adapter classes. The system is built on NestJS with dependency injection, using `nest-commander` for CLI argument parsing and command routing.
-
-```mermaid
-graph TD
-    CLI["<b>CLI Layer</b><br/>nest-commander parses args and routes<br/>to IssueXxxCommand classes"]
-    Agents["<b>Agent Layer</b><br/>Fetcher, Planner, Implementer,<br/>Reviewer, Committer"]
-    Platforms["<b>Platforms</b><br/>Jira, GitHub, Bitbucket"]
-    Git["<b>Git</b><br/>simple-git wrapper"]
-    AI["<b>AI Adapters</b><br/>Anthropic, OpenAI, Gemini,<br/>DeepSeek + Agent SDKs"]
-    State["<b>State & Logging</b><br/>.wf/state/ and .wf/logs/"]
-
-    CLI --> Agents
-    Agents --> Platforms
-    Agents --> Git
-    Agents --> AI
-    Platforms --> State
-    Git --> State
-    AI --> State
-```
-
-### Data Flow
-
-Each `issue:*` command follows a consistent pattern:
-
-1. **Command** receives CLI args and resolves config (including repo-scoped config via `--repos`)
-2. **Agent** orchestrates the domain logic — fetching tickets, calling AI, writing artifacts
-3. **Adapters** translate between wf's internal types and external APIs (Jira REST, GitHub GraphQL, AI chat/agent SDKs)
-4. **Artifacts** are written to the file system under `./<tracker>/` or `~/.wf/<repo>/`
-
-The orchestrator command (`wf issue`) chains stages together, passing artifacts forward: `fetch` output feeds `plan`, `plan` output feeds `implement`, and so on.
-
 ### Artifact Resolution Rules
 
 wf home is `$WF_HOME` when that variable is set to an absolute path; otherwise it is `~/.wf`. A relative `$WF_HOME` is silently ignored.
@@ -1227,120 +1195,142 @@ The following surfaces currently follow these rules or intentionally document th
 | `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:146-158,221-225`; `custom-source.ts:27-36` |
 | `--ui-design-screenshots` | Yes in no-arg mode — scans `~/.wf/<repo>/<ticketKey>/`; explicit paths remain repo-relative by design | `resolve-ui-design-screenshots.ts:7-18,42-47`; call sites `issue.command.ts:1254`, `issue-plan.command.ts:493` |
 
-### Skill Loading
+### Continuation Prompt Architecture
 
-Skills are single-source: each skill is one `SKILL.md` under `src/skills/content/<skill-id>/`, registered at module load time (`src/skills/index.ts` imports every `*.skill.ts`, which calls `registerSkill` into the `knownSkills` map). A skill declares the stages it supports (`plan`, `implement`) and, optionally, quality rules that validate the generated plan.
+When an implement session requires multiple passes (because not all planned files were modified in the first pass), the adapter re-prompts the model with a *continuation prompt*. These prompts are designed to be **self-sufficient**: they carry the full task brief so the model can orient itself even after provider-side history compaction has summarised or dropped earlier messages.
 
-The same content serves two independent distribution channels, declared per skill in `src/skills/skill-taxonomy.ts`:
+#### System prompt vs. user message separation
 
-- **Headless (runtime) channel** — `headless: true`. During `issue:plan` and `issue:implement`, the configured skill IDs (`stages.plan.skills` / `stages.implement.skills`) pass through `resolveSkills`, which enforces stage support and known IDs (interactive sessions prompt to correct an unknown ID; headless runs throw `ConfigurationError`). Every backend then inlines the full `SKILL.md` text into its prompt via `buildSkillPromptFragment` (`src/skills/skill-content.ts`), reading from the compiled bundle (`dist/skills/content/`). The runtime never consults `~/.claude/skills/` or `~/.codex/skills/`, so headless behaviour is identical across the Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI backends.
-- **Interactive channel** — `interactive: ['claude', 'codex']`. `yarn skills:sync` (`scripts/sync-interactive-skills.ts`) symlinks each listed skill into `~/.claude/skills/` and `~/.codex/skills/`, making it natively invocable in interactive CLI sessions. This channel only affects developers working in those CLIs; wf-managed runs are unaffected.
+Context is split across two layers with different lifetimes:
 
-```
-stages.<stage>.skills (wf.config.ts)
-  └── resolveSkills(ids, { interactive, stage })        // src/skills/skill-registry.ts
-        ├── plan:      collectQualityRules(skills)      // validated against the generated plan
-        └── buildSkillPromptFragment(skillNames, ...)   // per backend adapter
-              └── "## Skill: <id>\n<SKILL.md content>"  // appended to the stage prompt
-```
+| Layer | Content | Lifetime |
+|---|---|---|
+| System prompt | Role identity, headless-operation framing, repository scope rules, tool list, implementer rules, summary template | Entire session — never compacted |
+| User message (pass 0 and pass 1+) | Ticket key, plan summary, action type, plan steps, files to implement, context files, tracked files, verification commands, risks, phase checkpoints, skill instructions | Every message — resent on each pass |
 
-#### Call Stacks
+This means the system prompt is intentionally minimal (no task-specific content), and every continuation prompt is a complete task brief that would allow the model to resume work from scratch.
 
-Registration is a module-load side effect — any consumer importing from `src/skills` populates `knownSkills` first:
+#### Fields carried by every continuation prompt
 
-```
-## Call Stack: import '../skills'
-src/skills/index.ts
-  ├── import './coding-style.skill'                                              // index.ts:1
-  │     └── registerSkill({ id: 'coding-style', stages: ['implement'] })         // coding-style.skill.ts:3
-  │           └── knownSkills.set('coding-style', skill)                         // skill-registry.ts:11
-  ├── import './frontend-design-nuxt.skill'                                      // index.ts:2
-  ├── import './test-driven-development.skill'                                   // index.ts:3
-  └── import './writing-plans.skill'                                             // index.ts:4
-        └── registerSkill({ id: 'writing-plans', stages: ['plan'], getQualityRules })  // writing-plans.skill.ts:5
-              └── duplicate-id guard throws ValidationError                      // skill-registry.ts:8-9
-```
+| Field | Reason |
+|---|---|
+| Ticket key | Identifies the work unit after compaction |
+| Plan summary | Restates the goal without relying on conversation history |
+| Action type | Signals whether this is a fix, feature, or investigation |
+| Plan steps | Full ordered list of steps; the model may not have completed all of them |
+| Files to implement | Exact list of files expected to change |
+| Tracked files | Disambiguates when tracked paths differ from implementation targets |
+| Verification commands | Commands to run after edits; must survive compaction |
+| Risks and considerations | Constraints the model must not forget across passes |
+| Phase checkpoints | Ordered milestones with per-phase verification commands |
+| Skill instructions | Loaded skill content so the model follows the same workflow on every pass |
 
-Content loading is shared by every stage and backend, and resolves against the compiled bundle:
+#### Blind needle searches and the `needle-search-required` plan rule
 
-```
-## Call Stack: buildSkillPromptFragment(skillIds, backend, color)
-buildSkillPromptFragment(skillIds, ...)                                          // skill-content.ts:35
-  └── skillIds.map(id => loadOneSkill(id, ...))                                  // skill-content.ts:41
-        └── readSkillContent(skillId)                                            // skill-content.ts:23
-              └── fs.readFile(path.join(__dirname, 'content', skillId, 'SKILL.md'))  // skill-content.ts:16
-        └── null → throw ConfigurationError                                      // skill-content.ts:25
-        └── returns `## Skill: ${skillId}\n${content.trimEnd()}`                 // skill-content.ts:31
-  └── return `\n\n${sections.join('\n\n')}`                                      // skill-content.ts:42
-```
+Rename and removal work searches the needle (the old term) case-insensitively across the whole repository, not only the directories the plan listed: the planner prompt, the implementer rules, continuation tails and both fix prompts say so. The OpenAI implement `search_files` tool runs `grep -rn -i -I` and skips `node_modules`, `dist` and `.git`; the OpenAI plan-stage tool runs `rg -n -i --hidden -g '!.git'`. Claude's built-in Grep honours `.gitignore`, so ignored files need `git grep --no-index` through Bash.
 
-The plan stage consumes skills twice — SKILL.md text goes into the prompt, and quality rules run against the generated plan:
+`issue:plan` also raises the advisory `needle-search-required` quality rule: a step that deletes, drops, removes, replaces or renames a term needs a `verification.targeted` command such as `bash -c '! git grep -I -i -q -F <term>'`. A command without `-i`, or one that only uses `\b` patterns, does not count. Intentional leftovers (an ADR, a changelog) are declared with a `verification.waivers` entry whose id is `needle-search-required`. The rule never fails the command; it is reported after the repair retry.
 
-```
-## Call Stack: wf issue:plan
-PlanStageService.generatePlan()                                                  // plan-stage.service.ts:91
-  ├── buildPlanContext()                                                         // plan-stage.service.ts:407
-  │     ├── configService.get('stages.plan.skills') ?? []                        // plan-stage.service.ts:413
-  │     ├── resolveSkills(skillIds, { interactive, stage: 'plan' })              // plan-stage.service.ts:415
-  │     └── collectQualityRules(skills)                                          // plan-stage.service.ts:417
-  ├── AiService.generatePlan()                                                   // ai.service.ts:1106
-  │     └── buildPlanPromptBody()                                                // ai.service.ts:692
-  │           ├── buildSkillPromptFragment(skillNames, 'ai-service', ...)        // ai.service.ts:700
-  │           └── assemblePlanPrompt(..., skillFragment)                         // ai.service.ts:661-669
-  └── validatePlanViolations(plan, ctx)                                          // plan-stage.service.ts:421
-        └── detectSkillViolations: skillRules.flatMap(rule => rule.validate(plan))  // plan-quality.ts:453
-```
+#### Step intents and the spec-fidelity downgrade
 
-The implement stage resolves once, then fans out per backend:
-
-```
-## Call Stack: wf issue:implement
-ImplementerAgent.execute()                                                       // implementer.agent.ts:281
-  └── resolveImplementSkillNames()                                               // implementer.agent.ts:403
-        ├── configService.get('stages.implement.skills') ?? []                   // implementer.agent.ts:404
-        ├── resolveSkills(ids, { interactive, stage: 'implement' })              // implementer.agent.ts:406
-        └── skills.map(s => s.id) → skillNames                                   // implementer.agent.ts:407
-  └── adapter.generateAndVerify({ ..., skillNames })
-        ├── ClaudeCliAdapter: createCliSessionParams()                           // claude-cli.adapter.ts:437
-        │     ├── buildSkillPromptFragment(params.skillNames, ...)               // claude-cli.adapter.ts:440-442
-        │     └── buildCliTaskBriefParams(params, repoDir, skillFragment)        // claude-cli.adapter.ts:448
-        ├── AnthropicAgentAdapter: executeAgentSession()                         // anthropic-agent.adapter.ts:832
-        │     └── buildAgentSessionTaskBriefParams(s, skillFragment)             // anthropic-agent.adapter.ts:836
-        ├── OpenAIAgentAdapter: createAgent()                                    // openai-agent.adapter.ts:1490
-        │     └── buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, ...)  // openai-agent.adapter.ts:1504
-        └── CodexCliAdapter: buildCodexImplementPrompt()                         // codex-cli.adapter.ts:98
-              └── `${preamble}${systemPrompt}...${skillFragment}\n\n${tail}`     // codex-cli.adapter.ts:106
-```
-
-#### State Transitions
-
-The skill data changes shape four times between config and prompt:
+A plan can carry an optional `stepIntents` array next to `steps`. It is index-aligned (one entry per step, `null` for steps without an intent), and a length mismatch fails plan validation in the planner schema and when a JSON, YAML or markdown artifact is loaded. The planner prompt and the bundled `writing-plans` skill ask for an intent only on steps that prescribe a literal (a call chain, signature, regex or test name), phrased as a goal checkable from the diff, for example `"Only vue and tsx files are matched"` for a step that prescribes `/\.(vue|tsx)$/`.
 
 ```json
-// 1. wf.config.ts — plain ID strings
-stages.implement.skills: ["coding-style", "test-driven-development"]
-
-// 2. resolveSkills() — registered definitions (skill-registry.ts:38)
-SkillDefinition {
-  id: "writing-plans",
-  stages: ["plan"],
-  getQualityRules: () => [{ ruleId: "no-placeholders", validate(plan) => string[] }]
-}
-
-// 3. buildSkillPromptFragment() — inlined fragment (skill-content.ts:42)
-skillFragment: "\n\n## Skill: coding-style\n<SKILL.md content, trimmed>\n\n## Skill: test-driven-development\n<...>"
-
-// 4. prompt assembly — fragment embedded, tail chosen (shared-routing.ts:516-520)
-BuildTaskBriefParams {
-  ticketKey, repoDir, planSteps, verificationScripts, ...,
-  skillFragment: "\n\n## Skill: ..."
-}
-fragmentIncludesSkill(skillFragment, TDD_SKILL_ID) ? tddImplementTail : implementTail
+{ "steps": ["Add regex /\\.(vue|tsx)$/ in src/match.ts", "Export it from src/index.ts"],
+  "stepIntents": ["Only vue and tsx files are matched", null] }
 ```
 
-Line references were verified against the source at the time of writing (commit `335d1f29`); treat them as orientation, not as a contract.
+Markdown artifacts written by `issue:plan --format md` store each intent as an indented `Intent:` line directly under its numbered step:
 
-Two stage-specific behaviours key off the loaded skills: the plan stage runs each skill's quality rules against the generated plan (for example `writing-plans`' `no-placeholders` rule), and the implement stage switches its closing instruction to a red-green loop on every backend when the inlined fragment contains `test-driven-development` (`fragmentIncludesSkill` in `src/skills/skill-content.ts`).
+```md
+1. Add regex /\.(vue|tsx)$/ in src/match.ts
+   Intent: Only vue and tsx files are matched
+2. Export it from src/index.ts
+```
+
+During `issue:implement` the spec-fidelity pre-pass adds the intent to that step's prompt. A literal that differs from the diff is reported as a `warning` instead of an `error` when the diff still satisfies the intent; vague intents that cannot be checked from the diff give no downgrade. Warnings never trigger a fix round. Per-repo step filtering keeps every intent with its step, and plans without `stepIntents` behave exactly as before. Only the spec-fidelity pre-pass reads intents; the step assessor sees step text alone.
+
+#### Mocked collaborators and the `test-call-assertion-required` plan rule
+
+The plan prompt tells the planner that each test step states its observable assertion and, when a collaborator is mocked, also asserts after the act step that it was called and with which arguments. When the repo has detected test patterns, the test conventions block repeats this as "Mocked collaborators: assert after the act step that the collaborator was called (call count and arguments via mock.calls); never assert only inside a mock callback".
+
+`issue:plan` also raises the advisory `test-call-assertion-required` quality rule: a step that names a spec file (`*.spec.*` or `*.test.*`) and a mock, stub or spy, but no call assertion (`toHaveBeenCalled*`, `mock.calls`, "call count", "called once/twice/exactly/with", "not/never called"), is flagged. Steps that name no spec file are ignored. Declare an intentional exception with a `verification.waivers` entry whose id is `test-call-assertion-required`. The rule never fails the command; it is reported after the repair retry. The bundled `test-driven-development` skill gives the same guidance to the implementer.
+
+#### Duplicate resolvers and the `duplicate-resolver` plan rule
+
+`issue:plan` checks a drafted plan against the repository for logic that already exists. A step that names two config keys with the same final segment (written in backticks or quotes, starting with `ai.`, `stages.`, `git.` or `figma.`, for example `stages.implement.provider` and `ai.stages.plan.provider`), or that adds a function whose name starts with `resolve`, `get`, `pick`, `select` or `build`, triggers a `git grep` over `src/` (spec files excluded, untracked files included). If a file the plan does not list already reads keys ending in that segment within a 15-line window, or already defines a function with that exact name, the plan records a `duplicate-resolver` risk: `reuse <name> in <file>:<line>, or state why it cannot be reused`.
+
+Unlike the other plan-quality rules, `duplicate-resolver` is advisory only: it never triggers the repair retry and never fails the command. The risk appears in the saved plan under `risks` with the `[plan-quality]` prefix. The lookup is skipped when no repository directory is known, runs at most 10 terms with a 5 second timeout per `git grep`, and fails open: a git error returns no violations and is logged at DEBUG with context `find-existing-resolvers`. Keys written without backticks or quotes are ignored.
+
+#### Orphan deletion and the `to-delete` plan status
+
+Plan `affectedFiles` entries use the status `found`, `to-create`, `to-delete` or `not-found`. A `to-delete` entry names an orphaned file the plan removes; it must exist when the plan is validated (otherwise it is corrected to `not-found`) and is rejected in `affectedFilesContext`. A deleted file counts as visited, not as pending write work. The Anthropic Agent SDK backend deletes files through a `DeleteFile` tool that refuses paths outside the repository root (including `..` and symlink escapes).
+
+#### Codex CLI exclusion
+
+#### Ending the loop: no-op cutoff and NO-CHANGE declarations
+
+The loop ends when every concrete planned file is either touched (a Write/Edit event or a `git diff --name-only HEAD` entry) or declared unchanged, and otherwise stops on either of two conditions:
+
+- **No-op cutoff.** After 2 consecutive passes that write no files, add no git-visible changes, and accept no declarations, the loop stops (`No file changes across 2 passes — stopping`). For the Anthropic and OpenAI backends this applies to non-idle passes; idle passes (a single turn) keep their own cap of 3.
+- **Workload stall.** Passes that do change files but never shrink the unvisited set still stop at the file-count-scaled threshold (`max(2, ceil(plannedFiles / 5))`).
+
+When a listed file already satisfies the plan, the agent is told not to edit it and to include a line in its final pass summary instead:
+
+```
+NO-CHANGE: src/app.ts
+```
+
+Bold markers, bullets, backticks, quotes, a trailing period, and any keyword casing are tolerated, and a leading `./` or repo prefix is stripped. Each declaration is one path after a mandatory colon: a comma-separated list (`NO-CHANGE: a.ts, b.ts`) or `NO-CHANGE - a.ts` is ignored. Repeating an already accepted declaration is still valid but no longer counts as progress, so the no-op cutoff still applies. A declaration is accepted only for a concrete planned file that has not been touched; it is ignored for unplanned files, glob entries, and files the pass actually edited. Accepted files appear in the end-of-run summary as `no change required (agent-declared): <path>`. A declaration only proves the file was not edited, not that no edit was needed, so plan-step verification still assesses step fidelity. The plan-step verification fix prompt also asks the agent to answer a step whose target is already absent with a single-line proof (for example the grep command and its empty result) plus `NO-CHANGE: <path>`, rather than re-reading files.
+
+#### Reporting a plan problem: PLAN-PROBLEM
+
+Every stage system prompt (plan, implement, review, commit, generate, and investigation findings) carries a shared headless-operation instruction (`headlessPipelineInstruction` in `prompt-fragments.ts`): the model runs headless inside the CLI pipeline where no user answers mid-run output, so it must resolve ambiguity from the prompt guidance, loaded skills, and repository conventions, and end with its result rather than questions or offers of further work. The implement stage extends this with a deviation channel — when resolving ambiguity forces the agent off the plan as written, it implements its best judgment and reports the deviation as a `PLAN-PROBLEM` line, which is persisted in the session record. The interactive chat prompts (`wf issue` workflow chat and the review discussion) are exempt because a developer is present.
+
+When a plan step cannot or should not be implemented as written, the agent is told to add one line to its final message:
+
+```
+PLAN-PROBLEM: 3 | resolver differs from plan text | matched the runtime resolver
+```
+
+The step number is the 1-based number in the task brief's `Plan steps:` list. A line needs exactly three non-empty parts separated by `|`; bold markers, bullets, backticks, `Step 3` or `3.` as the step token, and any casing are tolerated. Lines with a step outside the plan, a missing or extra part, or an empty part are ignored and logged at WARN (`plan-problem.ignored`). The first report per step wins, each part is capped at 500 characters, and a run records at most 20 reports. All four backends read the final message of the first pass, every continuation pass and every verification fix pass; the Codex CLI backend reads only its last agent message per pass.
+
+Each report prints `Plan problem reported for step N: <reason> (instead: <instead>)`, is written once at the end of the run to `run.planProblems` in the newest `.wf/state/implement-verification/<repo>/<ticket>-*.json` file, and is appended to that step's text as `[IMPLEMENTER REPORTED PLAN PROBLEM - plan step N]`. The spec-fidelity auditor then judges whether the alternative is sound (sound: literal mismatches become warnings; unsound: they stay errors), fix-round prompts show `Step <index> (<status>) - plan step <n>` and tell the agent to keep a satisfying alternative, and `issue:review` lists the reports in its context. Verification commands still run and still gate the result. The OpenAI Agents backend records and shows reports but skips plan-step verification because it returns no session id.
+
+The Codex CLI adapter (`codex-cli.adapter.ts`) operates in a single-pass mode and does not have a continuation loop. It calls `buildBehavioralContext` for its system prompt but does not embed `buildTaskBrief` in a user message — the task context is supplied by the caller through the existing system prompt chain.
+
+### Data Flow
+
+Each `issue:*` command follows a consistent pattern:
+
+1. **Command** receives CLI args and resolves config (including repo-scoped config via `--repos`)
+2. **Agent** orchestrates the domain logic — fetching tickets, calling AI, writing artifacts
+3. **Adapters** translate between wf's internal types and external APIs (Jira REST, GitHub GraphQL, AI chat/agent SDKs)
+4. **Artifacts** are written to the file system under `./<tracker>/` or `~/.wf/<repo>/`
+
+The orchestrator command (`wf issue`) chains stages together, passing artifacts forward: `fetch` output feeds `plan`, `plan` output feeds `implement`, and so on.
+
+### High-Level Overview
+
+`wf` follows a layered architecture where CLI commands delegate to domain agents, which call AI providers through adapter classes. The system is built on NestJS with dependency injection, using `nest-commander` for CLI argument parsing and command routing.
+
+```mermaid
+graph TD
+    CLI["<b>CLI Layer</b><br/>nest-commander parses args and routes<br/>to IssueXxxCommand classes"]
+    Agents["<b>Agent Layer</b><br/>Fetcher, Planner, Implementer,<br/>Reviewer, Committer"]
+    Platforms["<b>Platforms</b><br/>Jira, GitHub, Bitbucket"]
+    Git["<b>Git</b><br/>simple-git wrapper"]
+    AI["<b>AI Adapters</b><br/>Anthropic, OpenAI, Gemini,<br/>DeepSeek + Agent SDKs"]
+    State["<b>State & Logging</b><br/>.wf/state/ and .wf/logs/"]
+
+    CLI --> Agents
+    Agents --> Platforms
+    Agents --> Git
+    Agents --> AI
+    Platforms --> State
+    Git --> State
+    AI --> State
+```
 
 ### Project Structure
 
@@ -1529,109 +1519,219 @@ When `validateForStage()` runs in the orchestrated workflow, it compares each co
 
 Provider session IDs are never portable across backends. An `anthropic/agent` session ID is incompatible with `anthropic/cli` (and vice versa) because they are managed by different systems. The same applies across providers.
 
-### Continuation Prompt Architecture
+### Session Forking Workflow
 
-When an implement session requires multiple passes (because not all planned files were modified in the first pass), the adapter re-prompts the model with a *continuation prompt*. These prompts are designed to be **self-sufficient**: they carry the full task brief so the model can orient itself even after provider-side history compaction has summarised or dropped earlier messages.
+When the review stage resumes the implementer's provider session, it inherits the full implementation context — but a long or complex session risks polluting the review with implementation-biased reasoning. `shouldForkReviewSession` (`src/commands/issue.command.ts:92`) decides whether the review should *fork* the resumed session (`--fork-session`: inherit context, write to a fresh session) instead of continuing it in place. Forking triggers when the plan's `estimatedComplexity` is `high` or the implement stage needed more than `FORK_PASS_THRESHOLD` (5) passes — but only when there is a session to fork from. The fork decision is structurally subordinate to the session-resumption choice: if the user (or a non-resumable backend, or a missing candidate) selects "Start a new session", the resume ID is cleared upstream and `shouldForkReviewSession` short-circuits to `false` before complexity or pass count are consulted.
 
-#### System prompt vs. user message separation
+#### Call Stacks
 
-Context is split across two layers with different lifetimes:
+The resume candidate is recorded during earlier stages and recovered by fingerprint (provider + backend) when the review stage starts:
 
-| Layer | Content | Lifetime |
-|---|---|---|
-| System prompt | Role identity, headless-operation framing, repository scope rules, tool list, implementer rules, summary template | Entire session — never compacted |
-| User message (pass 0 and pass 1+) | Ticket key, plan summary, action type, plan steps, files to implement, context files, tracked files, verification commands, risks, phase checkpoints, skill instructions | Every message — resent on each pass |
+```
+## Call Stack: executeReviewStage(...) — resolving the resume candidate
+executeReviewStage(ticketArtifact, planArtifact, ...)              // issue.command.ts:1705
+  └── resolveReviewFork(sessionState, implementerResult, planArtifact)   // issue.command.ts:1732
+        ├── implId = implementerResult.sessionId                   // issue.command.ts:1737
+        └── prepareReviewSession(sessionState, implId)             // issue.command.ts:1752
+              └── prepareStageSession(sessionState, 'review')      // issue.command.ts:1424
+                    ├── sessionService.validateForStage(...)       // session.service.ts:329
+                    │     └── resolveCompatibleProviderSession()   // session.service.ts:524
+                    │           ├── resolveInterruptedStageResume()  // session.service.ts:535 — current stage, if incomplete
+                    │           └── resolvePriorStageResume()      // session.service.ts:563 — latest completed prior stage
+                    │                 └── canResumeStageRecord()   // session.service.ts:579 — provider/backend match + resumable
+                    └── selectStageProviderSession(fingerprint, candidate)  // issue.command.ts:1453
+                          ├── isResumableBackend(fingerprint)      // issue.command.ts:1456 — false → { kind: 'new' }
+                          └── selectProviderSession({ candidate, interactive })  // provider-session-prompt.ts:23
+                                ├── !interactive → candidate ? 'latest' : 'new'  // provider-session-prompt.ts:34-37
+                                ├── 'latest'   → { kind: 'latest', providerSessionId, stage }  // provider-session-prompt.ts:29
+                                ├── 'provided' → prompt for session ID           // provider-session-prompt.ts:75-87
+                                └── 'new'      → { kind: 'new' }                 // provider-session-prompt.ts:30
+```
 
-This means the system prompt is intentionally minimal (no task-specific content), and every continuation prompt is a complete task brief that would allow the model to resume work from scratch.
+The selection then gates the fork decision and the final CLI invocation:
 
-#### Fields carried by every continuation prompt
+```
+## Call Stack: resolveReviewFork(...) — fork decision through to CLI args
+resolveReviewFork(...)                                             // issue.command.ts:1732
+  ├── prepareReviewSession(sessionState, implId)                   // issue.command.ts:1752
+  │     ├── createStageSessionContext(selection, ...)              // issue.command.ts:1446
+  │     │     └── resumeProviderSessionId =
+  │     │           selection.kind === 'new' ? undefined : selection.providerSessionId  // issue.command.ts:1449
+  │     └── resumeId = selection?.kind === 'new'
+  │           ? undefined                                          // issue.command.ts:1756-1757 — fallback skipped
+  │           : resumeProviderSessionId ?? implementSessionId      // issue.command.ts:1758 — fallback only when
+  │                                                                //   selection is absent (!sessionState, :1427)
+  └── shouldForkReviewSession(estimatedComplexity, passCount, resumeId)  // issue.command.ts:1740-1742
+        ├── if (!resumeSessionId) return false                     // issue.command.ts:97 — short-circuits 'new'
+        ├── if (estimatedComplexity === 'high') return true        // issue.command.ts:98
+        └── return passCount > FORK_PASS_THRESHOLD                 // issue.command.ts:99 (threshold = 5, :90)
+  └── runReviewLoop({ ...sessionContext, forkSession, ... })       // issue.command.ts:1715-1717
+        └── reviewer.execute → reviewCode → runStagePrompt         // reviewer.agent.ts:179,
+              │                                                    //   review-stage.service.ts:261,
+              │                                                    //   stage-agent.service.ts:1274
+              └── runCliStagePass: forkSession only on pass 1      // stage-agent.service.ts:1900
+                    └── buildCliArgs(params)                       // claude-cli-runner.ts:244
+                          ├── appendOptionalArg('--resume', sessionId)        // claude-cli-runner.ts:249
+                          └── forkSession && sessionId → '--fork-session'     // claude-cli-runner.ts:250
+```
 
-| Field | Reason |
-|---|---|
-| Ticket key | Identifies the work unit after compaction |
-| Plan summary | Restates the goal without relying on conversation history |
-| Action type | Signals whether this is a fix, feature, or investigation |
-| Plan steps | Full ordered list of steps; the model may not have completed all of them |
-| Files to implement | Exact list of files expected to change |
-| Tracked files | Disambiguates when tracked paths differ from implementation targets |
-| Verification commands | Commands to run after edits; must survive compaction |
-| Risks and considerations | Constraints the model must not forget across passes |
-| Phase checkpoints | Ordered milestones with per-phase verification commands |
-| Skill instructions | Loaded skill content so the model follows the same workflow on every pass |
+#### State Transitions
 
-#### Blind needle searches and the `needle-search-required` plan rule
-
-Rename and removal work searches the needle (the old term) case-insensitively across the whole repository, not only the directories the plan listed: the planner prompt, the implementer rules, continuation tails and both fix prompts say so. The OpenAI implement `search_files` tool runs `grep -rn -i -I` and skips `node_modules`, `dist` and `.git`; the OpenAI plan-stage tool runs `rg -n -i --hidden -g '!.git'`. Claude's built-in Grep honours `.gitignore`, so ignored files need `git grep --no-index` through Bash.
-
-`issue:plan` also raises the advisory `needle-search-required` quality rule: a step that deletes, drops, removes, replaces or renames a term needs a `verification.targeted` command such as `bash -c '! git grep -I -i -q -F <term>'`. A command without `-i`, or one that only uses `\b` patterns, does not count. Intentional leftovers (an ADR, a changelog) are declared with a `verification.waivers` entry whose id is `needle-search-required`. The rule never fails the command; it is reported after the repair retry.
-
-#### Step intents and the spec-fidelity downgrade
-
-A plan can carry an optional `stepIntents` array next to `steps`. It is index-aligned (one entry per step, `null` for steps without an intent), and a length mismatch fails plan validation in the planner schema and when a JSON, YAML or markdown artifact is loaded. The planner prompt and the bundled `writing-plans` skill ask for an intent only on steps that prescribe a literal (a call chain, signature, regex or test name), phrased as a goal checkable from the diff, for example `"Only vue and tsx files are matched"` for a step that prescribes `/\.(vue|tsx)$/`.
+The session state changes shape four times between the on-disk record and the spawned CLI:
 
 ```json
-{ "steps": ["Add regex /\\.(vue|tsx)$/ in src/match.ts", "Export it from src/index.ts"],
-  "stepIntents": ["Only vue and tsx files are matched", null] }
+// 1. Recorded during implement (session.service.ts:239) — recovered as a candidate (session.service.ts:563)
+ProviderSessionCandidate {
+  stage: "implement",
+  providerSessionId: "d0dcbb9f-24c5-413b-91fe-24209edb9436"
+}
+
+// 2. selectProviderSession() — the user's (or auto-selected) choice (provider-session-prompt.ts:4-7)
+ProviderSessionSelection
+  = { kind: "latest", providerSessionId: "d0dcbb9f-…", stage: "implement" }
+  | { kind: "provided", providerSessionId: "<user-entered>" }
+  | { kind: "new" }                                  // discards the candidate
+
+// 3. prepareReviewSession() — selection collapsed to a resume ID (issue.command.ts:1756-1761)
+StageSessionResult {
+  providerSessionSelection: { kind: "new" },
+  sessionContext: {
+    resumeProviderSessionId: undefined,              // 'latest'/'provided' carry the ID instead
+    priorStageSummary: "<implement summary>"
+  }
+}
+
+// 4. buildCliArgs() — resume ID gates both flags (claude-cli-runner.ts:249-250)
+CliRunnerParams {
+  sessionId: undefined,                              // no '--resume' appended
+  forkSession: false,                                // '--fork-session' requires BOTH truthy
+  args: ["-p", "--verbose", "--output-format", "stream-json", "--model", "<model>", ...]
+}
 ```
 
-Markdown artifacts written by `issue:plan --format md` store each intent as an indented `Intent:` line directly under its numbered step:
+| Selection path | `resumeSessionId` | `shouldForkReviewSession` | CLI args |
+| --- | --- | --- | --- |
+| "Resume latest" / non-interactive with candidate | candidate ID | `true` if complexity `high` or `passCount > 5` | `--resume <id>` (+ `--fork-session` when `true`) |
+| "Use an existing session" | user-entered ID | same gating | same as above |
+| "Start a new session" / no candidate / non-resumable backend | `undefined` | always `false` | neither flag — fresh session |
+| `!sessionState` (session tracking unavailable) | `implementSessionId` fallback | gated by complexity/passCount | `--resume <implId>` (+ `--fork-session` when `true`) |
 
-```md
-1. Add regex /\.(vue|tsx)$/ in src/match.ts
-   Intent: Only vue and tsx files are matched
-2. Export it from src/index.ts
-```
+Line references were verified against the source at the time of writing (commit `09dfe0d2`); treat them as orientation, not as a contract.
 
-During `issue:implement` the spec-fidelity pre-pass adds the intent to that step's prompt. A literal that differs from the diff is reported as a `warning` instead of an `error` when the diff still satisfies the intent; vague intents that cannot be checked from the diff give no downgrade. Warnings never trigger a fix round. Per-repo step filtering keeps every intent with its step, and plans without `stepIntents` behave exactly as before. Only the spec-fidelity pre-pass reads intents; the step assessor sees step text alone.
+### Skill Loading
 
-#### Mocked collaborators and the `test-call-assertion-required` plan rule
+Skills are single-source: each skill is one `SKILL.md` under `src/skills/content/<skill-id>/`, registered at module load time (`src/skills/index.ts` imports every `*.skill.ts`, which calls `registerSkill` into the `knownSkills` map). A skill declares the stages it supports (`plan`, `implement`) and, optionally, quality rules that validate the generated plan.
 
-The plan prompt tells the planner that each test step states its observable assertion and, when a collaborator is mocked, also asserts after the act step that it was called and with which arguments. When the repo has detected test patterns, the test conventions block repeats this as "Mocked collaborators: assert after the act step that the collaborator was called (call count and arguments via mock.calls); never assert only inside a mock callback".
+The same content serves two independent distribution channels, declared per skill in `src/skills/skill-taxonomy.ts`:
 
-`issue:plan` also raises the advisory `test-call-assertion-required` quality rule: a step that names a spec file (`*.spec.*` or `*.test.*`) and a mock, stub or spy, but no call assertion (`toHaveBeenCalled*`, `mock.calls`, "call count", "called once/twice/exactly/with", "not/never called"), is flagged. Steps that name no spec file are ignored. Declare an intentional exception with a `verification.waivers` entry whose id is `test-call-assertion-required`. The rule never fails the command; it is reported after the repair retry. The bundled `test-driven-development` skill gives the same guidance to the implementer.
-
-#### Duplicate resolvers and the `duplicate-resolver` plan rule
-
-`issue:plan` checks a drafted plan against the repository for logic that already exists. A step that names two config keys with the same final segment (written in backticks or quotes, starting with `ai.`, `stages.`, `git.` or `figma.`, for example `stages.implement.provider` and `ai.stages.plan.provider`), or that adds a function whose name starts with `resolve`, `get`, `pick`, `select` or `build`, triggers a `git grep` over `src/` (spec files excluded, untracked files included). If a file the plan does not list already reads keys ending in that segment within a 15-line window, or already defines a function with that exact name, the plan records a `duplicate-resolver` risk: `reuse <name> in <file>:<line>, or state why it cannot be reused`.
-
-Unlike the other plan-quality rules, `duplicate-resolver` is advisory only: it never triggers the repair retry and never fails the command. The risk appears in the saved plan under `risks` with the `[plan-quality]` prefix. The lookup is skipped when no repository directory is known, runs at most 10 terms with a 5 second timeout per `git grep`, and fails open: a git error returns no violations and is logged at DEBUG with context `find-existing-resolvers`. Keys written without backticks or quotes are ignored.
-
-#### Orphan deletion and the `to-delete` plan status
-
-Plan `affectedFiles` entries use the status `found`, `to-create`, `to-delete` or `not-found`. A `to-delete` entry names an orphaned file the plan removes; it must exist when the plan is validated (otherwise it is corrected to `not-found`) and is rejected in `affectedFilesContext`. A deleted file counts as visited, not as pending write work. The Anthropic Agent SDK backend deletes files through a `DeleteFile` tool that refuses paths outside the repository root (including `..` and symlink escapes).
-
-#### Codex CLI exclusion
-
-#### Ending the loop: no-op cutoff and NO-CHANGE declarations
-
-The loop ends when every concrete planned file is either touched (a Write/Edit event or a `git diff --name-only HEAD` entry) or declared unchanged, and otherwise stops on either of two conditions:
-
-- **No-op cutoff.** After 2 consecutive passes that write no files, add no git-visible changes, and accept no declarations, the loop stops (`No file changes across 2 passes — stopping`). For the Anthropic and OpenAI backends this applies to non-idle passes; idle passes (a single turn) keep their own cap of 3.
-- **Workload stall.** Passes that do change files but never shrink the unvisited set still stop at the file-count-scaled threshold (`max(2, ceil(plannedFiles / 5))`).
-
-When a listed file already satisfies the plan, the agent is told not to edit it and to include a line in its final pass summary instead:
+- **Headless (runtime) channel** — `headless: true`. During `issue:plan` and `issue:implement`, the configured skill IDs (`stages.plan.skills` / `stages.implement.skills`) pass through `resolveSkills`, which enforces stage support and known IDs (interactive sessions prompt to correct an unknown ID; headless runs throw `ConfigurationError`). Every backend then inlines the full `SKILL.md` text into its prompt via `buildSkillPromptFragment` (`src/skills/skill-content.ts`), reading from the compiled bundle (`dist/skills/content/`). The runtime never consults `~/.claude/skills/` or `~/.codex/skills/`, so headless behaviour is identical across the Anthropic Agent SDK, OpenAI Agents SDK, Claude CLI, and Codex CLI backends.
+- **Interactive channel** — `interactive: ['claude', 'codex']`. `yarn skills:sync` (`scripts/sync-interactive-skills.ts`) symlinks each listed skill into `~/.claude/skills/` and `~/.codex/skills/`, making it natively invocable in interactive CLI sessions. This channel only affects developers working in those CLIs; wf-managed runs are unaffected.
 
 ```
-NO-CHANGE: src/app.ts
+stages.<stage>.skills (wf.config.ts)
+  └── resolveSkills(ids, { interactive, stage })        // src/skills/skill-registry.ts
+        ├── plan:      collectQualityRules(skills)      // validated against the generated plan
+        └── buildSkillPromptFragment(skillNames, ...)   // per backend adapter
+              └── "## Skill: <id>\n<SKILL.md content>"  // appended to the stage prompt
 ```
 
-Bold markers, bullets, backticks, quotes, a trailing period, and any keyword casing are tolerated, and a leading `./` or repo prefix is stripped. Each declaration is one path after a mandatory colon: a comma-separated list (`NO-CHANGE: a.ts, b.ts`) or `NO-CHANGE - a.ts` is ignored. Repeating an already accepted declaration is still valid but no longer counts as progress, so the no-op cutoff still applies. A declaration is accepted only for a concrete planned file that has not been touched; it is ignored for unplanned files, glob entries, and files the pass actually edited. Accepted files appear in the end-of-run summary as `no change required (agent-declared): <path>`. A declaration only proves the file was not edited, not that no edit was needed, so plan-step verification still assesses step fidelity. The plan-step verification fix prompt also asks the agent to answer a step whose target is already absent with a single-line proof (for example the grep command and its empty result) plus `NO-CHANGE: <path>`, rather than re-reading files.
+#### Call Stacks
 
-#### Reporting a plan problem: PLAN-PROBLEM
-
-Every stage system prompt (plan, implement, review, commit, generate, and investigation findings) carries a shared headless-operation instruction (`headlessPipelineInstruction` in `prompt-fragments.ts`): the model runs headless inside the CLI pipeline where no user answers mid-run output, so it must resolve ambiguity from the prompt guidance, loaded skills, and repository conventions, and end with its result rather than questions or offers of further work. The implement stage extends this with a deviation channel — when resolving ambiguity forces the agent off the plan as written, it implements its best judgment and reports the deviation as a `PLAN-PROBLEM` line, which is persisted in the session record. The interactive chat prompts (`wf issue` workflow chat and the review discussion) are exempt because a developer is present.
-
-When a plan step cannot or should not be implemented as written, the agent is told to add one line to its final message:
+Registration is a module-load side effect — any consumer importing from `src/skills` populates `knownSkills` first:
 
 ```
-PLAN-PROBLEM: 3 | resolver differs from plan text | matched the runtime resolver
+## Call Stack: import '../skills'
+src/skills/index.ts
+  ├── import './coding-style.skill'                                              // index.ts:1
+  │     └── registerSkill({ id: 'coding-style', stages: ['implement'] })         // coding-style.skill.ts:3
+  │           └── knownSkills.set('coding-style', skill)                         // skill-registry.ts:11
+  ├── import './frontend-design-nuxt.skill'                                      // index.ts:2
+  ├── import './test-driven-development.skill'                                   // index.ts:3
+  └── import './writing-plans.skill'                                             // index.ts:4
+        └── registerSkill({ id: 'writing-plans', stages: ['plan'], getQualityRules })  // writing-plans.skill.ts:5
+              └── duplicate-id guard throws ValidationError                      // skill-registry.ts:8-9
 ```
 
-The step number is the 1-based number in the task brief's `Plan steps:` list. A line needs exactly three non-empty parts separated by `|`; bold markers, bullets, backticks, `Step 3` or `3.` as the step token, and any casing are tolerated. Lines with a step outside the plan, a missing or extra part, or an empty part are ignored and logged at WARN (`plan-problem.ignored`). The first report per step wins, each part is capped at 500 characters, and a run records at most 20 reports. All four backends read the final message of the first pass, every continuation pass and every verification fix pass; the Codex CLI backend reads only its last agent message per pass.
+Content loading is shared by every stage and backend, and resolves against the compiled bundle:
 
-Each report prints `Plan problem reported for step N: <reason> (instead: <instead>)`, is written once at the end of the run to `run.planProblems` in the newest `.wf/state/implement-verification/<repo>/<ticket>-*.json` file, and is appended to that step's text as `[IMPLEMENTER REPORTED PLAN PROBLEM - plan step N]`. The spec-fidelity auditor then judges whether the alternative is sound (sound: literal mismatches become warnings; unsound: they stay errors), fix-round prompts show `Step <index> (<status>) - plan step <n>` and tell the agent to keep a satisfying alternative, and `issue:review` lists the reports in its context. Verification commands still run and still gate the result. The OpenAI Agents backend records and shows reports but skips plan-step verification because it returns no session id.
+```
+## Call Stack: buildSkillPromptFragment(skillIds, backend, color)
+buildSkillPromptFragment(skillIds, ...)                                          // skill-content.ts:35
+  └── skillIds.map(id => loadOneSkill(id, ...))                                  // skill-content.ts:41
+        └── readSkillContent(skillId)                                            // skill-content.ts:23
+              └── fs.readFile(path.join(__dirname, 'content', skillId, 'SKILL.md'))  // skill-content.ts:16
+        └── null → throw ConfigurationError                                      // skill-content.ts:25
+        └── returns `## Skill: ${skillId}\n${content.trimEnd()}`                 // skill-content.ts:31
+  └── return `\n\n${sections.join('\n\n')}`                                      // skill-content.ts:42
+```
 
-The Codex CLI adapter (`codex-cli.adapter.ts`) operates in a single-pass mode and does not have a continuation loop. It calls `buildBehavioralContext` for its system prompt but does not embed `buildTaskBrief` in a user message — the task context is supplied by the caller through the existing system prompt chain.
+The plan stage consumes skills twice — SKILL.md text goes into the prompt, and quality rules run against the generated plan:
+
+```
+## Call Stack: wf issue:plan
+PlanStageService.generatePlan()                                                  // plan-stage.service.ts:91
+  ├── buildPlanContext()                                                         // plan-stage.service.ts:407
+  │     ├── configService.get('stages.plan.skills') ?? []                        // plan-stage.service.ts:413
+  │     ├── resolveSkills(skillIds, { interactive, stage: 'plan' })              // plan-stage.service.ts:415
+  │     └── collectQualityRules(skills)                                          // plan-stage.service.ts:417
+  ├── AiService.generatePlan()                                                   // ai.service.ts:1106
+  │     └── buildPlanPromptBody()                                                // ai.service.ts:692
+  │           ├── buildSkillPromptFragment(skillNames, 'ai-service', ...)        // ai.service.ts:700
+  │           └── assemblePlanPrompt(..., skillFragment)                         // ai.service.ts:661-669
+  └── validatePlanViolations(plan, ctx)                                          // plan-stage.service.ts:421
+        └── detectSkillViolations: skillRules.flatMap(rule => rule.validate(plan))  // plan-quality.ts:453
+```
+
+The implement stage resolves once, then fans out per backend:
+
+```
+## Call Stack: wf issue:implement
+ImplementerAgent.execute()                                                       // implementer.agent.ts:281
+  └── resolveImplementSkillNames()                                               // implementer.agent.ts:403
+        ├── configService.get('stages.implement.skills') ?? []                   // implementer.agent.ts:404
+        ├── resolveSkills(ids, { interactive, stage: 'implement' })              // implementer.agent.ts:406
+        └── skills.map(s => s.id) → skillNames                                   // implementer.agent.ts:407
+  └── adapter.generateAndVerify({ ..., skillNames })
+        ├── ClaudeCliAdapter: createCliSessionParams()                           // claude-cli.adapter.ts:437
+        │     ├── buildSkillPromptFragment(params.skillNames, ...)               // claude-cli.adapter.ts:440-442
+        │     └── buildCliTaskBriefParams(params, repoDir, skillFragment)        // claude-cli.adapter.ts:448
+        ├── AnthropicAgentAdapter: executeAgentSession()                         // anthropic-agent.adapter.ts:832
+        │     └── buildAgentSessionTaskBriefParams(s, skillFragment)             // anthropic-agent.adapter.ts:836
+        ├── OpenAIAgentAdapter: createAgent()                                    // openai-agent.adapter.ts:1490
+        │     └── buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, ...)  // openai-agent.adapter.ts:1504
+        └── CodexCliAdapter: buildCodexImplementPrompt()                         // codex-cli.adapter.ts:98
+              └── `${preamble}${systemPrompt}...${skillFragment}\n\n${tail}`     // codex-cli.adapter.ts:106
+```
+
+#### State Transitions
+
+The skill data changes shape four times between config and prompt:
+
+```json
+// 1. wf.config.ts — plain ID strings
+stages.implement.skills: ["coding-style", "test-driven-development"]
+
+// 2. resolveSkills() — registered definitions (skill-registry.ts:38)
+SkillDefinition {
+  id: "writing-plans",
+  stages: ["plan"],
+  getQualityRules: () => [{ ruleId: "no-placeholders", validate(plan) => string[] }]
+}
+
+// 3. buildSkillPromptFragment() — inlined fragment (skill-content.ts:42)
+skillFragment: "\n\n## Skill: coding-style\n<SKILL.md content, trimmed>\n\n## Skill: test-driven-development\n<...>"
+
+// 4. prompt assembly — fragment embedded, tail chosen (shared-routing.ts:516-520)
+BuildTaskBriefParams {
+  ticketKey, repoDir, planSteps, verificationScripts, ...,
+  skillFragment: "\n\n## Skill: ..."
+}
+fragmentIncludesSkill(skillFragment, TDD_SKILL_ID) ? tddImplementTail : implementTail
+```
+
+Line references were verified against the source at the time of writing (commit `335d1f29`); treat them as orientation, not as a contract.
+
+Two stage-specific behaviours key off the loaded skills: the plan stage runs each skill's quality rules against the generated plan (for example `writing-plans`' `no-placeholders` rule), and the implement stage switches its closing instruction to a red-green loop on every backend when the inlined fragment contains `test-driven-development` (`fragmentIncludesSkill` in `src/skills/skill-content.ts`).
 
 ## Development
 
