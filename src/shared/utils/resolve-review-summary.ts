@@ -46,6 +46,62 @@ export const listReviewArtifactVariants = (reviewPath: string): string[] => {
 export const findExistingReviewArtifact = (reviewPath: string): string | null =>
   listReviewArtifactVariants(reviewPath).find(candidate => fs.existsSync(candidate)) ?? null;
 
+export interface FallbackReviewArtifactMatch {
+  artifactPath: string;
+  alternates: string[];
+}
+
+const datePrefixPattern = '\\d{4}-\\d{2}-\\d{2}-';
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const listTokenReviewMatches = (dir: string, pattern: RegExp): string[] => {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter(entry => (entry.isFile() || entry.isSymbolicLink()) && pattern.test(entry.name))
+      .map(entry => path.join(dir, entry.name));
+  } catch {
+    return [];
+  }
+};
+
+const sortByMtimeDesc = (paths: string[]): string[] => {
+  const stamped = paths.flatMap(candidate => {
+    try {
+      return [{ candidate, mtimeMs: fs.statSync(candidate).mtimeMs }];
+    } catch {
+      return [];
+    }
+  });
+  return stamped
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || a.candidate.localeCompare(b.candidate))
+    .map(({ candidate }) => candidate);
+};
+
+/**
+ * Find review artifacts named `YYYY-MM-DD-<token>-review.<ext>` in the tracker and custom artifact directories.
+ * Limitations: scope-suffixed multi-repo artifacts (`<token>-<repo>-review.<ext>`) are excluded, and matching here
+ * is case-insensitive whereas the exact-path `existsSync` probe is filesystem-dependent.
+ * @param repoBaseDir - Base directory of the repository
+ * @param trackerName - Tracker namespace (e.g., 'jira')
+ * @param token - Exact review stem without date prefix or extension
+ * @returns The newest match and its alternates, or null when nothing matches
+ */
+export const findDatePrefixedReviewArtifact = (
+  repoBaseDir: string,
+  trackerName: string,
+  token: string
+): FallbackReviewArtifactMatch | null => {
+  const extensions = supportedPlanExtensions.join('|');
+  const pattern = new RegExp(
+    `^${datePrefixPattern}${escapeRegExp(token)}-review\\.(?:${extensions})$`,
+    'i'
+  );
+  const dirs = [resolveArtifactDir(repoBaseDir, trackerName), resolveCustomArtifactDir(repoBaseDir)];
+  const sorted = sortByMtimeDesc(dirs.flatMap(dir => listTokenReviewMatches(dir, pattern)));
+  return sorted.length === 0 ? null : { artifactPath: sorted[0], alternates: sorted.slice(1) };
+};
+
 const extractStructuredSummary = (value: unknown): string | null => {
   const [firstTarget] = Array.isArray(value) ? value : [value];
   const summary = (firstTarget as { review?: { summary?: unknown } } | undefined)?.review?.summary;

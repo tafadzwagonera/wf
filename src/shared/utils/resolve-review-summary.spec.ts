@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
+import { restoreEnv, withEnv } from '../testing/env';
 import {
+  findDatePrefixedReviewArtifact,
   findExistingReviewArtifact,
   listReviewArtifactVariants,
   resolveCustomReviewArtifactPath,
@@ -206,5 +208,110 @@ None`;
 
     const result = readReviewArtifactSummary(filePath);
     expect(result).toBe('Trimmed summary with whitespace');
+  });
+});
+
+describe('findDatePrefixedReviewArtifact', () => {
+  let tmpDir: string;
+  let appDir: string;
+  let trackerDir: string;
+
+  const touch = (dir: string, name: string, mtimeInSecs = 1000): string => {
+    const filePath = path.join(dir, name);
+    fs.writeFileSync(filePath, 'x', 'utf-8');
+    fs.utimesSync(filePath, mtimeInSecs, mtimeInSecs);
+    return filePath;
+  };
+
+  const find = (token: string) => findDatePrefixedReviewArtifact('/tmp/current-app', 'jira', token);
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join('/tmp', 'find-dated-review-'));
+    withEnv({ WF_HOME: tmpDir });
+    appDir = path.join(tmpDir, 'current-app');
+    trackerDir = path.join(appDir, 'jira');
+    fs.mkdirSync(trackerDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    restoreEnv();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('matches a dated stem in the custom dir for a bare token', () => {
+    const expected = touch(appDir, '2026-10-20-reviewer-country-filter-review.md');
+
+    expect(find('reviewer-country-filter')).toEqual({ artifactPath: expected, alternates: [] });
+  });
+
+  it('matches a dated stem in the tracker dir for a bare token', () => {
+    const expected = touch(trackerDir, '2026-10-20-WBP-1-review.yaml');
+
+    expect(find('WBP-1')).toEqual({ artifactPath: expected, alternates: [] });
+  });
+
+  it('does not match an undated stem', () => {
+    touch(appDir, 'plan-review.json');
+
+    expect(find('plan')).toBeNull();
+  });
+
+  it('does not match a partial token', () => {
+    touch(appDir, '2026-10-20-reviewer-country-filter-review.md');
+
+    expect(find('country')).toBeNull();
+  });
+
+  it('does not match a longer stem ending in -extra', () => {
+    touch(appDir, '2026-10-20-plan-extra-review.md');
+
+    expect(find('plan')).toBeNull();
+  });
+
+  it('does not match a scope-suffixed artifact', () => {
+    touch(appDir, '2026-10-20-plan-myrepo-review.md');
+
+    expect(find('plan')).toBeNull();
+  });
+
+  it('matches case-insensitively', () => {
+    const expected = touch(appDir, '2026-10-20-WBP-1-review.md');
+
+    expect(find('wbp-1')?.artifactPath).toBe(expected);
+  });
+
+  it('treats regex metacharacters in the token literally', () => {
+    touch(appDir, '2026-10-20-planXmd-review.md');
+    const expected = touch(appDir, '2026-10-20-plan.md-review.md');
+
+    expect(find('plan.md')).toEqual({ artifactPath: expected, alternates: [] });
+  });
+
+  it('returns the newest match first with alternates newest-first', () => {
+    const oldest = touch(appDir, '2026-10-18-plan-review.md', 1000);
+    const newest = touch(trackerDir, '2026-10-20-plan-review.md', 3000);
+    const middle = touch(appDir, '2026-10-19-plan-review.md', 2000);
+
+    expect(find('plan')).toEqual({ artifactPath: newest, alternates: [middle, oldest] });
+  });
+
+  it('orders an mtime tie by path ascending', () => {
+    const first = touch(appDir, '2026-10-19-plan-review.md', 2000);
+    const second = touch(appDir, '2026-10-20-plan-review.md', 2000);
+
+    expect(find('plan')).toEqual({ artifactPath: first, alternates: [second] });
+  });
+
+  it('returns null when neither directory exists', () => {
+    fs.rmSync(appDir, { recursive: true, force: true });
+
+    expect(find('plan')).toBeNull();
+  });
+
+  it('ignores matching directories', () => {
+    fs.mkdirSync(path.join(appDir, '2026-10-20-plan-review.md'));
+
+    expect(find('plan')).toBeNull();
   });
 });

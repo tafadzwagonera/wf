@@ -12,6 +12,7 @@ import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
 import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
 import {
+  findDatePrefixedReviewArtifact,
   listReviewArtifactVariants,
   resolveCustomReviewArtifactPath,
   resolveReviewArtifactPath,
@@ -60,6 +61,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'the commit message automatically. '
     + 'Use --review <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
     + 'directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). '
+    + 'When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants '
+    + '(YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning. '
     + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
     + 'When running from source, use yarn start issue:commit --conventional.',
   options: { isDefault: false },
@@ -307,10 +310,30 @@ export class IssueCommitCommand extends CommandRunner {
     ].flatMap(listReviewArtifactVariants);
     const found = candidates.find(candidate => fs.existsSync(candidate));
     if (found) return found;
+    const fallback = this.resolveDatePrefixedReview(repoBaseDir, trackerName, stem, options.silent);
+    if (fallback) return fallback;
     const message = `--review '${options.review}' matched no review artifact (searched: ${candidates.join(', ')})`;
     appendToLogFile('WARN', message, 'issue-commit');
     if (!options?.silent) console.log(chalk.yellow(`  ⚠  ${message}`));
     return undefined;
+  }
+
+  private resolveDatePrefixedReview(
+    repoBaseDir: string, trackerName: string, stem: string, silent?: boolean
+  ): string | undefined {
+    const match = findDatePrefixedReviewArtifact(repoBaseDir, trackerName, stem);
+    if (!match) return undefined;
+    const { artifactPath, alternates } = match;
+    if (alternates.length === 0) {
+      const info = `--review '${stem}' resolved to date-prefixed artifact '${artifactPath}'`;
+      appendToLogFile('INFO', info, 'issue-commit');
+      return artifactPath;
+    }
+    const message = `--review '${stem}' matched ${alternates.length + 1} review artifacts; `
+      + `using newest '${artifactPath}' (also matched: ${alternates.join(', ')})`;
+    appendToLogFile('WARN', message, 'issue-commit');
+    if (!silent) console.log(chalk.yellow(`  ⚠  ${message}`));
+    return artifactPath;
   }
 
   @Option({
@@ -350,7 +373,9 @@ export class IssueCommitCommand extends CommandRunner {
     flags: '--review <planOrTicket>',
     description:
       'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
-      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml)',
+      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml); when no exact artifact '
+      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact '
+      + 'stem) and the newest by mtime wins on ambiguity with a warning',
   })
   parseReview(val: string): string {
     return val;

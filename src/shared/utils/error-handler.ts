@@ -3,6 +3,9 @@ import { AppError, AiProviderError, ERROR_CODE } from '../errors/app.error';
 import { appendToLogFile } from '../logger/log-file-writer';
 import { isZodErrorLike, formatZodError } from './zod-error.util';
 import chalk from 'chalk';
+import { stripVTControlCharacters } from 'node:util';
+
+const terminalDetailsMaxLines = 25;
 
 const aiProviderCategorySuggestions: Partial<Record<AiProviderErrorCategory, string>> = {
   timeout: 'The AI provider request timed out. Check your network connection and retry — the provider may be temporarily overloaded.',
@@ -62,13 +65,24 @@ export class ErrorHandler {
     console.error(chalk.red.bold(`\n✖ ${error.name}`));
     console.error(chalk.red(error.message));
     if (error.details) {
-      const detailsOutput = isZodErrorLike(error.details)
-        ? `\n${formatZodError(error.details)}`
-        : `\nDetails:\n${JSON.stringify(this.sanitizeDetailsForDisplay(error.details), null, 2)}`;
-      console.error(chalk.gray(detailsOutput));
+      console.error(chalk.gray(this.formatDetailsForTerminal(error.details)));
     }
     if (suggestion) console.error(chalk.yellow(`\n💡 Suggestion: ${suggestion}`));
     if (error.recoverable) console.error(chalk.blue('\nℹ This error is recoverable. You can retry the operation.'));
+  }
+
+  private static formatDetailsForTerminal(details: unknown): string {
+    if (isZodErrorLike(details)) return `\n${formatZodError(details)}`;
+    if (typeof details === 'string') return `\nDetails:\n${this.tailLines(stripVTControlCharacters(details))}`;
+    return `\nDetails:\n${JSON.stringify(this.sanitizeDetailsForDisplay(details), null, 2)}`;
+  }
+
+  private static tailLines(text: string): string {
+    const lines = text.trimEnd().split('\n');
+    if (lines.length <= terminalDetailsMaxLines) return lines.join('\n');
+    const omitted = lines.length - terminalDetailsMaxLines;
+    const notice = `[${omitted} earlier lines omitted; full output is in the agent log]`;
+    return [notice, ...lines.slice(-terminalDetailsMaxLines)].join('\n');
   }
 
   private static handleAppError(error: AppError): void {

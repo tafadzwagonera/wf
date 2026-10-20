@@ -57,6 +57,9 @@ jest.mock('../shared/utils/resolve-commit-scope-summary', () => ({
 
 jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueCommitCommand } from './issue-commit.command';
@@ -350,6 +353,33 @@ describe('IssueCommitCommand', () => {
   });
 
   describe('--review artifact locator', () => {
+    const priorWfHome = process.env.WF_HOME;
+    const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-commit-review-'));
+    process.env.WF_HOME = wfHome;
+    const appDir = path.join(wfHome, 'current-app');
+    const trackerDir = path.join(appDir, 'jira');
+
+    const touchReview = (dir: string, name: string, mtimeInSecs: number): string => {
+      const filePath = path.join(dir, name);
+      fs.writeFileSync(filePath, 'x', 'utf-8');
+      fs.utimesSync(filePath, mtimeInSecs, mtimeInSecs);
+      return filePath;
+    };
+
+    beforeEach(() => {
+      fs.mkdirSync(trackerDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(appDir, { recursive: true, force: true });
+    });
+
+    afterAll(() => {
+      if (priorWfHome === undefined) delete process.env.WF_HOME;
+      else process.env.WF_HOME = priorWfHome;
+      fs.rmSync(wfHome, { recursive: true, force: true });
+    });
+
     const trackerPath = resolveReviewArtifactPath('/tmp/current-app', 'jira', 'WBP-1');
     const customPath = resolveCustomReviewArtifactPath('/tmp/current-app', 'plan');
     const stagedDiff = 'diff --git a/file b/file';
@@ -416,6 +446,43 @@ describe('IssueCommitCommand', () => {
         );
       }
     );
+
+    it('resolves a date-prefixed custom-dir artifact for a bare --review token', async () => {
+      const dated = touchReview(appDir, '2026-10-20-reviewer-country-filter-review.md', 1000);
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'reviewer-country-filter', tracker: 'jira' });
+
+      expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({ reviewArtifactPath: dated }));
+    });
+
+    it('uses the newest of several date-prefixed matches and warns naming both paths', async () => {
+      const older = touchReview(appDir, '2026-10-18-plan-review.md', 1000);
+      const newer = touchReview(trackerDir, '2026-10-20-plan-review.md', 2000);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'plan', tracker: 'jira' });
+
+      expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({ reviewArtifactPath: newer }));
+      const warning = consoleSpy.mock.calls.map(call => String(call[0]))
+        .find(line => line.includes('matched 2 review artifacts'));
+      expect(warning).toContain(newer);
+      expect(warning).toContain(older);
+      expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'issue-commit');
+    });
+
+    it('suppresses the ambiguity console line under --silent but still logs', async () => {
+      touchReview(appDir, '2026-10-18-plan-review.md', 1000);
+      touchReview(trackerDir, '2026-10-20-plan-review.md', 2000);
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      const { command } = await buildCommand();
+
+      await command.run([], { review: 'plan', tracker: 'jira', silent: true });
+
+      expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('matched 2'))).toBe(false);
+      expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'issue-commit');
+    });
 
     it('warns, logs, and still generates inline when no review artifact exists', async () => {
       mockExistingFiles();

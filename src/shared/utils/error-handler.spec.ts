@@ -158,4 +158,39 @@ describe('ErrorHandler', () => {
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
   });
+
+  describe('string details — terminal rendering', () => {
+    const hookOutput = [
+      ...Array.from({ length: 100 }, (_, index) => `noise line ${index}`),
+      '\u001b[31mERROR: Commit message does not follow conventional commits format.\u001b[0m',
+      'exit status 1',
+    ].join('\n');
+
+    it('prints real line breaks instead of escaped \\n sequences', () => {
+      ErrorHandler.handle(new GitError('Failed to create commit', hookOutput));
+      expect(allOutput()).not.toContain('\\n');
+      expect(allOutput()).toContain('exit status 1');
+    });
+
+    it('keeps only the trailing lines and points to the log for the rest', () => {
+      ErrorHandler.handle(new GitError('Failed to create commit', hookOutput));
+      expect(allOutput()).not.toContain('noise line 0\n');
+      expect(allOutput()).toContain('earlier lines omitted');
+      expect(allOutput()).toContain('ERROR: Commit message does not follow conventional commits format.');
+    });
+
+    it('strips ANSI escape codes from the terminal output', () => {
+      ErrorHandler.handle(new GitError('Failed to create commit', hookOutput));
+      expect(allOutput()).not.toContain('\u001b[31m');
+    });
+
+    it('still writes the complete output to the log file', () => {
+      ErrorHandler.handle(new GitError('Failed to create commit', hookOutput));
+      expect(appendToLogFileSpy).toHaveBeenCalledWith(
+        'ERROR',
+        expect.stringContaining('noise line 0'),
+        'ErrorHandler'
+      );
+    });
+  });
 });
