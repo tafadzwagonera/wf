@@ -3,6 +3,7 @@
 
 # Build output
 dist/
+coverage/
 
 # Dependencies
 node_modules/
@@ -12,6 +13,7 @@ node_modules/
 
 # Tooling artifacts
 .superpowers/
+docs/superpowers/
 .env
 wf.config.*
 verification.policy.*
