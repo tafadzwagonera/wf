@@ -617,7 +617,7 @@ wf issue:create ticket.md --tracker jira --ticket-project WBP --priority medium
 wf issue:create 2026-05-12-d38b5be9-ticket-description.md --ticket-project WBP -r terraform-aws --dry-run
 
 # Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update and shows a y/N prompt before the PUT
-yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
+yarn test:manual issue-update-jira-adf.smoke WBP-3092 --description-file /Users/{username}/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 ```
 
 **Options:**
@@ -1994,7 +1994,7 @@ Manual smoke tests live in `test/manual/` and are run via the `test:manual` scri
 
 ```bash
 # Run a named manual smoke test
-yarn test:manual test-issue-create-jira-adf-smoke
+yarn test:manual test-issue-create-jira-adf.smoke
 
 # Fail if any smoke test file contains only comments (it would pass without running anything)
 yarn test:smoke:check
@@ -2003,7 +2003,7 @@ yarn test:smoke:check
 yarn test:manual test-agent-progress-output
 
 # Live smoke-test a Jira description update from a generated artifact
-yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
+yarn test:manual issue-update-jira-adf.smoke WBP-3092 --description-file /Users/{username}/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update
 
 # Test Jira integration
 yarn test:manual test-jira
@@ -2015,7 +2015,7 @@ yarn test:manual diagnose-jira-permissions
 yarn test:manual test-ci-yarn-scripts
 ```
 
-`test-issue-update-jira-adf-smoke` defaults to preview-only mode. `--live` enables the real Jira update path, and `--confirm-live-update` is the explicit mutation safety gate. If `--live` is supplied without `--confirm-live-update`, the harness fails early instead of sending the Jira `PUT`. When both flags are present, the harness prints the full payload preview and then prompts `Update <ticket>? (y/N)` — the update only proceeds if you answer `y` or `Y`.
+`issue-update-jira-adf.smoke` defaults to preview-only mode. `--live` enables the real Jira update path, and `--confirm-live-update` is the explicit mutation safety gate. If `--live` is supplied without `--confirm-live-update`, the harness fails early instead of sending the Jira `PUT`. When both flags are present, the harness prints the full payload preview and then prompts `Update <ticket>? (y/N)` — the update only proceeds if you answer `y` or `Y`.
 
 ### Integration Tests
 

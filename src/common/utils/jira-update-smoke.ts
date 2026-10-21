@@ -47,7 +47,7 @@ interface ParsedRestArgs {
 const requireTicketKey = (ticketKey: string | undefined): string => {
   if (!ticketKey || ticketKey.startsWith('-')) {
     throw new Error(
-      'Missing ticket key. Usage: yarn test:manual test-issue-update-jira-adf-smoke <ticket-key> --description-file <path> [--live --confirm-live-update]'
+      'Missing ticket key. Usage: yarn test:manual issue-update-jira-adf.smoke <ticket-key> --description-file <path> [--live --confirm-live-update]'
     );
   }
   return ticketKey;

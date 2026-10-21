@@ -2,7 +2,7 @@
  * Manual Test: issue:update Jira ADF payload smoke test
  *
  * Run:
- * nr test:manual issue-update-jira-adf-smoke.smoke.ts WBP-3092 \
+ * nr test:manual issue-update-jira-adf.smoke.ts WBP-3092 \
  *   --description-file .wf/terraform-aws/jira/ticket-description.md
  *
  * With no arguments, previews a built-in sample description for WBP-0000

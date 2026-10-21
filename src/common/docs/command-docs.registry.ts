@@ -215,7 +215,7 @@ export const COMMAND_DOCS = {
         comment:
           'Live smoke-test a Jira description update using a generated artifact; --live requires --confirm-live-update and shows a y/N prompt before the PUT',
         command:
-          'yarn test:manual test-issue-update-jira-adf-smoke WBP-3092 --description-file /Users/tafadzwagonera/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update',
+          'yarn test:manual issue-update-jira-adf.smoke WBP-3092 --description-file /Users/{username}/.wf/terraform-aws/jira/2026-05-13-3d6f5adb-ticket-description.md --live --confirm-live-update',
       },
     ],
   },
