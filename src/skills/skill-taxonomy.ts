@@ -11,4 +11,9 @@ export const skillTaxonomy: Record<string, SkillAudience> = {
   'test-driven-development': { interactive: ['claude', 'codex'], headless: true },
   'writing-plans': { interactive: ['claude', 'codex'], headless: true },
   'frontend-design-nuxt': { interactive: ['claude', 'codex'], headless: true },
+  'draft-manual-tests': { interactive: ['claude', 'codex'], headless: false },
+  'run-manual-tests': { interactive: ['claude', 'codex'], headless: false },
+  'run-and-prune-manual-tests': { interactive: ['claude', 'codex'], headless: false },
+  'conclude-feature-wf': { interactive: ['claude', 'codex'], headless: false },
+  'conclude-feature': { interactive: ['claude', 'codex'], headless: false },
 };
