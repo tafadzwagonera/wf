@@ -182,6 +182,47 @@ describe('wfImplementStageConfigSchema planStepVerification', () => {
   });
 });
 
+describe('designConformance config', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('leaves designConformance undefined when omitted', () => {
+    const parsed = wfImplementStageConfigSchema.parse({ provider: 'anthropic' });
+    expect(parsed.designConformance).toBeUndefined();
+  });
+
+  it('defaults enabled to false when designConformance is an empty object', () => {
+    const parsed = wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: {} });
+    expect(parsed.designConformance).toEqual({ enabled: false });
+  });
+
+  it('accepts maxScreenshots', () => {
+    const parsed = wfImplementStageConfigSchema.parse({
+      provider: 'anthropic',
+      designConformance: { enabled: true, maxScreenshots: 5 },
+    });
+    expect(parsed.designConformance).toEqual({ enabled: true, maxScreenshots: 5 });
+  });
+
+  it('rejects a designConformance model now that planStepVerification supplies it', () => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { model: 'x' } }),
+    ).toThrow();
+  });
+
+  it.each([0, -1, 1.5])('rejects maxScreenshots of %s', maxScreenshots => {
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { maxScreenshots } }),
+    ).toThrow();
+  });
+
+  it('accepts designConformance in the normalized implement config', () => {
+    const parsed = normalizedImplementStageConfigSchema.parse({
+      provider: 'anthropic', backend: 'agent', designConformance: { enabled: true },
+    });
+    expect(parsed.designConformance).toEqual({ enabled: true });
+  });
+});
+
 describe('wfImplementStageConfigSchema modelRoutingThresholds', () => {
   afterEach(() => jest.restoreAllMocks());
 

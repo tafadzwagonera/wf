@@ -386,6 +386,68 @@ describe('StageAgentService', () => {
     expect(mockRunStagePrompt).toHaveBeenCalledWith(expect.objectContaining({ onProgress }));
   });
 
+  describe('plan design screenshots', () => {
+    const createMockPlanResponse = () => ({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    const screenshotPathsHeading = 'Design screenshots (accessible via filesystem)';
+
+    it.each([
+      ['SDK', createConfigService],
+      ['CLI', createClaudeCliReviewConfigService],
+      ['Codex', createCodexConfigService],
+    ])('passes path and mediaType screenshots to the stage run on the %s backend', async (_name, createConfig) => {
+      const service = new StageAgentService(createConfig());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue(createMockPlanResponse());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      await service.generatePlan({
+        action: 'fix', issueContent: 'Fix header', uiDesignScreenshots: ['/abs/a.png', '/abs/b.JPG', '/abs/c.webp'],
+      });
+
+      expect(mockRunStagePrompt).toHaveBeenCalledTimes(1);
+      const call = mockRunStagePrompt.mock.calls[0][0];
+      expect(call.screenshots).toEqual([
+        { path: '/abs/a.png', mediaType: 'image/png', base64: '' },
+        { path: '/abs/b.JPG', mediaType: 'image/jpeg', base64: '' },
+        { path: '/abs/c.webp', mediaType: 'image/webp', base64: '' },
+      ]);
+      expect(call.prompt).not.toContain(screenshotPathsHeading);
+    });
+
+    it('appends the screenshot paths section exactly once when dispatching to the SDK backend', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunOpenAi = jest.fn().mockResolvedValue(createMockPlanResponse().content);
+      (service as unknown as { runOpenAiStagePrompt: jest.Mock }).runOpenAiStagePrompt = mockRunOpenAi;
+
+      await service.generatePlan({
+        action: 'fix', issueContent: 'Fix header', uiDesignScreenshots: ['/abs/a.png'],
+      }).catch(() => undefined);
+
+      const prompt: string = mockRunOpenAi.mock.calls[0][0].prompt;
+      expect(prompt.split(screenshotPathsHeading)).toHaveLength(2);
+    });
+
+    it('omits screenshots when none are provided', async () => {
+      const service = new StageAgentService(createConfigService());
+      const mockRunStagePrompt = jest.fn().mockResolvedValue(createMockPlanResponse());
+      (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+      const withEmpty = await service.generatePlan({
+        action: 'fix', issueContent: 'Fix header', uiDesignScreenshots: [],
+      });
+      const withoutField = await service.generatePlan({ action: 'fix', issueContent: 'Fix header' });
+
+      expect(mockRunStagePrompt).toHaveBeenCalledTimes(2);
+      expect(mockRunStagePrompt.mock.calls[0][0]).not.toHaveProperty('screenshots');
+      expect(mockRunStagePrompt.mock.calls[0][0].prompt).toBe(mockRunStagePrompt.mock.calls[1][0].prompt);
+      expect({ ...withEmpty.plan, timestamp: undefined }).toEqual({ ...withoutField.plan, timestamp: undefined });
+      expect(withEmpty.plan.summary).toBe('Fix it');
+    });
+  });
+
   it('includes the prompt-quality rules when generating a plan', async () => {
     const service = new StageAgentService(createConfigService());
     const mockRunStagePrompt = jest.fn().mockResolvedValue({

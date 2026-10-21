@@ -406,7 +406,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--ui-design-screenshots [files...]',
-    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at review time. Mutually exclusive with --figma.',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at implement and review time. On the agent and CLI plan backends the paths are also appended to the plan prompt and their directories made readable. Mutually exclusive with --figma.',
   })
   parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
     return [...previous, val];

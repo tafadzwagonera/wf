@@ -115,6 +115,11 @@ export const validatePullStepVerificationProvider = (
   });
 };
 
+export const wfDesignConformanceConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  maxScreenshots: z.number().int().positive().optional(),
+}).strict();
+
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema
   .omit({ outputFormat: true })
   .extend({
@@ -125,6 +130,7 @@ export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema
     skills: z.array(wfImplementSkillNameSchema).optional(),
     verificationConditions: wfVerificationConditionsConfigSchema.optional(),
     planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
+    designConformance: wfDesignConformanceConfigSchema.optional(),
   })
   .strict()
   .superRefine(validatePullStepVerificationProvider);
@@ -274,6 +280,7 @@ export const normalizedImplementStageConfigSchema = z.object({
   verificationConditions: normalizedVerificationConditionsConfigSchema.optional(),
   skills: z.array(z.string()).optional(),
   planStepVerification: wfPlanStepVerificationConfigSchema.optional(),
+  designConformance: wfDesignConformanceConfigSchema.optional(),
 }).superRefine(validatePullStepVerificationProvider);
 
 export const normalizedCreateStageConfigSchema = z.object({

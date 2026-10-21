@@ -28,8 +28,12 @@ import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAM
 import { ConfigurationError, ExecutionError, GitError, InvalidBranchNameError, ValidationError } from '../common/utils/errors';
 import { resolveSkills } from '../skills';
 import {
-  appendPlanProblemsToRunFile, formatBackendSelection, writeImplementVerificationRunFile,
+  appendDesignConformanceToRunFile, appendPlanProblemsToRunFile, formatBackendSelection,
+  writeImplementVerificationRunFile,
 } from '../common/utils/implement-verification';
+import { splitDiffIntoFileSections } from '../common/utils/commit-diff-stat';
+import type { DesignConformanceFinding } from '../common/types/design-conformance.types';
+import { UiDesignScreenshotConformanceService } from './ui-design-screenshot-conformance.service';
 import { getWfStateDir } from '../common/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
 import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../common/utils/implement-commit-policy';
@@ -51,7 +55,9 @@ import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig } from '../common/types/config.types';
+import type {
+  WfAiProviderName, WfBackendMode, WfImplementStageConfig, WfPlanStepVerificationConfig,
+} from '../common/types/config.types';
 import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../common/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
@@ -248,11 +254,17 @@ export class ImplementerAgent {
   @Inject(UiDesignScreenshotsStageService)
   private readonly uiDesignScreenshotsStageService?: UiDesignScreenshotsStageService;
 
+  @Optional()
+  @Inject(UiDesignScreenshotConformanceService)
+  private readonly designConformanceService?: UiDesignScreenshotConformanceService;
+
   private planStepVerificationPassCount = 0;
 
   private verificationPassOffset = 0;
 
   private latestRunArtifactPath: string | undefined;
+
+  private latestUiDesignScreenshotPaths: string[] | undefined;
 
   constructor(
     private readonly configService: ConfigService,
@@ -305,13 +317,54 @@ export class ImplementerAgent {
     const { result } = args;
     const ledger = createPlanProblemLedger(result.type === 'implementation' ? result.planProblems ?? [] : []);
     const verified = await this.applyPlanStepVerification({ ...args, ledger });
+    await this.runDesignConformanceCheck(args);
     return this.finalizePlanProblems(verified, ledger);
+  }
+
+  private async runDesignConformanceCheck(args: Omit<PlanStepVerificationArgs, 'ledger'>): Promise<void> {
+    const paths = this.latestUiDesignScreenshotPaths;
+    const cfg = this.configService.get<WfImplementStageConfig['designConformance']>(
+      'stages.implement.designConformance',
+    );
+    if (!this.designConformanceService || !cfg?.enabled || !paths?.length) return;
+    if (args.result.type !== 'implementation') return;
+    try {
+      const diffRef = args.baseline?.sha ?? 'HEAD';
+      appendToLogFile('INFO', `design-check.diff ref=${diffRef} screenshots=${paths.length}`, 'design-check');
+      const diff = await this.gitService.getDiffFromRef(diffRef, args.options.repoDir);
+      const changedFiles = [...splitDiffIntoFileSections(diff).keys()];
+      const findings = await this.designConformanceService.check(paths, diff, changedFiles);
+      this.reportDesignConformance(findings);
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      console.log(chalk.yellow(`  [design-check] check failed: ${cause}`));
+      appendToLogFile('WARN', `design-check.unexpected cause=${cause}`, 'design-check');
+    }
+  }
+
+  private reportDesignConformance(findings: DesignConformanceFinding[]): void {
+    if (findings.length === 0) return;
+    console.log(chalk.bold('\n  Design conformance (advisory):'));
+    for (const finding of findings) {
+      console.log(chalk.yellow(`    ${path.basename(finding.screenshot)} — ${finding.area}: ${finding.deviation}`));
+    }
+    if (!this.latestRunArtifactPath) {
+      appendToLogFile('WARN', 'design-check.persist.skipped cause=no-run-artifact-path', 'design-check');
+      return;
+    }
+    try {
+      appendDesignConformanceToRunFile(this.latestRunArtifactPath, findings);
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      appendToLogFile('WARN', `design-check.persist.failed cause=${cause}`, 'design-check');
+    }
   }
 
   private resetRunCounters(): void {
     this.verificationPassOffset = 0;
     this.planStepVerificationPassCount = 0;
     this.latestRunArtifactPath = undefined;
+    this.latestUiDesignScreenshotPaths = undefined;
   }
 
   private finalizePlanProblems(result: ImplementerResult, ledger: PlanProblemLedger): ImplementerResult {
@@ -856,6 +909,7 @@ export class ImplementerAgent {
         : Promise.resolve(undefined),
     ]);
     const uiDesignScreenshotPaths = uiResult?.paths?.length ? uiResult.paths : undefined;
+    this.latestUiDesignScreenshotPaths = uiDesignScreenshotPaths;
     const figmaContextSection = buildFigmaContextSection(figmaResult?.frames ?? []);
     return { skillNames, figmaContextSection, uiDesignScreenshotPaths };
   }

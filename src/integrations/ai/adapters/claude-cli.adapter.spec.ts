@@ -1056,6 +1056,68 @@ describe('ClaudeCliAdapter', () => {
     expect(mockSpawnCli.mock.calls[0][2]).toContain('- /tmp/design.png');
   });
 
+  describe('continuation pass design screenshots', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    const runWithScreenshots = async (uiDesignScreenshotPaths?: string[]) => {
+      const mockStream = (sid?: string) =>
+        (async function* () {
+          yield { type: 'result', result: 'done', session_id: sid, num_turns: 1, total_cost_usd: 0.01 };
+        })();
+      mockSpawnCli
+        .mockReturnValueOnce(mockStream('s1'))
+        .mockReturnValueOnce(mockStream('s1'))
+        .mockImplementation(() => mockStream(undefined));
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+      await adapter.generateAndVerify({
+        ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+        planArtifact: {
+          plan: {
+            action: 'feature', summary: 'test', steps: ['step 1'], estimatedComplexity: 'low',
+            affectedFiles: [], affectedRepositories: [], risks: [],
+          },
+          action: 'feature', path: '/tmp/p.json',
+        },
+        options: { trackerName: 'jira', repoDir: '/repo' },
+        verificationScripts: [],
+        repoFiles: ['repo/src/app.ts'],
+        repoName: 'repo',
+        trackedFilePaths: ['repo/src/app.ts'],
+        uiDesignScreenshotPaths,
+      });
+    };
+
+    it('keeps screenshot directories and adds a one-line reminder on continuation passes', async () => {
+      await runWithScreenshots(['/designs/a.png', '/designs/b.png']);
+
+      expect(mockBuildCliArgs.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const firstPass = mockBuildCliArgs.mock.calls[0][0];
+      const continuation = mockBuildCliArgs.mock.calls[1][0];
+      expect(firstPass.screenshots?.map((s: { path: string }) => s.path)).toEqual(['/designs/a.png', '/designs/b.png']);
+      expect(continuation.screenshots?.map((s: { path: string }) => s.path)).toEqual([
+        '/designs/a.png', '/designs/b.png',
+      ]);
+      const { buildCliArgs } = jest.requireActual<typeof cliRunner>('./claude-cli-runner');
+      expect(buildCliArgs(continuation)).toEqual(expect.arrayContaining(['--add-dir', '/designs']));
+      expect(continuation.prompt).toContain('Design screenshots are still available');
+      expect(continuation.prompt).not.toContain('Design screenshots (accessible via filesystem)');
+      expect(firstPass.prompt).not.toContain('Design screenshots are still available');
+    });
+
+    it('leaves continuation passes unchanged when there are no screenshots', async () => {
+      await runWithScreenshots(undefined);
+
+      expect(mockBuildCliArgs.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const continuation = mockBuildCliArgs.mock.calls[1][0];
+      expect(continuation.screenshots).toBeUndefined();
+      expect(continuation.prompt).not.toContain('Design screenshots');
+    });
+  });
+
   describe('modelsUsed', () => {
     afterEach(() => {
       jest.restoreAllMocks();

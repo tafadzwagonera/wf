@@ -1564,6 +1564,30 @@ describe('OpenAIAgentAdapter', () => {
       expect(agentConfig.instructions).toContain('UI design compliance');
     });
 
+    it.each([
+      ['warns once when uiDesignScreenshotPaths is non-empty', ['/tmp/design.png'], 1],
+      ['does not warn when uiDesignScreenshotPaths is absent', undefined, 0],
+      ['does not warn when uiDesignScreenshotPaths is empty', [], 0],
+    ])('%s', async (_name, uiDesignScreenshotPaths, expectedWarnings) => {
+      const repoDir = createManagedTempDir('openai-ui-warning');
+      fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoDir, 'src', 'foo.ts'), 'original\n');
+
+      const mockRunResult = makeStreamedRun([], 'Done.');
+      const runMock = jest.fn(async () => mockRunResult);
+      mockRunner.mockImplementation(() => ({ run: runMock, config: {} }));
+
+      const adapter = new OpenAIAgentAdapter(makeConfigService());
+      const mockLog = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await adapter.generateAndVerify({ ...makeParams(repoDir), uiDesignScreenshotPaths });
+
+      const warnings = mockLog.mock.calls.filter(
+        args => typeof args[0] === 'string' && args[0].includes('screenshots are not supported')
+      );
+      expect(warnings).toHaveLength(expectedWarnings);
+    });
+
     it('includes task brief in continuation prompts', async () => {
       const repoDir = createManagedTempDir('openai-prompt-continuation');
       fs.mkdirSync(path.join(repoDir, 'src'), { recursive: true });

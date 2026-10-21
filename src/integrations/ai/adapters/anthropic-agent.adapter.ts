@@ -47,7 +47,10 @@ import {
   collectPlanProblems,
   type BuildTaskBriefParams,
 } from './shared-routing';
-import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
+import {
+  buildUiDesignComplianceSystemPromptSection,
+  formatUiDesignScreenshotPathsPromptSection,
+} from '../prompt-fragments';
 
 const claudeCodeTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'TodoWrite', 'Task', 'Agent'] as const;
 const DELETE_FILE_SERVER_NAME = 'wf';
@@ -307,6 +310,7 @@ export const buildSystemPrompt = (p: SystemPromptParams): string =>
 type SdkOptionsParams = {
   repoDir: string;
   additionalRepoDirs: string[];
+  uiDesignScreenshotPaths: string[];
   model: string;
   apiKey: string;
   claudeContext: string | null;
@@ -332,13 +336,25 @@ const buildSystemPromptAppend = (
   ].join('');
 };
 
-const buildSandboxConfig = (repoDir: string, additionalRepoDirs: string[]) => ({
+const resolveScreenshotReadDirs = (uiDesignScreenshotPaths: string[]): string[] => {
+  const dirs = [...new Set(uiDesignScreenshotPaths.map(screenshotPath => path.dirname(screenshotPath)))];
+  if (dirs.length > 0) {
+    console.log(chalk.cyan(`  [${ANTHROPIC_AGENT_LABEL}] Granting read access to design screenshot directories: ${dirs.join(', ')}`));
+  }
+  return dirs;
+};
+
+const buildSandboxConfig = (repoDir: string, additionalRepoDirs: string[], uiDesignScreenshotPaths: string[]) => ({
   enabled: true,
   failIfUnavailable: true,
   allowUnsandboxedCommands: false,
   autoAllowBashIfSandboxed: true,
   filesystem: {
-    allowRead: [resolveRepoPath(repoDir, '.'), ...additionalRepoDirs.map(dir => resolveRepoPath(repoDir, dir))],
+    allowRead: [
+      resolveRepoPath(repoDir, '.'),
+      ...additionalRepoDirs.map(dir => resolveRepoPath(repoDir, dir)),
+      ...resolveScreenshotReadDirs(uiDesignScreenshotPaths),
+    ],
     allowWrite: [resolveRepoPath(repoDir, '.')],
   },
 });
@@ -370,7 +386,7 @@ const buildSdkOptions = (params: SdkOptionsParams) => {
     systemPrompt: buildSdkSystemPrompt(priorStageSummary, claudeContext, systemPromptBody),
     canUseTool: buildCanUseTool(allowedCommands, activityState),
     env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
-    sandbox: buildSandboxConfig(repoDir, additionalRepoDirs),
+    sandbox: buildSandboxConfig(repoDir, additionalRepoDirs, params.uiDesignScreenshotPaths),
   };
 };
 
@@ -754,11 +770,11 @@ const resolveSessionOptions = async (input: SessionOptionsInput) => {
   const claudeContext = await loadClaudeContext(repoDir);
   const { model, systemPromptBody } = resolveModelAndPrompt(params, configService, repoDir);
   return {
-    model,
-    repoDir,
+    model, repoDir,
     sdkOptions: buildSdkOptions({
       repoDir, additionalRepoDirs: params.options.additionalRepoDirs ?? [], model, apiKey, claudeContext,
       priorStageSummary: params.options.priorStageSummary, systemPromptBody, allowedCommands, activityState,
+      uiDesignScreenshotPaths: params.uiDesignScreenshotPaths ?? [],
       deleteFileServer: buildDeleteFileMcpServer(sdk, repoDir, touchedFiles),
     }),
   };
@@ -808,6 +824,11 @@ type AgentSessionParams = {
   planStepCount: number;
 };
 
+const joinContextSections = (...sections: Array<string | undefined>): string | undefined => {
+  const joined = sections.filter(Boolean).join('\n\n');
+  return joined.length > 0 ? joined : undefined;
+};
+
 const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: string): BuildTaskBriefParams => ({
   ticketKey: s.params.ticket.ticketKey, repoName: s.params.repoName,
   repoFiles: s.params.repoFiles, contextFiles: s.params.contextFiles,
@@ -815,7 +836,9 @@ const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: 
   planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
   planRisks: formatPlanRisks(s.params.planArtifact.plan.risks), planAction: s.params.planArtifact.plan.action,
   skillFragment: skillFragment.length > 0 ? skillFragment : undefined,
-  figmaContextSection: s.params.figmaContextSection,
+  figmaContextSection: joinContextSections(
+    s.params.figmaContextSection, formatUiDesignScreenshotPathsPromptSection(s.params.uiDesignScreenshotPaths ?? []),
+  ),
   phases: s.params.planArtifact.plan.phases,
 });
 

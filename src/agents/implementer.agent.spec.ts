@@ -2871,6 +2871,54 @@ describe('ImplementerAgent', () => {
       expect(planStepVerificationService.run).toHaveBeenCalled();
     });
 
+    describe('design conformance check', () => {
+      const runWithDesignConformance = async (enabled: boolean) => {
+        setupWithChanges();
+        (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+          if (key === 'stages.implement.designConformance') return { enabled };
+          if (key === 'stages.implement.provider') return 'anthropic';
+          if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+          return fallback;
+        });
+        const mockCheck = jest.fn().mockResolvedValue([]);
+        const internals = agent as unknown as Record<string, unknown>;
+        internals.designConformanceService = { check: mockCheck };
+        internals.uiDesignScreenshotsStageService = {
+          resolveIfEnabled: jest.fn().mockResolvedValue({ screenshots: [], paths: ['/designs/a.png'] }),
+        };
+        (gitService as unknown as { getDiffFromRef: jest.Mock }).getDiffFromRef = jest.fn()
+          .mockResolvedValue('diff --git a/src/example.ts b/src/example.ts\n+change\n');
+        jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+          sessionId: 'sess-1', verificationOutcomes: [],
+        });
+
+        await agent.execute(
+          ticketArtifact,
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        );
+        return mockCheck;
+      };
+
+      it('calls the conformance check once with screenshots, diff and changed files when enabled', async () => {
+        const mockCheck = await runWithDesignConformance(true);
+
+        expect(mockCheck).toHaveBeenCalledTimes(1);
+        expect(mockCheck).toHaveBeenCalledWith(
+          ['/designs/a.png'],
+          expect.stringContaining('+change'),
+          ['src/example.ts'],
+        );
+        expect(planStepVerificationService.run).toHaveBeenCalled();
+      });
+
+      it('never calls the conformance check when disabled', async () => {
+        const mockCheck = await runWithDesignConformance(false);
+
+        expect(mockCheck).not.toHaveBeenCalled();
+      });
+    });
+
     it('threads configured mode and assessor target to verification', async () => {
       setupWithChanges();
       (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {

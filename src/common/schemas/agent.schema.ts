@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isValidRegexPattern, verificationPolicySchema } from './verification.schema';
 import { planPhaseSchema, resolutionPlanSchema } from './ai.schema';
 import { codeReviewSchema } from './review.schema';
+import { designConformanceFindingSchema } from './design-conformance.schema';
 import type { RecordsCallback } from '../types/agent.types';
 
 export const verificationScriptSchema = z.object({
@@ -66,6 +67,7 @@ export const implementRunArtifactSchema = z.object({
   ),
   startedAt: z.string(),
   planProblems: z.array(planProblemSchema).optional(),
+  designConformance: z.array(designConformanceFindingSchema).optional(),
 });
 
 export const verificationAttemptArtifactSchema = z.object({

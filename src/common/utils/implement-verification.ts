@@ -10,6 +10,7 @@ import type {
   VerificationAttemptArtifact,
   VerificationFailureClassification,
 } from '../types/agent.types';
+import type { DesignConformanceFinding } from '../types/design-conformance.types';
 import type {
   ImplementVerificationRunFile,
   VerificationSignal,
@@ -111,6 +112,20 @@ export const appendPlanProblemsToRunFile = (
   const updated: ImplementVerificationRunFile = {
     ...existing,
     run: planProblems.length > 0 ? { ...existing.run, planProblems } : existing.run,
+  };
+
+  fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');
+  return updated;
+};
+
+export const appendDesignConformanceToRunFile = (
+  filePath: string,
+  designConformance: DesignConformanceFinding[]
+): ImplementVerificationRunFile => {
+  const existing = readImplementVerificationRunFile(filePath);
+  const updated: ImplementVerificationRunFile = {
+    ...existing,
+    run: designConformance.length > 0 ? { ...existing.run, designConformance } : existing.run,
   };
 
   fs.writeFileSync(filePath, JSON.stringify(updated, null, 2), 'utf-8');

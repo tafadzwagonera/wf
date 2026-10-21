@@ -1398,6 +1398,45 @@ describe('AnthropicAgentAdapter', () => {
       expect(systemPrompt.append).not.toContain('UI design compliance');
     });
   });
+
+  describe('UI design screenshots in agent session', () => {
+    const screenshotHeading = 'Design screenshots (accessible via filesystem)';
+    type SandboxOptions = { sandbox: { filesystem: { allowRead: string[]; allowWrite: string[] } } };
+
+    it('adds the paths section once to the initial brief and grants each unique parent directory read access', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockSdkModule({ query: mockQuery } as never);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify({
+        ...makeParams(),
+        uiDesignScreenshotPaths: ['/designs/a.png', '/designs/b.png', '/other/c.png'],
+      });
+
+      expect(mockQuery.mock.calls.length).toBeGreaterThanOrEqual(1);
+      const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string; options: SandboxOptions };
+      expect(queryArgs.prompt.split(screenshotHeading)).toHaveLength(2);
+      expect(queryArgs.prompt).toContain('- /designs/a.png');
+      expect(queryArgs.options.sandbox.filesystem.allowRead).toEqual([
+        '/repo/primary', '/repo/shared', '/designs', '/other',
+      ]);
+      expect(queryArgs.options.sandbox.filesystem.allowWrite).toEqual(['/repo/primary']);
+    });
+
+    it('leaves the brief and read roots unchanged when no screenshots are provided', async () => {
+      const mockQuery = jest.fn().mockImplementation(() => makeSdkSession([makeResultSuccess()]));
+      mockSdkModule({ query: mockQuery } as never);
+
+      const adapter = new AnthropicAgentAdapter(makeConfigService());
+      await adapter.generateAndVerify(makeParams());
+
+      expect(mockQuery.mock.calls.length).toBeGreaterThanOrEqual(1);
+      const queryArgs = mockQuery.mock.calls[0][0] as { prompt: string; options: SandboxOptions };
+      expect(queryArgs.prompt).not.toContain(screenshotHeading);
+      expect(queryArgs.options.sandbox.filesystem.allowRead).toEqual(['/repo/primary', '/repo/shared']);
+    });
+  });
 });
 
 describe('orphan deletion support', () => {

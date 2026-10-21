@@ -1469,6 +1469,7 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
     params: GenerateAndVerifyParams, repoDir: string, model: string,
     mutable: ToolMutableState, vs: VerifyCommandState, options: ImplementerOptions
   ) {
+    this.warnUnsupportedScreenshots(params.uiDesignScreenshotPaths);
     const agent = await this.createAgent(params, repoDir, model, mutable, vs, options);
     const contextMd = await loadAiContextConfig(
       path.join(os.homedir(), '.openai', 'AGENTS.md'), 'AGENTS.md', 'openai', true
@@ -1501,6 +1502,14 @@ export class OpenAIAgentAdapter implements ImplementerBackend {
       appendToLogFile('WARN', message, 'openai-agent');
     }
     return buildAgent(model, `${preamble}${sysPrompt}${skillFragment}`, createAllTools(mutable, vs));
+  }
+
+  private warnUnsupportedScreenshots(uiDesignScreenshotPaths: string[] | undefined): void {
+    if (!uiDesignScreenshotPaths?.length) return;
+    const message = 'UI design screenshots are not supported on the OpenAI agent backend; '
+      + `${uiDesignScreenshotPaths.length} screenshot(s) will not be visible to the agent.`;
+    console.log(chalk.yellow(`  [openai-agent] ${message}`));
+    appendToLogFile('WARN', message, 'openai-agent');
   }
 
   private async buildSkillFragment(params: GenerateAndVerifyParams): Promise<string> {

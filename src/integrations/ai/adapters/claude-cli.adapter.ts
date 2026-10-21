@@ -117,6 +117,7 @@ type ContinuationLoopParams = {
   verificationScripts: VerificationScript[];
   taskBriefParams: BuildPlanContextParams;
   planStepCount: number;
+  uiDesignScreenshotPaths?: string[];
   verificationPassOffset?: number;
 };
 
@@ -133,6 +134,7 @@ type SinglePassParams = {
   activityState: ActivityState;
   totalPlanned?: number;
   taskBriefParams?: BuildPlanContextParams;
+  screenshots?: UiDesignScreenshot[];
 };
 
 type ToolBlockLogParams = {
@@ -223,7 +225,10 @@ type CliContinuationPromptParams = {
   totalPlanned: number;
   passNumber: number;
   taskBriefParams: BuildPlanContextParams;
+  hasScreenshots?: boolean;
 };
+
+const SCREENSHOT_REMINDER = 'Design screenshots are still available; re-open them with your file-reading tool.';
 
 const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
   const completed = p.totalPlanned - p.currentUnvisited.length;
@@ -232,6 +237,7 @@ const buildContinuationPrompt = (p: CliContinuationPromptParams): string => {
     `Progress: ${completed}/${p.totalPlanned} files modified (pass ${p.passNumber})`,
     buildTaskBrief(p.taskBriefParams),
     `\nContinue implementing the remaining plan steps. The following planned files are still unmodified:\n\n${unvisitedLines}`,
+    ...(p.hasScreenshots ? [SCREENSHOT_REMINDER] : []),
     continuationTail,
   ].join('\n');
 };
@@ -285,6 +291,7 @@ const buildContinuationPassParams = (
   additionalRepoDirs: p.additionalRepoDirs, touchedFiles: p.touchedFiles, activityState: p.activityState,
   totalPlanned: p.repoFiles.filter(f => !isGlobPattern(f)).length,
   taskBriefParams: p.taskBriefParams,
+  screenshots: p.uiDesignScreenshotPaths?.map(toScreenshot),
 });
 
 const acceptPassDeclarations = (p: ContinuationLoopParams, resultText: string): number =>
@@ -460,6 +467,7 @@ const buildPassCliArgs = (p: SinglePassParams, continuationPrompt: string) =>
     tools: implementTools,
     permissionMode: 'acceptEdits',
     addDirs: p.additionalRepoDirs.length > 0 ? p.additionalRepoDirs : undefined,
+    screenshots: p.screenshots,
   });
 
 interface VerificationFixState {
@@ -744,6 +752,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     return buildContinuationPrompt({
       currentUnvisited: p.currentUnvisited, totalPlanned: p.totalPlanned ?? p.currentUnvisited.length,
       passNumber: p.passNumber, taskBriefParams: p.taskBriefParams,
+      hasScreenshots: Boolean(p.screenshots?.length),
     });
   }
 

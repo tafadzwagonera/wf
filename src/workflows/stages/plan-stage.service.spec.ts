@@ -326,6 +326,41 @@ describe('PlanStageService', () => {
     );
   });
 
+  it('forwards uiDesignScreenshots to stage agent service when agent mode is enabled', async () => {
+    const { service, stageAgentService } = await buildService(true);
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-322',
+      affectedRepositories: ['repo-a'],
+      uiDesignScreenshots: ['/abs/design.png'],
+    });
+
+    expect(stageAgentService.generatePlan).toHaveBeenCalledWith(
+      expect.objectContaining({ uiDesignScreenshots: ['/abs/design.png'] })
+    );
+  });
+
+  it('buildAgentPlanParams forwards uiDesignScreenshots from the plan options', async () => {
+    const { service } = await buildService(true);
+    const { buildAgentPlanParams } = service as unknown as {
+      buildAgentPlanParams: (ctx: unknown, feedback?: string[]) => Record<string, unknown>;
+    };
+    const ctx = {
+      ticketContent: 'Ticket body',
+      options: { action: 'fix', uiDesignScreenshots: ['/abs/design.png', '/abs/nav.png'] },
+      testInfra: { ecosystems: [] },
+      skillIds: [],
+      skillRules: [],
+    };
+
+    const params = buildAgentPlanParams.call(service, ctx);
+
+    expect(params.uiDesignScreenshots).toEqual(['/abs/design.png', '/abs/nav.png']);
+    expect(buildAgentPlanParams.call(service, { ...ctx, options: { action: 'fix' } }).uiDesignScreenshots)
+      .toBeUndefined();
+  });
+
   it('forwards onProgress to stage agent service when agent mode is enabled', async () => {
     const { service, stageAgentService } = await buildService(true);
     const onProgress = jest.fn();

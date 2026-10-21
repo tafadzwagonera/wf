@@ -342,7 +342,25 @@ type GeneratePlanParams = {
   skillNames?: string[];
   testInfra?: TestInfraContext;
   ticketKey?: string;
+  uiDesignScreenshots?: string[];
 };
+
+const planScreenshotMediaTypes: Record<string, UiDesignScreenshot['mediaType']> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.svg': 'image/svg+xml',
+};
+
+const toPlanScreenshots = (paths: string[] | undefined): UiDesignScreenshot[] =>
+  (paths ?? []).map(screenshotPath => ({
+    path: screenshotPath,
+    mediaType: planScreenshotMediaTypes[path.extname(screenshotPath).toLowerCase()] ?? 'image/png',
+    base64: '',
+  }));
 
 const buildPlanDiscoveryBlock = (params: GeneratePlanParams): string => {
   const repoName = params.affectedRepositories?.[0] ?? 'repo';
@@ -1188,10 +1206,12 @@ export class StageAgentService {
     priorStageSummary?: string;
     resumeProviderSessionId?: string;
   }): Promise<{ plan: ResolutionPlan; sessionId?: string; modelUsed?: string }> {
+    const screenshots = toPlanScreenshots(params.uiDesignScreenshots);
     const { content: response, sessionId, modelUsed } = await this.runStagePrompt({
       stage: 'plan', prompt: await buildStagePlanPrompt(params, this.configService), systemPrompt: planSystemPrompt,
       repoDir: process.cwd(), onProgress: params.onProgress,
       priorStageSummary: params.priorStageSummary, resumeProviderSessionId: params.resumeProviderSessionId,
+      ...(screenshots.length ? { screenshots } : {}),
     });
     return this.parseStagePlanResponse(response, sessionId, modelUsed);
   }

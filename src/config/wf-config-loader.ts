@@ -658,6 +658,7 @@ const buildImplementStageOptionalFields = (implementStageConfig: WfImplementStag
   ...(implementStageConfig.planStepVerification && {
     planStepVerification: implementStageConfig.planStepVerification,
   }),
+  ...(implementStageConfig.designConformance && { designConformance: implementStageConfig.designConformance }),
   ...(implementStageConfig.figma !== undefined && { figma: implementStageConfig.figma }),
   ...(implementStageConfig.stallThresholdForVerificationFix !== undefined && {
     stallThresholdForVerificationFix: implementStageConfig.stallThresholdForVerificationFix,
