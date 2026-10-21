@@ -11,7 +11,7 @@ Write the failing test first, with no exceptions. A test written first specifies
 
 ## Red-Green-Refactor
 
-**RED** — Write one minimal test for one behavior. Run `yarn test src/path/to/file.spec.ts`. Confirm it fails because the feature is absent, not because of a syntax error or import issue.
+**RED** — Write one minimal test for one behavior. Run the spec through the repo's package manager, e.g. `<pm> test src/path/to/file.spec.ts`. Confirm it fails because the feature is absent, not because of a syntax error or import issue.
 
 **GREEN** — Write the smallest implementation that makes the test pass. Run again to confirm.
 
