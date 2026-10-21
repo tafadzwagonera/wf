@@ -52,6 +52,7 @@ Goal: code explains itself through names, structure, and types.
 ## Testing
 - Nest `describe` suites by user outcome only.
 - Prefix mocks with `mock` and pair each with a factory: `mockEvent`, `createMockEvent`.
+- Tests that repeat one body over different values belong in a single `it.each` table; a test earns its own `it` block when it verifies distinct behaviour, not just distinct data.
 
 ## Naming
 Goal: casing tells the reader how a constant behaves.
