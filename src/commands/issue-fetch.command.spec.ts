@@ -30,7 +30,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -48,12 +48,12 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { IssueFetchCommand } from './issue-fetch.command';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import * as os from 'os';
 import * as path from 'path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { getWfHomeDir } from '../common/utils/wf-paths';
 
 const mockCwd = '/tmp/consumer-app';
 

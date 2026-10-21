@@ -1,9 +1,9 @@
 import { execSync, spawn } from 'node:child_process';
 import chalk from 'chalk';
 import { needleSearchReminder } from '../prompt-fragments';
-import { executeWithCatch } from '../../../shared/utils/execute-with-catch';
-import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
-import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
+import { executeWithCatch } from '../../../common/utils/execute-with-catch';
+import { signalProcessTree } from '../../../common/utils/signal-process-tree';
+import type { VerificationOutcome, VerificationScript } from '../../../common/types/agent.types';
 
 /**
  * Fills in 'skipped' entries for verification scripts that have no matching outcome.

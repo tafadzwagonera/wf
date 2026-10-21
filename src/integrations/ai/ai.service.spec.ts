@@ -1,12 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { AiService, parseJsonResponse } from './ai.service';
-import { LoggerService } from '../../shared/logger/logger.service';
+import { LoggerService } from '../../common/logger/logger.service';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { AiProviderError } from '../../shared/utils/errors';
-import { stepAssessmentResponseJsonSchema } from '../../shared/schemas/step-verification.schema';
-import { stepFidelityResponseJsonSchema } from '../../shared/schemas/step-spec-fidelity.schema';
+import { AiProviderError } from '../../common/utils/errors';
+import { stepAssessmentResponseJsonSchema } from '../../common/schemas/step-verification.schema';
+import { stepFidelityResponseJsonSchema } from '../../common/schemas/step-spec-fidelity.schema';
 
-jest.mock('../../shared/logger/log-file-writer', () => ({
+jest.mock('../../common/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
 
@@ -2033,7 +2033,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         .mockResolvedValueOnce({ content: 'ok', provider: 'openai', model: 'gpt-5.4' });
       await service.execute({ prompt: 'hello', provider: 'openai', model: 'invalid-model' });
       expect(adapter.execute).toHaveBeenNthCalledWith(2, expect.objectContaining({ provider: 'openai', model: 'gpt-5.4' }));
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'WARN', expect.stringContaining('ai.model.fallback stage=unknown provider=openai backend=adapter original-model=invalid-model fallback-model=gpt-5.4'), 'llm-adapter',
       );
@@ -2092,7 +2092,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
 
     it('writes routed adapter target to the terminal and log file', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       const infoSpy = jest.spyOn(mockLogger, 'info');
       infoSpy.mockClear();
       mockAppendToLogFile.mockClear();
@@ -2111,7 +2111,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
 
     it('writes estimated cost for raw-adapter call with known model to the log file', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
       adapter.execute.mockResolvedValue({
@@ -2130,7 +2130,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
 
     it('writes cost=n/a when provider is unknown', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       (service as unknown as { stageAgentService: undefined }).stageAgentService = undefined;
       adapter.execute.mockResolvedValue({ content: 'ok', provider: 'google', model: 'gemini' });
@@ -2253,7 +2253,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
         .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
         .mockResolvedValueOnce({ content: JSON.stringify(payloadWithNull), provider: 'openai', model: 'gpt-5.4' });
       const service = new AiService(mockLogger, adapter, createConfigService());
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
 
       await service.execute({ prompt: 'assess', provider: 'openai', model: 'invalid-model', structuredOutput });
@@ -2275,7 +2275,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
           content: JSON.stringify(payloadWithNull), provider: 'anthropic', model: 'claude-sonnet-4-6',
         });
       const service = new AiService(mockLogger, adapter, createConfigService());
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
 
       const response = await service.execute({
@@ -2294,7 +2294,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       await service.execute({ prompt: 'assess', provider: 'openai', model: 'gpt-5.4', structuredOutput });
 
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'INFO',
         expect.stringContaining('ai.structured-output.denormalize stage=unknown stripped=statuses[0].missing'),
@@ -2316,7 +2316,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
 
       await service.execute({ prompt: 'assess', stage: 'implement', structuredOutput });
 
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       expect(mockAppendToLogFile).toHaveBeenCalledWith(
         'INFO',
         expect.stringContaining('ai.structured-output.denormalize stage=implement stripped=statuses[0].missing'),
@@ -2380,7 +2380,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
 
     it('adapter fallback WARN log contains both original-model and fallback-model', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       adapter.execute
         .mockRejectedValueOnce(new AiProviderError('model invalid-model not found', { status: 404 }, true, 'api'))
@@ -2407,7 +2407,7 @@ diff --git a/src/payment/payment.controller.ts b/src/payment/payment.controller.
     });
 
     it('writes llm.adapter line after executeWithHistory to the terminal and log file', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../../common/logger/log-file-writer');
       const adapter = createAdapter();
       adapter.executeWithHistory.mockResolvedValue({ content: 'ok', provider: 'openai', model: 'gpt-4o' });
       const service = new AiService(mockLogger, adapter, createConfigService());

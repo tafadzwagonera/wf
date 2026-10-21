@@ -10,20 +10,20 @@ import {
   type EvidenceSection,
 } from '../../agents/plan-step-evidence-budget';
 import { AiService, parseJsonResponse } from '../../integrations/ai/ai.service';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
 import {
   commitDescriptionResponseJsonSchema,
   commitDescriptionResponseSchema,
-} from '../../shared/schemas/commit-description.schema';
-import type { ResolutionAction, StageProgressCallback } from '../../shared/types/agent.types';
-import type { AIStageName } from '../../shared/types/ai.types';
-import type { CommitDescriptionResponse } from '../../shared/types/commit-description.types';
-import { hashCommitDescriptionDiff } from '../../shared/utils/commit-description-artifact';
+} from '../../common/schemas/commit-description.schema';
+import type { ResolutionAction, StageProgressCallback } from '../../common/types/agent.types';
+import type { AIStageName } from '../../common/types/ai.types';
+import type { CommitDescriptionResponse } from '../../common/types/commit-description.types';
+import { hashCommitDescriptionDiff } from '../../common/utils/commit-description-artifact';
 import {
   formatDiffStatSummary,
   parseDiffFileStats,
   splitDiffIntoFileSections,
-} from '../../shared/utils/commit-diff-stat';
+} from '../../common/utils/commit-diff-stat';
 
 const LOG_CONTEXT = 'commit-description';
 

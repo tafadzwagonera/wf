@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { WfAiProviderName } from '../../../shared/types/config.types';
-import type { FileEntry } from '../../../shared/types/ai.types';
+import type { WfAiProviderName } from '../../../common/types/config.types';
+import type { FileEntry } from '../../../common/types/ai.types';
 
 export const PROVIDER_CONFIG_FILENAMES: Record<WfAiProviderName, string> = {
   anthropic: 'CLAUDE.md',

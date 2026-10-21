@@ -18,7 +18,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { knownSkills, resolveSkills } from '../../src/skills/skill-registry';
 import { buildSkillPromptFragment } from '../../src/skills/skill-content';
-import { ConfigurationError } from '../../src/shared/errors/app.error';
+import { ConfigurationError } from '../../src/common/errors/app.error';
 import chalk from 'chalk';
 import { createReporter, summarise } from './support/reporter';
 

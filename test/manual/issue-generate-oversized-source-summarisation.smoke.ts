@@ -203,7 +203,7 @@ function buildInquirerPromptHandler(counter: any): (questions: any[]) => Promise
   };
 }
 
-async function patchInquirerPrompt(): Promise<{ promptCallCount: number; restore: () => void }> {
+async function patchInquirerPrompt(): Promise<{ getPromptCallCount: () => number; restore: () => void }> {
   const inquirerModule = await import('inquirer');
   const originalPrompt = inquirerModule.default.prompt;
   const counter = { count: 0 };
@@ -212,7 +212,7 @@ async function patchInquirerPrompt(): Promise<{ promptCallCount: number; restore
   const restore = () => {
     (inquirerModule.default as any).prompt = originalPrompt;
   };
-  return { promptCallCount: counter.count, restore };
+  return { getPromptCallCount: () => counter.count, restore };
 }
 
 function simulateTTY(): () => void {
@@ -239,12 +239,12 @@ async function testInteractiveReview(command: IssueGenerateCommand, pass: any, f
   const tmpFile = path.join(os.tmpdir(), `wf-oversized-warn-${Date.now()}.txt`);
   fs.writeFileSync(tmpFile, 'y'.repeat(31_000), 'utf-8');
   setupMocksForInteractiveTest(pass);
-  const { promptCallCount, restore: restoreInquirer } = await patchInquirerPrompt();
+  const { getPromptCallCount, restore: restoreInquirer } = await patchInquirerPrompt();
   const restoreTTY = simulateTTY();
   const capturedOutput = await captureCommandOutput(command, tmpFile, false);
   restoreInquirer();
   restoreTTY();
-  validateInteractiveReviewOutput(capturedOutput, promptCallCount, pass, fail);
+  validateInteractiveReviewOutput(capturedOutput, getPromptCallCount(), pass, fail);
   fs.unlinkSync(tmpFile);
 }
 

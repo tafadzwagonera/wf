@@ -6,7 +6,7 @@ import {
   resetCodexCliVersionCache, spawnCodex, type CodexCliMessage,
 } from './codex-cli-runner';
 import { execSync, spawn } from 'child_process';
-import { restoreEnv, withEnv } from '../../../shared/testing/env';
+import { restoreEnv, withEnv } from '../../../common/testing/env';
 
 jest.mock('child_process', () => ({
   ...jest.requireActual('child_process'),

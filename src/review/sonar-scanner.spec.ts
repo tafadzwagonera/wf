@@ -6,8 +6,8 @@ import {
   type SonarStepOutcome,
   type SonarScanResult,
 } from './sonar-scanner';
-import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
-import * as logFileWriter from '../shared/logger/log-file-writer';
+import { ConfigurationError, ExecutionError } from '../common/errors/app.error';
+import * as logFileWriter from '../common/logger/log-file-writer';
 
 type ExecFileCallback = (err: Error | null, stdout: string, stderr: string) => void;
 

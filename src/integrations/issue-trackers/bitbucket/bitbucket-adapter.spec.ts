@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { BitBucketAdapter } from './bitbucket-adapter';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 describe('BitBucketAdapter', () => {

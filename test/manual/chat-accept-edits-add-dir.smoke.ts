@@ -14,7 +14,7 @@
 import type { ConfigService } from '@nestjs/config';
 import { ConversationService } from '../../src/integrations/ai/conversation/conversation.service';
 import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
-import { ConversationContext } from '../../src/shared/types/conversation.types';
+import { ConversationContext } from '../../src/common/types/conversation.types';
 
 const assert = (condition: boolean, message: string): void => {
   if (!condition) throw new Error(`Assertion failed: ${message}`);

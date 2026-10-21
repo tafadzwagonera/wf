@@ -15,14 +15,14 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
 import type { ImplementerOptions, PlanArtifact, TicketArtifact } from '../../src/agents/interfaces';
-import { hashPlanArtifactSources, buildPlanArtifactFilename, buildPlanArtifactManifestPath } from '../../src/shared/utils/plan-artifact';
+import { hashPlanArtifactSources, buildPlanArtifactFilename, buildPlanArtifactManifestPath } from '../../src/common/utils/plan-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import inquirer from 'inquirer';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -208,7 +208,7 @@ async function runTest1SilentAutoScaffold(command: IssueCommand, implementer: Mo
   console.log('\nTest 1: silent mode auto-scaffolds new repos without prompting\n' + '-'.repeat(60));
   const { homeDir, appDir, cleanup } = makeFixtures({ ticketKey: 'NR-1', affectedRepositories: ['primary-app', 'auto-svc'], newRepositories: ['auto-svc'] });
   const { restoreCwd } = overrideCwd(appDir);
-  withEnv({ HOME: homeDir });
+  withEnv({ HOME: homeDir, WF_HOME: path.join(homeDir, '.wf') });
   const capturedOptions: ImplementerOptions[] = [];
   const origExecute = implementer.execute.bind(implementer);
   implementer.execute = makeImplementerMock(capturedOptions);

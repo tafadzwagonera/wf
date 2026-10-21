@@ -17,7 +17,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { ReviewerAgent } from '../../src/agents/reviewer.agent';
-import { ReviewPresenter } from '../../src/shared/presentation/review-presenter.service';
+import { ReviewPresenter } from '../../src/common/presentation/review-presenter.service';
 import { IssueCommand } from '../../src/commands/issue.command';
 import chalk from 'chalk';
 import { createReporter } from './support/reporter';

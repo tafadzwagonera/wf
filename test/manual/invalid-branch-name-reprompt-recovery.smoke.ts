@@ -25,7 +25,7 @@ import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
-import { getWfLogDir } from '../../src/shared/utils/wf-paths';
+import { getWfLogDir } from '../../src/common/utils/wf-paths';
 import type { PlanArtifact, TicketArtifact } from '../../src/agents/interfaces';
 import { createReporter, summarise } from './support/reporter';
 

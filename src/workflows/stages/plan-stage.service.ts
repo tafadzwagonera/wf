@@ -15,24 +15,24 @@ import {
   hashPlanArtifactSources,
   resolvePlanArtifactReference,
   writePlanArtifactManifest,
-} from '../../shared/utils/plan-artifact';
-import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
-import type { PlanRisk } from '../../shared/types/ai.types';
-import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../../shared/utils/extract-figma-links';
+} from '../../common/utils/plan-artifact';
+import { estimatePlanComplexity } from '../../common/utils/estimate-plan-complexity';
+import type { PlanRisk } from '../../common/types/ai.types';
+import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../../common/utils/extract-figma-links';
 import { PlanArtifact, PlannerOptions, ResolutionAction, TicketArtifact } from '../../agents/interfaces';
-import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../shared/utils/errors';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
-import { detectTestInfra, type TestInfraContext } from '../../shared/utils/detect-test-infra';
-import { detectPackageManager, detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
-import { formatPlanQualityViolations, validatePlanQualityWithLookups } from '../../shared/utils/plan-quality';
-import { DUPLICATE_RESOLVER_RULE_ID } from '../../shared/utils/plan-quality-duplicate-resolver';
+import { AiProviderError, AppError, isAiProviderErrorLike, PlanArtifactNotFoundError, ValidationError, WorkflowParseError } from '../../common/utils/errors';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
+import { detectTestInfra, type TestInfraContext } from '../../common/utils/detect-test-infra';
+import { detectPackageManager, detectRepoConventions } from '../../common/utils/detect-repo-conventions';
+import { formatPlanQualityViolations, validatePlanQualityWithLookups } from '../../common/utils/plan-quality';
+import { DUPLICATE_RESOLVER_RULE_ID } from '../../common/utils/plan-quality-duplicate-resolver';
 import type { RepoConventionsContext,
   PriorPlanContext,
   PlanCorrelationResult,
   CrossRepoContext
-} from '../../shared/types/detection.types';
-import type { ReuseCandidateContext } from '../../shared/utils/detect-reuse-candidates';
-import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
+} from '../../common/types/detection.types';
+import type { ReuseCandidateContext } from '../../common/utils/detect-reuse-candidates';
+import { executeAsyncWithCatch } from '../../common/utils/execute-with-catch';
 
 type PlanResult = { plan: ResolutionPlan; sessionId?: string; modelUsed?: string };
 

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import { readSkillContent, buildSkillPromptFragment, fragmentIncludesSkill, TDD_SKILL_ID } from './skill-content';
-import { ConfigurationError } from '../shared/errors/app.error';
-import * as logFileWriter from '../shared/logger/log-file-writer';
+import { ConfigurationError } from '../common/errors/app.error';
+import * as logFileWriter from '../common/logger/log-file-writer';
 
 jest.mock('fs/promises');
 

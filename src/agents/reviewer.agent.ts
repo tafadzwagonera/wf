@@ -1,31 +1,31 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
-import type { CodeReview } from '../shared/types/review.types';
-import { REVIEW_VERDICT_APPROVED } from '../shared/types/review.types';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
+import type { CodeReview } from '../common/types/review.types';
+import { REVIEW_VERDICT_APPROVED } from '../common/types/review.types';
 import { GitService } from '../integrations/git/git.service';
 import { TicketArtifact, ReviewArtifact, ReviewerOptions } from './interfaces';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
-import { deriveReviewArtifactPath, parsePlanArtifact } from '../shared/utils/plan-artifact';
+import { deriveReviewArtifactPath, parsePlanArtifact } from '../common/utils/plan-artifact';
 import { formatPlanRisksSection } from '../review/format-plan-risks-section';
 import type { SonarScanResult } from '../review/sonar-scanner';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
-import type { UiDesignScreenshotsResult } from '../shared/types/ui-design-screenshot';
+import type { UiDesignScreenshotsResult } from '../common/types/ui-design-screenshot';
 import {
   CommentPolicyStageService,
   mergeCommentPolicyIssues,
 } from '../review/comment-policy-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
-import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
-import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
-import { resolveVerificationSummary } from '../shared/utils/implement-verification';
-import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { ConfigurationError, ExecutionError } from '../common/utils/errors';
+import { runPostPullDependencyInstall } from '../common/utils/post-pull-install';
+import { resolveVerificationSummary } from '../common/utils/implement-verification';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 interface DiffReviewInputs {
   onProgress?: (line: string) => void;
@@ -73,7 +73,7 @@ export class ReviewerAgent {
     const cached = this.tryLoadCachedReview(ticket.path, options);
     if (cached) return cached;
     this.presentReviewHeader(options);
-    await runPostPullDependencyInstall(options.repoDir ?? process.cwd());
+    await runPostPullDependencyInstall(options.repoDir ?? process.cwd(), undefined, options.silent);
     if (await this.hasNoChanges(options)) return null;
     if (!options.silent) this.presenter.progress('Analyzing changes...');
     const onProgress = options.onProgress

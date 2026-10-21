@@ -4,9 +4,9 @@
  */
 
 import * as path from 'node:path';
-import type { DiffSegment } from '../shared/types/review.types';
+import type { DiffSegment } from '../common/types/review.types';
 
-export type { DiffSegment } from '../shared/types/review.types';
+export type { DiffSegment } from '../common/types/review.types';
 
 export const MAX_REVIEW_DIFF_LENGTH = 80_000;
 export const ESTIMATED_SUMMARY_LENGTH = 2_000;

@@ -8,8 +8,8 @@ import type {
   VerificationScript,
   VerificationOutcome,
   PlanProblem,
-} from '../shared/types/agent.types';
-import type { StepVerificationSummary } from '../shared/types/step-verification.types';
+} from '../common/types/agent.types';
+import type { StepVerificationSummary } from '../common/types/step-verification.types';
 
 export type {
   VerificationScript,
@@ -29,7 +29,7 @@ export type {
   ModelRouting,
   FindingsArtifact,
   PlanProblem,
-} from '../shared/types/agent.types';
+} from '../common/types/agent.types';
 
 export type ImplementerResult
   = | {

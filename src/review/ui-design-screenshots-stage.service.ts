@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Injectable } from '@nestjs/common';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { readUiDesignScreenshotsFromPlanArtifact } from '../shared/utils/plan-artifact';
-import type { UiDesignScreenshot, UiDesignScreenshotsResult, UiDesignScreenshotsStageOptions } from '../shared/types/ui-design-screenshot';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import { readUiDesignScreenshotsFromPlanArtifact } from '../common/utils/plan-artifact';
+import type { UiDesignScreenshot, UiDesignScreenshotsResult, UiDesignScreenshotsStageOptions } from '../common/types/ui-design-screenshot';
 
 const mediaTypes: Record<string, UiDesignScreenshot['mediaType']> = {
   '.jpg': 'image/jpeg',

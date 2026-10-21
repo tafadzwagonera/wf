@@ -11,9 +11,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FigmaStageService } from '../../src/review/figma-stage.service';
-import { LoggerService } from '../../src/shared/logger/logger.service';
+import { LoggerService } from '../../src/common/logger/logger.service';
 import { createReporter } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

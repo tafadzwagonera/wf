@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { LLM_ADAPTER } from '../llm-adapter.interface';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { LoggerService } from '../../../shared/logger/logger.service';
-import { appendToLogFile } from '../../../shared/logger/log-file-writer';
+import { LoggerService } from '../../../common/logger/logger.service';
+import { appendToLogFile } from '../../../common/logger/log-file-writer';
 import { AnthropicAdapter } from './anthropic.adapter';
 import { GeminiAdapter } from './gemini.adapter';
 import { DeepSeekAdapter } from './deepseek.adapter';

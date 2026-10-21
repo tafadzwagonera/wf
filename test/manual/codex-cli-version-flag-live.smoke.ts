@@ -30,7 +30,7 @@ import {
   buildPlanArtifactManifestPath,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import { createReporter } from './support/reporter';
 
 const projectRoot = path.resolve(__dirname, '../..');

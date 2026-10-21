@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { GitError } from '../shared/utils/errors';
+import { GitError } from '../common/utils/errors';
 import { GitService } from '../integrations/git/git.service';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 
 @Injectable()

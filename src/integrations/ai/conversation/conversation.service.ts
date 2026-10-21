@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AiService, AIConversationRequest, requireAiResponseContent } from '../ai.service';
-import { LoggerService } from '../../../shared/logger/logger.service';
-import { StateError } from '../../../shared/utils/errors';
+import { LoggerService } from '../../../common/logger/logger.service';
+import { StateError } from '../../../common/utils/errors';
 import { ChatUIService } from './chat-ui.service';
 import {
   ConversationMessage,
@@ -13,7 +13,7 @@ import {
 import { StageAgentService, AgentChatSession, AgentStageName } from '../stage-agent.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getWfHomeDir } from '../../../shared/utils/wf-paths';
+import { getWfHomeDir } from '../../../common/utils/wf-paths';
 import { randomUUID } from 'node:crypto';
 
 const buildInitialState = (

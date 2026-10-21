@@ -38,8 +38,8 @@ jest.mock('inquirer', () => ({
 
 import inquirer from 'inquirer';
 import { ConfigCleanCommand } from './config-clean.command';
-import { ErrorHandler } from '../shared/utils/error-handler';
-import type { SessionState } from '../shared/types/session.types';
+import { ErrorHandler } from '../common/utils/error-handler';
+import type { SessionState } from '../common/types/session.types';
 
 const mockPrompt = inquirer.prompt as jest.MockedFunction<typeof inquirer.prompt>;
 

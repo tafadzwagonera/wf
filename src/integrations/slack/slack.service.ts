@@ -1,20 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
-import { ConfigurationError, ExecutionError } from '../../shared/utils/errors';
+import { ConfigurationError, ExecutionError } from '../../common/utils/errors';
 import type {
   SlackMessage,
   SlackThreadResult,
   SlackChannelHistoryResult,
   SlackApiOptions,
-} from '../../shared/types/slack.types';
+} from '../../common/types/slack.types';
 
 export type {
   SlackMessage,
   SlackThreadResult,
   SlackChannelHistoryResult,
   SlackApiOptions,
-} from '../../shared/types/slack.types';
+} from '../../common/types/slack.types';
 
 /**
  * Build the ordered list of tokens to attempt for a Slack API call.

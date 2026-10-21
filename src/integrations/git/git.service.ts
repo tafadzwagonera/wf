@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import simpleGit, { BranchSummary, SimpleGit, StatusResult } from 'simple-git';
-import { GitError, InvalidBranchNameError } from '../../shared/utils/errors';
+import { GitError, InvalidBranchNameError } from '../../common/utils/errors';
 import { findBranchNameViolation, safeBranchNamePattern } from './branch-name';
-import { LoggerService } from '../../shared/logger/logger.service';
-import type { BranchInfo, CommitInfo, CommitOptions, CreateBranchOptions } from '../../shared/types/git.types';
-import { capitalizeCommitMessageDescription } from '../../shared/utils/commit-subject-case';
-import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
+import { LoggerService } from '../../common/logger/logger.service';
+import type { BranchInfo, CommitInfo, CommitOptions, CreateBranchOptions } from '../../common/types/git.types';
+import { capitalizeCommitMessageDescription } from '../../common/utils/commit-subject-case';
+import { executeAsyncWithCatch } from '../../common/utils/execute-with-catch';
 
-export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from '../../shared/types/git.types';
+export type { BranchInfo, CommitOptions, CommitInfo, CreateBranchOptions } from '../../common/types/git.types';
 
 /**
  * Create a SimpleGit instance pointed at the given directory.

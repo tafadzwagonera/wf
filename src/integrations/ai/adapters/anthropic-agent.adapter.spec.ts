@@ -18,7 +18,7 @@ import { detectMechanicalTask } from './shared-routing';
 import * as skillContent from '../../../skills/skill-content';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import type { VerificationScript } from '../../../agents/interfaces';
-import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
+import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
   __esModule: true,

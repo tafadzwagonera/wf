@@ -4,7 +4,7 @@ import { validateSync } from 'class-validator';
 import * as YAML from 'yaml';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
-import { WorkflowParseError } from '../../../shared/utils/errors';
+import { WorkflowParseError } from '../../utils/errors';
 
 @Injectable()
 export class YamlConverter implements FormatConverter {

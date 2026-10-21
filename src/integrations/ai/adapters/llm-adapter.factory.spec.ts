@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { LlmAdapterFactory } from './llm-adapter.factory';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 
 describe('LlmAdapterFactory', () => {
   const mockLogger = {
@@ -51,7 +51,7 @@ describe('LlmAdapterFactory', () => {
     });
 
     it('records an llm.call log line with usage and billing after a routed call', async () => {
-      const logFileWriter = require('../../../shared/logger/log-file-writer');
+      const logFileWriter = require('../../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
       const mockConfigService = {

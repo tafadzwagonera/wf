@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import { resolveSkippedSteps, printVerificationReport, checkVerificationStall, STALL_THRESHOLD, buildVerificationFixPrompt, detectVerificationStatus, runProgrammaticVerification, runScriptWithEarlyExit } from './verification-report';
-import type { VerificationOutcome, VerificationScript } from '../../../shared/types/agent.types';
-import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
+import type { VerificationOutcome, VerificationScript } from '../../../common/types/agent.types';
+import { signalProcessTree } from '../../../common/utils/signal-process-tree';
 
 jest.mock('node:child_process', () => ({
   ...jest.requireActual('node:child_process'),
@@ -10,7 +10,7 @@ jest.mock('node:child_process', () => ({
   spawn: jest.fn(),
 }));
 
-jest.mock('../../../shared/utils/signal-process-tree', () => ({
+jest.mock('../../../common/utils/signal-process-tree', () => ({
   signalProcessTree: jest.fn(),
 }));
 

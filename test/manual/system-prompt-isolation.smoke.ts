@@ -60,7 +60,7 @@ function checkOpenAiAdapter(src: string): void {
 
 function checkCliAdapter(src: string): void {
   assert('CLI: imports buildSystemPrompt from anthropic-agent.adapter',
-    src.includes('import { buildSystemPrompt') && src.includes('from \'./anthropic-agent.adapter\''));
+    /import \{[^}]*\bbuildSystemPrompt\b[^}]*\} from '\.\/anthropic-agent\.adapter'/.test(src));
 }
 
 async function main(): Promise<void> {

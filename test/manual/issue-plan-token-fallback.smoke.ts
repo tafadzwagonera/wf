@@ -17,12 +17,12 @@ import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifestPath,
   hashPlanArtifactSources,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -180,7 +180,7 @@ function shuffleManifestForTest2(planPath: string): void {
 async function runTest1(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 1: manifest-based resolution in trackerDir\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   scaffoldTrackerDir(tmpDir);
   const restoreCwd = mockCwd(tmpDir);
   const stdoutCapture = captureStdout();
@@ -194,7 +194,7 @@ async function runTest1(command: IssueCommand): Promise<void> {
 async function runTest2(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 2: direct file-path fallback in trackerDir (no manifest in dir listing)\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   const { planPath } = scaffoldTrackerDir(tmpDir);
   shuffleManifestForTest2(planPath);
   const restoreCwd = mockCwd(tmpDir);
@@ -220,7 +220,7 @@ function verifyTest3Output(output: string): void {
 async function runTest3(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 3: customDir fallback when trackerDir has no match\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   scaffoldCustomDir(tmpDir);
   const restoreCwd = mockCwd(tmpDir);
   const stdoutCapture = captureStdout();
@@ -241,7 +241,7 @@ function checkTest4Result(combined: string, exitCode: number | undefined): void 
 async function runTest4(command: IssueCommand): Promise<void> {
   console.log('\n🧪 Test 4: missing plan token throws ValidationError\n' + '─'.repeat(60));
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-issue-fallback-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   fs.mkdirSync(path.join(tmpDir, '.wf', path.basename(tmpDir), 'jira'), { recursive: true });
   const restoreCwd = mockCwd(tmpDir);
   const exitMock = mockProcessExit();

@@ -10,7 +10,7 @@
  */
 
 import { sanitizeCodeReviewTrace } from '../../src/integrations/ai/ai.service';
-import type { CodeReview } from '../../src/shared/types/review.types';
+import type { CodeReview } from '../../src/common/types/review.types';
 
 const diff = `
 diff --git a/src/error/error.handler.ts b/src/error/error.handler.ts

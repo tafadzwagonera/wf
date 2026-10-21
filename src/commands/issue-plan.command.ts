@@ -2,42 +2,42 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService, normalizeFileEntries } from '../integrations/ai/ai.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
-import { ValidationError } from '../shared/utils/errors';
-import type { PlanComplexity, PlanModelOutput, PlanRisk } from '../shared/types/ai.types';
-import { estimatePlanComplexity } from '../shared/utils/estimate-plan-complexity';
-import { formatPlanRisks } from '../shared/utils/plan-risk';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import type { planVerificationConfigSchema } from '../shared/schemas/verification.schema';
+import { LoggerService } from '../common/logger/logger.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { buildTicketMarkdownPreview } from '../common/preview/preview.helpers';
+import { ValidationError } from '../common/utils/errors';
+import type { PlanComplexity, PlanModelOutput, PlanRisk } from '../common/types/ai.types';
+import { estimatePlanComplexity } from '../common/utils/estimate-plan-complexity';
+import { formatPlanRisks } from '../common/utils/plan-risk';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
+import type { planVerificationConfigSchema } from '../common/schemas/verification.schema';
 import type { z } from 'zod';
 import { getPlanArtifactExtension,
   buildPlanArtifactFilename,
   buildPlanArtifactManifest,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
-import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../shared/utils/extract-figma-links';
-import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
+} from '../common/utils/plan-artifact';
+import { extractFigmaLinks, resolvePostParseFigmaLinks } from '../common/utils/extract-figma-links';
+import { resolveUiDesignScreenshots } from '../common/utils/resolve-ui-design-screenshots';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { resolveCustomSourcePath } from '../shared/utils/custom-source';
+import { resolveCustomSourcePath } from '../common/utils/custom-source';
 import { parseReposOption } from './utils/repos-option';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { printCommandHeader } from '../common/utils/command-header.helper';
 import type { ResolutionAction } from '../agents/interfaces';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
-import { ensureWfHome } from '../shared/utils/ensure-wf-home';
-import { detectTestInfra } from '../shared/utils/detect-test-infra';
-import type { TestInfraContext, NodeInfra } from '../shared/types/detection.types';
-import { formatPlanQualityViolations, validatePlanQuality } from '../shared/utils/plan-quality';
-import { detectRepoConventions, type PackageManager } from '../shared/utils/detect-repo-conventions';
-import { parseRunnerInvocation } from '../shared/utils/verification-commands';
-import { detectPriorPlans, correlatePlans } from '../shared/utils/detect-prior-plans';
-import { detectCrossRepoPatterns } from '../shared/utils/detect-cross-repo-patterns';
-import { detectReuseCandidates } from '../shared/utils/detect-reuse-candidates';
-import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
+import { ensureWfHome } from '../common/utils/ensure-wf-home';
+import { detectTestInfra } from '../common/utils/detect-test-infra';
+import type { TestInfraContext, NodeInfra } from '../common/types/detection.types';
+import { formatPlanQualityViolations, validatePlanQuality } from '../common/utils/plan-quality';
+import { detectRepoConventions, type PackageManager } from '../common/utils/detect-repo-conventions';
+import { parseRunnerInvocation } from '../common/utils/verification-commands';
+import { detectPriorPlans, correlatePlans } from '../common/utils/detect-prior-plans';
+import { detectCrossRepoPatterns } from '../common/utils/detect-cross-repo-patterns';
+import { detectReuseCandidates } from '../common/utils/detect-reuse-candidates';
+import type { PlanArtifactFormat as OutputFormat } from '../common/types/plan-artifact.types';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
@@ -235,6 +235,14 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--figma',
+    description: 'Enable Figma link extraction; inline Figma links in the ticket are stored in the plan manifest for use by `issue:implement --figma` and `issue:review --figma`. Overrides `stages.plan.figma` config.',
+  })
+  parseFigma(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--force',
     description: 'Force fetch and recreate ticket artifact before planning',
   })
@@ -280,22 +288,6 @@ export class IssuePlanCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--figma',
-    description: 'Enable Figma link extraction; inline Figma links in the ticket are stored in the plan manifest for use by `issue:implement --figma` and `issue:review --figma`. Overrides `stages.plan.figma` config.',
-  })
-  parseFigma(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--ui-design-screenshots [files...]',
-    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact for re-use at review time. Mutually exclusive with --figma.',
-  })
-  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
-    return [...previous, val];
-  }
-
-  @Option({
     flags: '-k, --ticket-key <key>',
     description: 'Ticket key to fetch and plan (e.g. WBP-2971)',
   })
@@ -313,6 +305,14 @@ export class IssuePlanCommand extends CommandRunner {
       throw new ValidationError(`Invalid tracker: ${tracker}. Valid trackers: ${validTrackers.join(', ')}`);
     }
     return tracker;
+  }
+
+  @Option({
+    flags: '--ui-design-screenshots [files...]',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact for re-use at review time. Mutually exclusive with --figma.',
+  })
+  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
+    return [...previous, val];
   }
 
   async run(_: string[], options?: IssuePlanOptions): Promise<void> {

@@ -3,12 +3,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
-import { commitDescriptionResponseJsonSchema } from '../../shared/schemas/commit-description.schema';
-import { hashCommitDescriptionDiff } from '../../shared/utils/commit-description-artifact';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
+import { commitDescriptionResponseJsonSchema } from '../../common/schemas/commit-description.schema';
+import { hashCommitDescriptionDiff } from '../../common/utils/commit-description-artifact';
 import { CommitDescriptionStageService } from './commit-description-stage.service';
 
-jest.mock('../../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+jest.mock('../../common/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
 const createFileDiff = (file: string, body: string): string =>
   `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-old\n+${body}`;

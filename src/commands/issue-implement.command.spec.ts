@@ -30,7 +30,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -63,14 +63,14 @@ import { IssueImplementCommand } from './issue-implement.command';
 import { AiService } from '../integrations/ai/ai.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
-import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
-import { AmbiguousPlanArtifactError } from '../shared/utils/errors';
+import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../common/utils/plan-artifact';
+import { AmbiguousPlanArtifactError } from '../common/utils/errors';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { getWfHomeDir } from '../common/utils/wf-paths';
 import { initializeWfConfig } from '../config/wf-config-loader';
 
 async function buildCommand(): Promise<IssueImplementCommand> {

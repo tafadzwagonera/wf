@@ -43,7 +43,7 @@ import { promisify } from 'node:util';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
-import { GitError } from '../../src/shared/errors/app.error';
+import { GitError } from '../../src/common/errors/app.error';
 import { createReporter, summarise } from './support/reporter';
 
 const ITERATIONS = 25;

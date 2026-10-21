@@ -10,8 +10,8 @@ jest.mock('node:os', () => {
 import * as fs from 'fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ConfigurationError } from '../shared/errors/app.error';
-import { restoreEnv, withEnv } from '../shared/testing/env';
+import { ConfigurationError } from '../common/errors/app.error';
+import { restoreEnv, withEnv } from '../common/testing/env';
 import { resolveConfigCwd } from './resolve-config-cwd';
 
 describe('resolveConfigCwd', () => {

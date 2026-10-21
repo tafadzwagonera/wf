@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CommentPolicyStageService, mergeCommentPolicyIssues, toCodeIssues } from './comment-policy-stage.service';
-import type { CodeReview } from '../shared/types/review.types';
+import type { CodeReview } from '../common/types/review.types';
 
 function createMockConfigService(commentPolicy: boolean | undefined) {
   return {

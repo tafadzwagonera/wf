@@ -63,7 +63,7 @@ function checkSigkillTimerUnref(): void {
     path.join(repoRoot, 'src', 'integrations', 'ai', 'adapters', 'claude-cli-runner.ts'),
     'utf-8'
   );
-  const sigkillBlock = /setTimeout\(\(\)\s*=>\s*\{[^}]*SIGKILL[^}]*\}[^)]*\)[^;]*/s.exec(source);
+  const sigkillBlock = /setTimeout\(\(\)\s*=>\s*\{[\s\S]*?'SIGKILL'\);\s*\},\s*SIGKILL_GRACE_MS\)[^;]*/.exec(source);
   assert(
     'SIGKILL grace setTimeout calls .unref()',
     sigkillBlock !== null && sigkillBlock[0].includes('.unref()'),

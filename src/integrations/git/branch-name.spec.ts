@@ -7,7 +7,7 @@ import {
   sanitizeBranchNameInput,
   validateBranchNameInput,
 } from './branch-name';
-import { ValidationError } from '../../shared/utils/errors';
+import { ValidationError } from '../../common/utils/errors';
 
 describe('sanitizeBranchNameInput', () => {
   it('trims surrounding whitespace', () => {

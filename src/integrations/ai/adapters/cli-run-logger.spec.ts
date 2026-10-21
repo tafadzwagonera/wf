@@ -1,5 +1,5 @@
-import * as logFileWriter from '../../../shared/logger/log-file-writer';
-import { createBoundedStderr } from '../../../shared/utils/bounded-stderr';
+import * as logFileWriter from '../../../common/logger/log-file-writer';
+import { createBoundedStderr } from '../../../common/utils/bounded-stderr';
 import {
   extractArgValue,
   formatStderrTail,

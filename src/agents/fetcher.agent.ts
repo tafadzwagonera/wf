@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { TicketArtifact, FetcherOptions } from './interfaces';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 
 @Injectable()

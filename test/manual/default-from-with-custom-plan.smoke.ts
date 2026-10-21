@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

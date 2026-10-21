@@ -1,13 +1,13 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import * as path from 'node:path';
-import { buildGitShimEnvOverrides } from '../../../shared/utils/git-shim-path';
+import { buildGitShimEnvOverrides } from '../../../common/utils/git-shim-path';
 import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
-import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
-import { AiProviderError, ConfigurationError, ExecutionError } from '../../../shared/utils/errors';
-import { signalProcessTree } from '../../../shared/utils/signal-process-tree';
-import { registerSigintHandler } from '../../../shared/utils/sigint-registry';
-import { type BoundedStderr, createBoundedStderr } from '../../../shared/utils/bounded-stderr';
+import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
+import { AiProviderError, ConfigurationError, ExecutionError } from '../../../common/utils/errors';
+import { signalProcessTree } from '../../../common/utils/signal-process-tree';
+import { registerSigintHandler } from '../../../common/utils/sigint-registry';
+import { type BoundedStderr, createBoundedStderr } from '../../../common/utils/bounded-stderr';
 import {
   buildRunId,
   extractArgValue,

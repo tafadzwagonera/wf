@@ -52,7 +52,7 @@ async function checkPlannerError(orchestrator: AgentOrchestrator): Promise<void>
     const msg = err instanceof Error ? err.message : '';
     assert(
       'throws descriptive error for missing plan',
-      msg.includes('Plan file not found') || msg.includes('No plan file found')
+      msg.includes('Plan artifact not found')
     );
   }
 }
@@ -62,7 +62,7 @@ function runDryRunCli(ticketKey: string, extraArgs: string): { output: string; e
   let dryRunExitCode = 0;
   try {
     dryRunOutput = execSync(
-      `npx ts-node -r tsconfig-paths/register src/main.ts issue ${ticketKey} ${extraArgs}`,
+      `npx ts-node -r tsconfig-paths/register src/main.ts issue --ticket-key ${ticketKey} ${extraArgs}`,
       { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 }
     );
   } catch (err: unknown) {
@@ -74,7 +74,7 @@ function runDryRunCli(ticketKey: string, extraArgs: string): { output: string; e
 }
 
 function checkDryRunEndToEnd(ticketKey: string): void {
-  const { output, exitCode } = runDryRunCli(ticketKey, '--from fetch --to commit --action feature --repos test-repo --dry-run');
+  const { output, exitCode } = runDryRunCli(ticketKey, `--from fetch --to commit --action feature --repos ${process.cwd()} --dry-run`);
   assert('dry-run exits 0', exitCode === 0);
   assert('dry-run output contains FETCH stage', output.includes('fetch') || output.includes('FETCH'));
   assert('dry-run output contains PLAN stage', output.includes('plan') || output.includes('PLAN'));
@@ -83,7 +83,7 @@ function checkDryRunEndToEnd(ticketKey: string): void {
 }
 
 function checkActionGuard(ticketKey: string): void {
-  const { output, exitCode } = runDryRunCli(ticketKey, '--from plan --to plan --repos test-repo --dry-run');
+  const { output, exitCode } = runDryRunCli(ticketKey, `--from plan --to plan --repos ${process.cwd()} --dry-run`);
   assert('exits non-zero when --action missing for plan stage', exitCode !== 0);
   assert('error mentions --action', output.includes('--action') || output.includes('action'));
 }

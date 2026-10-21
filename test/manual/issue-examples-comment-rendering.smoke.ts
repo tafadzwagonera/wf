@@ -59,11 +59,8 @@ function checkFetchHelpComment(scratchDir: string): void {
 const findResumeCommentLines = (reviewLines: string[]): string[] | null => {
   const idx = reviewLines.findIndex(l => l.includes('Resume a provider-backed review session'));
   if (idx === -1) return null;
-  const lines = [reviewLines[idx]];
-  if (reviewLines[idx + 1]?.trim().startsWith('human-readable summary')) {
-    lines.push(reviewLines[idx + 1]);
-  }
-  return lines;
+  const commandOffset = reviewLines.slice(idx + 1).findIndex(l => l.trim().startsWith('wf '));
+  return commandOffset === -1 ? [reviewLines[idx]] : reviewLines.slice(idx, idx + 1 + commandOffset);
 };
 
 function checkReviewHelpWrapping(reviewLines: string[]): void {

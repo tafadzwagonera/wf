@@ -1,6 +1,6 @@
 import * as path from 'path';
 import chalk from 'chalk';
-import { restoreEnv, withEnv } from '../shared/testing/env';
+import { restoreEnv, withEnv } from '../common/testing/env';
 import { extractSummary, isRepoResolvable, resolveRepoBasePath, scaffoldNewRepo, slugify, toRepoKeys, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
 
 jest.mock('fs', () => ({

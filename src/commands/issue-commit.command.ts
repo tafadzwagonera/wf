@@ -4,26 +4,26 @@ import * as path from 'node:path';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { GitError, ValidationError } from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { GitError, ValidationError } from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
+import { printCommandHeader } from '../common/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
 import { resolveRepoBasePath } from '../agents/utils';
-import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
+import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../common/utils/resolve-commit-scope-summary';
 import {
   findDatePrefixedReviewArtifact,
   listReviewArtifactVariants,
   resolveCustomReviewArtifactPath,
   resolveReviewArtifactPath,
-} from '../shared/utils/resolve-review-summary';
-import { renderCommitDescriptionContext } from '../shared/utils/commit-description-artifact';
-import { stripSupportedPlanExtension } from '../shared/utils/plan-artifact';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import type { CommitDescriptionResponse } from '../shared/types/commit-description.types';
+} from '../common/utils/resolve-review-summary';
+import { renderCommitDescriptionContext } from '../common/utils/commit-description-artifact';
+import { stripSupportedPlanExtension } from '../common/utils/plan-artifact';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import type { CommitDescriptionResponse } from '../common/types/commit-description.types';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
-import { withRepoLock } from '../shared/utils/repo-lock';
+import { withRepoLock } from '../common/utils/repo-lock';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 
@@ -390,6 +390,14 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '-s, --silent',
+    description: 'Suppress decorative output; emits no header',
+  })
+  parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '-k, --ticket-key <key>',
     description: 'Ticket key for the commit (e.g. WBP-2971); validated against the branch-embedded ticket key',
   })
@@ -403,14 +411,6 @@ export class IssueCommitCommand extends CommandRunner {
   })
   parseTracker(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '-s, --silent',
-    description: 'Suppress decorative output; emits no header',
-  })
-  parseSilent(): boolean {
-    return true;
   }
 
   private async detectTicketFromBranch(repoBaseDir?: string): Promise<string | null> {

@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
 import { knownSkills, registerSkill, resolveSkills, collectQualityRules } from './skill-registry';
-import { ConfigurationError } from '../shared/errors/app.error';
+import { ConfigurationError } from '../common/errors/app.error';
 import type { SkillDefinition } from './skill.types';
 
 const createMockSkill = (id: string, stages: SkillDefinition['stages'] = ['plan']): SkillDefinition => ({

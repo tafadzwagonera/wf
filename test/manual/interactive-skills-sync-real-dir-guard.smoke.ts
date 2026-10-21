@@ -9,11 +9,12 @@
  *   3. The real directory and its SKILL.md are left intact
  *   4. No symlink was created for any other skill (preflight runs before linking)
  *   5. No summary line is printed
- *   6. After removing the real directory, a re-run exits 0 and links all 12
+ *   6. After removing the real directory, a re-run exits 0 and links every taxonomy link
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
+import { skillTaxonomy } from '../../src/skills/skill-taxonomy';
 import { createReporter, summarise } from './support/reporter';
 import {
   createFakeHome,
@@ -23,6 +24,8 @@ import {
   removeFakeHome,
   runSkillsSync,
 } from './support/skills-sync-harness';
+
+const linkCount = Object.values(skillTaxonomy).reduce((total, audience) => total + audience.interactive.length, 0);
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>
@@ -49,7 +52,7 @@ const checkRemediationWorks = (home: string, legacyDir: string): void => {
   fs.rmSync(legacyDir, { recursive: true, force: true });
   const recovered = runSkillsSync(home);
   assert('re-run exits 0', recovered.status === 0, recovered.stderr);
-  assert('re-run links all 12', recovered.stdout.includes('linked 12, relinked 0, ok 0'), recovered.stdout);
+  assert(`re-run links all ${linkCount}`, recovered.stdout.includes(`linked ${linkCount}, relinked 0, ok 0`), recovered.stdout);
 };
 
 const seedLegacyCommitDir = (home: string): string => {

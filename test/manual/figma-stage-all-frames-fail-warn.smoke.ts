@@ -13,10 +13,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { FigmaStageService } from '../../src/review/figma-stage.service';
-import { LoggerService } from '../../src/shared/logger/logger.service';
-import { getWfLogDir } from '../../src/shared/utils/wf-paths';
+import { LoggerService } from '../../src/common/logger/logger.service';
+import { getWfLogDir } from '../../src/common/utils/wf-paths';
 import { createReporter } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

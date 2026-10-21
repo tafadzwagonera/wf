@@ -32,7 +32,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+jest.mock('../common/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: {
@@ -40,7 +40,7 @@ jest.mock('inquirer', () => ({
   },
 }));
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -52,7 +52,7 @@ jest.mock('../agents/utils', () => {
   };
 });
 
-jest.mock('../shared/utils/run-pre-review-verification', () => ({
+jest.mock('../common/utils/run-pre-review-verification', () => ({
   runPreReviewVerification: jest.fn().mockResolvedValue({ status: 'not-run', source: 'none', checks: [] }),
 }));
 
@@ -72,26 +72,26 @@ import {
 } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
-import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
-import { SessionService } from '../shared/session/session.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
+import { ReviewPresenter } from '../common/presentation/review-presenter.service';
+import { SessionService } from '../common/session/session.service';
+import { ErrorHandler } from '../common/utils/error-handler';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
+import { ConfigurationError, ExecutionError } from '../common/utils/errors';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { SonarStageService } from '../review/sonar-stage.service';
 import { FigmaStageService } from '../review/figma-stage.service';
 import { CommentPolicyStageService } from '../review/comment-policy-stage.service';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
-import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
+import { deriveCommitDescriptionPath } from '../common/utils/commit-description-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
-import { restoreEnv, withEnv } from '../shared/testing/env';
+import { getWfHomeDir } from '../common/utils/wf-paths';
+import { restoreEnv, withEnv } from '../common/testing/env';
 
 const mockTicket = {
   key: 'TAD-575',

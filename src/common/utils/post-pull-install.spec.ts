@@ -38,6 +38,18 @@ describe('runPostPullDependencyInstall', () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Dependencies updated via yarn'));
   });
 
+  it('suppresses the success message when silent', async () => {
+    mockInstallDependencies.mockResolvedValue({ packageManager: 'yarn', success: true });
+    await runPostPullDependencyInstall('/repo', false, true);
+    expect(consoleSpy).not.toHaveBeenCalled();
+  });
+
+  it('still logs a warning when silent', async () => {
+    mockInstallDependencies.mockResolvedValue({ packageManager: 'npm', success: false, warning: 'npm not found' });
+    await runPostPullDependencyInstall('/repo', false, true);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('npm not found'));
+  });
+
   it('logs a warning and resolves when installDependencies fails', async () => {
     mockInstallDependencies.mockResolvedValue({ packageManager: 'npm', success: false, warning: 'npm not found' });
     await expect(runPostPullDependencyInstall('/repo')).resolves.toBeUndefined();

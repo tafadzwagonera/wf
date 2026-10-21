@@ -41,7 +41,7 @@ jest.mock('../agents/utils', () => {
 // withRepoLock is exercised for real in repo-lock.spec.ts; mocked here as a passthrough so
 // command specs don't take a real filesystem lock on the shared literal '/tmp/current-app'
 // path, which could collide across parallel Jest workers.
-jest.mock('../shared/utils/repo-lock', () => ({
+jest.mock('../common/utils/repo-lock', () => ({
   withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
 }));
 
@@ -50,12 +50,12 @@ jest.mock('inquirer', () => ({
   default: { prompt: jest.fn() },
 }));
 
-jest.mock('../shared/utils/resolve-commit-scope-summary', () => ({
+jest.mock('../common/utils/resolve-commit-scope-summary', () => ({
   resolveCommitScopeSummary: jest.fn().mockReturnValue(null),
   resolveFreshCommitDescription: jest.fn().mockReturnValue(null),
 }));
 
-jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+jest.mock('../common/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -65,14 +65,14 @@ import { ConfigService } from '@nestjs/config';
 import { IssueCommitCommand } from './issue-commit.command';
 import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { CommitStageService } from '../workflows/stages/commit-stage.service';
 import inquirer from 'inquirer';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
-import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../shared/utils/resolve-commit-scope-summary';
-import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../common/utils/resolve-commit-scope-summary';
+import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../common/utils/resolve-review-summary';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import { OptionMeta } from 'nest-commander/src/constants';
 
 const setInteractiveSession = (isTTY: boolean): void => {
@@ -291,7 +291,7 @@ describe('IssueCommitCommand', () => {
   });
 
   it('runs the commit under a repo lock scoped to the resolved git base', async () => {
-    const { withRepoLock } = jest.requireMock('../shared/utils/repo-lock');
+    const { withRepoLock } = jest.requireMock('../common/utils/repo-lock');
     const { command } = await buildCommand();
 
     await command.run([], { ticketKey: 'WBP-123', message: 'ship it' });

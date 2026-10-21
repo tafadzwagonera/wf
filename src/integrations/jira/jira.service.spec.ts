@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { of, throwError } from 'rxjs';
 import { JiraService } from './jira.service';
-import { LoggerService } from '../../shared/logger/logger.service';
-import { JiraApiError } from '../../shared/utils/errors';
+import { LoggerService } from '../../common/logger/logger.service';
+import { JiraApiError } from '../../common/utils/errors';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 import { WIKI_MARKUP_FIXTURES, PROSE_REFERENCE_FIXTURES } from './wiki-markup-fixtures';
 

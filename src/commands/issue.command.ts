@@ -1,14 +1,14 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
-import type { PlanRisk } from '../shared/types/ai.types';
-import { formatPlanRisk } from '../shared/utils/plan-risk';
-import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import type { PlanRisk } from '../common/types/ai.types';
+import { formatPlanRisk } from '../common/utils/plan-risk';
+import { ensureWfHome } from '../common/utils/ensure-wf-home';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext, WorkflowStage as ConvWorkflowStage } from '../integrations/ai/conversation/interfaces';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { buildTicketMarkdownPreview } from '../shared/preview/preview.helpers';
-import { ValidationError } from '../shared/utils/errors';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { buildTicketMarkdownPreview } from '../common/preview/preview.helpers';
+import { ValidationError } from '../common/utils/errors';
 import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo, toRepoKeys } from '../agents/utils';
 import {
   buildPlanArtifactFilename,
@@ -20,20 +20,20 @@ import {
   readPlanArtifactManifest,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   resolvePlanToken,
-} from '../shared/utils/plan-artifact';
-import { resolveCustomSourcePath } from '../shared/utils/custom-source';
+} from '../common/utils/plan-artifact';
+import { resolveCustomSourcePath } from '../common/utils/custom-source';
 import { Inject } from '@nestjs/common';
-import { resolveCommitScopeSummary } from '../shared/utils/resolve-commit-scope-summary';
-import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../shared/utils/resolve-review-summary';
-import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
+import { resolveCommitScopeSummary } from '../common/utils/resolve-commit-scope-summary';
+import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../common/utils/resolve-review-summary';
+import { deriveCommitDescriptionPath } from '../common/utils/commit-description-artifact';
 import { GitService } from '../integrations/git/git.service';
 import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
 import { ConfigService } from '@nestjs/config';
 import { AiService, REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../integrations/ai/ai.service';
-import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
-import { withRepoLock } from '../shared/utils/repo-lock';
+import { ReviewPresenter } from '../common/presentation/review-presenter.service';
+import { printCommandHeader } from '../common/utils/command-header.helper';
+import { withRepoLock } from '../common/utils/repo-lock';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import * as fs from 'node:fs';
@@ -48,17 +48,17 @@ import {
   ImplementerResult,
 } from '../agents/interfaces';
 import type { ModelRouting } from '../agents/interfaces';
-import type { ProviderSessionIdCallback, RecordsCallback } from '../shared/types/agent.types';
-import { isResumableBackend, SessionService } from '../shared/session/session.service';
-import { collectPriorRecords } from '../shared/session/session-records';
-import type { PlanTokenResolution } from '../shared/types/plan-artifact.types';
-import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } from '../shared/types/session.types';
+import type { ProviderSessionIdCallback, RecordsCallback } from '../common/types/agent.types';
+import { isResumableBackend, SessionService } from '../common/session/session.service';
+import { collectPriorRecords } from '../common/session/session-records';
+import type { PlanTokenResolution } from '../common/types/plan-artifact.types';
+import type { ProviderSessionCandidate, SessionState, StageConfigFingerprint } from '../common/types/session.types';
 import { resolveDefaultStageBackend, type StageBackendDefaultStageName } from '../config/stage-backend-defaults';
 import { resolveProviderModel } from '../integrations/ai/adapters/shared-routing';
 import * as crypto from 'node:crypto';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { resolveUiDesignScreenshots } from '../shared/utils/resolve-ui-design-screenshots';
-import { selectProviderSession, type ProviderSessionSelection } from '../shared/utils/provider-session-prompt';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import { resolveUiDesignScreenshots } from '../common/utils/resolve-ui-design-screenshots';
+import { selectProviderSession, type ProviderSessionSelection } from '../common/utils/provider-session-prompt';
 
 const wfConfigExtensions = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
 
@@ -284,6 +284,14 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--figma',
+    description: 'Enable Figma link extraction during PLAN and design-conformance checks during IMPLEMENT and REVIEW, overriding stages.plan.figma, stages.implement.figma, and stages.review.figma config',
+  })
+  parseFigma(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--force',
     description: 'Force refetch and recreate all local artifacts, ignoring any cached files. Cannot be combined with --session-id.',
   })
@@ -357,34 +365,18 @@ export class IssueCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--sonar',
-    description: 'Enable the SonarQube CLI scan during the REVIEW stage, overriding stages.review.sonar config',
-  })
-  parseSonar(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--figma',
-    description: 'Enable Figma link extraction during PLAN and design-conformance checks during IMPLEMENT and REVIEW, overriding stages.plan.figma, stages.implement.figma, and stages.review.figma config',
-  })
-  parseFigma(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--ui-design-screenshots [files...]',
-    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at review time. Mutually exclusive with --figma.',
-  })
-  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
-    return [...previous, val];
-  }
-
-  @Option({
     flags: '--skip-install',
     description: 'Skip automatic dependency install after branch pull',
   })
   parseSkipInstall(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--sonar',
+    description: 'Enable the SonarQube CLI scan during the REVIEW stage, overriding stages.review.sonar config',
+  })
+  parseSonar(): boolean {
     return true;
   }
 
@@ -410,6 +402,14 @@ export class IssueCommand extends CommandRunner {
   })
   parseTracker(val: string): string {
     return val;
+  }
+
+  @Option({
+    flags: '--ui-design-screenshots [files...]',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at review time. Mutually exclusive with --figma.',
+  })
+  parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
+    return [...previous, val];
   }
 
   async run(passedParams: string[], options?: IssueOptions): Promise<void> {

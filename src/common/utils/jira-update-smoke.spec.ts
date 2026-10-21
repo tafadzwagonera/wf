@@ -4,7 +4,7 @@ import * as path from 'path';
 import { of } from 'rxjs';
 import { JiraService } from '../../integrations/jira/jira.service';
 import { JiraAdapter } from '../../integrations/issue-trackers/jira/jira-adapter';
-import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
+import { UniversalTicket } from '../dto/universal-ticket.dto';
 import {
   captureJiraDescriptionUpdatePreview,
   loadDescriptionFile,

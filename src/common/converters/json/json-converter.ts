@@ -3,7 +3,7 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket } from '../../dto/universal-ticket.dto';
-import { WorkflowParseError } from '../../../shared/utils/errors';
+import { WorkflowParseError } from '../../utils/errors';
 
 @Injectable()
 export class JsonConverter implements FormatConverter {

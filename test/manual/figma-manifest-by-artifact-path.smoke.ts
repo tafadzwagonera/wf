@@ -14,8 +14,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { FigmaStageService } from '../../src/review/figma-stage.service';
-import { LoggerService } from '../../src/shared/logger/logger.service';
-import { buildPlanArtifactManifestPath } from '../../src/shared/utils/plan-artifact';
+import { LoggerService } from '../../src/common/logger/logger.service';
+import { buildPlanArtifactManifestPath } from '../../src/common/utils/plan-artifact';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
@@ -34,7 +34,7 @@ function buildTestManifest(artifactPath: string) {
     artifactPath,
     action: 'fix',
     createdAt: '2026-09-08T00:00:00.000Z',
-    format: 'md',
+    format: 'json',
     hash: 'abc123',
     sourceKind: 'ticket',
     sourceName: 'PROJ-1',
@@ -45,9 +45,9 @@ function buildTestManifest(artifactPath: string) {
 
 function setupTestFixture() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-figma-manifest-'));
-  const artifactPath = path.join(tempDir, 'PROJ-1.md');
+  const artifactPath = path.join(tempDir, 'PROJ-1.json');
   const manifest = buildTestManifest(artifactPath);
-  fs.writeFileSync(artifactPath, '# PROJ-1 artifact', 'utf-8');
+  fs.writeFileSync(artifactPath, JSON.stringify({ action: 'fix', figmaLinks: [FIGMA_LINK] }), 'utf-8');
   fs.writeFileSync(buildPlanArtifactManifestPath(artifactPath), JSON.stringify(manifest, null, 2), 'utf-8');
   return { tempDir, artifactPath, manifest };
 }
@@ -116,8 +116,8 @@ async function runTest2FallbackToBranchLookup(tempDir: string): Promise<void> {
 
 function setupEmptyLinksFixture(tempDir: string, manifest: ReturnType<typeof buildTestManifest>): string {
   const emptyManifest = { ...manifest, figmaLinks: [] };
-  const emptyArtifactPath = path.join(tempDir, 'PROJ-2.md');
-  fs.writeFileSync(emptyArtifactPath, '', 'utf-8');
+  const emptyArtifactPath = path.join(tempDir, 'PROJ-2.json');
+  fs.writeFileSync(emptyArtifactPath, JSON.stringify({ action: 'fix', figmaLinks: [] }), 'utf-8');
   fs.writeFileSync(buildPlanArtifactManifestPath(emptyArtifactPath), JSON.stringify(emptyManifest, null, 2), 'utf-8');
   return emptyArtifactPath;
 }
@@ -126,7 +126,7 @@ async function runTest3UndefinedForEmptyLinks(
   tempDir: string,
   manifest: ReturnType<typeof buildTestManifest>,
 ): Promise<void> {
-  console.log(chalk.bold.cyan('\nTest 3: returns undefined when manifest has no figmaLinks'));
+  console.log(chalk.bold.cyan('\nTest 3: returns undefined when plan artifact has no figmaLinks'));
   const emptyArtifactPath = setupEmptyLinksFixture(tempDir, manifest);
   const configService = makeConfigService();
   const logger = new LoggerService(configService);

@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { ReviewerAgent } from './reviewer.agent';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { SonarStageService } from '../review/sonar-stage.service';
@@ -11,16 +11,16 @@ import { CommitDescriptionStageService } from '../workflows/stages/commit-descri
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ConfigurationError, ExecutionError } from '../shared/utils/errors';
-import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
-import { resolveVerificationSummary } from '../shared/utils/implement-verification';
-import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { ConfigurationError, ExecutionError } from '../common/utils/errors';
+import { runPostPullDependencyInstall } from '../common/utils/post-pull-install';
+import { resolveVerificationSummary } from '../common/utils/implement-verification';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
-jest.mock('../shared/utils/post-pull-install');
-jest.mock('../shared/utils/implement-verification');
-jest.mock('../shared/utils/detect-repo-conventions');
-jest.mock('../shared/logger/log-file-writer');
+jest.mock('../common/utils/post-pull-install');
+jest.mock('../common/utils/implement-verification');
+jest.mock('../common/utils/detect-repo-conventions');
+jest.mock('../common/logger/log-file-writer');
 
 const mockRunPostPullDependencyInstall = jest.mocked(runPostPullDependencyInstall);
 const mockResolveVerificationSummary = jest.mocked(resolveVerificationSummary);
@@ -838,7 +838,7 @@ describe('ReviewerAgent', () => {
 
       await agent.execute(ticket, { repoDir: '/repo' });
 
-      expect(mockRunPostPullDependencyInstall).toHaveBeenCalledWith('/repo');
+      expect(mockRunPostPullDependencyInstall).toHaveBeenCalledWith('/repo', undefined, undefined);
       expect(callOrder).toEqual(['post-pull', 'review']);
     });
 
@@ -885,8 +885,8 @@ describe('ReviewerAgent', () => {
           attempts: [],
         }));
         mockResolveVerificationSummary.mockImplementation(
-          jest.requireActual<typeof import('../shared/utils/implement-verification')>(
-            '../shared/utils/implement-verification',
+          jest.requireActual<typeof import('../common/utils/implement-verification')>(
+            '../common/utils/implement-verification',
           ).resolveVerificationSummary,
         );
         const { agent, reviewStageService } = await buildModule();

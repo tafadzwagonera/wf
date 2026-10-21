@@ -17,8 +17,10 @@ import { execSync } from 'node:child_process';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
+import type { ResolutionAction } from '../../src/common/types/agent.types';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
+import { seedPlanArtifact } from './support/plan-artifact-seed';
 
 const { counts, pass, fail } = createReporter();
 
@@ -29,10 +31,18 @@ type OutputCaptureHandles = {
 };
 type TestFixtures = { tmpRoot: string; homeDir: string; cleanup: () => void };
 
-function createPlatformDir(tmpRoot: string, platformName: string,
-  ticketKey: string, action: string, planAffectedRepositories?: string[]): void {
-  const homeDir = path.join(tmpRoot, 'home');
-  const platformDir = path.join(homeDir, '.wf', path.basename(tmpRoot), platformName);
+type FixtureOptions = {
+  ticketKey: string;
+  platformName?: string;
+  planAffectedRepositories?: string[];
+  action?: string;
+  artifactRepoName?: string;
+};
+
+function createPlatformDir(tmpRoot: string, platformName: string, action: string, opts: FixtureOptions): void {
+  const { ticketKey, planAffectedRepositories, artifactRepoName } = opts;
+  const artifactRepo = artifactRepoName ?? path.basename(tmpRoot);
+  const platformDir = path.join(tmpRoot, 'home', '.wf', artifactRepo, platformName);
   fs.mkdirSync(platformDir, { recursive: true });
   fs.writeFileSync(
     path.join(platformDir, `${ticketKey}.md`),
@@ -41,7 +51,7 @@ function createPlatformDir(tmpRoot: string, platformName: string,
   );
   const plan: Record<string, any> = { action, summary: 'Test plan', steps: ['Step 1'], estimatedComplexity: 'low' };
   if (planAffectedRepositories) plan.affectedRepositories = planAffectedRepositories;
-  fs.writeFileSync(path.join(platformDir, `${ticketKey}-plan-${action}.json`), JSON.stringify(plan, null, 2), 'utf-8');
+  seedPlanArtifact({ artifactDir: platformDir, sourceName: ticketKey, action: action as ResolutionAction, plan });
 }
 
 function initGitRepo(tmpRoot: string): void {
@@ -51,19 +61,16 @@ function initGitRepo(tmpRoot: string): void {
   execSync('git commit --allow-empty -m "init"', { cwd: tmpRoot, stdio: 'ignore' });
 }
 
-function makeFixtures(opts: {
-  ticketKey: string;
-  platformName?: string;
-  planAffectedRepositories?: string[];
-  action?: string;
-}): { tmpRoot: string; homeDir: string; cleanup: () => void } {
+function createPlanRepoDirs(tmpRoot: string, repoNames: string[] = []): void {
+  for (const repoName of repoNames) fs.mkdirSync(path.join(tmpRoot, repoName));
+}
+
+function makeFixtures(opts: FixtureOptions): { tmpRoot: string; homeDir: string; cleanup: () => void } {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-'));
-  const homeDir = path.join(tmpRoot, 'home');
-  const platformName = opts.platformName ?? 'jira';
-  const action = opts.action ?? 'fix';
-  createPlatformDir(tmpRoot, platformName, opts.ticketKey, action, opts.planAffectedRepositories);
+  createPlatformDir(tmpRoot, opts.platformName ?? 'jira', opts.action ?? 'fix', opts);
   initGitRepo(tmpRoot);
-  return { tmpRoot, homeDir, cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }) };
+  createPlanRepoDirs(tmpRoot, opts.planAffectedRepositories);
+  return { tmpRoot, homeDir: path.join(tmpRoot, 'home'), cleanup: () => fs.rmSync(tmpRoot, { recursive: true, force: true }) };
 }
 
 function makeChunkCapture(
@@ -112,7 +119,7 @@ async function runTestScenario(command: IssueCommand, fixtures: TestFixtures,
   runOptions: Record<string, any>): Promise<string> {
   const originalCwd = process.cwd();
   process.chdir(fixtures.tmpRoot);
-  withEnv({ HOME: fixtures.homeDir });
+  withEnv({ HOME: fixtures.homeDir, WF_HOME: path.join(fixtures.homeDir, '.wf') });
   try {
     const { output } = await captureOutput(() => command.run([], runOptions as any));
     return output;
@@ -171,9 +178,9 @@ async function checkTest4(command: IssueCommand): Promise<void> {
 
 async function checkTest5(command: IssueCommand): Promise<void> {
   console.log('Test 5: REVIEW stage shows repositories in scope');
-  const fixtures = makeFixtures({ ticketKey: 'TEST-5', planAffectedRepositories: ['review-repo'], action: 'fix' });
+  const fixtures = makeFixtures({ ticketKey: 'TEST-5', planAffectedRepositories: ['review-repo'], action: 'fix', artifactRepoName: 'review-repo' });
   const output = await runTestScenario(command, fixtures, { ticketKey: 'TEST-5', from: 'review', to: 'review', action: 'fix', repos: ['review-repo'] });
-  if (output.includes('review-repo')) {
+  if (output.includes('STAGE 4: Code Review') && output.includes('review-repo')) {
     pass('REVIEW stage shows repositories in scope');
   } else {
     fail(`Test 5: review-repo not found in REVIEW output. Output:\n${output}`);

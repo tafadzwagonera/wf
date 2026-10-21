@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 
 let passed = 0;
 let failed = 0;
@@ -29,9 +30,25 @@ function getErrorResult(err: unknown): { output: string; exitCode: number } {
   };
 }
 
+const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-enhancements-'));
+const sandboxEnv = {
+  ...process.env,
+  WF_HOME: path.join(sandboxRoot, '.wf'),
+  WF_REPOS_DIR: path.join(sandboxRoot, 'repos'),
+};
+
+function prepareSandbox(): void {
+  const repoDir = path.join(sandboxEnv.WF_REPOS_DIR, 'test-repo');
+  fs.mkdirSync(repoDir, { recursive: true });
+  execSync('git init -q', { cwd: repoDir, stdio: 'pipe' });
+  const artifactRepoDir = path.join(sandboxEnv.WF_HOME, 'test-repo');
+  fs.mkdirSync(artifactRepoDir, { recursive: true });
+  fs.writeFileSync(path.join(artifactRepoDir, 'README.md'), '# Custom plan source\n');
+}
+
 function executeCommand(cmd: string): { output: string; exitCode: number } {
   try {
-    const output = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
+    const output = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe', timeout: 30_000, env: sandboxEnv });
     return getSuccessResult(output);
   } catch (err: unknown) {
     return getErrorResult(err);
@@ -45,32 +62,32 @@ const CLI = 'npx ts-node -r tsconfig-paths/register src/main.ts';
 function testE2ArtifactPath(): void {
   console.log(chalk.bold.cyan('\n🧪 E2: Artifact Path (.wf/)'));
   console.log(chalk.gray('─'.repeat(60)));
-  const { output: planDryRun } = run(`${CLI} issue:plan WBP-0001 --action feature --repos test-repo --dry-run`);
+  const { output: planDryRun } = run(`${CLI} issue:plan -k WBP-0001 --action feature --repos test-repo --dry-run`);
   assert('issue:plan dry-run output mentions .wf/ path', planDryRun.includes('.wf/'));
 }
 
 function testE4HappyPath(): void {
   const { output: promptOut, exitCode: promptCode } = run(
-    `${CLI} issue:plan --action feature --custom README.md --repos test-repo --dry-run`
+    `${CLI} issue:plan --action feature --custom-plan README.md --repos test-repo --dry-run`
   );
-  assert('--custom dry-run exits 0', promptCode === 0);
+  assert('--custom-plan dry-run exits 0', promptCode === 0);
   assert(
-    '--custom dry-run output contains mnemonic-feature.json pattern',
-    /[a-z]+-[a-z]+-[a-z]+-feature\.json/.test(promptOut)
+    '--custom-plan dry-run output contains dated hashed feature-plan.json pattern',
+    /\d{4}-\d{2}-\d{2}-[0-9a-f]{8}-feature-plan\.json/.test(promptOut)
   );
 }
 
 function testE4MutualExclusion(): void {
   const { exitCode: mutualCode, output: mutualOut } = run(
-    `${CLI} issue:plan WBP-0001 --action feature --custom README.md --repos test-repo --dry-run`
+    `${CLI} issue:plan -k WBP-0001 --action feature --custom-plan README.md --repos test-repo --dry-run`
   );
-  assert('ticket-key + --custom exits non-zero', mutualCode !== 0);
-  assert('mutual-exclusion error message mentions --custom', mutualOut.includes('--custom'));
+  assert('ticket-key + --custom-plan exits non-zero', mutualCode !== 0);
+  assert('mutual-exclusion error message mentions --custom-plan', mutualOut.includes('--custom-plan'));
 }
 
 function testE4MissingAction(): void {
-  const { exitCode: noActionCode } = run(`${CLI} issue:plan --custom README.md --repos test-repo --dry-run`);
-  assert('--custom without --action exits non-zero', noActionCode !== 0);
+  const { exitCode: noActionCode } = run(`${CLI} issue:plan --custom-plan README.md --repos test-repo --dry-run`);
+  assert('--custom-plan without --action exits non-zero', noActionCode !== 0);
 }
 
 function testE4CustomForIssuePlan(): void {
@@ -104,7 +121,7 @@ function testE5ValidationErrors(): void {
     `${CLI} issue:implement merry-tinkering-pine-feature`
   );
   assert('custom artifact without extension exits non-zero', missingPlanCode !== 0);
-  assert('error mentions extension requirement', missingPlanOut.includes('extension'));
+  assert('error mentions the missing plan artifact', missingPlanOut.includes('Plan artifact not found'));
   const { exitCode: noArgsCode } = run(`${CLI} issue:implement --dry-run`);
   assert('no args exits non-zero', noArgsCode !== 0);
 }
@@ -130,7 +147,7 @@ function testE5CustomArtifactExecution(): void {
 
 function testE6Case1(): void {
   const { output: e6Out, exitCode: e6Code } = run(
-    `${CLI} issue WBP-0001 --from plan --action investigate --repos test-repo --dry-run`
+    `${CLI} issue -k WBP-0001 --from plan --action investigate --repos test-repo --dry-run`
   );
   assert('E6-1: exit 0', e6Code === 0);
   assert('E6-1: dry-run mentions findings artifact', e6Out.includes('findings-and-recommendations'));
@@ -171,6 +188,7 @@ function testE6InvestigationFindings(): void {
 }
 
 function printSummary(): void {
+  fs.rmSync(sandboxRoot, { recursive: true, force: true });
   console.log(chalk.gray('\n' + '─'.repeat(60)));
   if (failed === 0) {
     console.log(chalk.bold.green(`\n✓ All ${passed} tests passed\n`));
@@ -181,6 +199,7 @@ function printSummary(): void {
 }
 
 async function main(): Promise<void> {
+  prepareSandbox();
   testE2ArtifactPath();
   testE4CustomForIssuePlan();
   testE5CustomArtifactExecution();

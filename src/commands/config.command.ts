@@ -1,11 +1,11 @@
 import { Command, CommandRunner, SubCommand } from 'nest-commander';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
-import { getWfLogDir, getWfStateDir } from '../shared/utils/wf-paths';
+import { LoggerService } from '../common/logger/logger.service';
+import { getWfLogDir, getWfStateDir } from '../common/utils/wf-paths';
 import { ConfigCleanCommand } from './config-clean.command';
 import { createRequire } from 'node:module';
-import { ValidationError } from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { ValidationError } from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import chalk from 'chalk';
 
 const moduleRequire = createRequire(__filename);

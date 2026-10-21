@@ -1,20 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GitService } from '../integrations/git/git.service';
-import { SessionService } from '../shared/session/session.service';
-import { LoggerService } from '../shared/logger/logger.service';
+import { SessionService } from '../common/session/session.service';
+import { LoggerService } from '../common/logger/logger.service';
 import { runSonarScan, type SonarScanResult } from './sonar-scanner';
 import { resolveArtifactDir, resolveCustomArtifactDir } from '../agents/utils';
 import {
   findPlanArtifactManifestByBranchName,
   updatePlanArtifactManifestSourceBranch,
   type PlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
-import { promptForSourceBranch } from '../shared/utils/source-branch-prompt';
-import type { StageProgressCallback } from '../shared/types/agent.types';
-import type { BranchInfo } from '../shared/types/git.types';
-import type { SessionState } from '../shared/types/session.types';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+} from '../common/utils/plan-artifact';
+import { promptForSourceBranch } from '../common/utils/source-branch-prompt';
+import type { StageProgressCallback } from '../common/types/agent.types';
+import type { BranchInfo } from '../common/types/git.types';
+import type { SessionState } from '../common/types/session.types';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 
 /**
  * Options controlling a SonarQube pre-review scan.

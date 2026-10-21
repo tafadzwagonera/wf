@@ -4,7 +4,7 @@
  * Run: nr test:manual issue-api-alignment.smoke.ts
  *
  * Verifies:
- *   1. --chat-mode flag is accepted (dry-run exits 0)
+ *   1. --silent flag is accepted (dry-run exits 0)
  *   2. --interactive flag is rejected (unknown option)
  *   3. --skip-existing flag is rejected (unknown option)
  *   4. -f / --force flag is accepted (dry-run exits 0)
@@ -24,11 +24,19 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
 const distMain = path.join(__dirname, '../../dist/main.js');
+
+const cliSandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-cli-'));
+const cliSandboxEnv = {
+  ...process.env,
+  WF_HOME: path.join(cliSandboxRoot, '.wf'),
+  WF_REPOS_DIR: path.join(cliSandboxRoot, 'repos'),
+};
+fs.mkdirSync(path.join(cliSandboxEnv.WF_REPOS_DIR, 'test-repo'), { recursive: true });
 
 function buildCliErrorResult(err: any): { output: string; exitCode: number } {
   return {
@@ -43,6 +51,7 @@ const runCli = (args: string): { output: string; exitCode: number } => {
       encoding: 'utf-8',
       stdio: 'pipe',
       cwd: os.tmpdir(),
+      env: cliSandboxEnv,
       timeout: 15_000,
     });
     return { output, exitCode: 0 };
@@ -51,16 +60,24 @@ const runCli = (args: string): { output: string; exitCode: number } => {
   }
 };
 
-const makeArtifactFixture = (ticketKey: string): { tmpRoot: string; homeDir: string; cleanup: () => void } => {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-'));
-  const homeDir = path.join(tmpRoot, 'home');
-  const wfHome = path.join(homeDir, '.wf');
-  const platformDir = path.join(wfHome, path.basename(tmpRoot), 'jira');
+type ArtifactFixture = { tmpRoot: string; wfHome: string; reposDir: string; cleanup: () => void };
+
+const writeArtifactFixtureFiles = (wfHome: string, reposDir: string, ticketKey: string): void => {
+  const platformDir = path.join(wfHome, 'test-repo', 'jira');
   fs.mkdirSync(platformDir, { recursive: true });
+  fs.mkdirSync(path.join(reposDir, 'test-repo'), { recursive: true });
   fs.writeFileSync(path.join(platformDir, `${ticketKey}.md`), `# ${ticketKey}: Fixture ticket\n`, 'utf-8');
+};
+
+const makeArtifactFixture = (ticketKey: string): ArtifactFixture => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-align-'));
+  const wfHome = path.join(tmpRoot, '.wf');
+  const reposDir = path.join(tmpRoot, 'repos');
+  writeArtifactFixtureFiles(wfHome, reposDir, ticketKey);
   return {
     tmpRoot,
-    homeDir,
+    wfHome,
+    reposDir,
     cleanup: () => {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     },
@@ -85,10 +102,10 @@ const captureStdout = async (fn: () => Promise<void>): Promise<string> => {
 function applyTmpEnv(
   ticketKey: string,
 ): { cleanup: () => void; originalCwd: string } {
-  const { tmpRoot, homeDir, cleanup } = makeArtifactFixture(ticketKey);
+  const { tmpRoot, wfHome, reposDir, cleanup } = makeArtifactFixture(ticketKey);
   const originalCwd = process.cwd();
   process.chdir(tmpRoot);
-  withEnv({ HOME: homeDir });
+  withEnv({ WF_HOME: wfHome, WF_REPOS_DIR: reposDir });
   return { cleanup, originalCwd };
 }
 
@@ -114,19 +131,19 @@ async function runWithTmpEnv(
   }
 }
 
-function checkChatModeAccepted(): void {
-  console.log(chalk.bold('Test 1: --chat-mode flag is accepted'));
-  const { exitCode } = runCli('TEST-1 --from fetch --to fetch --repos test-repo --dry-run --chat-mode');
+function checkSilentAccepted(): void {
+  console.log(chalk.bold('Test 1: --silent flag is accepted'));
+  const { exitCode } = runCli('-k TEST-1 --from fetch --to fetch --repos test-repo --dry-run --silent');
   if (exitCode === 0) {
-    pass('--chat-mode accepted; dry-run exited 0');
+    pass('--silent accepted; dry-run exited 0');
   } else {
-    fail(`--chat-mode: dry-run exited ${exitCode}`);
+    fail(`--silent: dry-run exited ${exitCode}`);
   }
 }
 
 function checkInteractiveFlagRejected(): void {
   console.log(chalk.bold('Test 2: --interactive flag is rejected'));
-  const { exitCode, output } = runCli('TEST-2 --from fetch --to fetch --repos test-repo --dry-run --interactive');
+  const { exitCode, output } = runCli('-k TEST-2 --from fetch --to fetch --repos test-repo --dry-run --interactive');
   if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
     pass('--interactive correctly rejected');
   } else {
@@ -136,7 +153,7 @@ function checkInteractiveFlagRejected(): void {
 
 function checkSkipExistingFlagRejected(): void {
   console.log(chalk.bold('Test 3: --skip-existing flag is rejected'));
-  const { exitCode, output } = runCli('TEST-3 --from fetch --to fetch --repos test-repo --dry-run --skip-existing');
+  const { exitCode, output } = runCli('-k TEST-3 --from fetch --to fetch --repos test-repo --dry-run --skip-existing');
   if (exitCode !== 0 || output.toLowerCase().includes('unknown option')) {
     pass('--skip-existing correctly rejected');
   } else {
@@ -146,8 +163,8 @@ function checkSkipExistingFlagRejected(): void {
 
 function checkForceFlag(): void {
   console.log(chalk.bold('Test 4: --force accepted; -f rejected (no short form after CLI refactor)'));
-  const { exitCode: exitLong } = runCli('TEST-4 --from fetch --to fetch --repos test-repo --dry-run --force');
-  const { exitCode: exitShort, output: shortOutput } = runCli('TEST-4 --from fetch --to fetch --repos test-repo --dry-run -f');
+  const { exitCode: exitLong } = runCli('-k TEST-4 --from fetch --to fetch --repos test-repo --dry-run --force');
+  const { exitCode: exitShort, output: shortOutput } = runCli('-k TEST-4 --from fetch --to fetch --repos test-repo --dry-run -f');
   const shortRejected = exitShort !== 0 || shortOutput.toLowerCase().includes('unknown option');
   if (exitLong === 0 && shortRejected) {
     pass('--force accepted; -f correctly rejected (short form removed to avoid --format conflict)');
@@ -182,7 +199,7 @@ async function checkForceOverwrites(command: IssueCommand): Promise<void> {
 
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n🧪 issue API alignment tests\n'));
-  checkChatModeAccepted();
+  checkSilentAccepted();
   checkInteractiveFlagRejected();
   checkSkipExistingFlagRejected();
   checkForceFlag();
@@ -191,6 +208,7 @@ async function main(): Promise<void> {
   await checkNoForceSkips(command);
   await checkForceOverwrites(command);
   await app.close();
+  fs.rmSync(cliSandboxRoot, { recursive: true, force: true });
   summarise(counts);
 }
 

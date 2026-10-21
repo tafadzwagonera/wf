@@ -2,8 +2,8 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
-import { LoggerService } from '../../../shared/logger/logger.service';
-import { AiProviderError } from '../../../shared/utils/errors';
+import { LoggerService } from '../../../common/logger/logger.service';
+import { AiProviderError } from '../../../common/utils/errors';
 import { OpenAIAdapter } from './openai.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 

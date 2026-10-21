@@ -13,7 +13,7 @@
 ### Task 1: Add shared artifact utility tests
 
 **Files:**
-- Create or modify shared artifact utility tests under `src/shared/utils/`
+- Create or modify shared artifact utility tests under `src/common/utils/`
 
 - [ ] Write failing tests for plan hash generation, filename construction, manifest/index round-trip resolution, and legacy fallback scanning
 - [ ] Run targeted tests and verify they fail for missing shared helpers
@@ -27,7 +27,7 @@
 - Modify `src/workflows/stages/plan-stage.service.ts`
 - Modify `src/commands/issue-implement.command.ts`
 - Modify `src/commands/issue.command.ts`
-- Modify relevant shared utility files under `src/shared/utils/`
+- Modify relevant shared utility files under `src/common/utils/`
 
 - [ ] Add failing tests that assert hashed plan filenames and shared lookup behavior in standard and custom plan flows
 - [ ] Run targeted tests and verify they fail for current hard-coded filename logic
@@ -48,7 +48,7 @@
 ### Task 4: Verify formatting and regression safety
 
 **Files:**
-- Modify `src/shared/utils/*.ts`
+- Modify `src/common/utils/*.ts`
 - Modify `src/commands/*.ts`
 - Modify `src/workflows/stages/*.ts`
 

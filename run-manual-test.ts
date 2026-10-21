@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { createRequire } from 'node:module';
 
 const moduleRequire = createRequire(__filename);
-const { ExecutionError } = moduleRequire('./src/shared/errors/app.error');
+const { ExecutionError } = moduleRequire('./src/common/errors/app.error');
 
 /**
  * Verify that the runner is executing from the wf project root.

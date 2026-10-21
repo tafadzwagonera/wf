@@ -1,5 +1,5 @@
-import { ConfigurationError } from '../shared/errors/app.error';
-import { repoDirCandidates, resolveExistingRepoDir } from '../shared/utils/repo-resolution';
+import { ConfigurationError } from '../common/errors/app.error';
+import { repoDirCandidates, resolveExistingRepoDir } from '../common/utils/repo-resolution';
 
 const repoFlags = new Set(['-r', '--repos']);
 

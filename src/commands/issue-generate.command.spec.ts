@@ -52,7 +52,7 @@ jest.mock('fs', () => {
   };
 });
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -73,18 +73,18 @@ import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracke
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { SlackService } from '../integrations/slack/slack.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
-import { hashGeneratedTicketSources } from '../shared/utils/generated-ticket-artifact';
-import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
+import { ErrorHandler } from '../common/utils/error-handler';
+import { hashGeneratedTicketSources } from '../common/utils/generated-ticket-artifact';
+import { createTempDir as createManagedTempDir } from '../common/testing/temp-dir';
 import inquirer from 'inquirer';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
-import { restoreEnv, withEnv } from '../shared/testing/env';
+import { getWfHomeDir } from '../common/utils/wf-paths';
+import { restoreEnv, withEnv } from '../common/testing/env';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -1822,7 +1822,7 @@ describe('IssueGenerateCommand', () => {
     it('logs WARN when the callback throws', async () => {
       const { command } = await buildCommand();
       const mockAppendToLogFile = jest.spyOn(
-        require('../shared/logger/log-file-writer'),
+        require('../common/logger/log-file-writer'),
         'appendToLogFile'
       ).mockImplementation(() => {});
 
@@ -1848,7 +1848,7 @@ describe('IssueGenerateCommand', () => {
       const { command, mockAiService } = await buildCommand();
       jest.spyOn(mockAiService, 'execute').mockResolvedValueOnce({ content: 'Not a JSON array' });
       const mockAppendToLogFile = jest.spyOn(
-        require('../shared/logger/log-file-writer'),
+        require('../common/logger/log-file-writer'),
         'appendToLogFile'
       ).mockImplementation(() => {});
 

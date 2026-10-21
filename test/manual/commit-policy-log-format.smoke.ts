@@ -14,8 +14,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
-import { resolveCommitPolicy, type CommitComplexity } from '../../src/shared/utils/implement-commit-policy';
-import type { PlanArtifact } from '../../src/shared/types/agent.types';
+import { resolveCommitPolicy, type CommitComplexity } from '../../src/common/utils/implement-commit-policy';
+import type { PlanArtifact } from '../../src/common/types/agent.types';
 import chalk from 'chalk';
 import { createReporter, summarise } from './support/reporter';
 

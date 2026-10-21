@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { FetcherAgent } from './fetcher.agent';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 
 describe('FetcherAgent', () => {

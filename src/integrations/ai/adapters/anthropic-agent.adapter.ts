@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
-import { AiProviderError, ConfigurationError } from '../../../shared/utils/errors';
-import { formatPlanRisks } from '../../../shared/utils/plan-risk';
-import type { PlanProblem } from '../../../shared/types/agent.types';
+import { AiProviderError, ConfigurationError } from '../../../common/utils/errors';
+import { formatPlanRisks } from '../../../common/utils/plan-risk';
+import type { PlanProblem } from '../../../common/types/agent.types';
 import {
   type CanUseTool,
   type SDKResultMessage,
@@ -13,7 +13,7 @@ import chalk from 'chalk';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { isWritablePathWithinRoot } from '../../../shared/utils/path-within-root';
+import { isWritablePathWithinRoot } from '../../../common/utils/path-within-root';
 import type {
   TicketArtifact,
   PlanArtifact,

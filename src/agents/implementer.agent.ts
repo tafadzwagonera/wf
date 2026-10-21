@@ -1,15 +1,15 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
-import { violatesUppercaseDescription } from '../shared/utils/commit-subject-case';
+import { violatesUppercaseDescription } from '../common/utils/commit-subject-case';
 import { GitService } from '../integrations/git/git.service';
 import { safeBranchNamePattern, sanitizeBranchNameInput, validateBranchNameInput } from '../integrations/git/branch-name';
-import type { BranchInfo } from '../shared/types/git.types';
-import type { StageRecordEntry } from '../shared/types/session.types';
-import type { RecordsCallback } from '../shared/types/agent.types';
+import type { BranchInfo } from '../common/types/git.types';
+import type { StageRecordEntry } from '../common/types/session.types';
+import type { RecordsCallback } from '../common/types/agent.types';
 import { AiService, buildFindingsPrompt, findingsSystemPrompt, normalizeFileEntries, parseJsonResponse } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import type { FindingsDocument } from '../shared/types/ai.types';
+import type { FindingsDocument } from '../common/types/ai.types';
 import {
   ImplementBackendSelection,
   ImplementerBackend,
@@ -23,20 +23,20 @@ import {
   VerificationOutcome,
   VerificationScript,
 } from './interfaces';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { extractSummary, isRepoResolvable, slugify, truncateSlug, MAX_BRANCH_NAME_LENGTH } from './utils';
-import { ConfigurationError, ExecutionError, GitError, InvalidBranchNameError, ValidationError } from '../shared/utils/errors';
+import { ConfigurationError, ExecutionError, GitError, InvalidBranchNameError, ValidationError } from '../common/utils/errors';
 import { resolveSkills } from '../skills';
 import {
   appendPlanProblemsToRunFile, formatBackendSelection, writeImplementVerificationRunFile,
-} from '../shared/utils/implement-verification';
-import { getWfStateDir } from '../shared/utils/wf-paths';
-import { detectRepoConventions, formatRepoConventionsPromptSection } from '../shared/utils/detect-repo-conventions';
-import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../shared/utils/implement-commit-policy';
-import { runPostPullDependencyInstall } from '../shared/utils/post-pull-install';
-import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
-import { isRemoteBranch, promptForSourceBranch } from '../shared/utils/source-branch-prompt';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+} from '../common/utils/implement-verification';
+import { getWfStateDir } from '../common/utils/wf-paths';
+import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
+import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../common/utils/implement-commit-policy';
+import { runPostPullDependencyInstall } from '../common/utils/post-pull-install';
+import { updatePlanArtifactManifestSourceBranch } from '../common/utils/plan-artifact';
+import { isRemoteBranch, promptForSourceBranch } from '../common/utils/source-branch-prompt';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import {
   PlanStepVerificationService,
   stripRepoNamePrefix,
@@ -44,21 +44,21 @@ import {
   type StepVerificationModeDirective,
 } from './plan-step-verification.service';
 import { StepSpecFidelityService, type AssessableStep } from './step-spec-fidelity.service';
-import type { StepFidelityFailure, StepFidelityFinding } from '../shared/types/step-spec-fidelity.types';
+import type { StepFidelityFailure, StepFidelityFinding } from '../common/types/step-spec-fidelity.types';
 import { FigmaStageService, type FigmaResolveResult } from '../review/figma-stage.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { NormalizedVerificationConditionsConfig } from '../config/wf-config-loader';
-import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig } from '../shared/types/config.types';
-import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../shared/utils/verification-manifest';
+import type { WfAiProviderName, WfBackendMode, WfPlanStepVerificationConfig } from '../common/types/config.types';
+import { filterVerificationStepsForRepo, loadVerificationManifest, mergeVerificationSteps, normalizeTargetedStepCommand, type VerificationStep } from '../common/utils/verification-manifest';
 import { AnthropicAgentAdapter } from '../integrations/ai/adapters/anthropic-agent.adapter';
 import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.adapter';
 import { ClaudeCliAdapter } from '../integrations/ai/adapters/claude-cli.adapter';
 import { CodexCliAdapter } from '../integrations/ai/adapters/codex-cli.adapter';
 import inquirer from 'inquirer';
-import { executeWithCatch, executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { executeWithCatch, executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 
 interface FileResolution {
   repoName: string;

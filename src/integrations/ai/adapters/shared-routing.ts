@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import { exec } from 'node:child_process';
-import { appendToLogFile } from '../../../shared/logger/log-file-writer';
-import { ConfigurationError } from '../../../shared/utils/errors';
+import { appendToLogFile } from '../../../common/logger/log-file-writer';
+import { ConfigurationError } from '../../../common/utils/errors';
 import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { headlessPipelineInstruction, implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import * as fs from 'node:fs/promises';
@@ -10,14 +10,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { ResolutionPlan } from '../ai.service';
-import type { planPhaseSchema } from '../../../shared/schemas/ai.schema';
+import type { planPhaseSchema } from '../../../common/schemas/ai.schema';
 import type { z } from 'zod';
-import type { WfImplementStageModelRoutingThresholdsConfig } from '../../../shared/types/config.types';
+import type { WfImplementStageModelRoutingThresholdsConfig } from '../../../common/types/config.types';
 
 export type PlanPhase = z.infer<typeof planPhaseSchema>;
 import type { VerificationScript, ModelRouting } from '../../../agents/interfaces';
-import type { BuildTaskBriefParams, BuildPlanContextParams, PlanProblem } from '../../../shared/types/agent.types';
-export type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../shared/types/agent.types';
+import type { BuildTaskBriefParams, BuildPlanContextParams, PlanProblem } from '../../../common/types/agent.types';
+export type { BuildTaskBriefParams, BuildPlanContextParams } from '../../../common/types/agent.types';
 
 const execAsync = promisify(exec);
 

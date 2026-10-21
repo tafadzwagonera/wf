@@ -792,8 +792,8 @@ wf issue --session-id 550e8400-e29b-41d4-a716-446655440000
 # Force refresh even when local artifacts already exist
 wf issue -k WBP-2971 --from fetch --action fix --force
 
-# Interactive chat mode after plan and review stages
-wf issue -k WBP-2971 --from fetch --action investigate --chat-mode
+# Silent run: no decorative output or prompts, artifact paths only
+wf issue -k WBP-2971 --from fetch --action investigate --silent
 
 # Bitbucket with repos override
 wf issue -k 123 --from fetch --to review --action fix \
@@ -821,7 +821,7 @@ wf issue -k WBP-2971 --from fetch --action fix --figma
 | `--action <action>`         | Resolution action: `feature \| fix \| investigate` — required when `plan` stage runs, optional when resuming from a canonical hashed plan artifact; also scopes the diff-grounded commit description generated during the `review` stage | —                  |
 | `-t, --tracker <tracker>` | Tracker: `jira \| github \| bitbucket`                                                                                                            | `TRACKER` |
 | `--pr`                      | Create PR after commit stage                                                                                                                       | false              |
-| `--chat-mode`               | Open AI chat after `plan` and `review` stages                                                                                                      | —                  |
+| `-s, --silent`              | Suppress decorative output and interactive prompts. Emits only artifact paths (per stage) for piping                                              | —                  |
 | `--force`                   | Recreate artifacts instead of using the default skip-existing behavior                                                                             | false              |
 | `-c, --custom-plan <source.md>` | Path to a custom markdown plan source; skips the fetch stage. When `--from fetch` is set, warns and normalizes to `--from plan` | —                  |
 | `--dry-run`                 | Preview every stage without making changes, including branch and file work                                                                         | —                  |
@@ -1388,8 +1388,7 @@ wf/
 │   │   └── slack/                 # Slack thread/permalink fetching
 │   │
 │   ├── config/                    # Configuration loading (wf.config.* resolution, Zod validation)
-│   ├── common/                    # Shared types, DTOs, and format converters
-│   ├── shared/                    # Logger, preview, and error utilities
+│   ├── common/                    # Shared types, schemas, DTOs, converters, logger, preview, errors, session, and utils
 │   ├── bootstrap/                 # NestJS app bootstrap and module wiring
 │   ├── skills/
 │   │   └── content/               # Bundled SKILL.md files (one subdirectory per skill ID)

@@ -19,7 +19,7 @@ import { ZodError } from 'zod';
 import {
   buildTaskBriefParamsSchema,
   buildPlanContextParamsSchema,
-} from '../../src/shared/schemas/agent.schema';
+} from '../../src/common/schemas/agent.schema';
 import { buildTaskBrief, buildPlanContext } from '../../src/integrations/ai/adapters/shared-routing';
 import { createReporter, summarise } from './support/reporter';
 
@@ -41,7 +41,7 @@ const fullParams = {
   planSummary: 'Refactor the module',
   planRisks: ['May break downstream'],
   planAction: 'feature' as const,
-  skillNames: ['tdd'],
+  skillFragment: '\n\n## Skill: test-driven-development\nWrite the failing test first.',
   phases: [{ label: 'Phase A', stepIndices: [0], verifyAfter: ['yarn lint'] }],
 };
 
@@ -111,7 +111,7 @@ function assertBriefContent(briefOutput: string): void {
 }
 
 function assertBriefMetadata(briefOutput: string): void {
-  assert('output contains Skill-specific instructions', briefOutput.includes("Skill('tdd')"));
+  assert('output contains Skill fragment', briefOutput.includes('## Skill: test-driven-development'));
   assert('output contains Phase checkpoints', briefOutput.includes('Phase 1: Phase A'));
 }
 

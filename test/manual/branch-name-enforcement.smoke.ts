@@ -23,8 +23,8 @@ import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
-import { LoggerService } from '../../src/shared/logger/logger.service';
-import { InvalidBranchNameError } from '../../src/shared/utils/errors';
+import { LoggerService } from '../../src/common/logger/logger.service';
+import { InvalidBranchNameError } from '../../src/common/utils/errors';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

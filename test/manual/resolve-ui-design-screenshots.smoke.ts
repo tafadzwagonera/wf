@@ -13,10 +13,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
-import { resolveUiDesignScreenshots } from '../../src/shared/utils/resolve-ui-design-screenshots';
-import { FileSystemError } from '../../src/shared/errors/app.error';
+import { resolveUiDesignScreenshots } from '../../src/common/utils/resolve-ui-design-screenshots';
+import { FileSystemError } from '../../src/common/errors/app.error';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -104,10 +104,12 @@ function checkMissingFileThrows(tmpRoot: string, artifactDir: string, identifier
   }
 }
 
-function setupScanDir(tmpRoot: string): { artifactDir: string; identifier: string; scanDir: string } {
+type ScanDirFixture = { artifactDir: string; identifier: string; scanDir: string };
+
+function setupScanDir(tmpRoot: string, tmpWfHome: string): ScanDirFixture {
   const artifactDir = path.join(tmpRoot, 'artifacts');
   const identifier = 'TICKET-1';
-  const scanDir = path.join(artifactDir, identifier);
+  const scanDir = path.join(tmpWfHome, 'artifacts', identifier);
   fs.mkdirSync(scanDir, { recursive: true });
   fs.writeFileSync(path.join(scanDir, 'hero.png'), Buffer.from([0x89, 0x50]));
   fs.writeFileSync(path.join(scanDir, 'banner.jpg'), Buffer.from([0xff, 0xd8]));
@@ -116,7 +118,7 @@ function setupScanDir(tmpRoot: string): { artifactDir: string; identifier: strin
 }
 
 async function runScenario(tmpRoot: string, tmpWfHome: string): Promise<void> {
-  const { artifactDir, identifier, scanDir } = setupScanDir(tmpRoot);
+  const { artifactDir, identifier, scanDir } = setupScanDir(tmpRoot, tmpWfHome);
   console.log(chalk.bold.cyan('\nTest 1: no-arg mode returns only supported-extension files from scan dir'));
   checkNoArgMode(artifactDir, identifier);
   console.log(chalk.bold.cyan('\nTest 2: no-arg mode returns [] when scan dir missing; WARN logged'));

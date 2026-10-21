@@ -17,7 +17,7 @@ import chalk from 'chalk';
 import {
   detectRepoConventions,
   formatRepoConventionsPromptSection,
-} from '../../src/shared/utils/detect-repo-conventions';
+} from '../../src/common/utils/detect-repo-conventions';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

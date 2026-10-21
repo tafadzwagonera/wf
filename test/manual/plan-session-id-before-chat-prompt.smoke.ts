@@ -13,9 +13,9 @@ import chalk from 'chalk';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommand } from '../../src/commands/issue.command';
-import { SessionService } from '../../src/shared/session/session.service';
+import { SessionService } from '../../src/common/session/session.service';
 import { createReporter, summarise } from './support/reporter';
-import type { SessionState } from '../../src/shared/types/session.types';
+import type { SessionState } from '../../src/common/types/session.types';
 
 const { counts, pass, fail } = createReporter();
 

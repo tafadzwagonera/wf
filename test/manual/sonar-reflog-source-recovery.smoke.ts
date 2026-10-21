@@ -26,11 +26,11 @@ import { GitService } from '../../src/integrations/git/git.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import {
   buildPlanArtifactManifest, buildPlanArtifactManifestPath, writePlanArtifactManifest, readPlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import { resolveArtifactDir } from '../../src/agents/utils';
 
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

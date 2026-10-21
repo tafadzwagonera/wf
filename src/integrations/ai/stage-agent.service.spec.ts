@@ -1,13 +1,13 @@
 import { ConfigService } from '@nestjs/config';
 import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, buildRipgrepCommand, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
-import { AiProviderError, ExecutionError } from '../../shared/utils/errors';
+import { AiProviderError, ExecutionError } from '../../common/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
 import { headlessPipelineInstruction } from './prompt-fragments';
 import { z } from 'zod';
-import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
-import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
-import * as logFileWriter from '../../shared/logger/log-file-writer';
+import { planModelOutputSchema } from '../../common/schemas/ai.schema';
+import { batchSummarySchema } from '../../common/schemas/batch-summary.schema';
+import * as logFileWriter from '../../common/logger/log-file-writer';
 
 jest.mock('./adapters/claude-cli-runner', () => ({
   assertClaudeCliAvailable: jest.fn(),
@@ -967,7 +967,7 @@ describe('StageAgentService', () => {
     });
 
     it('records each unusable pass and the stall to the log file', async () => {
-      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const logFileWriter = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
       async function* pass() {
@@ -995,7 +995,7 @@ describe('StageAgentService', () => {
     });
 
     it('classifies a rate-limited stall as rate-limit and logs cli.rate_limited', async () => {
-      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const logFileWriter = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
       async function* pass() {
@@ -1103,7 +1103,7 @@ describe('StageAgentService', () => {
     });
 
     it('logs a successful pass as cli.pass_outcome at DEBUG with no cli.pass_unusable line', async () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const validResult = JSON.stringify({ action: 'fix', summary: 'Test', steps: ['Step 1'], estimatedComplexity: 'low' });
       async function* fakeSpawn() {
@@ -3735,7 +3735,7 @@ describe('StageAgentService', () => {
     });
 
     it('logResolvedStageTarget writes the resolved line to the terminal and the log file', () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(
@@ -3767,7 +3767,7 @@ describe('StageAgentService', () => {
       } } as unknown as ConfigService);
 
     it('logResolvedStageTarget logs the provider and model overrides to both sinks', () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(createImplementAnthropicConfigService());
@@ -3785,7 +3785,7 @@ describe('StageAgentService', () => {
     });
 
     it('logResolvedStageTarget keeps the stage provider when only the model is overridden', () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(createImplementAnthropicConfigService());
@@ -3821,7 +3821,7 @@ describe('StageAgentService', () => {
     });
 
     it('emits the start line with the override model when modelOverride is set', async () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(createGenerateCliConfigService('openai'));
@@ -3835,7 +3835,7 @@ describe('StageAgentService', () => {
     });
 
     it('emits the start line naming the override provider when providerOverride is set', async () => {
-      const logFileWriterModule = require('../../shared/logger/log-file-writer');
+      const logFileWriterModule = require('../../common/logger/log-file-writer');
       jest.spyOn(logFileWriterModule, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(createGenerateCliConfigService('anthropic'));
@@ -4028,7 +4028,7 @@ describe('StageAgentService', () => {
     });
 
     it('logs a start line naming the fallback model when generateFromPrompt retries', async () => {
-      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const logFileWriter = require('../../common/logger/log-file-writer');
       jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const svc = new StageAgentService(createFallbackConfigService());
@@ -4074,7 +4074,7 @@ describe('StageAgentService', () => {
     });
 
     it('writes a WARN log entry with stage-agent.model.fallback and fallback-model on retry', async () => {
-      const logFileWriter = require('../../shared/logger/log-file-writer');
+      const logFileWriter = require('../../common/logger/log-file-writer');
       const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       const svc = new StageAgentService(createFallbackConfigService());
       jest.spyOn(svc as any, 'runStagePromptOnce')
@@ -4244,7 +4244,7 @@ describe('StageAgentService', () => {
         buildCliArgs.mockReset();
         buildCliArgs.mockReturnValue([]);
         mockLoadAnthropicAgentSdk.mockReset();
-        const logFileWriter = require('../../shared/logger/log-file-writer');
+        const logFileWriter = require('../../common/logger/log-file-writer');
         jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
       });
 

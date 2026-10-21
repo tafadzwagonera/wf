@@ -6,7 +6,7 @@ import {
   buildPlanArtifactFilename,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
-} from '../../../src/shared/utils/plan-artifact';
+} from '../../../src/common/utils/plan-artifact';
 
 export const projectRoot = path.resolve(__dirname, '../../..');
 export const distMainPath = path.join(projectRoot, 'dist', 'main.js');

@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
-import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../shared/utils/errors';
-import { isWithinRoot, resolveWritablePath as resolveWritableAbsolutePath } from '../../../shared/utils/path-within-root';
-import { formatPlanRisks } from '../../../shared/utils/plan-risk';
+import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../common/utils/errors';
+import { isWithinRoot, resolveWritablePath as resolveWritableAbsolutePath } from '../../../common/utils/path-within-root';
+import { formatPlanRisks } from '../../../common/utils/plan-risk';
 import {
   Agent,
   MaxTurnsExceededError,
@@ -19,7 +19,7 @@ import {
 import type { StreamedRunResult, RunState } from '@openai/agents';
 import { OpenAIResponsesCompactionSession } from '@openai/agents-openai';
 import chalk from 'chalk';
-import { appendToLogFile } from '../../../shared/logger/log-file-writer';
+import { appendToLogFile } from '../../../common/logger/log-file-writer';
 import * as fs from 'node:fs/promises';
 import { exec } from 'node:child_process';
 import { glob } from 'glob';
@@ -43,7 +43,7 @@ import {
   countDiagnosticLines,
   extractVerificationErrorClasses,
   type ImplementProgressVerificationSnapshot,
-} from '../../../shared/utils/implement-verification';
+} from '../../../common/utils/implement-verification';
 import { loadAiContextConfig } from './load-ai-context-config';
 import {
   DEFAULT_OPENAI_MODEL,
@@ -68,7 +68,7 @@ import { TDD_SKILL_ID } from '../../../skills/skill-content';
 import { buildSkillPromptFragment } from '../../../skills';
 import { buildUiDesignComplianceSystemPromptSection } from '../prompt-fragments';
 import type { ResolutionPlan } from '../ai.service';
-import type { PlanProblem } from '../../../shared/types/agent.types';
+import type { PlanProblem } from '../../../common/types/agent.types';
 
 const execAsync = promisify(exec);
 const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 10;

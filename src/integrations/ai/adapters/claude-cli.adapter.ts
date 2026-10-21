@@ -1,10 +1,10 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
-import type { PlanProblem } from '../../../shared/types/agent.types';
-import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
-import { AiProviderError, ExecutionError } from '../../../shared/utils/errors';
-import { formatPlanRisks } from '../../../shared/utils/plan-risk';
+import type { PlanProblem } from '../../../common/types/agent.types';
+import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
+import { AiProviderError, ExecutionError } from '../../../common/utils/errors';
+import { formatPlanRisks } from '../../../common/utils/plan-risk';
 import type {
   TicketArtifact,
   PlanArtifact,

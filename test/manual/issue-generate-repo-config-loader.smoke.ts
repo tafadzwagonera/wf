@@ -18,33 +18,32 @@ import { AppModule } from '../../src/app.module';
 import { resolveConfigCwd } from '../../src/bootstrap/resolve-config-cwd';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { IssueGenerateCommand } from '../../src/commands/issue-generate.command';
-import { AiService } from '../../src/integrations/ai/ai.service';
+import { StageAgentService } from '../../src/integrations/ai/stage-agent.service';
 import { createReporter } from './support/reporter';
 
-const MOCK_AI_RESPONSE = [
-  '# Repo Scoped Title',
-  '',
-  '**Type:** task',
-  '**Priority:** medium',
-  '',
-  '## Description',
-  '',
-  '### Summary',
-  'Repo-scoped config loaded successfully.',
-  '',
-  '#### Technical Details',
-  'None',
-  '',
-  '### Acceptance Criteria',
-  '- None',
-  '',
-  '### Risks & Assumptions',
-  '- None',
-  '',
-  '#### Out of Scope',
-  '- None',
-  '',
-].join('\n');
+const MOCK_AI_RESPONSE = JSON.stringify({
+  title: 'Repo Scoped Title',
+  type: 'task',
+  priority: 'medium',
+  description: [
+    '## Description',
+    '',
+    '### Summary',
+    'Repo-scoped config loaded successfully.',
+    '',
+    '#### Technical Details',
+    'None',
+    '',
+    '### Acceptance Criteria',
+    '- None',
+    '',
+    '### Risks & Assumptions',
+    '- None',
+    '',
+    '#### Out of Scope',
+    '- None',
+  ].join('\n'),
+});
 
 const { counts, pass, fail } = createReporter();
 
@@ -177,9 +176,9 @@ function setupAiServiceMock(
   configService: any,
   mockConfig: Record<string, any>
 ): void {
-  (AiService.prototype as any).execute = async (input: Parameters<AiService['execute']>[0]) => {
+  (StageAgentService.prototype as any).generateFromPrompt = async () => {
     mockConfig.aiCallCount += 1;
-    mockConfig.executedStage = input.stage;
+    mockConfig.executedStage = 'generate';
     mockConfig.executedProvider = configService.get('ai.provider') as string;
     return { content: MOCK_AI_RESPONSE };
   };
@@ -248,11 +247,11 @@ function setupMocksAndRun(
 }
 
 async function cleanupAndRestore(
-  originalExecute: any,
+  originalGenerateFromPrompt: any,
   originalStdoutWrite: any,
   app: any
 ): Promise<void> {
-  AiService.prototype.execute = originalExecute;
+  StageAgentService.prototype.generateFromPrompt = originalGenerateFromPrompt;
   process.stdout.write = originalStdoutWrite;
   await app.close();
 }
@@ -287,12 +286,12 @@ async function runTestWithApp(options: {
   sourceFileB: string;
   repoRoot: string;
   mockConfig: Record<string, any>;
-  originalExecute: any;
+  originalGenerateFromPrompt: any;
   originalStdoutWrite: any;
 }): Promise<void> {
   const app = await initializeApp(options.configCwd);
   await executeAndVerifyTest(app, options);
-  await cleanupAndRestore(options.originalExecute, options.originalStdoutWrite, app);
+  await cleanupAndRestore(options.originalGenerateFromPrompt, options.originalStdoutWrite, app);
 }
 
 function reportResults(): void {
@@ -313,7 +312,7 @@ function buildRunTestWithAppOptions(env: any, cwd: string): Parameters<typeof ru
     sourceFileB: env.sourceFileB,
     repoRoot: env.repoRoot,
     mockConfig: buildMockConfig(),
-    originalExecute: AiService.prototype.execute,
+    originalGenerateFromPrompt: StageAgentService.prototype.generateFromPrompt,
     originalStdoutWrite: process.stdout.write.bind(process.stdout),
   };
 }

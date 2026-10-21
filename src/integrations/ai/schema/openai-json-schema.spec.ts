@@ -1,6 +1,6 @@
 import { denormalizeOpenAiStructuredOutput, normalizeOpenAiJsonSchema, serializeOpenAiJsonSchema } from './openai-json-schema';
-import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../../../shared/schemas/step-verification.schema';
-import { stepFidelityResponseJsonSchema } from '../../../shared/schemas/step-spec-fidelity.schema';
+import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../../../common/schemas/step-verification.schema';
+import { stepFidelityResponseJsonSchema } from '../../../common/schemas/step-spec-fidelity.schema';
 
 describe('OpenAI JSON schema normalization', () => {
   it('returns undefined for absent and non-object schemas', () => {

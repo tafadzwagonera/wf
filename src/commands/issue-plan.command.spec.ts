@@ -30,7 +30,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -44,16 +44,16 @@ jest.mock('../agents/utils', () => {
   };
 });
 
-jest.mock('../shared/utils/plan-artifact', () => {
-  const actual = jest.requireActual('../shared/utils/plan-artifact');
+jest.mock('../common/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../common/utils/plan-artifact');
   return {
     ...actual,
     writePlanArtifactManifest: jest.fn().mockReturnValue('/tmp/manifest.json'),
   };
 });
 
-jest.mock('../shared/utils/extract-figma-links', () => {
-  const actual = jest.requireActual('../shared/utils/extract-figma-links');
+jest.mock('../common/utils/extract-figma-links', () => {
+  const actual = jest.requireActual('../common/utils/extract-figma-links');
   return {
     extractFigmaLinks: actual.extractFigmaLinks,
     searchFigmaLinksForTicket: jest.fn().mockResolvedValue([]),
@@ -63,7 +63,7 @@ jest.mock('../shared/utils/extract-figma-links', () => {
   };
 });
 
-jest.mock('../shared/utils/resolve-ui-design-screenshots', () => ({
+jest.mock('../common/utils/resolve-ui-design-screenshots', () => ({
   resolveUiDesignScreenshots: jest.fn().mockReturnValue([]),
 }));
 
@@ -72,18 +72,18 @@ import { ConfigService } from '@nestjs/config';
 import { IssuePlanCommand } from './issue-plan.command';
 import { AiService } from '../integrations/ai/ai.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { FetchStageService } from '../workflows/stages/fetch-stage.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
-import { hashPlanArtifactSources } from '../shared/utils/plan-artifact';
-import * as priorPlansModule from '../shared/utils/detect-prior-plans';
+import { hashPlanArtifactSources } from '../common/utils/plan-artifact';
+import * as priorPlansModule from '../common/utils/detect-prior-plans';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
-import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
+import { getWfHomeDir } from '../common/utils/wf-paths';
+import { createTempDir as createManagedTempDir } from '../common/testing/temp-dir';
 
 const mockCwd = '/tmp/consumer-app';
 
@@ -258,7 +258,7 @@ describe('IssuePlanCommand', () => {
       const { command } = await buildCommand();
       const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal'] });
 
-      const parsed = require('../shared/utils/plan-artifact').parsePlanArtifact(md, '/tmp/plan.md');
+      const parsed = require('../common/utils/plan-artifact').parsePlanArtifact(md, '/tmp/plan.md');
 
       expect(parsed.stepIntents).toEqual([null, 'goal']);
     });
@@ -349,7 +349,7 @@ describe('IssuePlanCommand', () => {
 
   it('throws when custom source is not found in the artifact repository', async () => {
     await buildCommand();
-    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
+    const { resolveCustomSourcePath } = require('../common/utils/custom-source');
     const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
 
     expect(() => resolveCustomSourcePath('missing.md', '/tmp/consumer-app')).toThrow(
@@ -365,7 +365,7 @@ describe('IssuePlanCommand', () => {
 
   it('resolves subdirectory-prefixed sources from the artifact repository', async () => {
     await buildCommand();
-    const { resolveCustomSourcePath } = require('../shared/utils/custom-source');
+    const { resolveCustomSourcePath } = require('../common/utils/custom-source');
     const artifactCandidate = path.join(getWfHomeDir(), 'consumer-app', 'jira', 'ticket.md');
     const existsSyncSpy = jest.spyOn(require('fs'), 'existsSync').mockImplementation((input: string) => {
       return String(input) === artifactCandidate;
@@ -544,7 +544,7 @@ describe('IssuePlanCommand', () => {
       },
     } as any);
     jest.spyOn(require('fs').promises, 'writeFile').mockResolvedValue(undefined);
-    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+    const { writePlanArtifactManifest } = jest.requireMock('../common/utils/plan-artifact');
 
     await command.run([], { action: 'fix', ticketKey: 'WBP-2', repos: ['repo-a'], figma: true });
 
@@ -1459,8 +1459,8 @@ describe('IssuePlanCommand', () => {
 
   it('writes Figma links returned by resolvePostParseFigmaLinks into the manifest when content has no inline links', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
-    const { resolvePostParseFigmaLinks } = jest.requireMock('../shared/utils/extract-figma-links');
-    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../common/utils/extract-figma-links');
+    const { writePlanArtifactManifest } = jest.requireMock('../common/utils/plan-artifact');
     (resolvePostParseFigmaLinks as jest.Mock).mockResolvedValueOnce(['https://figma.com/design/abc123/Card']);
 
     const ticketContent = '# WBP-600: Style the button';
@@ -1492,9 +1492,9 @@ describe('IssuePlanCommand', () => {
 
   it('skips Figma link extraction when neither --figma nor stages.plan.figma is set', async () => {
     const { command, fetchStageService, planStageService } = await buildCommand();
-    const { resolvePostParseFigmaLinks } = jest.requireMock('../shared/utils/extract-figma-links');
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../common/utils/extract-figma-links');
     (resolvePostParseFigmaLinks as jest.Mock).mockClear();
-    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+    const { writePlanArtifactManifest } = jest.requireMock('../common/utils/plan-artifact');
 
     const ticketContent = '# WBP-700: Style the button\n\nSee https://figma.com/design/abc123/Card for the frame.';
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -1565,7 +1565,7 @@ describe('IssuePlanCommand', () => {
     const command = module.get(IssuePlanCommand);
     const fetchStageService = module.get<jest.Mocked<FetchStageService>>(FetchStageService);
     const planStageService = module.get<jest.Mocked<PlanStageService>>(PlanStageService);
-    const { writePlanArtifactManifest } = jest.requireMock('../shared/utils/plan-artifact');
+    const { writePlanArtifactManifest } = jest.requireMock('../common/utils/plan-artifact');
 
     const ticketContent = '# WBP-800: Style the card\n\nSee https://figma.com/design/abc123/Card for the frame.';
     fetchStageService.fetchArtifact.mockResolvedValue({
@@ -1595,7 +1595,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('writes uiDesignScreenshots into plan JSON when --ui-design-screenshots provided', async () => {
-    const { resolveUiDesignScreenshots } = jest.requireMock('../shared/utils/resolve-ui-design-screenshots');
+    const { resolveUiDesignScreenshots } = jest.requireMock('../common/utils/resolve-ui-design-screenshots');
     resolveUiDesignScreenshots.mockReturnValue(['/abs/design.png']);
     const { command, fetchStageService, planStageService } = await buildCommand();
     const ticketContent = '# WBP-3: Style the button';
@@ -1639,7 +1639,7 @@ describe('IssuePlanCommand', () => {
   });
 
   it('calls resolveUiDesignScreenshots with rawFiles=[] when --ui-design-screenshots has no files', async () => {
-    const { resolveUiDesignScreenshots } = jest.requireMock('../shared/utils/resolve-ui-design-screenshots');
+    const { resolveUiDesignScreenshots } = jest.requireMock('../common/utils/resolve-ui-design-screenshots');
     resolveUiDesignScreenshots.mockReturnValue([]);
     const { command, fetchStageService, planStageService } = await buildCommand();
     const ticketContent = '# WBP-5: Style the footer';

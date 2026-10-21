@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { of } from 'rxjs';
-import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
-import { stripRedundantSections } from '../../common/utils/markdown-text';
+import { UniversalTicket } from '../dto/universal-ticket.dto';
+import { stripRedundantSections } from '../utils/markdown-text';
 import { JiraService } from '../../integrations/jira/jira.service';
 import { JiraAdapter } from '../../integrations/issue-trackers/jira/jira-adapter';
 

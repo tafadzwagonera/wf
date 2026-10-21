@@ -2,9 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
-import { GitError } from '../shared/utils/errors';
+import { resolveExistingRepoDir } from '../common/utils/repo-resolution';
+import { getWfHomeDir } from '../common/utils/wf-paths';
+import { GitError } from '../common/utils/errors';
 
 export const resolveArtifactDir = (baseDir: string, trackerName: string): string =>
   path.join(getWfHomeDir(), path.basename(path.resolve(baseDir)), trackerName);

@@ -1,4 +1,4 @@
-import type { CodeReview } from '../shared/types/review.types';
+import type { CodeReview } from '../common/types/review.types';
 import { deriveApproval } from './derive-approval';
 
 describe('deriveApproval', () => {

@@ -10,15 +10,15 @@ import {
   buildPlanArtifactFilename,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
-} from '../../shared/utils/plan-artifact';
-import { AiProviderError, PlanArtifactNotFoundError, ValidationError } from '../../shared/utils/errors';
-import { detectTestInfra } from '../../shared/utils/detect-test-infra';
-import { detectRepoConventions } from '../../shared/utils/detect-repo-conventions';
-import { findConfigReadClusters } from '../../shared/utils/find-existing-resolvers';
+} from '../../common/utils/plan-artifact';
+import { AiProviderError, PlanArtifactNotFoundError, ValidationError } from '../../common/utils/errors';
+import { detectTestInfra } from '../../common/utils/detect-test-infra';
+import { detectRepoConventions } from '../../common/utils/detect-repo-conventions';
+import { findConfigReadClusters } from '../../common/utils/find-existing-resolvers';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
+import { createTempDir as createManagedTempDir } from '../../common/testing/temp-dir';
 
 jest.mock('inquirer', () => ({
   __esModule: true,
@@ -27,21 +27,21 @@ jest.mock('inquirer', () => ({
   },
 }));
 
-jest.mock('../../shared/utils/find-existing-resolvers', () => ({
+jest.mock('../../common/utils/find-existing-resolvers', () => ({
   findConfigReadClusters: jest.fn().mockResolvedValue([]),
   findFunctionsByName: jest.fn().mockResolvedValue([]),
 }));
 
-jest.mock('../../shared/utils/detect-test-infra', () => ({
+jest.mock('../../common/utils/detect-test-infra', () => ({
   detectTestInfra: jest.fn(),
 }));
 
-jest.mock('../../shared/utils/detect-repo-conventions', () => {
-  const actual = jest.requireActual('../../shared/utils/detect-repo-conventions');
+jest.mock('../../common/utils/detect-repo-conventions', () => {
+  const actual = jest.requireActual('../../common/utils/detect-repo-conventions');
   return { ...actual, detectRepoConventions: jest.fn(), detectPackageManager: jest.fn() };
 });
 
-jest.mock('../../shared/utils/extract-figma-links', () => ({
+jest.mock('../../common/utils/extract-figma-links', () => ({
   searchFigmaLinksForTicket: jest.fn().mockResolvedValue([]),
   extractFigmaLinks: jest.fn().mockReturnValue([]),
   resolvePostParseFigmaLinks: jest.fn().mockResolvedValue([]),
@@ -353,7 +353,7 @@ describe('PlanStageService', () => {
   });
 
   it('records the discarded agent error before falling back', async () => {
-    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const logFileWriter = require('../../common/logger/log-file-writer');
     const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
     const { service, aiService, stageAgentService } = await buildService(true);
@@ -761,7 +761,7 @@ describe('PlanStageService', () => {
   });
 
   it('writes Figma links from post-parse inquirer into manifest when conventions show a design system', async () => {
-    const { resolvePostParseFigmaLinks } = jest.requireMock('../../shared/utils/extract-figma-links');
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../../common/utils/extract-figma-links');
     (resolvePostParseFigmaLinks as jest.Mock).mockResolvedValueOnce(['https://figma.com/design/abc123/Card']);
     const { service, aiService } = await buildService();
     const tempDir = createManagedTempDir('plan');
@@ -822,7 +822,7 @@ describe('PlanStageService', () => {
   });
 
   it('positions uiDesignScreenshots after figmaLinks in key order', async () => {
-    const { resolvePostParseFigmaLinks } = jest.requireMock('../../shared/utils/extract-figma-links');
+    const { resolvePostParseFigmaLinks } = jest.requireMock('../../common/utils/extract-figma-links');
     (resolvePostParseFigmaLinks as jest.Mock).mockResolvedValueOnce(['https://figma.com/x']);
     const { service } = await buildService();
     const tempDir = createManagedTempDir('plan-ui-key-order');
@@ -841,7 +841,7 @@ describe('PlanStageService', () => {
   });
 
   it('logs warnNoFigmaLinks with reason no-links-found when interactive session returns no links', async () => {
-    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const logFileWriter = require('../../common/logger/log-file-writer');
     const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
     Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
@@ -866,7 +866,7 @@ describe('PlanStageService', () => {
   });
 
   it('logs warnNoFigmaLinks with reason non-interactive-session when session is non-TTY', async () => {
-    const logFileWriter = require('../../shared/logger/log-file-writer');
+    const logFileWriter = require('../../common/logger/log-file-writer');
     const appendSpy = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
     const { service } = await buildService();

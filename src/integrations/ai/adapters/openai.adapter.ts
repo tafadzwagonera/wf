@@ -5,15 +5,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AIConversationRequest, AIRequest, AIResponse } from '../ai.service';
 import type { LlmAdapter } from '../llm-adapter.interface';
-import { AiProviderError } from '../../../shared/utils/errors';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { AiProviderError } from '../../../common/utils/errors';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { loadAiContextConfig } from './load-ai-context-config';
 import { hasProviderUsageIntent, extractStageProviders } from './provider-intent';
 import { classifyAiSdkError } from './ai-provider-error.classify';
 import { normalizeOpenAiJsonSchema } from '../schema/openai-json-schema';
 import type { WfAiProviderConfig } from '../../../config/public-config';
 import type { NormalizedWfConfig } from '../../../config/wf-config-loader';
-import type { UiDesignScreenshot } from '../../../shared/types/ui-design-screenshot';
+import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
 
 const DEFAULT_MODEL = 'gpt-4.1';
 

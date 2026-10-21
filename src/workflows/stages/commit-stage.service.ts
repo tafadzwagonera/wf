@@ -7,7 +7,7 @@ import {
   isDocsOnlyChangeset,
   declaresDocsOnlyType,
   extractConventionalType,
-} from '../../shared/utils/commit-diff-stat';
+} from '../../common/utils/commit-diff-stat';
 
 const STANDALONE_DIFF_EXCERPT_MAX_CHARS = 3000;
 

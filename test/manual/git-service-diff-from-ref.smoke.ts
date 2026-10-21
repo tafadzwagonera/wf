@@ -6,7 +6,7 @@
  * change. getDiffFromRef(baseRef, repoDir) must return a diff that contains
  * the changed file. Calling it with a nonexistent ref must throw. The slice
  * behaviour in StepSpecFidelityService.captureDiff is verified by writing a
- * file whose diff exceeds 60 000 chars.
+ * file whose diff exceeds the 120 000 char fidelity ceiling.
  *
  * Verifies:
  *   1. getDiffFromRef(baselineSha, repoDir) returns a string containing the
@@ -14,8 +14,9 @@
  *   2. getDiffFromRef(baselineSha, repoDir) returns '' when the working tree
  *      is clean after the ref
  *   3. getDiffFromRef('nonexistent-ref', repoDir) throws a GitError
- *   4. StepSpecFidelityService.captureDiff truncates diffs longer than
- *      60 000 chars to at most 60 000 chars
+ *   4. StepSpecFidelityService.captureDiff returns the raw diff untruncated,
+ *      and fitDiffToBudget reduces a diff beyond 120 000 chars to at most
+ *      120 000 chars
  *
  * Run: nr test:manual git-service-diff-from-ref.smoke.ts
  */
@@ -98,13 +99,18 @@ async function checkThrowsForNonexistentRef(gitService: GitService, repoDir: str
   }
 }
 
-function assertDiffTruncated(rawDiff: string): void {
-  if (rawDiff.length > 0 && rawDiff.length <= 60_000) {
-    pass(`captureDiff truncates diff to at most 60 000 chars (got ${rawDiff.length})`);
-  } else if (rawDiff.length === 0) {
-    fail('captureDiff returned empty — large file was not tracked or diff was not captured');
+const FIDELITY_CEILING_CHARS = 120_000;
+const OVERSIZED_DIFF_CHARS = 150_000;
+
+function assertDiffTruncated(rawDiff: string, fittedDiff: string): void {
+  if (rawDiff.length <= OVERSIZED_DIFF_CHARS) {
+    fail(`Expected captureDiff to return the untruncated diff, got ${rawDiff.length} chars`);
+  } else if (fittedDiff.length === 0) {
+    fail('fitDiffToBudget returned empty — large file was not tracked or diff was not captured');
+  } else if (fittedDiff.length > FIDELITY_CEILING_CHARS) {
+    fail(`Expected fitDiffToBudget result ≤ ${FIDELITY_CEILING_CHARS} chars, got ${fittedDiff.length}`);
   } else {
-    fail(`Expected captureDiff result ≤ 60 000 chars, got ${rawDiff.length}`);
+    pass(`captureDiff returns the raw diff and fitDiffToBudget truncates it to ${fittedDiff.length} chars`);
   }
 }
 
@@ -116,10 +122,12 @@ async function checkCaptureDiffTruncates(
   git(repoDir, ['add', '.']);
   git(repoDir, ['commit', '-q', '-m', 'add big.ts placeholder']);
   const bigBaselineSha = git(repoDir, ['rev-parse', 'HEAD']);
-  const bigContent = 'x'.repeat(70_000) + '\n';
+  const bigContent = 'x'.repeat(OVERSIZED_DIFF_CHARS) + '\n';
   fs.writeFileSync(path.join(repoDir, 'big.ts'), bigContent);
-  const rawDiff: string = await (stepSpecFidelity as any).captureDiff(repoDir, bigBaselineSha);
-  assertDiffTruncated(rawDiff);
+  const internals = stepSpecFidelity as any;
+  const rawDiff: string = await internals.captureDiff(repoDir, bigBaselineSha);
+  const fittedDiff: string = internals.fitDiffToBudget(rawDiff, 'Update big.ts', new Set<string>());
+  assertDiffTruncated(rawDiff, fittedDiff);
 }
 
 async function main(): Promise<void> {

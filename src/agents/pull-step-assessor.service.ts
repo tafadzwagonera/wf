@@ -4,10 +4,10 @@ import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import {
   pullStepAssessmentResponseJsonSchema,
   pullStepAssessmentResponseSchema,
-} from '../shared/schemas/step-verification.schema';
-import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
-import type { PullStepAssessmentResponse } from '../shared/types/step-verification.types';
-import { ConfigurationError } from '../shared/utils/errors';
+} from '../common/schemas/step-verification.schema';
+import type { WfAiProviderName, WfBackendMode } from '../common/types/config.types';
+import type { PullStepAssessmentResponse } from '../common/types/step-verification.types';
+import { ConfigurationError } from '../common/utils/errors';
 import { buildStepResponseShapeLines, unverifiableRule } from './plan-step-evidence-budget';
 import type { AssessableStep } from './step-spec-fidelity.service';
 

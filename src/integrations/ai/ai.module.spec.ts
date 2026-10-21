@@ -5,7 +5,7 @@ import { AnthropicAdapter } from './adapters/anthropic.adapter';
 import { OpenAIAdapter } from './adapters/openai.adapter';
 import { GeminiAdapter } from './adapters/gemini.adapter';
 import { DeepSeekAdapter } from './adapters/deepseek.adapter';
-import { LoggerModule } from '../../shared/logger/logger.module';
+import { LoggerModule } from '../../common/logger/logger.module';
 
 jest.mock('./adapters/load-ai-context-config', () => ({
   loadAiContextConfig: jest.fn().mockResolvedValue(''),

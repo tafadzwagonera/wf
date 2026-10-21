@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
-import { GitError } from '../../src/shared/utils/errors';
+import { GitError } from '../../src/common/utils/errors';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

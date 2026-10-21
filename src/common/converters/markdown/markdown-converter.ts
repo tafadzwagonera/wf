@@ -4,7 +4,7 @@ import { validateSync } from 'class-validator';
 import { FormatConverter } from '../format-converter.interface';
 import { UniversalTicket, TicketType, TicketPriority } from '../../dto/universal-ticket.dto';
 import { stripInlineMarkdownDelimiters } from '../../utils/markdown-text';
-import { AppError, WorkflowParseError } from '../../../shared/utils/errors';
+import { AppError, WorkflowParseError } from '../../utils/errors';
 
 const SYNTHETIC_TITLE_LABEL_PATTERN = /^(?:title|heading)\s*:\s*(.+)$/i;
 

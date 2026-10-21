@@ -115,4 +115,4 @@ export class UniversalTicket {
   }
 }
 
-export type { IssueTrackerTicketReference } from '../../shared/types/ticket.types';
+export type { IssueTrackerTicketReference } from '../types/ticket.types';

@@ -22,10 +22,10 @@ import { NestFactory } from '@nestjs/core';
 import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { SonarStageService } from '../../src/review/sonar-stage.service';
-import { SessionService } from '../../src/shared/session/session.service';
+import { SessionService } from '../../src/common/session/session.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

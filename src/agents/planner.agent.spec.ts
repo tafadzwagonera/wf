@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PlannerAgent } from './planner.agent';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
 
 describe('PlannerAgent', () => {

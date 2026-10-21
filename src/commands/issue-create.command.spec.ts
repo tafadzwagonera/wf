@@ -45,14 +45,14 @@ import { ConfigService } from '@nestjs/config';
 import { IssueCreateCommand } from './issue-create.command';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { FormatConverterService } from '../common/converters/format-converter.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ErrorHandler } from '../shared/utils/error-handler';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { ErrorHandler } from '../common/utils/error-handler';
 import { JiraAdapter } from '../integrations/issue-trackers/jira/jira-adapter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { getWfHomeDir } from '../common/utils/wf-paths';
 
 jest.mock('fs', () => ({
   existsSync: jest.fn(),

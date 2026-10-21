@@ -3,14 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { ValidationError, FileSystemError } from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { ValidationError, FileSystemError } from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import { parseReposOption } from './utils/repos-option';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { printCommandHeader } from '../common/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { type GeneratedTicketSourceManifest } from '../shared/utils/generated-ticket-artifact';
+import { type GeneratedTicketSourceManifest } from '../common/utils/generated-ticket-artifact';
 
 interface IssueGenerateLookupOptions {
   tracker?: string;
@@ -81,19 +81,19 @@ export class IssueGenerateLookupCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '-t, --tracker <tracker>',
-    description: 'Platform namespace to inspect',
-  })
-  parseTracker(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '-s, --silent',
     description: 'Suppress decorative output; emits no header',
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '-t, --tracker <tracker>',
+    description: 'Platform namespace to inspect',
+  })
+  parseTracker(val: string): string {
+    return val;
   }
 
   private findMatchingManifests(artifactDir: string, token: string): GeneratedTicketSourceManifest[] {

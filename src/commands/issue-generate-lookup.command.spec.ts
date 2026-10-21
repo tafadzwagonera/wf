@@ -44,10 +44,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { IssueGenerateLookupCommand } from './issue-generate-lookup.command';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
+import { getWfHomeDir } from '../common/utils/wf-paths';
 
 describe('IssueGenerateLookupCommand', () => {
   let cwdSpy: jest.SpyInstance;

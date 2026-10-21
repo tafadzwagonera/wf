@@ -676,7 +676,7 @@ describe('formatRepoConventionsPromptSection', () => {
         nestjsDetected: true,
         importStyle: 'commonjs',
         keyDependencies: ['@nestjs/core', 'jest'],
-        errorHandlingPaths: ['src/shared/utils/errors.ts'],
+        errorHandlingPaths: ['src/common/utils/errors.ts'],
         packageManager: 'npm',
         gitHooks: [{ tool: 'lefthook' as const, hooks: { 'pre-commit': ['yarn lint'] } }],
       };
@@ -694,7 +694,7 @@ describe('formatRepoConventionsPromptSection', () => {
       expect(result).toContain('Package manager: npm');
       expect(result).toContain('Import style: commonjs');
       expect(result).toContain('Key deps: @nestjs/core, jest');
-      expect(result).toContain('Error utilities: src/shared/utils/errors.ts');
+      expect(result).toContain('Error utilities: src/common/utils/errors.ts');
       expect(result).toContain('Git hooks (lefthook):');
     });
 

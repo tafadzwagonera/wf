@@ -1,10 +1,10 @@
 import { SubCommand, CommandRunner, Option } from 'nest-commander';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { SessionService } from '../shared/session/session.service';
-import type { SessionState } from '../shared/types/session.types';
-import { ValidationError } from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { SessionService } from '../common/session/session.service';
+import type { SessionState } from '../common/types/session.types';
+import { ValidationError } from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 
 type SessionPredicate = (s: SessionState) => boolean;
 
@@ -44,6 +44,54 @@ export class ConfigCleanCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--after <date>',
+    description: 'Delete sessions created after this ISO date',
+  })
+  parseAfter(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--before <date>',
+    description: 'Delete sessions created before this ISO date',
+  })
+  parseBefore(val: string): string {
+    return val;
+  }
+
+  @Option({
+    flags: '--dry-run',
+    description: 'List matching sessions without deleting',
+  })
+  parseDryRun(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--expired',
+    description: 'Delete all expired sessions (> configured TTL)',
+  })
+  parseExpired(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--force',
+    description: 'Skip confirmation prompt (for non-interactive use)',
+  })
+  parseForce(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--pattern <regex>',
+    description: 'Delete sessions whose ticket key matches this regex',
+  })
+  parsePattern(val: string): string {
+    return val;
+  }
+
+  @Option({
     flags: '--session-id <id>',
     description: 'Delete a specific wf session by its UUID',
   })
@@ -57,54 +105,6 @@ export class ConfigCleanCommand extends CommandRunner {
   })
   parseTicket(val: string): string {
     return val;
-  }
-
-  @Option({
-    flags: '--before <date>',
-    description: 'Delete sessions created before this ISO date',
-  })
-  parseBefore(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--after <date>',
-    description: 'Delete sessions created after this ISO date',
-  })
-  parseAfter(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--pattern <regex>',
-    description: 'Delete sessions whose ticket key matches this regex',
-  })
-  parsePattern(val: string): string {
-    return val;
-  }
-
-  @Option({
-    flags: '--expired',
-    description: 'Delete all expired sessions (> configured TTL)',
-  })
-  parseExpired(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--dry-run',
-    description: 'List matching sessions without deleting',
-  })
-  parseDryRun(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--force',
-    description: 'Skip confirmation prompt (for non-interactive use)',
-  })
-  parseForce(): boolean {
-    return true;
   }
 
   async run(_passedParams: string[], options?: ConfigCleanOptions): Promise<void> {

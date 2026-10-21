@@ -6,7 +6,7 @@ import {
   buildPlanArtifactManifest,
   readPlanArtifactManifest,
   writePlanArtifactManifest,
-} from '../src/shared/utils/plan-artifact';
+} from '../src/common/utils/plan-artifact';
 import type { ResolutionAction } from '../src/agents/interfaces';
 
 const SHORT_HASHED_PLAN_REGEX

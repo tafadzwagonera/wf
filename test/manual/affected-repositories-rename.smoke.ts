@@ -11,7 +11,7 @@
  *   5. planToMarkdown emits `## Affected Repositories` heading (not the old form)
  */
 
-import { parsePlanArtifact } from '../../src/shared/utils/plan-artifact';
+import { parsePlanArtifact } from '../../src/common/utils/plan-artifact';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

@@ -16,7 +16,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { runProgrammaticVerification } from '../../src/integrations/ai/adapters/verification-report';
-import type { VerificationScript } from '../../src/shared/types/agent.types';
+import type { VerificationScript } from '../../src/common/types/agent.types';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

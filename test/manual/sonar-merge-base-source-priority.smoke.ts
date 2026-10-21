@@ -22,11 +22,11 @@ import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { SonarStageService } from '../../src/review/sonar-stage.service';
 import * as sonarScannerModule from '../../src/review/sonar-scanner';
-import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/shared/utils/plan-artifact';
+import { buildPlanArtifactManifest, writePlanArtifactManifest } from '../../src/common/utils/plan-artifact';
 import { resolveArtifactDir } from '../../src/agents/utils';
 
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 

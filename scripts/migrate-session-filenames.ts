@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { sessionStateSchema } from '../src/shared/schemas/session.schema';
-import { buildSessionFileName } from '../src/shared/utils/session-file-name';
-import { getWfSessionDir } from '../src/shared/utils/wf-paths';
+import { sessionStateSchema } from '../src/common/schemas/session.schema';
+import { buildSessionFileName } from '../src/common/utils/session-file-name';
+import { getWfSessionDir } from '../src/common/utils/wf-paths';
 
 interface MigrationOptions {
   rootDir?: string;

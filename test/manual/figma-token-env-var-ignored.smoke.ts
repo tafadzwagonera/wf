@@ -10,7 +10,7 @@
 
 import chalk from 'chalk';
 import { FigmaRestClient } from '../../src/integrations/figma/figma-rest.client';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

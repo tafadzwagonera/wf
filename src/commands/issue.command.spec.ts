@@ -30,7 +30,7 @@ jest.mock('chalk', () => {
   return { default: chalk, ...chalk };
 });
 
-jest.mock('../shared/utils/ensure-wf-home', () => ({
+jest.mock('../common/utils/ensure-wf-home', () => ({
   ensureWfHome: jest.fn(),
 }));
 
@@ -54,11 +54,11 @@ jest.mock('../agents/utils', () => {
 // withRepoLock is exercised for real in repo-lock.spec.ts; mocked here as a passthrough so
 // command specs don't take a real filesystem lock on the shared literal '/tmp/consumer-app'
 // path, which could collide across parallel Jest workers.
-jest.mock('../shared/utils/repo-lock', () => ({
+jest.mock('../common/utils/repo-lock', () => ({
   withRepoLock: jest.fn((_repoDir: string, fn: () => Promise<unknown>) => fn()),
 }));
 
-jest.mock('../shared/utils/resolve-ui-design-screenshots', () => ({
+jest.mock('../common/utils/resolve-ui-design-screenshots', () => ({
   resolveUiDesignScreenshots: jest.fn().mockReturnValue([]),
 }));
 
@@ -74,7 +74,7 @@ jest.mock('inquirer', () => ({
   },
 }));
 
-jest.mock('../shared/utils/provider-session-prompt', () => ({
+jest.mock('../common/utils/provider-session-prompt', () => ({
   selectProviderSession: jest.fn(),
 }));
 
@@ -82,26 +82,26 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CommandMeta } from 'nest-commander/src/constants';
 import { IssueCommand, shouldForkReviewSession, FORK_PASS_THRESHOLD } from './issue.command';
-import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
+import { ReviewPresenter } from '../common/presentation/review-presenter.service';
 import { GitService } from '../integrations/git/git.service';
-import * as scopeSummaryModule from '../shared/utils/resolve-commit-scope-summary';
+import * as scopeSummaryModule from '../common/utils/resolve-commit-scope-summary';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
 import { AiService } from '../integrations/ai/ai.service';
 import type { PlanArtifact } from '../agents/interfaces';
-import { SessionService } from '../shared/session/session.service';
-import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../shared/utils/plan-artifact';
+import { SessionService } from '../common/session/session.service';
+import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../common/utils/plan-artifact';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import inquirer from 'inquirer';
-import { getWfHomeDir } from '../shared/utils/wf-paths';
-import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
-import * as logFileWriter from '../shared/logger/log-file-writer';
+import { getWfHomeDir } from '../common/utils/wf-paths';
+import { createTempDir as createManagedTempDir } from '../common/testing/temp-dir';
+import * as logFileWriter from '../common/logger/log-file-writer';
 import { initializeWfConfig } from '../config/wf-config-loader';
-import { selectProviderSession } from '../shared/utils/provider-session-prompt';
+import { selectProviderSession } from '../common/utils/provider-session-prompt';
 import { toRepoKeys } from '../agents/utils';
 
 const mockGitService = {
@@ -1824,7 +1824,7 @@ describe('IssueCommand', () => {
     expect(mockSessionService.save).toHaveBeenCalledTimes(1);
     expect(mockSessionService.save).toHaveBeenCalledWith(expect.objectContaining({ stages: {}, ticketKey: 'WBP-42' }));
 
-    const { withRepoLock } = jest.requireMock('../shared/utils/repo-lock');
+    const { withRepoLock } = jest.requireMock('../common/utils/repo-lock');
     expect(withRepoLock).toHaveBeenCalledWith('/tmp/consumer-app', expect.any(Function));
   });
 

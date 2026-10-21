@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import * as path from 'node:path';
 import { TicketArtifact, PlanArtifact, PlannerOptions, ResolutionAction } from './interfaces';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { PlanStageService } from '../workflows/stages/plan-stage.service';
-import { buildPlanArtifactResolutionNotice } from '../shared/utils/plan-artifact';
+import { buildPlanArtifactResolutionNotice } from '../common/utils/plan-artifact';
 
 @Injectable()
 export class PlannerAgent {

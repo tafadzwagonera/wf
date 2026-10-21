@@ -1,4 +1,4 @@
-import type { ResolutionPlan } from '../shared/types/ai.types';
+import type { ResolutionPlan } from '../common/types/ai.types';
 
 type SkillStage = 'plan' | 'implement' | 'review';
 

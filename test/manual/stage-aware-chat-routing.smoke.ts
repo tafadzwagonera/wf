@@ -13,7 +13,7 @@
  */
 
 import { ConversationService } from '../../src/integrations/ai/conversation/conversation.service';
-import { ConversationContext } from '../../src/shared/types/conversation.types';
+import { ConversationContext } from '../../src/common/types/conversation.types';
 
 interface TrackedCalls {
   calls: any[][];

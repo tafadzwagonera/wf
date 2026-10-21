@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { AiService } from '../../integrations/ai/ai.service';
 import { CommitStageService } from './commit-stage.service';
-import { AiProviderError } from '../../shared/utils/errors';
+import { AiProviderError } from '../../common/utils/errors';
 
 describe('CommitStageService', () => {
   const buildService = async () => {

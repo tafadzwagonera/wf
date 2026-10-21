@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 import { splitDiffByFile } from './summarise-diff';
 import type { DiffSegment } from './summarise-diff';
-import type { CodeIssue, CodeReview } from '../shared/types/review.types';
+import type { CodeIssue, CodeReview } from '../common/types/review.types';
 
 export interface CommentPolicyStageOptions {
   diff: string;

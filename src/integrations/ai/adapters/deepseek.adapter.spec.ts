@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import * as os from 'os';
 import * as path from 'path';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { DeepSeekAdapter } from './deepseek.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 

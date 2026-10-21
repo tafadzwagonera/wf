@@ -17,9 +17,9 @@ export enum IssueTrackerFeature {
   CREATE_PULL_REQUEST = 'create_pull_request',
 }
 
-import type { CreatePullRequestOptions } from '../../shared/types/ticket.types';
+import type { CreatePullRequestOptions } from '../../common/types/ticket.types';
 
-export type { CreatePullRequestOptions } from '../../shared/types/ticket.types';
+export type { CreatePullRequestOptions } from '../../common/types/ticket.types';
 
 /**
  * Base interface that all issue tracker adapters must implement.

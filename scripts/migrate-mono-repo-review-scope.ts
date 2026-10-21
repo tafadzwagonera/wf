@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { supportedPlanExtensions } from '../src/shared/utils/plan-artifact';
+import { supportedPlanExtensions } from '../src/common/utils/plan-artifact';
 
 interface MigrationOptions {
   rootDir?: string;

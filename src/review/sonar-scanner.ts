@@ -1,9 +1,9 @@
 import { execFile, execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ConfigurationError, ExecutionError } from '../shared/errors/app.error';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import type { StageProgressCallback } from '../shared/types/agent.types';
+import { ConfigurationError, ExecutionError } from '../common/errors/app.error';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import type { StageProgressCallback } from '../common/types/agent.types';
 
 const SONAR_TIMEOUT_MS = 120_000;
 const SONAR_MAX_BUFFER = 4 * 1024 * 1024;

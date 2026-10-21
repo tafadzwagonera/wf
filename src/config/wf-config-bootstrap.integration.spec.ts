@@ -5,9 +5,9 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { IssueImplementCommand } from '../commands/issue-implement.command';
-import { normalizedAiProviderConfigSchema, wfConfigSchema } from '../shared/schemas/config.schema';
-import { createTempDir } from '../shared/testing/temp-dir';
-import { collectSchemaLeafPaths } from '../shared/testing/zod-schema-paths';
+import { normalizedAiProviderConfigSchema, wfConfigSchema } from '../common/schemas/config.schema';
+import { createTempDir } from '../common/testing/temp-dir';
+import { collectSchemaLeafPaths } from '../common/testing/zod-schema-paths';
 import { buildFixture, createFieldCases, FieldCase } from './wf-config-bootstrap.fixture';
 import { initializeWfConfig, normalizeWfConfig } from './wf-config-loader';
 

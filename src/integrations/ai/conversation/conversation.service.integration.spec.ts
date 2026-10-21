@@ -2,14 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConversationService } from './conversation.service';
 import { AiService } from '../ai.service';
 import { ChatUIService } from './chat-ui.service';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { ConversationContext } from './interfaces';
 import { StageAgentService } from '../stage-agent.service';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
-import { restoreEnv, withEnv } from '../../../shared/testing/env';
+import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
+import { restoreEnv, withEnv } from '../../../common/testing/env';
 
 describe('ConversationService Integration Tests', () => {
   let service: ConversationService;

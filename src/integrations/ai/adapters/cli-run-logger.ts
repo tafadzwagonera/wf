@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { appendToLogFile } from '../../../shared/logger/log-file-writer';
-import type { BoundedStderr } from '../../../shared/utils/bounded-stderr';
+import { appendToLogFile } from '../../../common/logger/log-file-writer';
+import type { BoundedStderr } from '../../../common/utils/bounded-stderr';
 
 export type CliKillReason = 'inactivity' | 'wall-clock' | 'sigint' | 'cleanup';
 

@@ -4,18 +4,18 @@ import { GitService } from '../integrations/git/git.service';
 import {
   stepFidelityResponseSchema,
   stepFidelityResponseJsonSchema,
-} from '../shared/schemas/step-spec-fidelity.schema';
+} from '../common/schemas/step-spec-fidelity.schema';
 import type {
   StepFidelityFinding,
   StepFidelityFailure,
   StepFidelityVerificationResult,
-} from '../shared/types/step-spec-fidelity.types';
-import type { PlanProblem } from '../shared/types/agent.types';
-import type { WfAiProviderName, WfBackendMode } from '../shared/types/config.types';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { splitDiffIntoFileSections } from '../shared/utils/commit-diff-stat';
-import { mentionsPath } from '../shared/utils/mentions-path';
+} from '../common/types/step-spec-fidelity.types';
+import type { PlanProblem } from '../common/types/agent.types';
+import type { WfAiProviderName, WfBackendMode } from '../common/types/config.types';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import { splitDiffIntoFileSections } from '../common/utils/commit-diff-stat';
+import { mentionsPath } from '../common/utils/mentions-path';
 import {
   EVIDENCE_FLOOR_CHARS, allocateEvidence, sliceHeadTail, type EvidenceSection,
 } from './plan-step-evidence-budget';

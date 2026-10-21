@@ -150,7 +150,7 @@ async function checkReviewerExecuteSilent(app: any, ticketPath: string): Promise
   (GitService.prototype as any).getStatus = async () => ({ files: [] });
   const cap = captureConsole();
   try {
-    await reviewer.execute({ ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath }, { silent: true });
+    await reviewer.execute({ ticketKey: 'WBP-TEST', content: MOCK_TICKET_CONTENT, path: ticketPath }, { silent: true, repoDir: path.dirname(ticketPath) });
   } finally {
     cap.restore();
   }

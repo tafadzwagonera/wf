@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readPlanArtifactManifest, writePlanArtifactManifest } from '../src/shared/utils/plan-artifact';
-import type { PlanArtifactManifest } from '../src/shared/utils/plan-artifact';
+import { readPlanArtifactManifest, writePlanArtifactManifest } from '../src/common/utils/plan-artifact';
+import type { PlanArtifactManifest } from '../src/common/utils/plan-artifact';
 
 const knownTrackerDirs = new Set(['jira', 'bitbucket']);
 const PLAN_MANIFEST_SUFFIX = '.sources.json';

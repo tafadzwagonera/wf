@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PullStepAssessorService, buildPullStepAssessorPrompt } from './pull-step-assessor.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
-import { pullStepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
+import { pullStepAssessmentResponseJsonSchema } from '../common/schemas/step-verification.schema';
 
 const baseParams = {
   repoDir: '/repo',

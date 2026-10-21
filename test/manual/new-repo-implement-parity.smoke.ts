@@ -18,7 +18,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -110,7 +110,7 @@ function setupImplementTest(
   appDir: string,
 ): { originalCwd: () => string } {
   const originalCwd = process.cwd.bind(process);
-  withEnv({ HOME: path.join(tmpRoot, 'home') });
+  withEnv({ HOME: path.join(tmpRoot, 'home'), WF_HOME: path.join(tmpRoot, 'home', '.wf') });
   (process as any).cwd = () => appDir;
   return { originalCwd };
 }

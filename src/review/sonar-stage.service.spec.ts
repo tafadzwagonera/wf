@@ -2,8 +2,8 @@ jest.mock('./sonar-scanner', () => ({
   runSonarScan: jest.fn().mockResolvedValue({ status: 'clean', steps: [] }),
 }));
 
-jest.mock('../shared/utils/plan-artifact', () => {
-  const actual = jest.requireActual('../shared/utils/plan-artifact');
+jest.mock('../common/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../common/utils/plan-artifact');
   return {
     ...actual,
     findPlanArtifactManifestByBranchName: jest.fn().mockReturnValue(undefined),
@@ -11,7 +11,7 @@ jest.mock('../shared/utils/plan-artifact', () => {
   };
 });
 
-jest.mock('../shared/utils/source-branch-prompt', () => ({
+jest.mock('../common/utils/source-branch-prompt', () => ({
   promptForSourceBranch: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -19,14 +19,14 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SonarStageService } from './sonar-stage.service';
 import { GitService } from '../integrations/git/git.service';
-import { SessionService } from '../shared/session/session.service';
-import { LoggerService } from '../shared/logger/logger.service';
+import { SessionService } from '../common/session/session.service';
+import { LoggerService } from '../common/logger/logger.service';
 import { runSonarScan } from './sonar-scanner';
 import {
   findPlanArtifactManifestByBranchName,
   updatePlanArtifactManifestSourceBranch,
-} from '../shared/utils/plan-artifact';
-import { promptForSourceBranch } from '../shared/utils/source-branch-prompt';
+} from '../common/utils/plan-artifact';
+import { promptForSourceBranch } from '../common/utils/source-branch-prompt';
 
 const setInteractiveSession = (): void => {
   Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });

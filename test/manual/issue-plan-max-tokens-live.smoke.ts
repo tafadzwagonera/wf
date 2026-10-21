@@ -36,7 +36,7 @@ import { AppModule } from '../../src/app.module';
 import { AiService } from '../../src/integrations/ai/ai.service';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 type CapturedRequest = {
   pathname: string;

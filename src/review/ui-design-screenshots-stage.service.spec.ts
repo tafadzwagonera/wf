@@ -1,5 +1,5 @@
-jest.mock('../shared/utils/plan-artifact', () => ({
-  ...jest.requireActual('../shared/utils/plan-artifact'),
+jest.mock('../common/utils/plan-artifact', () => ({
+  ...jest.requireActual('../common/utils/plan-artifact'),
   readUiDesignScreenshotsFromPlanArtifact: jest.fn(),
 }));
 
@@ -9,13 +9,13 @@ jest.mock('node:fs', () => ({
   readFileSync: jest.fn(),
 }));
 
-jest.mock('../shared/logger/log-file-writer');
+jest.mock('../common/logger/log-file-writer');
 
 import * as fs from 'node:fs';
 import { Test, TestingModule } from '@nestjs/testing';
 import { UiDesignScreenshotsStageService } from './ui-design-screenshots-stage.service';
-import { readUiDesignScreenshotsFromPlanArtifact } from '../shared/utils/plan-artifact';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { readUiDesignScreenshotsFromPlanArtifact } from '../common/utils/plan-artifact';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
 const mockReadFileSync = fs.readFileSync as jest.MockedFunction<typeof fs.readFileSync>;

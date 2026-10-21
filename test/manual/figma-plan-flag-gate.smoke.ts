@@ -13,7 +13,7 @@ import { PlanStageService } from '../../src/workflows/stages/plan-stage.service'
 import {
   buildPlanArtifactManifestPath,
   readPlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

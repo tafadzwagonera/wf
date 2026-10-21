@@ -26,9 +26,9 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { AnthropicAdapter } from '../../src/integrations/ai/adapters/anthropic.adapter';
 import { initializeWfConfig } from '../../src/config/wf-config-loader';
-import type { AIResponse } from '../../src/shared/types/ai.types';
+import type { AIResponse } from '../../src/common/types/ai.types';
 import { createReporter } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 type CapturedRequest = {
   pathname: string;

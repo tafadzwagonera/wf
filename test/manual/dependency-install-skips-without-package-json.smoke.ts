@@ -16,8 +16,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import { installDependencies, runDependencyInstallForVerification } from '../../src/shared/utils/install-dependencies';
-import { runPostPullDependencyInstall } from '../../src/shared/utils/post-pull-install';
+import { installDependencies, runDependencyInstallForVerification } from '../../src/common/utils/install-dependencies';
+import { runPostPullDependencyInstall } from '../../src/common/utils/post-pull-install';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

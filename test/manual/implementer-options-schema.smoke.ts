@@ -18,7 +18,7 @@ import {
   planArtifactSchema,
   resolutionActionSchema,
   modelRoutingSchema,
-} from '../../src/shared/schemas/agent.schema';
+} from '../../src/common/schemas/agent.schema';
 
 import type { ImplementerOptions, TicketArtifact, PlanArtifact, ModelRouting } from '../../src/agents/interfaces';
 import { createReporter, summarise } from './support/reporter';

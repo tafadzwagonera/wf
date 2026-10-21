@@ -8,20 +8,20 @@ import {
   requireAiResponseContent,
 } from '../integrations/ai/ai.service';
 import { headlessPipelineInstruction } from '../integrations/ai/prompt-fragments';
-import { ensureWfHome } from '../shared/utils/ensure-wf-home';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError, AmbiguousPlanArtifactError } from '../shared/utils/errors';
+import { ensureWfHome } from '../common/utils/ensure-wf-home';
+import { printCommandHeader } from '../common/utils/command-header.helper';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError, AmbiguousPlanArtifactError } from '../common/utils/errors';
 import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import {
   buildSyntheticTicketArtifact,
   parsePlanArtifact,
   buildPlanArtifactResolutionNotice,
   resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   supportedPlanExtensions,
-} from '../shared/utils/plan-artifact';
+} from '../common/utils/plan-artifact';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
 import { getLoadedWfConfig, initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
@@ -32,7 +32,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import type { PlanArtifactReference } from '../shared/utils/plan-artifact';
+import type { PlanArtifactReference } from '../common/utils/plan-artifact';
 
 const validModelRouting: ModelRouting[] = ['auto', 'default', 'mechanical'];
 const wfConfigExtensions = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
@@ -169,18 +169,18 @@ export class IssueImplementCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--skip-install',
-    description: 'Skip automatic dependency install after branch pull',
-  })
-  parseSkipInstall(): boolean {
-    return true;
-  }
-
-  @Option({
     flags: '-s, --silent',
     description: 'Auto-stash without prompting; branch selection and naming still prompt when a TTY is available',
   })
   parseSilent(): boolean {
+    return true;
+  }
+
+  @Option({
+    flags: '--skip-install',
+    description: 'Skip automatic dependency install after branch pull',
+  })
+  parseSkipInstall(): boolean {
     return true;
   }
 

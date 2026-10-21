@@ -1,12 +1,12 @@
 import type { CodeIssue, CodeReview } from '../integrations/ai/ai.service';
-import type { CodeReviewPresentation, ProcessedCodeReview } from '../shared/types/review.types';
+import type { CodeReviewPresentation, ProcessedCodeReview } from '../common/types/review.types';
 import { deriveApproval } from './derive-approval';
 
 export type {
   ReviewPresentationIssueRow,
   CodeReviewPresentation,
   ProcessedCodeReview,
-} from '../shared/types/review.types';
+} from '../common/types/review.types';
 
 interface ChangedDestinationLine {
   line: number;

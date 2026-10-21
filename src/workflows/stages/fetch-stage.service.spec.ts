@@ -5,7 +5,7 @@ import { FetchStageService } from './fetch-stage.service';
 import * as agentUtils from '../../agents/utils';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
+import { createTempDir as createManagedTempDir } from '../../common/testing/temp-dir';
 
 describe('FetchStageService', () => {
   let testHomeDir: string;

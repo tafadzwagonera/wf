@@ -4,4 +4,4 @@ export type {
   ConversationContext,
   ConversationState,
   ChatSessionOptions,
-} from '../../../shared/types/conversation.types';
+} from '../../../common/types/conversation.types';

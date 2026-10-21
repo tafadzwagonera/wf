@@ -1,5 +1,5 @@
-jest.mock('../shared/utils/plan-artifact', () => {
-  const actual = jest.requireActual('../shared/utils/plan-artifact');
+jest.mock('../common/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../common/utils/plan-artifact');
   return {
     ...actual,
     findPlanArtifactManifestByBranchName: jest.fn().mockReturnValue(undefined),
@@ -13,8 +13,8 @@ import { ConfigService } from '@nestjs/config';
 import { FigmaStageService } from './figma-stage.service';
 import { FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { findPlanArtifactManifestByBranchName, readPlanArtifactManifest, readFigmaLinksFromPlanArtifact } from '../shared/utils/plan-artifact';
+import { LoggerService } from '../common/logger/logger.service';
+import { findPlanArtifactManifestByBranchName, readPlanArtifactManifest, readFigmaLinksFromPlanArtifact } from '../common/utils/plan-artifact';
 
 const mockFigmaRestClient = { fetchFrames: jest.fn() };
 
@@ -92,7 +92,7 @@ describe('FigmaStageService', () => {
         figmaLinks: undefined,
       });
       const onProgress = jest.fn();
-      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(require('../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
       expect(result).toBeUndefined();
       expect(mockLoggerService.warn).not.toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe('FigmaStageService', () => {
       });
       mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
       const onProgress = jest.fn();
-      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(require('../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
 
@@ -179,7 +179,7 @@ describe('FigmaStageService', () => {
         { url: 'https://figma.com/design/X/Page?node-id=2-2', name: '', width: 0, height: 0, screenshotUrl: '', layout: { name: '' } },
       ]);
       const onProgress = jest.fn();
-      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(require('../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       await service.resolveIfEnabled({ repoDir: '/repo', force: true, onProgress });
 
@@ -193,7 +193,7 @@ describe('FigmaStageService', () => {
       const overrideLinks = ['https://figma.com/design/A/Page?node-id=2-3'];
       mockFigmaRestClient.fetchFrames.mockResolvedValue([]);
       const onProgress = jest.fn();
-      const appendSpy = jest.spyOn(require('../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+      const appendSpy = jest.spyOn(require('../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
 
       const result = await service.resolveIfEnabled({ repoDir: '/repo', force: true, overrideLinks, onProgress });
 

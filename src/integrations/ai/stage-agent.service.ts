@@ -33,8 +33,8 @@ import {
   planChangePrinciple,
   planStepPrinciples,
 } from './prompt-fragments';
-import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import type { UiDesignScreenshot } from '../../common/types/ui-design-screenshot';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
 import { DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MECHANICAL_MODEL } from '../../common/constant';
 import { STALL_THRESHOLD } from './adapters/verification-report';
 import {
@@ -59,39 +59,39 @@ import {
   PlanModelOutput,
   sanitizeCodeReviewTrace,
 } from './ai.service';
-import type { AIRequest } from '../../shared/types/ai.types';
-import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
-import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
-import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { generateTicketSchema } from '../../shared/schemas/generate-ticket.schema';
-import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../shared/utils/errors';
-import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
-import type { TestInfraContext } from '../../shared/types/detection.types';
-import type { WfAiProviderName } from '../../shared/types/config.types';
-import { formatTestInfraPromptSection } from '../../shared/utils/detect-test-infra';
+import type { AIRequest } from '../../common/types/ai.types';
+import { planModelOutputSchema } from '../../common/schemas/ai.schema';
+import { estimatePlanComplexity } from '../../common/utils/estimate-plan-complexity';
+import { codeReviewSchema } from '../../common/schemas/review.schema';
+import { generateTicketSchema } from '../../common/schemas/generate-ticket.schema';
+import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../common/utils/errors';
+import { formatZodError, isZodErrorLike } from '../../common/utils/zod-error.util';
+import type { TestInfraContext } from '../../common/types/detection.types';
+import type { WfAiProviderName } from '../../common/types/config.types';
+import { formatTestInfraPromptSection } from '../../common/utils/detect-test-infra';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import {
   formatRepoConventionsPromptSection,
   type PackageManager,
   type RepoConventionsContext,
-} from '../../shared/utils/detect-repo-conventions';
-import { formatRunnerInvocation } from '../../shared/utils/verification-commands';
-import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
+} from '../../common/utils/detect-repo-conventions';
+import { formatRunnerInvocation } from '../../common/utils/verification-commands';
+import { isUiRelevantTicket } from '../../common/utils/detect-ui-relevance';
 import {
   formatPlanCorrelationPromptSection,
   formatPriorPlansPromptSection,
   type PlanCorrelationResult,
   type PriorPlanContext,
-} from '../../shared/utils/detect-prior-plans';
+} from '../../common/utils/detect-prior-plans';
 import {
   type CrossRepoContext,
   formatCrossRepoPatternsPromptSection,
-} from '../../shared/utils/detect-cross-repo-patterns';
+} from '../../common/utils/detect-cross-repo-patterns';
 import {
   type ReuseCandidateContext,
   formatReuseCandidatesPromptSection,
-} from '../../shared/utils/detect-reuse-candidates';
-import type { AgentStageName, ProviderSessionIdCallback, StageProgressCallback } from '../../shared/types/agent.types';
+} from '../../common/utils/detect-reuse-candidates';
+import type { AgentStageName, ProviderSessionIdCallback, StageProgressCallback } from '../../common/types/agent.types';
 import { resolveProviderModel } from './adapters/shared-routing';
 import { buildSkillPromptFragment } from '../../skills';
 import { estimateLlmCostUsd } from './llm-cost';
@@ -249,7 +249,7 @@ const extractAssistantText = (message: ClaudeCliMessage): string | undefined => 
   return turnText || undefined;
 };
 
-export type { StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
+export type { StageProgressCallback, AgentStageName } from '../../common/types/agent.types';
 
 export type AgentChatSession = {
   agent?: unknown;

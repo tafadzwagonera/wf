@@ -2,9 +2,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { collectDroppedStageFields, discoverWfConfigPath, getLoadedWfConfig, initializeWfConfig, loadTypeScriptConfig, loadWfConfig, normalizeWfConfig } from './wf-config-loader';
-import { ValidationError } from '../shared/utils/errors';
+import { ValidationError } from '../common/utils/errors';
 import { DEFAULT_OPENAI_MODEL } from '../common/constant';
-import { createTempDir as createManagedTempDir } from '../shared/testing/temp-dir';
+import { createTempDir as createManagedTempDir } from '../common/testing/temp-dir';
 
 describe('wf-config-loader', () => {
   const tempRoots: string[] = [];

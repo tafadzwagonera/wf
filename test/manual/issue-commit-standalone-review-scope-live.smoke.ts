@@ -28,17 +28,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { IssueCommitCommand } from '../../src/commands/issue-commit.command';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
-import { resolveReviewArtifactPath } from '../../src/shared/utils/resolve-review-summary';
+import { resolveReviewArtifactPath } from '../../src/common/utils/resolve-review-summary';
 import {
   deriveCommitDescriptionPath,
   hashCommitDescriptionDiff,
-} from '../../src/shared/utils/commit-description-artifact';
+} from '../../src/common/utils/commit-description-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 const assert = (label: string, condition: boolean, detail?: string): void =>

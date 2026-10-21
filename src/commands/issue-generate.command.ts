@@ -3,36 +3,36 @@ import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracke
 import { FormatConverterService } from '../common/converters/format-converter.service';
 import { AiService, requireAiResponseContent } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
-import { isAiProviderErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, ConfigurationError } from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import { SlackService } from '../integrations/slack/slack.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
+import { resolveExistingRepoDir } from '../common/utils/repo-resolution';
 import { parseReposOption } from './utils/repos-option';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { printCommandHeader } from '../common/utils/command-header.helper';
 import {
   buildGeneratedTicketArtifactFilename,
   buildGeneratedTicketManifestFilename,
   buildGeneratedTicketManifestPath,
   buildGeneratedTicketSourceManifest,
   hashGeneratedTicketSources,
-} from '../shared/utils/generated-ticket-artifact';
+} from '../common/utils/generated-ticket-artifact';
 import { UniversalTicket, TicketType, TicketPriority } from '../common/dto/universal-ticket.dto';
-import { generateTicketSchema } from '../shared/schemas/generate-ticket.schema';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { generateTicketSchema } from '../common/schemas/generate-ticket.schema';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import axios from 'axios';
-import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import { ensureWfHome } from '../common/utils/ensure-wf-home';
 import {
   detectRepoConventions,
   formatRepoConventionsPromptSection,
   type RepoConventionsContext,
-} from '../shared/utils/detect-repo-conventions';
+} from '../common/utils/detect-repo-conventions';
 import {
   detectPriorPlans,
   formatPriorPlansPromptSection,
@@ -40,12 +40,12 @@ import {
   formatPlanCorrelationPromptSection,
   type PriorPlanContext,
   type PlanCorrelationResult,
-} from '../shared/utils/detect-prior-plans';
+} from '../common/utils/detect-prior-plans';
 import {
   detectCrossRepoPatterns,
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
-} from '../shared/utils/detect-cross-repo-patterns';
+} from '../common/utils/detect-cross-repo-patterns';
 
 const MAX_SOURCE_CONTENT_LENGTH = 30_000;
 const SLACK_CHANNEL_HISTORY_LIMIT = 50;

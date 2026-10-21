@@ -2,7 +2,7 @@ import { Command, CommandRunner, Option } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
-import { ensureWfHome } from '../shared/utils/ensure-wf-home';
+import { ensureWfHome } from '../common/utils/ensure-wf-home';
 import {
   AiService,
   CodeIssue,
@@ -12,28 +12,28 @@ import {
 } from '../integrations/ai/ai.service';
 import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
 import { formatReviewCallStack, formatReviewStateTransition } from '../integrations/ai/review-trace';
-import { ReviewPresenter } from '../shared/presentation/review-presenter.service';
+import { ReviewPresenter } from '../common/presentation/review-presenter.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import {
   ValidationError, ConfigurationError, ExecutionError, FileSystemError, GitError, isAiProviderErrorLike,
-} from '../shared/utils/errors';
-import { executeAsyncWithCatch } from '../shared/utils/execute-with-catch';
+} from '../common/utils/errors';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import { UniversalTicket } from '../common/dto/universal-ticket.dto';
 import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
-import { resolveCustomSourcePath } from '../shared/utils/custom-source';
-import { resolveExistingRepoDir } from '../shared/utils/repo-resolution';
+import { resolveCustomSourcePath } from '../common/utils/custom-source';
+import { resolveExistingRepoDir } from '../common/utils/repo-resolution';
 import { initializeWfConfig } from '../config/wf-config-loader';
 import { parseReposOption } from './utils/repos-option';
-import { printCommandHeader } from '../shared/utils/command-header.helper';
+import { printCommandHeader } from '../common/utils/command-header.helper';
 import { ReviewStageService } from '../workflows/stages/review-stage.service';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
-import { ConversationContext } from '../shared/types/conversation.types';
-import { SessionService } from '../shared/session/session.service';
-import { deriveReviewArtifactPath } from '../shared/utils/plan-artifact';
-import { retryOnTransient } from '../shared/utils/retry-on-transient';
+import { ConversationContext } from '../common/types/conversation.types';
+import { SessionService } from '../common/session/session.service';
+import { deriveReviewArtifactPath } from '../common/utils/plan-artifact';
+import { retryOnTransient } from '../common/utils/retry-on-transient';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -46,13 +46,13 @@ import {
   mergeCommentPolicyIssues,
 } from '../review/comment-policy-stage.service';
 import { buildFigmaContextSection } from '../integrations/ai/prompt-fragments';
-import { buildPreReviewContext } from '../shared/utils/build-pre-review-context';
-import type { PlanArtifactFormat as OutputFormat } from '../shared/types/plan-artifact.types';
-import type { ReviewVerification, VerificationCommandResult } from '../shared/utils/review-verification.types';
+import { buildPreReviewContext } from '../common/utils/build-pre-review-context';
+import type { PlanArtifactFormat as OutputFormat } from '../common/types/plan-artifact.types';
+import type { ReviewVerification, VerificationCommandResult } from '../common/utils/review-verification.types';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
-import { deriveCommitDescriptionPath } from '../shared/utils/commit-description-artifact';
-import { findExistingReviewArtifact, listReviewArtifactVariants } from '../shared/utils/resolve-review-summary';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { deriveCommitDescriptionPath } from '../common/utils/commit-description-artifact';
+import { findExistingReviewArtifact, listReviewArtifactVariants } from '../common/utils/resolve-review-summary';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 interface IssueReviewOptions {
   format?: OutputFormat;
@@ -996,6 +996,14 @@ export class IssueReviewCommand extends CommandRunner {
   }
 
   @Option({
+    flags: '--comment-policy',
+    description: 'Enable deterministic new-comment detection, overriding stages.review.commentPolicy config.',
+  })
+  parseCommentPolicy(): boolean {
+    return true;
+  }
+
+  @Option({
     flags: '--criteria <path>',
     description: 'Path to a markdown file with additional review criteria to append to the defaults; a relative path resolves from the first --repos repository',
   })
@@ -1009,6 +1017,14 @@ export class IssueReviewCommand extends CommandRunner {
   })
   parseDryRun(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '--figma [urls...]',
+    description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`.',
+  })
+  parseFigma(val: string, prev: string[] = []): string[] {
+    return val ? [...prev, val] : prev;
   }
 
   @Option({
@@ -1098,22 +1114,6 @@ export class IssueReviewCommand extends CommandRunner {
     description: 'Run only the SonarQube CLI scan (implies --sonar) and exit; skips AI review, verification, Figma, comments, and chat. Findings print and exit 0; scan or setup failures exit 1.',
   })
   parseSonarOnly(): boolean {
-    return true;
-  }
-
-  @Option({
-    flags: '--figma [urls...]',
-    description: 'Enable Figma design-conformance check; optionally pass Figma frame URLs to override the plan manifest. Requires `figma.token` in `wf.config`.',
-  })
-  parseFigma(val: string, prev: string[] = []): string[] {
-    return val ? [...prev, val] : prev;
-  }
-
-  @Option({
-    flags: '--comment-policy',
-    description: 'Enable deterministic new-comment detection, overriding stages.review.commentPolicy config.',
-  })
-  parseCommentPolicy(): boolean {
     return true;
   }
 

@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import chalk from 'chalk';
 import * as path from 'node:path';
-import type { PlanProblem } from '../../../shared/types/agent.types';
-import { AiProviderError } from '../../../shared/utils/errors';
+import type { PlanProblem } from '../../../common/types/agent.types';
+import { AiProviderError } from '../../../common/utils/errors';
 import type {
   TicketArtifact,
   PlanArtifact,

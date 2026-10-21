@@ -9,7 +9,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
 import { GitService } from '../../src/integrations/git/git.service';
-import { extractConventionalType } from '../../src/shared/utils/commit-diff-stat';
+import { extractConventionalType } from '../../src/common/utils/commit-diff-stat';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

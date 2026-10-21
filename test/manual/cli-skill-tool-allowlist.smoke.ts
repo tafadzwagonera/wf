@@ -4,9 +4,9 @@
  * Run: nr test:manual cli-skill-tool-allowlist.smoke.ts
  *
  * Verifies:
- *   1. IMPLEMENT_TOOLS constant includes 'Skill'
+ *   1. implementTools constant includes 'Skill'
  *   2. buildCliArgs produces --allowedTools containing 'Skill' for implement-stage tools
- *   3. Stage-agent CLI tool arrays include 'Skill' at all three call sites
+ *   3. Stage-agent CLI inspection tool array includes 'Skill'
  *   4. ANTHROPIC_STAGE_TOOLS (read-only constant) does NOT include 'Skill' (it is the
  *      non-CLI agent baseline; Skill is appended only in the CLI tool arrays)
  *
@@ -29,10 +29,10 @@ const assert = (label: string, condition: boolean, detail?: string): void => {
 };
 
 function checkImplementToolsIncludesSkill(adapterSource: string): void {
-  const implementToolsMatch = /const IMPLEMENT_TOOLS\s*=\s*\[([^\]]+)\]/.exec(adapterSource);
+  const implementToolsMatch = /const implementTools\s*=\s*\[([^\]]+)\]/.exec(adapterSource);
   const implementToolsValue = implementToolsMatch?.[1] ?? '';
   assert(
-    'IMPLEMENT_TOOLS constant includes Skill',
+    'implementTools constant includes Skill',
     implementToolsValue.includes('\'Skill\''),
     `Got: [${implementToolsValue}]`
   );
@@ -55,12 +55,12 @@ function checkBuildCliArgsAllowsSkill(): void {
 
 function checkStageAgentCliArraysHaveSkill(stageAgentSource: string): void {
   const cliToolArrayMatches = stageAgentSource.match(
-    /tools:\s*allowInspection\s*\?\s*\['Read',\s*'Glob',\s*'Grep',\s*'Bash',\s*'Skill'\]/g
+    /return repoDir \? \['Read',\s*'Glob',\s*'Grep',\s*'Bash',\s*'Skill'\] : \[\]/g
   );
   assert(
-    'stage-agent.service.ts has exactly 3 CLI tool arrays with Skill',
-    cliToolArrayMatches?.length === 3,
-    `Expected 3 matches, got ${cliToolArrayMatches?.length ?? 0}`
+    'stage-agent.service.ts CLI inspection tools include Skill',
+    cliToolArrayMatches?.length === 1,
+    `Expected 1 match, got ${cliToolArrayMatches?.length ?? 0}`
   );
 }
 

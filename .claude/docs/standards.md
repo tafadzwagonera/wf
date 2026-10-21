@@ -3,7 +3,7 @@
 ### Exemplar Files
 When unsure about conventions, read these files as references:
 
-- Spec style: `src/shared/utils/execute-with-catch.spec.ts` — arrange/act/assert, describe blocks, mock setup/teardown
+- Spec style: `src/common/utils/execute-with-catch.spec.ts` — arrange/act/assert, describe blocks, mock setup/teardown
 - Service pattern: `src/agents/fetcher.agent.ts` — constructor injection, public entry point, private helpers
 - Schema convention: `src/shared/schemas/agent.schema.ts` — base schemas, `.extend()` composition, domain grouping
 

@@ -7,7 +7,7 @@
  *   1. buildSystemPrompt output contains the Skill tool entry
  *   2. Skill appears in the "Available tools" section, not elsewhere
  *   3. Skill tool entry includes the expected signature and description
- *   4. Total available tool count is 7 (Read, Write, Edit, Glob, Grep, Bash, Skill)
+ *   4. Total available tool count is 8 (Read, Write, Edit, Glob, Grep, Bash, mcp__wf__DeleteFile, Skill)
  *
  * @returns void
  */
@@ -67,12 +67,12 @@ function extractToolNames(prompt: string): string[] {
 }
 
 function checkToolCount(prompt: string): void {
-  console.log(chalk.bold('\nTest 4: Available tools section lists exactly 7 tools'));
+  console.log(chalk.bold('\nTest 4: Available tools section lists exactly 8 tools'));
   const toolNames = extractToolNames(prompt);
   assert(
-    `7 tools listed: ${toolNames.join(', ')}`,
-    toolNames.length === 7,
-    `Expected 7 tools, got ${toolNames.length}: ${toolNames.join(', ')}`
+    `8 tools listed: ${toolNames.join(', ')}`,
+    toolNames.length === 8,
+    `Expected 8 tools, got ${toolNames.length}: ${toolNames.join(', ')}`
   );
   assert(
     'tool list includes Read, Write, Edit, Glob, Grep, Bash, Skill',

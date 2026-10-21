@@ -16,7 +16,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createReporter } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 
 const { counts, pass, fail } = createReporter();
 
@@ -50,7 +50,7 @@ async function test1Env(command: IssueImplementCommand, tmpDir: string, expected
 
 async function runTest1(command: IssueImplementCommand): Promise<void> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   const customDir = path.join(tmpDir, '.wf', path.basename(tmpDir));
   fs.mkdirSync(customDir, { recursive: true });
   const expectedPath = path.join(customDir, 'my-plan.json');
@@ -86,7 +86,7 @@ function setupTest2Env(tmpDir: string): string {
 
 async function runTest2(command: IssueImplementCommand): Promise<void> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-resolution-'));
-  withEnv({ HOME: tmpDir });
+  withEnv({ HOME: tmpDir, WF_HOME: path.join(tmpDir, '.wf') });
   const expectedPath = setupTest2Env(tmpDir);
   try {
     await test2Env(command, tmpDir, expectedPath);
@@ -120,7 +120,7 @@ function setupTest3Env(tmpBase: string): { appDir: string; expectedPath: string 
 
 async function runTest3(command: IssueImplementCommand): Promise<void> {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-plan-repos-'));
-  withEnv({ HOME: tmpBase });
+  withEnv({ HOME: tmpBase, WF_HOME: path.join(tmpBase, '.wf') });
   const { appDir, expectedPath } = setupTest3Env(tmpBase);
   try {
     await test3Env(command, appDir, expectedPath);

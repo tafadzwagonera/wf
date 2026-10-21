@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import type { AiProviderErrorCategory } from '../../../shared/errors/app.error';
-import { isAiProviderErrorLike } from '../../../shared/utils/errors';
+import type { AiProviderErrorCategory } from '../../../common/errors/app.error';
+import { isAiProviderErrorLike } from '../../../common/utils/errors';
 
 /**
  * Classifies a caught SDK error into an AiProviderErrorCategory.

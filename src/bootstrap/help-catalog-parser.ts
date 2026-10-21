@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { CommandHelpEntry, CommandHelpOption } from '../shared/types/bootstrap.types';
-import { COMMAND_DOCS } from '../shared/docs/command-docs.registry';
+import type { CommandHelpEntry, CommandHelpOption } from '../common/types/bootstrap.types';
+import { COMMAND_DOCS } from '../common/docs/command-docs.registry';
 
-export type { CommandHelpEntry, CommandHelpOption, CommandHelpExample } from '../shared/types/bootstrap.types';
+export type { CommandHelpEntry, CommandHelpOption, CommandHelpExample } from '../common/types/bootstrap.types';
 
 const STRING_LITERAL_PATTERN = /'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|`((?:\\.|[^`])*)`/g;
 

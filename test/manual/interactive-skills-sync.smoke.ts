@@ -6,11 +6,11 @@
  *
  * Verifies:
  *   1. package.json skills:sync script matches the command this test spawns
- *   2. First run exits 0 and reports `linked 12, relinked 0, ok 0`
+ *   2. First run exits 0 and reports every taxonomy link as linked (`relinked 0, ok 0`)
  *   3. Every interactive taxonomy entry is a symlink resolving to src/skills/content/<id>
- *   4. Claude-only and headless-only skills are not linked into codex / claude respectively
+ *   4. Skills are not linked into CLIs absent from their taxonomy audience
  *   5. Foreign entries (.system, user-added skills) are untouched
- *   6. Second run reports `linked 0, relinked 0, ok 12`
+ *   6. Second run reports every link as ok (`linked 0, relinked 0`)
  *   7. A stale symlink is repointed and reported as relinked
  */
 import * as fs from 'node:fs';
@@ -38,6 +38,9 @@ const expectedScriptCommand = 'ts-node -r tsconfig-paths/register scripts/sync-i
 
 const interactiveLinks = Object.entries(skillTaxonomy).flatMap(([id, audience]) =>
   audience.interactive.map(cli => ({ id, cli })));
+const excludedLinks = Object.entries(skillTaxonomy).flatMap(([id, audience]) =>
+  (['claude', 'codex'] as const).filter(cli => !audience.interactive.includes(cli)).map(cli => ({ id, cli })));
+const linkCount = interactiveLinks.length;
 
 const checkScriptDefinition = (): void => {
   console.log(chalk.bold('Test 1: package.json script'));
@@ -49,7 +52,7 @@ const checkFirstRun = (home: string): void => {
   console.log(chalk.bold('\nTest 2: first run links everything'));
   const result = runSkillsSync(home);
   assert('exits 0', result.status === 0, result.stderr);
-  assert('summary reports 12 linked', result.stdout.includes('linked 12, relinked 0, ok 0'), result.stdout);
+  assert(`summary reports ${linkCount} linked`, result.stdout.includes(`linked ${linkCount}, relinked 0, ok 0`), result.stdout);
   assert('logs linked claude/commit', result.stdout.includes('linked claude/commit'));
   assert('logs linked codex/plan', result.stdout.includes('linked codex/plan'));
 
@@ -65,9 +68,9 @@ const checkFirstRun = (home: string): void => {
 
 const checkAudienceBoundaries = (home: string): void => {
   console.log(chalk.bold('\nTest 3: audience boundaries'));
-  assert('figma-implement absent from codex', isAbsent(path.join(home, '.codex', 'skills', 'figma-implement')));
-  assert('figma-design-check absent from codex', isAbsent(path.join(home, '.codex', 'skills', 'figma-design-check')));
-  assert('headless-only skill absent from claude', isAbsent(path.join(home, '.claude', 'skills', 'test-driven-development')));
+  for (const { id, cli } of excludedLinks) {
+    assert(`${id} absent from ${cli}`, isAbsent(path.join(home, `.${cli}`, 'skills', id)));
+  }
 };
 
 const checkForeignEntriesUntouched = (home: string): void => {
@@ -82,7 +85,7 @@ const checkIdempotentSecondRun = (home: string): void => {
   console.log(chalk.bold('\nTest 5: idempotent second run'));
   const second = runSkillsSync(home);
   assert('second run exits 0', second.status === 0, second.stderr);
-  assert('second run reports 12 ok', second.stdout.includes('linked 0, relinked 0, ok 12'), second.stdout);
+  assert(`second run reports ${linkCount} ok`, second.stdout.includes(`linked 0, relinked 0, ok ${linkCount}`), second.stdout);
 };
 
 const checkStaleSymlinkRelinked = (home: string): void => {
@@ -94,7 +97,7 @@ const checkStaleSymlinkRelinked = (home: string): void => {
   const third = runSkillsSync(home);
   assert('third run exits 0', third.status === 0, third.stderr);
   assert('logs relinked claude/lint', third.stdout.includes('relinked claude/lint'));
-  assert('summary reports 1 relinked', third.stdout.includes('linked 0, relinked 1, ok 11'), third.stdout);
+  assert('summary reports 1 relinked', third.stdout.includes(`linked 0, relinked 1, ok ${linkCount - 1}`), third.stdout);
   assert('lint link repointed to repo content', fs.readlinkSync(lintLink) === path.join(contentDir, 'lint'));
   fs.rmSync(otherDir, { recursive: true, force: true });
 };

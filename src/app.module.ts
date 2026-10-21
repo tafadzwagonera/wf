@@ -7,9 +7,9 @@ import { AIModule } from './integrations/ai/ai.module';
 import { CommandsModule } from './commands/commands.module';
 import { ConvertersModule } from './common/converters/converters.module';
 import { IssueTrackerModule } from './integrations/issue-trackers/issue-tracker.module';
-import { LoggerModule } from './shared/logger/logger.module';
-import { PresentationModule } from './shared/presentation/presentation.module';
-import { SessionModule } from './shared/session/session.module';
+import { LoggerModule } from './common/logger/logger.module';
+import { PresentationModule } from './common/presentation/presentation.module';
+import { SessionModule } from './common/session/session.module';
 
 @Module({
   imports: [

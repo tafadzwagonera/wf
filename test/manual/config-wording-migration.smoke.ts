@@ -42,8 +42,8 @@ function checkGenerateHelp(): void {
   try {
     const helpOutput = run('yarn start issue:generate -h');
     const normalized = collapseWhitespace(helpOutput);
-    if (normalized.includes('default from config')) pass('issue:generate help uses "default from config"');
-    else fail('issue:generate help still contains stale wording');
+    if (normalized.includes('default: md')) pass('issue:generate help documents the fixed "default: md" output format');
+    else fail('issue:generate help is missing the "default: md" output format wording');
     if (normalized.includes('default from env')) fail('issue:generate help still references "from env"');
     else pass('issue:generate help has no "from env" references');
   } catch (error: any) {

@@ -53,8 +53,8 @@ import * as fs from 'fs';
 import { IssuePrCommand } from './issue-pr.command';
 import { IssueTrackerService } from '../integrations/issue-trackers/issue-tracker.service';
 import { AiService } from '../integrations/ai/ai.service';
-import { LoggerService } from '../shared/logger/logger.service';
-import { DryRunPreviewService } from '../shared/preview/dry-run-preview.service';
+import { LoggerService } from '../common/logger/logger.service';
+import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { GitService } from '../integrations/git/git.service';
 import { IssueTrackerFeature } from '../integrations/issue-trackers/issue-tracker-adapter.interface';
 

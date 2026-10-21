@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { ConfigurationError, ValidationError } from '../shared/errors/app.error';
+import { ConfigurationError, ValidationError } from '../common/errors/app.error';
 import type { SkillDefinition, SkillQualityRule, SkillStage } from './skill.types';
 
 export const knownSkills = new Map<string, SkillDefinition>();

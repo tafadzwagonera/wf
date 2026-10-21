@@ -5,6 +5,9 @@
  * nr test:manual issue-update-jira-adf-smoke.smoke.ts WBP-3092 \
  *   --description-file .wf/terraform-aws/jira/ticket-description.md
  *
+ * With no arguments, previews a built-in sample description for WBP-0000
+ * (never sends a live update).
+ *
  * Preview mode builds the exact outgoing Jira update payload through the
  * JiraAdapter and JiraService update path without performing a live PUT.
  * Add --live --confirm-live-update to execute the Jira update after the
@@ -13,6 +16,9 @@
  */
 
 import assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { NestFactory } from '@nestjs/core';
@@ -25,7 +31,7 @@ import {
   loadDescriptionFile,
   parseJiraUpdateSmokeArgs,
   captureJiraDescriptionUpdatePreview,
-} from '../../src/shared/utils/jira-update-smoke';
+} from '../../src/common/utils/jira-update-smoke';
 
 function buildConfigValues(): Record<string, string> {
   return {
@@ -128,7 +134,7 @@ async function runPreview(args: any, dependencies: any): Promise<any> {
 
 function validateAdfPayload(result: any): any {
   assert.strictEqual((result.payload.fields.description as { type: string }).type, 'doc');
-  const validation = spawnSync('npx', ['ts-node', 'test/manual/test-verify-request-format.ts'], {
+  const validation = spawnSync('npx', ['ts-node', 'test/manual/verify-request-format.smoke.ts'], {
     input: result.serializedPayload,
     encoding: 'utf-8',
     timeout: 30_000,
@@ -163,8 +169,38 @@ async function validateAndProcess(result: any, args: any, dependencies: any, des
   await handlePayloadResult(validationResult, result, args, dependencies, description);
 }
 
+const sampleDescription = [
+  '## Summary',
+  '',
+  'Sample **bold** and `inline code` text.',
+  '',
+  '```ts',
+  'const value = 1;',
+  '```',
+  '',
+  '- First bullet',
+  '- Second bullet',
+  '',
+  '1. First step',
+  '2. Second step',
+  '',
+].join('\n');
+
+function resolveSmokeArgv(): { argv: string[]; cleanup: () => void } {
+  const argv = process.argv.slice(3);
+  if (argv.length > 0) return { argv, cleanup: () => undefined };
+  const sampleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-jira-adf-sample-'));
+  const samplePath = path.join(sampleDir, 'description.md');
+  fs.writeFileSync(samplePath, sampleDescription, 'utf-8');
+  return {
+    argv: ['WBP-0000', '--description-file', samplePath],
+    cleanup: () => fs.rmSync(sampleDir, { recursive: true, force: true }),
+  };
+}
+
 async function main(): Promise<void> {
-  const args = parseJiraUpdateSmokeArgs(process.argv.slice(3));
+  const { argv, cleanup } = resolveSmokeArgv();
+  const args = parseJiraUpdateSmokeArgs(argv);
   const app = args.executeLiveUpdate ? await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] }) : null;
   try {
     const dependencies = await getDependencies(app);
@@ -172,6 +208,7 @@ async function main(): Promise<void> {
     await validateAndProcess(result, args, dependencies, description);
   } finally {
     await app?.close();
+    cleanup();
   }
 }
 

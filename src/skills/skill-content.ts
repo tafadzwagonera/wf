@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { ConfigurationError } from '../shared/errors/app.error';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { ConfigurationError } from '../common/errors/app.error';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 export const TDD_SKILL_ID = 'test-driven-development';
 

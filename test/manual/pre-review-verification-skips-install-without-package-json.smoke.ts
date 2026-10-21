@@ -16,7 +16,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import { runPreReviewVerification } from '../../src/shared/utils/run-pre-review-verification';
+import { runPreReviewVerification } from '../../src/common/utils/run-pre-review-verification';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

@@ -7,20 +7,20 @@ import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
 import { needleSearchReminder } from '../integrations/ai/prompt-fragments';
 import { planProblemInstruction } from '../integrations/ai/adapters/shared-routing';
 import { GitService } from '../integrations/git/git.service';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
-import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../shared/schemas/step-verification.schema';
-import type { PlanComplexity } from '../shared/types/ai.types';
-import type { StepAssessment, StepVerificationSummary } from '../shared/types/step-verification.types';
-import { ApiError, ConfigurationError, ERROR_CODE } from '../shared/errors/app.error';
-import { isAiProviderErrorLike } from '../shared/utils/errors';
-import { mentionsPath } from '../shared/utils/mentions-path';
-import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../shared/types/config.types';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
+import { appendToLogFile } from '../common/logger/log-file-writer';
+import { stepAssessmentResponseJsonSchema, stepAssessmentResponseSchema } from '../common/schemas/step-verification.schema';
+import type { PlanComplexity } from '../common/types/ai.types';
+import type { StepAssessment, StepVerificationSummary } from '../common/types/step-verification.types';
+import { ApiError, ConfigurationError, ERROR_CODE } from '../common/errors/app.error';
+import { isAiProviderErrorLike } from '../common/utils/errors';
+import { mentionsPath } from '../common/utils/mentions-path';
+import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../common/types/config.types';
 import { PullStepAssessorService, type PullStepAssessmentParams } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
-import { executeAsyncWithCatch, executeWithCatch } from '../shared/utils/execute-with-catch';
-import type { VerificationOutcome } from '../shared/types/agent.types';
-import type { CommitPolicy } from '../shared/utils/implement-commit-policy';
+import { executeAsyncWithCatch, executeWithCatch } from '../common/utils/execute-with-catch';
+import type { VerificationOutcome } from '../common/types/agent.types';
+import type { CommitPolicy } from '../common/utils/implement-commit-policy';
 import {
   EVIDENCE_CEILING_CHARS,
   EVIDENCE_FLOOR_CHARS,

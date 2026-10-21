@@ -53,7 +53,7 @@ Field notes:
 
 ## Step Quality Rules
 
-Three checks apply to plan steps. Only `no-placeholders` is supplied by `writing-plans.skill.ts`'s `getQualityRules()`. `rename-target-required` and `needle-search-required` are enforced unconditionally by `src/shared/utils/plan-quality.ts`, independent of this skill, and are not re-assessed by `plan-step-verification.service.ts`.
+Three checks apply to plan steps. Only `no-placeholders` is supplied by `writing-plans.skill.ts`'s `getQualityRules()`. `rename-target-required` and `needle-search-required` are enforced unconditionally by `src/common/utils/plan-quality.ts`, independent of this skill, and are not re-assessed by `plan-step-verification.service.ts`.
 
 **(1) no-placeholders** — Step text must not match the `PLACEHOLDER_PATTERN` regex defined in `src/skills/writing-plans.skill.ts`. Write the actual before-and-after code change, not a description of intent. A step saying "add appropriate error handling" is rejected. A step saying "wrap the `readFile` call in a `try`/`catch` that returns `null` on `ENOENT`" is accepted.
 

@@ -79,18 +79,18 @@ function interceptConsoleMethod(
 }
 
 function captureConsole(): { output: string; errors: string; restore: () => void } {
-  let output = '', errors = '';
+  const capture = { output: '', errors: '', restore: (): void => undefined };
   const restoreLog = interceptConsoleMethod('log', (...args: string[]) => {
-    output += args.map(String).join(' ') + '\n';
+    capture.output += args.map(String).join(' ') + '\n';
   });
   const restoreError = interceptConsoleMethod('error', (...args: string[]) => {
-    errors += args.map(String).join(' ') + '\n';
+    capture.errors += args.map(String).join(' ') + '\n';
   });
-  const restore = () => {
+  capture.restore = (): void => {
     restoreLog();
     restoreError();
   };
-  return { output, errors, restore };
+  return capture;
 }
 
 async function setupApp(): Promise<{ command: IssueGenerateCommand; teardown: () => Promise<void> }> {

@@ -14,8 +14,8 @@ import { formatReviewCallStack, formatReviewStateTransition } from '../../integr
 import { ReviewArtifact, TicketArtifact } from '../../agents/interfaces';
 import { StageAgentService, buildSanitisedJsonSchema } from '../../integrations/ai/stage-agent.service';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
-import { batchSummarySchema } from '../../shared/schemas/batch-summary.schema';
-import { formatIssueFileLocation } from '../../shared/schemas/review.schema';
+import { batchSummarySchema } from '../../common/schemas/batch-summary.schema';
+import { formatIssueFileLocation } from '../../common/schemas/review.schema';
 import {
   splitDiffByFile,
   summariseDiff,
@@ -26,11 +26,11 @@ import {
   DiffSegment,
 } from '../../review/summarise-diff';
 import { resolveDefaultStageBackend } from '../../config/stage-backend-defaults';
-import { deriveReviewArtifactPath } from '../../shared/utils/plan-artifact';
-import { ProviderSessionIdCallback, StageProgressCallback } from '../../shared/types/agent.types';
-import { isAiProviderErrorLike } from '../../shared/utils/errors';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
-import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
+import { deriveReviewArtifactPath } from '../../common/utils/plan-artifact';
+import { ProviderSessionIdCallback, StageProgressCallback } from '../../common/types/agent.types';
+import { isAiProviderErrorLike } from '../../common/utils/errors';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
+import type { UiDesignScreenshot } from '../../common/types/ui-design-screenshot';
 
 const batchSummarisationSystemPrompt
   = "Summarize each file's diff from the user message as concise Markdown bullets. "

@@ -1,4 +1,4 @@
-import { restoreEnv, withEnv } from './shared/testing/env';
+import { restoreEnv, withEnv } from './common/testing/env';
 
 describe('run-manual-test bootstrap', () => {
   const originalArgv = process.argv;

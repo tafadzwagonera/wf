@@ -14,10 +14,10 @@ import {
 import { PullStepAssessorService } from './pull-step-assessor.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
-import { ConfigurationError } from '../shared/errors/app.error';
-import type { StepAssessment } from '../shared/types/step-verification.types';
-import { stepAssessmentResponseJsonSchema } from '../shared/schemas/step-verification.schema';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
+import { ConfigurationError } from '../common/errors/app.error';
+import type { StepAssessment } from '../common/types/step-verification.types';
+import { stepAssessmentResponseJsonSchema } from '../common/schemas/step-verification.schema';
 
 type ExecCallback = (error: Error | null, result?: { stdout: string }) => void;
 
@@ -35,7 +35,7 @@ jest.mock('node:fs', () => ({
   readFileSync: jest.fn(() => Buffer.from('')),
 }));
 
-jest.mock('../shared/logger/log-file-writer', () => ({
+jest.mock('../common/logger/log-file-writer', () => ({
   appendToLogFile: jest.fn(),
 }));
 
@@ -455,7 +455,7 @@ describe('PlanStepVerificationService', () => {
       ],
     }).compile();
 
-  const getMockAppendToLogFile = (): jest.Mock => jest.requireMock('../shared/logger/log-file-writer').appendToLogFile;
+  const getMockAppendToLogFile = (): jest.Mock => jest.requireMock('../common/logger/log-file-writer').appendToLogFile;
 
   const makeRunParams = (overrides: Partial<Parameters<PlanStepVerificationService['run']>[0]> = {}) => ({
     steps: ['Step A'],
@@ -532,7 +532,7 @@ describe('PlanStepVerificationService', () => {
         { index: 0, status: 'not-done', missing: 'duplicate result' }, { index: 9, status: 'done' },
       ]))
       .mockResolvedValueOnce(pullResult([{ index: 1, status: 'done' }]));
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
 
     const outcome = await service.run(makeRunParams({ modeDirective: pullDirective, steps: ['Step A', 'Step B'] }));
 
@@ -551,7 +551,7 @@ describe('PlanStepVerificationService', () => {
 
   it('logs the selected verification mode once', async () => {
     mockPullAssess.mockResolvedValue(pullResult([{ index: 0, status: 'done' }]));
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     await service.run(makeRunParams({ modeDirective: pullDirective }));
     expect(mockAppendToLogFile).toHaveBeenCalledWith('INFO', 'step-verify.mode=pull (user override)', 'step-verification');
   });
@@ -864,7 +864,7 @@ describe('PlanStepVerificationService', () => {
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'not-done', missing: 'implementation' }] }),
     });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
     await service.run(makeRunParams({ sessionId: undefined }));
     expect(mockAppendToLogFile).toHaveBeenCalledWith(
@@ -880,7 +880,7 @@ describe('PlanStepVerificationService', () => {
       { index: 2, status: 'partially-done', missing: 'edge case' },
       { index: 3, status: 'not-done', missing: 'implementation' },
     ] }) });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     const outcome = await service.run(makeRunParams({ steps: ['A', 'B', 'C', 'D'], stallWindow: 1 }));
     expect(outcome.summary?.pending).toBe(2);
     expect(mockAppendToLogFile).toHaveBeenCalledWith(
@@ -893,7 +893,7 @@ describe('PlanStepVerificationService', () => {
     const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
     mockReadFileSync.mockReturnValue(Buffer.from('x'.repeat(60_000)));
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams());
@@ -915,7 +915,7 @@ describe('PlanStepVerificationService', () => {
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'unverifiable', missing: 'new-file.ts gap' }] }),
     });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams({ steps: ['Edit new-file.ts'] }));
@@ -941,7 +941,7 @@ describe('PlanStepVerificationService', () => {
     const { readFileSync: mockReadFileSync } = jest.requireMock('node:fs');
     mockReadFileSync.mockReturnValue(Buffer.from('content'));
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams());
@@ -956,7 +956,7 @@ describe('PlanStepVerificationService', () => {
     mockAiExecute.mockResolvedValue({
       content: JSON.stringify({ statuses: [{ index: 0, status: 'unverifiable', missing: 'ordering' }] }),
     });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams());
@@ -978,7 +978,7 @@ describe('PlanStepVerificationService', () => {
     mockAiExecute.mockImplementation(({ prompt }: { prompt: string }) => Promise.resolve({
       content: JSON.stringify({ statuses: [{ index: prompt.includes('[Plan step 0]') ? 0 : 1, status: 'done' }] }),
     }));
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     const outcome = await service.run(makeRunParams({ steps: ['Edit src/a.ts', 'Edit src/b.ts'] }));
@@ -1033,7 +1033,7 @@ describe('PlanStepVerificationService', () => {
     mockGitGetStatus.mockResolvedValue({ not_added: [] });
     const longStep = 's'.repeat(310_000);
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     mockAppendToLogFile.mockClear();
 
     await service.run(makeRunParams({ steps: [longStep] }));
@@ -1072,7 +1072,7 @@ describe('PlanStepVerificationService', () => {
       callback(null, { stdout: args.includes('--name-status') ? paths.map(filePath => `M\t${filePath}`).join('\n') : 'x'.repeat(20_000) });
     });
     mockAiExecute.mockResolvedValue({ content: JSON.stringify({ statuses: [{ index: 0, status: 'done' }] }) });
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     await service.run(makeRunParams());
     expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('step-verify.diff.omitted'), 'step-verification');
 
@@ -1125,7 +1125,7 @@ describe('PlanStepVerificationService', () => {
   });
 
   it('keeps invalid assessment diagnostics out of terminal progress', async () => {
-    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+    const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
     const presenter = module.get(CliPresenter);
     const mockProgress = jest.spyOn(presenter, 'progress');
     mockAiExecute.mockResolvedValue({ content: 'not json' });
@@ -1496,7 +1496,7 @@ describe('PlanStepVerificationService', () => {
 
   describe('logSkip', () => {
     it('emits step-verify.skipped with the given reason to the log file', () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
 
       service.logSkip('no-assessed-steps');
 
@@ -1519,7 +1519,7 @@ describe('PlanStepVerificationService', () => {
     });
 
     it('suppresses console output when silent is true but still writes to the log file', () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
       const presenter = module.get(CliPresenter);
       const mockProgress = jest.spyOn(presenter, 'progress');
 

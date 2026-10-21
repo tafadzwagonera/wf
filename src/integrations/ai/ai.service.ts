@@ -1,17 +1,17 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import dayjs from 'dayjs';
-import { AiProviderError, isAiProviderErrorLike } from '../../shared/utils/errors';
-import { findModelProviderMismatch } from '../../shared/utils/model-provider-match';
-import { formatZodError, isZodErrorLike } from '../../shared/utils/zod-error.util';
-import { LoggerService } from '../../shared/logger/logger.service';
-import { appendToLogFile } from '../../shared/logger/log-file-writer';
+import { AiProviderError, isAiProviderErrorLike } from '../../common/utils/errors';
+import { findModelProviderMismatch } from '../../common/utils/model-provider-match';
+import { formatZodError, isZodErrorLike } from '../../common/utils/zod-error.util';
+import { LoggerService } from '../../common/logger/logger.service';
+import { appendToLogFile } from '../../common/logger/log-file-writer';
 import { denormalizeOpenAiStructuredOutput } from './schema/openai-json-schema';
 import { resolveProviderModel } from './adapters/shared-routing';
 import { isUnavailableModelError } from './adapters/ai-provider-error.classify';
 import { LLM_ADAPTER } from './llm-adapter.interface';
 import type { LlmAdapter } from './llm-adapter.interface';
-import { formatTestInfraPromptSection, type TestInfraContext } from '../../shared/utils/detect-test-infra';
+import { formatTestInfraPromptSection, type TestInfraContext } from '../../common/utils/detect-test-infra';
 import {
   parseDiffFileStats,
   formatDiffStatSummary,
@@ -19,7 +19,7 @@ import {
   isDocsOnlyChangeset,
   declaresDocsOnlyType,
   extractConventionalType,
-} from '../../shared/utils/commit-diff-stat';
+} from '../../common/utils/commit-diff-stat';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import chalk from 'chalk';
 import { buildSkillPromptFragment } from '../../skills';
@@ -27,23 +27,23 @@ import {
   formatRepoConventionsPromptSection,
   type PackageManager,
   type RepoConventionsContext,
-} from '../../shared/utils/detect-repo-conventions';
-import { formatRunnerInvocation } from '../../shared/utils/verification-commands';
-import { isUiRelevantTicket } from '../../shared/utils/detect-ui-relevance';
+} from '../../common/utils/detect-repo-conventions';
+import { formatRunnerInvocation } from '../../common/utils/verification-commands';
+import { isUiRelevantTicket } from '../../common/utils/detect-ui-relevance';
 import {
   formatPriorPlansPromptSection,
   formatPlanCorrelationPromptSection,
   type PriorPlanContext,
   type PlanCorrelationResult,
-} from '../../shared/utils/detect-prior-plans';
+} from '../../common/utils/detect-prior-plans';
 import {
   formatCrossRepoPatternsPromptSection,
   type CrossRepoContext,
-} from '../../shared/utils/detect-cross-repo-patterns';
+} from '../../common/utils/detect-cross-repo-patterns';
 import {
   formatReuseCandidatesPromptSection,
   type ReuseCandidateContext,
-} from '../../shared/utils/detect-reuse-candidates';
+} from '../../common/utils/detect-reuse-candidates';
 import type {
   AIRequest,
   AIResponse,
@@ -52,12 +52,12 @@ import type {
   FileEntry,
   ResolutionPlan,
   PlanModelOutput,
-} from '../../shared/types/ai.types';
-import type { CodeReview } from '../../shared/types/review.types';
-import { codeReviewSchema } from '../../shared/schemas/review.schema';
-import { planModelOutputSchema } from '../../shared/schemas/ai.schema';
-import { estimatePlanComplexity } from '../../shared/utils/estimate-plan-complexity';
-import type { ResolutionAction, StageProgressCallback, AgentStageName } from '../../shared/types/agent.types';
+} from '../../common/types/ai.types';
+import type { CodeReview } from '../../common/types/review.types';
+import { codeReviewSchema } from '../../common/schemas/review.schema';
+import { planModelOutputSchema } from '../../common/schemas/ai.schema';
+import { estimatePlanComplexity } from '../../common/utils/estimate-plan-complexity';
+import type { ResolutionAction, StageProgressCallback, AgentStageName } from '../../common/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
   buildPlanTestConventionsBlock,
@@ -73,8 +73,8 @@ import {
   planStepPrinciples,
 } from './prompt-fragments';
 import { UiDesignScreenshotsStageService } from '../../review/ui-design-screenshots-stage.service';
-import type { UiDesignScreenshot } from '../../shared/types/ui-design-screenshot';
-import { agentStageNameSchema } from '../../shared/schemas/agent.schema';
+import type { UiDesignScreenshot } from '../../common/types/ui-design-screenshot';
+import { agentStageNameSchema } from '../../common/schemas/agent.schema';
 import { estimateLlmCostUsd } from './llm-cost';
 import type { StageAgentService } from './stage-agent.service';
 
@@ -89,9 +89,9 @@ export type {
   FileEntry,
   ResolutionPlan,
   PlanModelOutput,
-} from '../../shared/types/ai.types';
-export type { CodeIssue, CodeReview } from '../../shared/types/review.types';
-export { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../../shared/types/review.types';
+} from '../../common/types/ai.types';
+export type { CodeIssue, CodeReview } from '../../common/types/review.types';
+export { REVIEW_VERDICT_APPROVED, REVIEW_VERDICT_CHANGES_REQUESTED } from '../../common/types/review.types';
 
 const DEFAULT_PLAN_MAX_TOKENS = 16384 as const;
 const DEFAULT_FINDINGS_MAX_TOKENS = 16384 as const;

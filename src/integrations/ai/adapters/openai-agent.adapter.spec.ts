@@ -19,7 +19,7 @@ import {
 import { detectMechanicalTask, planProblemInstruction } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
-import { createTempDir as createManagedTempDir } from '../../../shared/testing/temp-dir';
+import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
 
 jest.mock('@openai/agents-openai', () => ({
   OpenAIResponsesCompactionSession: jest.fn(),

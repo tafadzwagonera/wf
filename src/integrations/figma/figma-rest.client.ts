@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiError, ERROR_CODE, ValidationError } from '../../shared/utils/errors';
-import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
+import { ApiError, ERROR_CODE, ValidationError } from '../../common/utils/errors';
+import { executeAsyncWithCatch } from '../../common/utils/execute-with-catch';
 
 export interface FigmaFillContext {
   type: string;

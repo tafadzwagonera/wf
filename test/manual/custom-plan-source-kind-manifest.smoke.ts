@@ -16,7 +16,7 @@ import { PlanStageService } from '../../src/workflows/stages/plan-stage.service'
 import {
   buildPlanArtifactManifestPath,
   readPlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

@@ -3,4 +3,4 @@ export type {
   JiraTicket,
   UpdateTicketRequest,
   JiraSearchRequest,
-} from '../../../shared/types/jira.types';
+} from '../../../common/types/jira.types';

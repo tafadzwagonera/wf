@@ -3,11 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from '../../integrations/ai/ai.service';
 import { ReviewStageService } from './review-stage.service';
 import { StageAgentService } from '../../integrations/ai/stage-agent.service';
-import { codeReviewSchema } from '../../shared/schemas/review.schema';
+import { codeReviewSchema } from '../../common/schemas/review.schema';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { AiProviderError } from '../../shared/utils/errors';
-import { createTempDir as createManagedTempDir } from '../../shared/testing/temp-dir';
+import { AiProviderError } from '../../common/utils/errors';
+import { createTempDir as createManagedTempDir } from '../../common/testing/temp-dir';
 
 describe('ReviewStageService', () => {
   const mockReview = {
@@ -513,7 +513,7 @@ describe('ReviewStageService', () => {
   it('logs and reports a failed diff summarisation attempt before continuing with the raw patch', async () => {
     const { service, aiService } = await buildService({ agentEnabled: false });
     const onProgress = jest.fn();
-    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const appendSpy = jest.spyOn(require('../../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
     (aiService.execute as jest.Mock).mockRejectedValueOnce(new Error('summary offline'));
     const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
 
@@ -531,7 +531,7 @@ describe('ReviewStageService', () => {
   it('bounds successful summaries so the diff does not remain oversized', async () => {
     const { service, aiService } = await buildService({ agentEnabled: false });
     const onProgress = jest.fn();
-    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const appendSpy = jest.spyOn(require('../../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
     (aiService.execute as jest.Mock).mockResolvedValue({ content: '- ' + 'y'.repeat(90000) });
     const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
 
@@ -581,7 +581,7 @@ describe('ReviewStageService', () => {
 
     const service = module.get(ReviewStageService);
     const onProgress = jest.fn();
-    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const appendSpy = jest.spyOn(require('../../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
     const diff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(500)}\n+${'x'.repeat(500)}y`;
 
     await service.reviewDiff(diff, { context: 'test context', onProgress });
@@ -642,7 +642,7 @@ describe('ReviewStageService', () => {
 
   it('returns an empty Map without logging a parse miss when the structured response has no entries', async () => {
     const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
-    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const appendSpy = jest.spyOn(require('../../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
     const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
     (stageAgentService as any).chatTurn.mockResolvedValue({ content: '{"summaries":[]}', session: {} });
 
@@ -653,7 +653,7 @@ describe('ReviewStageService', () => {
 
   it('logs a DEBUG parse miss with the raw content head when the batch response is unusable', async () => {
     const { service, stageAgentService } = await buildService({ agentEnabled: true, reviewBackend: 'agent' });
-    const appendSpy = jest.spyOn(require('../../shared/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
+    const appendSpy = jest.spyOn(require('../../common/logger/log-file-writer'), 'appendToLogFile').mockImplementation(() => {});
     const largeDiff = `diff --git a/file b/file\n--- a/file\n+++ b/file\n@@ -1 +1 @@\n-${'x'.repeat(50000)}\n+${'x'.repeat(50000)}y`;
     (stageAgentService as any).chatTurn.mockResolvedValue({ content: 'no delimiters here', session: {} });
 

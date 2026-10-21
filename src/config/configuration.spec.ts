@@ -1,6 +1,6 @@
 import configuration from './configuration';
 import { normalizeWfConfig } from './wf-config-loader';
-import { restoreEnv, withEnv } from '../shared/testing/env';
+import { restoreEnv, withEnv } from '../common/testing/env';
 
 describe('configuration defaults', () => {
   beforeEach(() => withEnv({ WF_SKIP_CONFIG_BOOTSTRAP: undefined }));

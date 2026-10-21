@@ -1,4 +1,4 @@
-import { ValidationError } from '../../shared/utils/errors';
+import { ValidationError } from '../../common/utils/errors';
 
 const GIT_COMMAND_PREFIX_PATTERN = /^git\s+(?:checkout\s+-b|switch\s+-c)\s+/;
 

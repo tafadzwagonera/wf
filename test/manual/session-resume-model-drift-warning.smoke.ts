@@ -17,13 +17,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createReporter, summarise } from './support/reporter';
-import { buildSessionFileName } from '../../src/shared/utils/session-file-name';
+import { buildSessionFileName } from '../../src/common/utils/session-file-name';
 import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifest,
   hashPlanArtifactSources,
   writePlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 
 const distMainPath = path.join(__dirname, '../../dist/main.js');
 const { counts, pass, fail } = createReporter();

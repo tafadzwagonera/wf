@@ -1,6 +1,6 @@
 import { buildPlanContext, buildImplementerRulesSection, resolveModelRouting, resolveProviderModel, buildTaskBrief, buildBehavioralContext, detectMechanicalTask, buildInitialUserPrompt, resolveInitialUserPrompt, parseNoChangeDeclarations, acceptNoChangeDeclarations, noChangeInstruction, continuationTail, stripRepoPrefix, isGlobPattern, parsePlanProblems, collectPlanProblems, planProblemInstruction, headlessOperationInstruction } from './shared-routing';
-import * as logFileWriter from '../../../shared/logger/log-file-writer';
-import type { PlanProblem } from '../../../shared/types/agent.types';
+import * as logFileWriter from '../../../common/logger/log-file-writer';
+import type { PlanProblem } from '../../../common/types/agent.types';
 import { implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import { normalizeFileEntries } from '../ai.service';
 import type { VerificationScript } from '../../../agents/interfaces';

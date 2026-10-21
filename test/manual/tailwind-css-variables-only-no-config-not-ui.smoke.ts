@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
-import { detectRepoConventions } from '../../src/shared/utils/detect-repo-conventions';
+import { detectRepoConventions } from '../../src/common/utils/detect-repo-conventions';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

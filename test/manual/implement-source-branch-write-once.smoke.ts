@@ -25,11 +25,11 @@ import chalk from 'chalk';
 import { AppModule } from '../../src/app.module';
 import { ImplementerAgent } from '../../src/agents/implementer.agent';
 import { GitService, type CreateBranchOptions } from '../../src/integrations/git/git.service';
-import { CliPresenter } from '../../src/shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../../src/common/presentation/cli-presenter.service';
 import type { PlanArtifact, TicketArtifact } from '../../src/agents/interfaces';
 import {
   buildPlanArtifactManifest, buildPlanArtifactManifestPath, readPlanArtifactManifest, writePlanArtifactManifest,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

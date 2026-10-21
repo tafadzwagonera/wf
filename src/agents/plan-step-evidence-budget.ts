@@ -1,4 +1,4 @@
-import { mentionsPath } from '../shared/utils/mentions-path';
+import { mentionsPath } from '../common/utils/mentions-path';
 import type { AssessableStep } from './step-spec-fidelity.service';
 
 export type EvidenceSection = {

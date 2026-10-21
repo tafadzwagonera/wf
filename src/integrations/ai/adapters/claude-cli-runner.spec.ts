@@ -8,8 +8,8 @@ import {
   parseNdjsonLine,
   spawnCli,
 } from './claude-cli-runner';
-import * as logFileWriter from '../../../shared/logger/log-file-writer';
-import { restoreEnv, withEnv } from '../../../shared/testing/env';
+import * as logFileWriter from '../../../common/logger/log-file-writer';
+import { restoreEnv, withEnv } from '../../../common/testing/env';
 import { execSync, spawn } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 

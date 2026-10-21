@@ -112,8 +112,8 @@ git commit -m "feat(agent): add implement verification artifact contracts"
 ### Task 2: Add Deterministic Classification And Artifact Helpers
 
 **Files:**
-- Create: `src/shared/utils/implement-verification.ts`
-- Test: `src/shared/utils/implement-verification.spec.ts`
+- Create: `src/common/utils/implement-verification.ts`
+- Test: `src/common/utils/implement-verification.spec.ts`
 
 - [ ] **Step 1: Write the failing helper tests first**
 
@@ -221,13 +221,13 @@ export const appendAttemptArtifact = (
 
 - [ ] **Step 4: Run the focused helper test file**
 
-Run: `npm test -- --runInBand src/shared/utils/implement-verification.spec.ts`
+Run: `npm test -- --runInBand src/common/utils/implement-verification.spec.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit the helper layer**
 
 ```bash
-git add src/shared/utils/implement-verification.ts src/shared/utils/implement-verification.spec.ts
+git add src/common/utils/implement-verification.ts src/common/utils/implement-verification.spec.ts
 git commit -m "feat(agent): add verification classification helpers"
 ```
 
@@ -625,7 +625,7 @@ Expected: PASS
 Run: `npm run lint`
 Expected: PASS
 
-Run: `npm test -- --runInBand src/shared/utils/implement-verification.spec.ts src/agents/implementer.agent.spec.ts src/integrations/ai/ai.service.spec.ts src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts`
+Run: `npm test -- --runInBand src/common/utils/implement-verification.spec.ts src/agents/implementer.agent.spec.ts src/integrations/ai/ai.service.spec.ts src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts`
 Expected: PASS
 
 Run: `npm run build`

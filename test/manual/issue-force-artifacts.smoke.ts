@@ -63,8 +63,8 @@ function main(): void {
   console.log('Manual: issue force artifact behavior');
   const { artifactDir, ticketPath, planPath, planManifestPath, reviewPath } = prepareArtifactDir();
   writeArtifacts(artifactDir, ticketPath, planPath, planManifestPath, reviewPath);
-  const withoutForce = runCommand('yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run');
-  const withForce = runCommand('yarn -s start -- issue WBP-999 --from fetch --to review --action fix --dry-run --force');
+  const withoutForce = runCommand('yarn -s start -- issue --ticket-key WBP-999 --from fetch --to review --action fix --dry-run');
+  const withForce = runCommand('yarn -s start -- issue --ticket-key WBP-999 --from fetch --to review --action fix --dry-run --force');
   checkWithoutForce(withoutForce);
   checkWithForce(withForce);
   console.log('PASS');

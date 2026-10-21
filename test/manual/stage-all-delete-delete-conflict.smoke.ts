@@ -22,7 +22,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { GitService } from '../../src/integrations/git/git.service';
-import { GitError } from '../../src/shared/errors/app.error';
+import { GitError } from '../../src/common/errors/app.error';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';

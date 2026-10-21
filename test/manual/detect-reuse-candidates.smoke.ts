@@ -17,7 +17,7 @@ import {
   detectReuseCandidates,
   formatReuseCandidatesPromptSection,
   type ReuseCandidateContext,
-} from '../../src/shared/utils/detect-reuse-candidates';
+} from '../../src/common/utils/detect-reuse-candidates';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

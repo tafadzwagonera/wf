@@ -11,8 +11,7 @@
  *   3. handleBranchWorkflow derives stashInteractive=true and branchInteractive=true
  *      when silent=false and TTY is available
  *   4. ensureCleanWorkingTree receives stashInteractive (not branchInteractive)
- *   5. resolveSourceBranch receives branchInteractive (not stashInteractive)
- *   6. promptBranchName receives branchInteractive (not stashInteractive)
+ *   5. branch selection and pull resolution receive the TTY flag (not stashInteractive)
  *
  * @returns void
  */
@@ -74,12 +73,12 @@ function loadImplementerSource(): string {
 }
 
 function checkFlagDerivationSource(source: string): void {
-  test('handleBranchWorkflow source uses stashInteractive and branchInteractive', () => {
+  test('handleBranchWorkflow source derives stashInteractive from silent and TTY only', () => {
+    assert.ok(source.includes('const isTTY = this.isInteractiveSession();'), 'Expected isTTY derivation');
     assert.ok(
       source.includes('const stashInteractive = !options.silent && isTTY;'),
       'Expected stashInteractive derivation'
     );
-    assert.ok(source.includes('const branchInteractive = isTTY;'), 'Expected branchInteractive derivation');
     assert.ok(
       !source.includes('const interactive = !options.silent && this.isInteractiveSession();'),
       'Old single interactive flag should be removed'
@@ -88,24 +87,30 @@ function checkFlagDerivationSource(source: string): void {
 }
 
 function checkInteractivePassthroughs(source: string): void {
-  test('ensureCleanWorkingTree call passes stashInteractive', () => {
+  test('handleBranchWorkflow passes isTTY and stashInteractive to both paths', () => {
     assert.ok(
-      source.includes('ensureCleanWorkingTree(planArtifact, options, stashInteractive, cwd)'),
-      'ensureCleanWorkingTree should receive stashInteractive'
+      source.includes('this.handleStayPath(current, planArtifact, options, isTTY, stashInteractive, cwd)'),
+      'handleStayPath should receive isTTY then stashInteractive'
     );
-  });
-  test('resolveSourceBranch call passes branchInteractive', () => {
     assert.ok(
-      source.includes('interactive: branchInteractive,'),
-      'resolveSourceBranch should receive branchInteractive'
+      source.includes('this.createBranchFromSource(ticket, planArtifact, options, isTTY, stashInteractive, cwd)'),
+      'createBranchFromSource should receive isTTY then stashInteractive'
     );
   });
 }
 
-function checkJsDocMentions(source: string): void {
-  test('handleBranchWorkflow JSDoc mentions --silent only suppresses stash prompt', () => {
-    assert.ok(source.includes('`--silent` only suppresses'), 'JSDoc should describe the split behavior');
-    assert.ok(source.includes('stash prompt'), 'JSDoc should mention stash prompt specifically');
+function checkStashAndPullPassthroughs(source: string): void {
+  test('ensureCleanWorkingTree calls pass stashInteractive', () => {
+    assert.ok(
+      source.includes('this.ensureCleanWorkingTree(planArtifact, stashInteractive, cwd)'),
+      'ensureCleanWorkingTree should receive stashInteractive'
+    );
+  });
+  test('handleStayPath resolves pull with branchInteractive', () => {
+    assert.ok(
+      source.includes('this.resolveShouldPull(branch, branchInteractive)'),
+      'resolveShouldPull should receive branchInteractive'
+    );
   });
 }
 
@@ -113,7 +118,7 @@ function checkSourceCode(): void {
   const source = loadImplementerSource();
   checkFlagDerivationSource(source);
   checkInteractivePassthroughs(source);
-  checkJsDocMentions(source);
+  checkStashAndPullPassthroughs(source);
 }
 
 function main(): void {

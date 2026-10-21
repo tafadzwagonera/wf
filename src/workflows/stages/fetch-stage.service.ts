@@ -6,7 +6,7 @@ import { UniversalTicket } from '../../common/dto/universal-ticket.dto';
 import { IssueTrackerService } from '../../integrations/issue-trackers/issue-tracker.service';
 import { FetcherOptions, TicketArtifact } from '../../agents/interfaces';
 import { resolveArtifactDir } from '../../agents/utils';
-import { ConfigurationError, FileSystemError } from '../../shared/utils/errors';
+import { ConfigurationError, FileSystemError } from '../../common/utils/errors';
 
 interface FetchTicketOptions {
   trackerName: string;

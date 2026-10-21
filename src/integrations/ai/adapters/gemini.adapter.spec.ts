@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as os from 'os';
 import * as path from 'path';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { GeminiAdapter } from './gemini.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 

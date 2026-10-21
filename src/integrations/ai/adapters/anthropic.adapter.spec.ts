@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import * as os from 'os';
 import * as path from 'path';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { AnthropicAdapter } from './anthropic.adapter';
 import { loadAiContextConfig } from './load-ai-context-config';
 

@@ -5,12 +5,12 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import YAML from 'yaml';
-import { ValidationError } from '../shared/utils/errors';
-import { wfConfigSchema } from '../shared/schemas/config.schema';
-import { formatFieldNames } from '../shared/utils/zod-error.util';
-import { findModelProviderMismatch } from '../shared/utils/model-provider-match';
-import { setWfPathOverrides } from '../shared/utils/wf-paths';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { ValidationError } from '../common/utils/errors';
+import { wfConfigSchema } from '../common/schemas/config.schema';
+import { formatFieldNames } from '../common/utils/zod-error.util';
+import { findModelProviderMismatch } from '../common/utils/model-provider-match';
+import { setWfPathOverrides } from '../common/utils/wf-paths';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import type {
   WfVerificationConditionsConfig,
   NormalizedAiProviderConfig,
@@ -30,7 +30,7 @@ import type {
   NormalizedReviewStageConfig,
   WfPlanStageConfig,
   WfReviewStageConfig,
-} from '../shared/types/config.types';
+} from '../common/types/config.types';
 
 export type {
   NormalizedAiStageTargetConfig,
@@ -39,7 +39,7 @@ export type {
   NormalizedCreateStageConfig,
   NormalizedPlanStageConfig,
   NormalizedReviewStageConfig,
-} from '../shared/types/config.types';
+} from '../common/types/config.types';
 
 import {
   type StageBackendDefaultStageName,

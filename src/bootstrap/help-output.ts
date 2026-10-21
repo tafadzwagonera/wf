@@ -1,15 +1,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
-import { formatCliCommandTokens } from '../shared/utils/cli-command-colors';
+import { formatCliCommandTokens } from '../common/utils/cli-command-colors';
 import { CommandHelpEntry, CommandHelpOption } from './help-catalog-parser';
-import { FileSystemError } from '../shared/utils/errors';
+import { FileSystemError } from '../common/utils/errors';
 import {
   buildWrappedLines,
   getVisibleLength,
   renderExamplesSection,
   wrapStyledTokens,
-} from '../shared/utils/cli-help-render';
+} from '../common/utils/cli-help-render';
 
 const CATALOG_PATH = path.join(__dirname, '..', '..', 'dist', 'bootstrap', 'commands-help.catalog.json');
 const HELP_FLAG_PATTERN = /^--help$|^-h$/;

@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { createReporter, summarise } from './support/reporter';
-import { buildSessionFileName } from '../../src/shared/utils/session-file-name';
+import { buildSessionFileName } from '../../src/common/utils/session-file-name';
 
 const SESSION_DIR = path.join(os.homedir(), '.wf', 'state', 'sessions');
 

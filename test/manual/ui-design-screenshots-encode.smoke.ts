@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import chalk from 'chalk';
 import { UiDesignScreenshotsStageService } from '../../src/review/ui-design-screenshots-stage.service';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
+import { restoreEnv, withEnv } from '../../src/common/testing/env';
 import { createReporter } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

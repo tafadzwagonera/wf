@@ -18,9 +18,8 @@ import { OpenAIAdapter } from '../../src/integrations/ai/adapters/openai.adapter
 import { GeminiAdapter } from '../../src/integrations/ai/adapters/gemini.adapter';
 import { DeepSeekAdapter } from '../../src/integrations/ai/adapters/deepseek.adapter';
 import { ConfigService } from '@nestjs/config';
-import { LoggerService } from '../../src/shared/logger/logger.service';
+import { LoggerService } from '../../src/common/logger/logger.service';
 import { createReporter, summarise } from './support/reporter';
-import { restoreEnv, withEnv } from '../../src/shared/testing/env';
 
 const configPath = path.join(process.cwd(), 'wf.config.js');
 const anthropicProjectPath = path.join(process.cwd(), 'CLAUDE.md');
@@ -30,6 +29,7 @@ const anthropicGlobalPath = path.join(tempHomePath, '.claude', 'CLAUDE.md');
 const deepseekGlobalPath = path.join(tempHomePath, '.deepseek', 'DEEPSEEK.md');
 
 const { counts, pass, fail } = createReporter();
+const originalHome = process.env.HOME;
 
 type BackupEntry = {
   path: string;
@@ -114,7 +114,7 @@ function prepareFilesystem(): BackupEntry[] {
 }
 
 function restoreFilesystem(backups: BackupEntry[]): void {
-  restoreEnv();
+  process.env.HOME = originalHome;
   for (const backup of backups.reverse()) restoreFile(backup);
   fs.rmSync(tempHomePath, { recursive: true, force: true });
 }
@@ -162,7 +162,7 @@ function checkOpenAISilent(output: string): void {
 async function main(): Promise<void> {
   console.log('🧪 Testing issue:generate warning gating for AI context files\n');
   const backups = prepareFilesystem();
-  withEnv({ HOME: tempHomePath });
+  process.env.HOME = tempHomePath;
   try {
     const output = await runAdaptersAndCaptureWarnings(buildMockConfigService(), buildMockLogger());
     checkAnthropicWarns(output);
@@ -173,11 +173,6 @@ async function main(): Promise<void> {
   }
   summarise(counts);
 }
-
-main().catch(error => {
-  console.error(error);
-  process.exit(1);
-});
 
 const captureWarning = (messages: string[]) => (...args: unknown[]) => {
   messages.push(args.map(String).join(' '));
@@ -197,3 +192,8 @@ function jestLikeSpy(): {
     },
   };
 }
+
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

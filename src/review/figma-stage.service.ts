@@ -2,17 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FigmaFrameContext, FigmaRestClient } from '../integrations/figma/figma-rest.client';
 import { GitService } from '../integrations/git/git.service';
-import { LoggerService } from '../shared/logger/logger.service';
+import { LoggerService } from '../common/logger/logger.service';
 import {
   findPlanArtifactManifestByBranchName,
   buildPlanArtifactManifestPath,
   readPlanArtifactManifest,
   readFigmaLinksFromPlanArtifact,
   type PlanArtifactManifest,
-} from '../shared/utils/plan-artifact';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+} from '../common/utils/plan-artifact';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import { resolveArtifactDir, resolveCustomArtifactDir } from '../agents/utils';
-import type { StageProgressCallback } from '../shared/types/agent.types';
+import type { StageProgressCallback } from '../common/types/agent.types';
 
 export interface FigmaStageOptions {
   repoDir: string;

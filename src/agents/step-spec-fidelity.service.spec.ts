@@ -6,9 +6,9 @@ import type { EvidenceSection } from './plan-step-evidence-budget';
 import { stripRepoNamePrefix } from './plan-step-verification.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
-import { stepFidelityResponseJsonSchema } from '../shared/schemas/step-spec-fidelity.schema';
+import { stepFidelityResponseJsonSchema } from '../common/schemas/step-spec-fidelity.schema';
 
-jest.mock('../shared/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+jest.mock('../common/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
 
 const MOCK_DIFF = 'diff --git a/src/foo.ts b/src/foo.ts\n+const x = 1;';
 
@@ -245,7 +245,7 @@ describe('StepSpecFidelityService', () => {
     });
 
     it('adds gap markers and logs the truncated path when the diff exceeds the ceiling', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
       const diff = [
         buildFileDiff('src/a.ts', 'a'.repeat(100_000)),
         buildFileDiff('src/b.ts', 'b'.repeat(100_000)),
@@ -261,7 +261,7 @@ describe('StepSpecFidelityService', () => {
     });
 
     it('keeps a step-mentioned file whole while truncating an unmentioned file', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       const mentioned = buildFileDiff('src/keep.ts', 'k'.repeat(50_000));
       const diff = [buildFileDiff('src/other.ts', 'o'.repeat(200_000)), mentioned].join('\n');
@@ -290,7 +290,7 @@ describe('StepSpecFidelityService', () => {
     afterEach(() => jest.restoreAllMocks());
 
     it('keeps src/a.tsx whole and truncates src/a.ts when the step names only src/a.tsx', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       const tsx = buildFileDiff('src/a.tsx', 'x'.repeat(50_000));
       const diff = [buildFileDiff('src/a.ts', 't'.repeat(100_000)), tsx].join('\n');
@@ -332,7 +332,7 @@ describe('StepSpecFidelityService', () => {
 
   describe('diff budget gaps', () => {
     it('falls back to a head and tail slice with a gap marker and one log line for an unsectioned diff', async () => {
-      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../shared/logger/log-file-writer');
+      const { appendToLogFile: mockAppendToLogFile } = jest.requireMock('../common/logger/log-file-writer');
       mockAppendToLogFile.mockClear();
       mockGitService.getDiffFromRef.mockResolvedValue(`HEAD${'m'.repeat(200_000)}TAIL`);
       mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });

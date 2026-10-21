@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { planModelOutputSchema } from '../shared/schemas/ai.schema';
+import { planModelOutputSchema } from '../common/schemas/ai.schema';
 import { knownSkills } from './skill-registry';
 
 // Import the skill module to trigger registration

@@ -3,11 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { CreateTicketRequest, JiraSearchRequest, JiraTicket, UpdateTicketRequest } from './dto/jira.dto';
-import { JiraApiError } from '../../shared/utils/errors';
-import { LoggerService } from '../../shared/logger/logger.service';
+import { JiraApiError } from '../../common/utils/errors';
+import { LoggerService } from '../../common/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-trackers/issue-tracker-config.service';
 import { stripInlineMarkdownDelimiters } from '../../common/utils/markdown-text';
-import { executeAsyncWithCatch } from '../../shared/utils/execute-with-catch';
+import { executeAsyncWithCatch } from '../../common/utils/execute-with-catch';
 
 const defaultSearchFields = [
   'assignee',

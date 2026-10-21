@@ -36,7 +36,7 @@ import {
   buildPlanArtifactFilename,
   buildPlanArtifactManifestPath,
   hashPlanArtifactSources,
-} from '../../src/shared/utils/plan-artifact';
+} from '../../src/common/utils/plan-artifact';
 import { createReporter, summarise } from './support/reporter';
 
 type SpawnResult = {

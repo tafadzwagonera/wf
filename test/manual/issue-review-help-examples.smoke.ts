@@ -19,7 +19,7 @@ import * as path from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../../src/app.module';
 import { getCommandHelpCatalog } from '../../src/bootstrap/help-catalog-parser';
-import { COMMAND_DOCS } from '../../src/shared/docs/command-docs.registry';
+import { COMMAND_DOCS } from '../../src/common/docs/command-docs.registry';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

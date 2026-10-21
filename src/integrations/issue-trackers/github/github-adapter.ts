@@ -2,14 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Octokit } from '@octokit/rest';
 import { IssueTrackerAdapter, IssueTrackerFeature, CreatePullRequestOptions } from '../issue-tracker-adapter.interface';
-import { ValidationError } from '../../../shared/utils/errors';
+import { ValidationError } from '../../../common/utils/errors';
 import {
   UniversalTicket,
   IssueTrackerTicketReference,
   TicketType,
   TicketPriority,
 } from '../../../common/dto/universal-ticket.dto';
-import { LoggerService } from '../../../shared/logger/logger.service';
+import { LoggerService } from '../../../common/logger/logger.service';
 import { IssueTrackerConfigService } from '../issue-tracker-config.service';
 
 const getLabelName = (label: string | { name: string }): string =>

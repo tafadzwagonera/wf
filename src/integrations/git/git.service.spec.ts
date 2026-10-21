@@ -2,8 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import type { StatusResult } from 'simple-git';
 import { GitService } from './git.service';
-import { LoggerService } from '../../shared/logger/logger.service';
-import { GitError, InvalidBranchNameError } from '../../shared/errors/app.error';
+import { LoggerService } from '../../common/logger/logger.service';
+import { GitError, InvalidBranchNameError } from '../../common/errors/app.error';
 
 const mockCwdGitInstance = {
   reset: jest.fn(),

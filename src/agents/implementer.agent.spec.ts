@@ -2,10 +2,10 @@ import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import inquirer from 'inquirer';
 import { ImplementerAgent } from './implementer.agent';
-import { CliPresenter } from '../shared/presentation/cli-presenter.service';
+import { CliPresenter } from '../common/presentation/cli-presenter.service';
 import { GitService } from '../integrations/git/git.service';
-import { GitError, InvalidBranchNameError } from '../shared/errors/app.error';
-import { appendToLogFile } from '../shared/logger/log-file-writer';
+import { GitError, InvalidBranchNameError } from '../common/errors/app.error';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 import { AiService } from '../integrations/ai/ai.service';
 import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { PlanStepVerificationService, buildPlanStepVerificationPrompt } from './plan-step-verification.service';
@@ -17,16 +17,16 @@ import { OpenAIAgentAdapter } from '../integrations/ai/adapters/openai-agent.ada
 import type { ImplementBackendSelection, ImplementRunArtifact, PlanArtifact, TicketArtifact } from './interfaces';
 import { knownSkills, registerSkill } from '../skills/skill-registry';
 import { isRepoResolvable } from './utils';
-import * as detectRepoConventionsModule from '../shared/utils/detect-repo-conventions';
-import * as implementVerification from '../shared/utils/implement-verification';
-import { updatePlanArtifactManifestSourceBranch } from '../shared/utils/plan-artifact';
+import * as detectRepoConventionsModule from '../common/utils/detect-repo-conventions';
+import * as implementVerification from '../common/utils/implement-verification';
+import { updatePlanArtifactManifestSourceBranch } from '../common/utils/plan-artifact';
 
 jest.mock('inquirer');
 
-jest.mock('../shared/logger/log-file-writer');
+jest.mock('../common/logger/log-file-writer');
 
-jest.mock('../shared/utils/plan-artifact', () => {
-  const actual = jest.requireActual('../shared/utils/plan-artifact');
+jest.mock('../common/utils/plan-artifact', () => {
+  const actual = jest.requireActual('../common/utils/plan-artifact');
   return { ...actual, updatePlanArtifactManifestSourceBranch: jest.fn() };
 });
 
@@ -35,7 +35,7 @@ jest.mock('./utils', () => {
   return { ...actual, isRepoResolvable: jest.fn(() => true) };
 });
 
-jest.mock('../shared/utils/post-pull-install', () => ({
+jest.mock('../common/utils/post-pull-install', () => ({
   runPostPullDependencyInstall: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -1767,7 +1767,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('passes skipInstall: true to runPostPullDependencyInstall when option is set', async () => {
-      const { runPostPullDependencyInstall } = jest.requireMock('../shared/utils/post-pull-install');
+      const { runPostPullDependencyInstall } = jest.requireMock('../common/utils/post-pull-install');
       (runPostPullDependencyInstall as jest.Mock).mockClear();
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira', repoDir: '/tmp/repo-a', skipInstall: true, silent: true,
@@ -1776,7 +1776,7 @@ describe('ImplementerAgent', () => {
     });
 
     it('passes skipInstall: undefined to runPostPullDependencyInstall by default', async () => {
-      const { runPostPullDependencyInstall } = jest.requireMock('../shared/utils/post-pull-install');
+      const { runPostPullDependencyInstall } = jest.requireMock('../common/utils/post-pull-install');
       (runPostPullDependencyInstall as jest.Mock).mockClear();
       await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'] }), {
         trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,

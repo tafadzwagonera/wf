@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { classifyAiSdkError, isUnavailableModelError } from './ai-provider-error.classify';
-import { AiProviderError } from '../../../shared/utils/errors';
+import { AiProviderError } from '../../../common/utils/errors';
 
 describe('classifyAiSdkError', () => {
   it('returns timeout for Anthropic APIConnectionTimeoutError', () => {

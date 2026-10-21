@@ -1,4 +1,4 @@
-import type { WfConfig } from '../shared/types/config.types';
+import type { WfConfig } from '../common/types/config.types';
 
 export type {
   WfAiProviderName,
@@ -14,7 +14,7 @@ export type {
   WfPlanSkillName,
   WfPlanStageConfig,
   WfVerificationConditionsConfig,
-} from '../shared/types/config.types';
+} from '../common/types/config.types';
 
 export interface WfAtlassianConfig {
   baseUrl?: string;

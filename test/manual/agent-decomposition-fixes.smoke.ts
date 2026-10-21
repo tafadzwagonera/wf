@@ -21,9 +21,9 @@ import { CommitterAgent } from '../../src/agents/committer.agent';
 import { ReviewerAgent } from '../../src/agents/reviewer.agent';
 import { GitService } from '../../src/integrations/git/git.service';
 import { CommitStageService } from '../../src/workflows/stages/commit-stage.service';
-import { REVIEW_VERDICT_APPROVED } from '../../src/shared/types/review.types';
+import { REVIEW_VERDICT_APPROVED } from '../../src/common/types/review.types';
 import { extractSummary, slugify, resolveRepoBasePath } from '../../src/agents/utils';
-import { deriveReviewArtifactPath } from '../../src/shared/utils/plan-artifact';
+import { deriveReviewArtifactPath } from '../../src/common/utils/plan-artifact';
 import { createReporter } from './support/reporter';
 
 const origLog = console.log;
@@ -36,21 +36,26 @@ type CallRecorder = {
   restore: () => void;
 };
 
-function captureGitServiceCalls(gs: GitService, restore: () => void): CallRecorder {
-  let stageAllCalled = false;
-  let stageAllCwd: string | undefined;
-  let getDiffStaged: boolean | undefined;
-
+function recordStageAllAndDiff(gs: GitService, state: CallRecorder): void {
   gs.stageAll = async (cwd?: string) => {
-    stageAllCalled = true;
-    stageAllCwd = cwd;
+    state.stageAllCalled = true;
+    state.stageAllCwd = cwd;
   };
   gs.getDiff = async (staged: boolean) => {
-    getDiffStaged = staged;
+    state.getDiffStaged = staged;
     return 'diff --git a/src/a.ts b/src/a.ts';
   };
+}
 
-  return { stageAllCalled, stageAllCwd, getDiffStaged, restore };
+function captureGitServiceCalls(gs: GitService, restore: () => void): CallRecorder {
+  const state: CallRecorder = {
+    stageAllCalled: false,
+    stageAllCwd: undefined,
+    getDiffStaged: undefined,
+    restore,
+  };
+  recordStageAllAndDiff(gs, state);
+  return state;
 }
 
 function setupGitMocks(gs: GitService): CallRecorder {
@@ -134,7 +139,7 @@ function setupApprovedReview(tmpDir: string): string {
   fs.writeFileSync(ticketPath, '# WBP-TEST: Test');
   const reviewPath = deriveReviewArtifactPath(ticketPath);
   fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-  fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n✓ ${REVIEW_VERDICT_APPROVED}\n`);
+  fs.writeFileSync(reviewPath, `# Code Review\n\n## Approval Status\n✔ ${REVIEW_VERDICT_APPROVED}\n`);
   return ticketPath;
 }
 

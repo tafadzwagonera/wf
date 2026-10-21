@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync, spawnSync } from 'node:child_process';
-import { buildGitShimEnvOverrides } from '../../src/shared/utils/git-shim-path';
+import { buildGitShimEnvOverrides } from '../../src/common/utils/git-shim-path';
 import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();

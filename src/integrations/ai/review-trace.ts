@@ -1,5 +1,5 @@
 import { inspect } from 'util';
-import { convertCapturedToEntries, convertChangesToEntries } from '../../shared/schemas/review.schema';
+import { convertCapturedToEntries, convertChangesToEntries } from '../../common/schemas/review.schema';
 import type {
   ReviewTraceCallStackNode,
   ReviewTraceCapturedEntry,
@@ -7,14 +7,14 @@ import type {
   ReviewTraceValueChange,
   ReviewTraceStateNode,
   ReviewTraceStateTransition,
-} from '../../shared/types/review.types';
+} from '../../common/types/review.types';
 
 export type {
   ReviewTraceCallStackNode,
   ReviewTraceValueChange,
   ReviewTraceStateNode,
   ReviewTraceStateTransition,
-} from '../../shared/types/review.types';
+} from '../../common/types/review.types';
 
 /**
  * Format an object value using Node's inspect utility.

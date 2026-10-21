@@ -259,7 +259,7 @@ If per-attempt parity is easy to add cleanly, include it. If not, the standard b
 - Reuse backend-selection artifact structures when practical
 - Keep behavior changes minimal and avoid inner-loop redesign
 
-### `src/shared/utils/` or similar helper location
+### `src/common/utils/` or similar helper location
 
 - Add pure helpers for:
   - backend selection summary formatting

@@ -6,6 +6,9 @@
  * Reads a serialized Jira REST payload (or bare ADF doc) from stdin,
  * walks the node tree, and outputs structured JSON diagnostics.
  * Exits 0 when valid, 1 when issues are found.
+ *
+ * With no stdin input, it runs a built-in self-check against known-good and
+ * known-bad ADF documents instead.
  */
 
 interface AdfNode {
@@ -119,14 +122,29 @@ function outputAndExit(result: ValidationResult): void {
   process.exit(result.passed ? 0 : 1);
 }
 
+const paragraphDoc = (text: string): AdfNode => ({
+  type: 'doc',
+  content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+});
+
+const selfCheckCases: Array<{ label: string; input: unknown; expectPassed: boolean }> = [
+  { label: 'valid ADF document passes', input: paragraphDoc('Plain text'), expectPassed: true },
+  { label: 'valid payload wrapper passes', input: { fields: { description: paragraphDoc('Plain text') } }, expectPassed: true },
+  { label: 'raw {code} marker is rejected', input: paragraphDoc('{code:ts}x{code}'), expectPassed: false },
+  { label: 'raw {noformat} marker is rejected', input: paragraphDoc('{noformat}x{noformat}'), expectPassed: false },
+  { label: 'raw {{inline}} marker is rejected', input: paragraphDoc('use {{value}} here'), expectPassed: false },
+  { label: 'raw wiki bullet is rejected', input: paragraphDoc('* item'), expectPassed: false },
+  { label: 'non-doc root is rejected', input: { type: 'paragraph', content: [] }, expectPassed: false },
+  { label: 'empty doc is rejected', input: { type: 'doc', content: [] }, expectPassed: false },
+];
+
 function handleNoInput(): void {
-  outputAndExit({
-    passed: false,
-    issues: [{
-      error: 'No input received on stdin',
-      suggestion: 'Pipe a JSON payload to stdin: echo \'{"fields":...}\' | nr test:manual verify-request-format.smoke.ts',
-    }],
-  });
+  const failures = selfCheckCases.filter(testCase => validate(testCase.input).passed !== testCase.expectPassed);
+  for (const testCase of selfCheckCases) {
+    process.stdout.write(`${failures.includes(testCase) ? 'FAIL' : 'PASS'}  ${testCase.label}\n`);
+  }
+  process.stdout.write(`Self-check: ${selfCheckCases.length - failures.length} passed, ${failures.length} failed\n`);
+  process.exit(failures.length === 0 ? 0 : 1);
 }
 
 function handleInvalidJson(): void {
