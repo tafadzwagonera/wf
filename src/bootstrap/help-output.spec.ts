@@ -96,7 +96,7 @@ describe('getHelpText', () => {
     expect(helpText).toContain('--ticket-key <key>');
     expect(helpText).toContain('--conventional');
     expect(helpText).not.toMatch(/-c,\s+--conventional/);
-    expect(helpText).toContain('--review <planOrTicket>');
+    expect(helpText).toContain('--source <token>');
     expect(helpText).not.toContain('[ticket-key]');
   });
 

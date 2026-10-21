@@ -34,9 +34,9 @@ interface IssueCommitOptions {
   ticketKey?: string;
   tracker?: string;
   repos?: string[];
-  review?: string;
   sessionId?: string;
   silent?: boolean;
+  source?: string;
 }
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
@@ -59,7 +59,7 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'Blank AI commit responses fail fast with provider-aware diagnostics. '
     + 'When a code review or plan artifact already exists for the ticket, its summary is used to scope '
     + 'the commit message automatically. '
-    + 'Use --review <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
+    + 'Use --source <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
     + 'directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). '
     + 'When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants '
     + '(YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning. '
@@ -302,8 +302,8 @@ export class IssueCommitCommand extends CommandRunner {
   private resolveReviewOverride(
     repoBaseDir: string, trackerName: string, options?: IssueCommitOptions
   ): string | undefined {
-    if (!options?.review) return undefined;
-    const stem = stripSupportedPlanExtension(path.basename(options.review));
+    if (!options?.source) return undefined;
+    const stem = stripSupportedPlanExtension(path.basename(options.source));
     const candidates = [
       resolveReviewArtifactPath(repoBaseDir, trackerName, stem),
       resolveCustomReviewArtifactPath(repoBaseDir, stem),
@@ -312,7 +312,7 @@ export class IssueCommitCommand extends CommandRunner {
     if (found) return found;
     const fallback = this.resolveDatePrefixedReview(repoBaseDir, trackerName, stem, options.silent);
     if (fallback) return fallback;
-    const message = `--review '${options.review}' matched no review artifact (searched: ${candidates.join(', ')})`;
+    const message = `--source '${options.source}' matched no review artifact (searched: ${candidates.join(', ')})`;
     appendToLogFile('WARN', message, 'issue-commit');
     if (!options?.silent) console.log(chalk.yellow(`  ⚠  ${message}`));
     return undefined;
@@ -325,11 +325,11 @@ export class IssueCommitCommand extends CommandRunner {
     if (!match) return undefined;
     const { artifactPath, alternates } = match;
     if (alternates.length === 0) {
-      const info = `--review '${stem}' resolved to date-prefixed artifact '${artifactPath}'`;
+      const info = `--source '${stem}' resolved to date-prefixed artifact '${artifactPath}'`;
       appendToLogFile('INFO', info, 'issue-commit');
       return artifactPath;
     }
-    const message = `--review '${stem}' matched ${alternates.length + 1} review artifacts; `
+    const message = `--source '${stem}' matched ${alternates.length + 1} review artifacts; `
       + `using newest '${artifactPath}' (also matched: ${alternates.join(', ')})`;
     appendToLogFile('WARN', message, 'issue-commit');
     if (!silent) console.log(chalk.yellow(`  ⚠  ${message}`));
@@ -370,18 +370,6 @@ export class IssueCommitCommand extends CommandRunner {
   }
 
   @Option({
-    flags: '--review <planOrTicket>',
-    description:
-      'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
-      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml); when no exact artifact '
-      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact '
-      + 'stem) and the newest by mtime wins on ambiguity with a warning',
-  })
-  parseReview(val: string): string {
-    return val;
-  }
-
-  @Option({
     flags: '--session-id <id>',
     description: 'Resume a wf session by UUID (persisted to ~/.wf/state/sessions/)',
   })
@@ -395,6 +383,18 @@ export class IssueCommitCommand extends CommandRunner {
   })
   parseSilent(): boolean {
     return true;
+  }
+
+  @Option({
+    flags: '--source <token>',
+    description:
+      'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
+      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml); when no exact artifact '
+      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact '
+      + 'stem) and the newest by mtime wins on ambiguity with a warning',
+  })
+  parseSource(val: string): string {
+    return val;
   }
 
   @Option({

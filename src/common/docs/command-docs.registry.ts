@@ -295,11 +295,11 @@ export const COMMAND_DOCS = {
       },
       {
         comment: 'Use the review artifact of a custom plan file',
-        command: 'wf issue:commit --review plan.md',
+        command: 'wf issue:commit --source plan.md',
       },
       {
         comment: 'Use the review artifact of a ticket',
-        command: 'wf issue:commit --review WBP-2971',
+        command: 'wf issue:commit --source WBP-2971',
       },
     ],
   },

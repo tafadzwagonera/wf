@@ -352,7 +352,7 @@ describe('IssueCommitCommand', () => {
     consoleSpy.mockRestore();
   });
 
-  describe('--review artifact locator', () => {
+  describe('--source artifact locator', () => {
     const priorWfHome = process.env.WF_HOME;
     const wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-commit-review-'));
     process.env.WF_HOME = wfHome;
@@ -400,33 +400,33 @@ describe('IssueCommitCommand', () => {
         candidatePaths.includes(String(target)) ? existing.includes(String(target)) : realExistsSync(target));
     };
 
-    it('resolves the tracker-dir review path first for --review <ticket>', async () => {
+    it('resolves the tracker-dir review path first for --source <ticket>', async () => {
       mockExistingFiles(trackerPath, resolveCustomReviewArtifactPath('/tmp/current-app', 'WBP-1'));
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'WBP-1', tracker: 'jira', message: undefined });
+      await command.run([], { source: 'WBP-1', tracker: 'jira', message: undefined });
 
       expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({
         reviewArtifactPath: trackerPath, stagedDiff,
       }));
     });
 
-    it('resolves the custom-dir review path for --review plan.md when the tracker path is missing', async () => {
+    it('resolves the custom-dir review path for --source plan.md when the tracker path is missing', async () => {
       mockExistingFiles(customPath);
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'plan.md', tracker: 'jira' });
+      await command.run([], { source: 'plan.md', tracker: 'jira' });
 
       expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
         expect.objectContaining({ reviewArtifactPath: customPath })
       );
     });
 
-    it('resolves a review artifact cached in yaml format for --review <ticket>', async () => {
+    it('resolves a review artifact cached in yaml format for --source <ticket>', async () => {
       mockExistingFiles(trackerYamlPath);
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'WBP-1', tracker: 'jira', message: undefined });
+      await command.run([], { source: 'WBP-1', tracker: 'jira', message: undefined });
 
       expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
         expect.objectContaining({ reviewArtifactPath: trackerYamlPath })
@@ -434,12 +434,12 @@ describe('IssueCommitCommand', () => {
     });
 
     it.each(['plan.json', 'plan.yaml', 'plan.yml'])(
-      'resolves the custom-dir review path for --review %s',
-      async review => {
+      'resolves the custom-dir review path for --source %s',
+      async source => {
         mockExistingFiles(customPath);
         const { command } = await buildCommand();
 
-        await command.run([], { review, tracker: 'jira' });
+        await command.run([], { source, tracker: 'jira' });
 
         expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
           expect.objectContaining({ reviewArtifactPath: customPath })
@@ -447,11 +447,11 @@ describe('IssueCommitCommand', () => {
       }
     );
 
-    it('resolves a date-prefixed custom-dir artifact for a bare --review token', async () => {
+    it('resolves a date-prefixed custom-dir artifact for a bare --source token', async () => {
       const dated = touchReview(appDir, '2026-10-20-reviewer-country-filter-review.md', 1000);
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'reviewer-country-filter', tracker: 'jira' });
+      await command.run([], { source: 'reviewer-country-filter', tracker: 'jira' });
 
       expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({ reviewArtifactPath: dated }));
     });
@@ -462,7 +462,7 @@ describe('IssueCommitCommand', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'plan', tracker: 'jira' });
+      await command.run([], { source: 'plan', tracker: 'jira' });
 
       expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({ reviewArtifactPath: newer }));
       const warning = consoleSpy.mock.calls.map(call => String(call[0]))
@@ -478,7 +478,7 @@ describe('IssueCommitCommand', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'plan', tracker: 'jira', silent: true });
+      await command.run([], { source: 'plan', tracker: 'jira', silent: true });
 
       expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('matched 2'))).toBe(false);
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'issue-commit');
@@ -489,7 +489,7 @@ describe('IssueCommitCommand', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const { command, commitDescriptionStageService } = await buildCommand();
 
-      await command.run([], { review: 'plan.md', tracker: 'jira' });
+      await command.run([], { source: 'plan.md', tracker: 'jira' });
 
       expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('plan.md'))).toBe(true);
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('plan.md'), 'issue-commit');
@@ -503,7 +503,7 @@ describe('IssueCommitCommand', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       const { command } = await buildCommand();
 
-      await command.run([], { review: 'plan.md', tracker: 'jira', silent: true });
+      await command.run([], { source: 'plan.md', tracker: 'jira', silent: true });
 
       expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('plan.md'))).toBe(false);
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('plan.md'), 'issue-commit');

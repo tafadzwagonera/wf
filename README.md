@@ -690,7 +690,7 @@ In interactive mode (TTY, no `--silent`), the command performs a pre-synthesis c
 #### `wf issue:commit [options]`
 
 <!-- BEGIN GENERATED COMMAND DOCS: issue:commit -->
-Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When a code review or plan artifact already exists for the ticket, its summary is used to scope the commit message automatically. Use --review <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning. When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. When running from source, use yarn start issue:commit --conventional.
+Create a git commit with an AI-generated message. Use -k for the ticket key, or the key is auto-detected from the branch name. When -k differs from the branch-embedded ticket key, warns and prompts to pick a value interactively, or fails hard with both keys shown when non-interactive; --dry-run only warns. Fails hard if .gitignore is staged. Blank AI commit responses fail fast with provider-aware diagnostics. When a code review or plan artifact already exists for the ticket, its summary is used to scope the commit message automatically. Use --source <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning. When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. When running from source, use yarn start issue:commit --conventional.
 
 ```bash
 # AI-generated commit message
@@ -703,10 +703,10 @@ yarn start issue:commit --conventional
 wf issue:commit -k WBP-2971 --conventional --tracker jira
 
 # Use the review artifact of a custom plan file
-wf issue:commit --review plan.md
+wf issue:commit --source plan.md
 
 # Use the review artifact of a ticket
-wf issue:commit --review WBP-2971
+wf issue:commit --source WBP-2971
 ```
 
 **Options:**
@@ -717,9 +717,9 @@ wf issue:commit --review WBP-2971
 | `--dry-run` | Preview the commit operation without making changes |
 | `-m, --message <message>` | Manual commit message (bypasses AI generation) |
 | `-r, --repos <repos...>` | Space-separated repositories; only the first repo is used and additional repos are ignored with a warning. Names resolve from cwd, a sibling directory, then $WF_REPOS_DIR (default: $HOME/Apps, Projects, apps, projects) |
-| `--review <planOrTicket>` | Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, then the custom directory, matching any supported artifact format (json\|md\|yaml\|yml); when no exact artifact matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning |
 | `--session-id <id>` | Resume a wf session by UUID (persisted to ~/.wf/state/sessions/) |
 | `-s, --silent` | Suppress decorative output; emits no header |
+| `--source <token>` | Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, then the custom directory, matching any supported artifact format (json\|md\|yaml\|yml); when no exact artifact matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning |
 | `-k, --ticket-key <key>` | Ticket key for the commit (e.g. WBP-2971); validated against the branch-embedded ticket key |
 | `-t, --tracker <tracker>` | Tracker (jira\|github\|bitbucket) |
 <!-- END GENERATED COMMAND DOCS: issue:commit -->
@@ -1198,7 +1198,7 @@ The following surfaces currently follow these rules or intentionally document th
 | `issue:pr [ticket-key]` | Yes — resolves the ticket's plan via the manifest resolver | `issue-pr.command.ts:121-141` |
 | `issue:review --output` | Yes — relative values land in `~/.wf/<repo>/`, including subdirectory-prefixed values | `issue-review.command.ts:1749-1756` |
 | `issue:generate` local sources | Variant — artifact directory first, then live checkout | `issue-generate.command.ts:871,977` |
-| `issue:commit --review` | Yes — probes the tracker directory first, then the custom directory; first existing review artifact wins | `issue-commit.command.ts:288-303` |
+| `issue:commit --source` | Yes — probes the tracker directory first, then the custom directory; first existing review artifact wins | `issue-commit.command.ts:288-303` |
 | `--criteria` / `--replace-criteria` | Yes — resolved through the custom-source rules | `issue-review.command.ts:146-158,221-225`; `custom-source.ts:27-36` |
 | `--ui-design-screenshots` | Yes in no-arg mode — scans `~/.wf/<repo>/<ticketKey>/`; explicit paths remain repo-relative by design | `resolve-ui-design-screenshots.ts:7-18,42-47`; call sites `issue.command.ts:1254`, `issue-plan.command.ts:493` |
 
