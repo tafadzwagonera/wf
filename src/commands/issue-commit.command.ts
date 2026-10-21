@@ -62,7 +62,8 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'Use --source <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
     + 'directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). '
     + 'When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants '
-    + '(YYYY-MM-DD-<token>-review.<ext>, exact stem) and the newest by mtime wins on ambiguity with a warning. '
+    + '(YYYY-MM-DD-<token>-review.<ext> or the running repository\'s scoped YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; '
+    + 'other repositories\' scoped artifacts are ignored) and the newest by mtime wins on ambiguity with a warning. '
     + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
     + 'When running from source, use yarn start issue:commit --conventional.',
   options: { isDefault: false },
@@ -390,8 +391,9 @@ export class IssueCommitCommand extends CommandRunner {
     description:
       'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
       + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml); when no exact artifact '
-      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext>, exact '
-      + 'stem) and the newest by mtime wins on ambiguity with a warning',
+      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext> or the running '
+      + 'repository\'s YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; other repositories\' scoped artifacts are '
+      + 'ignored) and the newest by mtime wins on ambiguity with a warning',
   })
   parseSource(val: string): string {
     return val;

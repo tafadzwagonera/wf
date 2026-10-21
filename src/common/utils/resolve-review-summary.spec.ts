@@ -269,10 +269,42 @@ describe('findDatePrefixedReviewArtifact', () => {
     expect(find('plan')).toBeNull();
   });
 
-  it('does not match a scope-suffixed artifact', () => {
+  it('does not match an artifact scoped to a different repository', () => {
     touch(appDir, '2026-10-20-plan-myrepo-review.md');
 
     expect(find('plan')).toBeNull();
+  });
+
+  it('matches only the running repository scoped artifact', () => {
+    const expected = touch(appDir, '2026-10-20-plan-current-app-review.md');
+    touch(appDir, '2026-10-20-plan-other-review.md');
+
+    expect(find('plan')).toEqual({ artifactPath: expected, alternates: [] });
+  });
+
+  it('returns null when only another repository scoped artifact exists', () => {
+    touch(appDir, '2026-10-20-plan-other-review.md');
+
+    expect(find('plan')).toBeNull();
+  });
+
+  it('ranks scoped and unscoped artifacts by newest mtime', () => {
+    const scoped = touch(appDir, '2026-10-20-plan-current-app-review.md', 1000);
+    const unscoped = touch(appDir, '2026-10-20-plan-review.md', 3000);
+
+    expect(find('plan')).toEqual({ artifactPath: unscoped, alternates: [scoped] });
+  });
+
+  it('treats regex metacharacters in the repository scope literally', () => {
+    const dotDir = path.join(tmpDir, 'a.b');
+    fs.mkdirSync(dotDir, { recursive: true });
+    const expected = touch(dotDir, '2026-10-20-plan-a.b-review.md');
+    touch(dotDir, '2026-10-20-plan-aXb-review.md');
+
+    expect(findDatePrefixedReviewArtifact('/tmp/a.b', 'jira', 'plan')).toEqual({
+      artifactPath: expected,
+      alternates: []
+    });
   });
 
   it('matches case-insensitively', () => {

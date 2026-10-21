@@ -75,9 +75,10 @@ const sortByMtimeDesc = (paths: string[]): string[] => {
 };
 
 /**
- * Find review artifacts named `YYYY-MM-DD-<token>-review.<ext>` in the tracker and custom artifact directories.
- * Limitations: scope-suffixed multi-repo artifacts (`<token>-<repo>-review.<ext>`) are excluded, and matching here
- * is case-insensitive whereas the exact-path `existsSync` probe is filesystem-dependent.
+ * Find review artifacts named `YYYY-MM-DD-<token>[-<repo-basename>]-review.<ext>` in the tracker and custom artifact
+ * directories. Limitations: only the scope equal to `path.basename(repoBaseDir)` is matched, other repositories'
+ * scoped artifacts are excluded, and matching is case-insensitive whereas the exact-path `existsSync` probe is
+ * filesystem-dependent.
  * @param repoBaseDir - Base directory of the repository
  * @param trackerName - Tracker namespace (e.g., 'jira')
  * @param token - Exact review stem without date prefix or extension
@@ -89,8 +90,9 @@ export const findDatePrefixedReviewArtifact = (
   token: string
 ): FallbackReviewArtifactMatch | null => {
   const extensions = supportedPlanExtensions.join('|');
+  const scope = escapeRegExp(path.basename(repoBaseDir));
   const pattern = new RegExp(
-    `^${datePrefixPattern}${escapeRegExp(token)}-review\\.(?:${extensions})$`,
+    `^${datePrefixPattern}${escapeRegExp(token)}(?:-${scope})?-review\\.(?:${extensions})$`,
     'i'
   );
   const dirs = [resolveArtifactDir(repoBaseDir, trackerName), resolveCustomArtifactDir(repoBaseDir)];
