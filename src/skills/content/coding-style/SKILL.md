@@ -34,6 +34,8 @@ Goal: pick the construct that states the intent.
 - `Object.entries` for plain-object iteration, not `for...in`.
 - `arr.at(-n)`, not `arr[arr.length - n]`.
 - `x ??= y`, not `x = x ?? y`.
+- `str.replaceAll(pattern, repl)` when replacing every occurrence, not `str.replace()` with a `g`-flagged regex.
+- `String.raw` for strings that would otherwise escape backslashes: `` String.raw`C:\temp\file` ``, not `'C:\\temp\\file'`.
 - Merge back-to-back calls to the same multi-argument method into one call.
 
 ## Types
