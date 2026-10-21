@@ -1,5 +1,5 @@
 /**
- * Manual smoke test: `skills:sync` refuses to overwrite a real directory and fails before creating any link
+ * Manual smoke test: `sync:skills` refuses to overwrite a real directory and fails before creating any link
  *
  * Run: nr test:manual interactive-skills-sync-real-dir-guard.smoke
  *

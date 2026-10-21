@@ -167,15 +167,15 @@ function runTest4(): void {
 function runTest5(): void {
   console.log(chalk.bold('Test 5: generated docs sync is idempotent'));
   try {
-    const firstSync = run('yarn generated-docs:sync');
-    const secondSync = run('yarn generated-docs:sync');
+    const firstSync = run('yarn sync:generated-docs');
+    const secondSync = run('yarn sync:generated-docs');
     if (firstSync.includes('help:catalog') && secondSync.includes('README command docs already up to date.')) {
-      pass('generated-docs:sync runs and becomes stable on the second pass');
+      pass('sync:generated-docs runs and becomes stable on the second pass');
     } else {
-      fail('generated-docs:sync did not behave idempotently');
+      fail('sync:generated-docs did not behave idempotently');
     }
   } catch (error: any) {
-    fail(`generated-docs:sync failed: ${error.stdout?.toString() || error.stderr?.toString() || error.message}`);
+    fail(`sync:generated-docs failed: ${error.stdout?.toString() || error.stderr?.toString() || error.message}`);
   }
 }
 

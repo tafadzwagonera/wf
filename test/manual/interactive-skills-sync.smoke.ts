@@ -1,11 +1,11 @@
 /**
- * Manual smoke test: `skills:sync` links every taxonomy-declared interactive skill into per-CLI skills dirs,
+ * Manual smoke test: `sync:skills` links every taxonomy-declared interactive skill into per-CLI skills dirs,
  * idempotently, without touching foreign entries
  *
  * Run: nr test:manual interactive-skills-sync.smoke
  *
  * Verifies:
- *   1. package.json skills:sync script matches the command this test spawns
+ *   1. package.json sync:skills script matches the command this test spawns
  *   2. First run exits 0 and reports every taxonomy link as linked (`relinked 0, ok 0`)
  *   3. Every interactive taxonomy entry is a symlink resolving to src/skills/content/<id>
  *   4. Skills are not linked into CLIs absent from their taxonomy audience
@@ -45,7 +45,7 @@ const linkCount = interactiveLinks.length;
 const checkScriptDefinition = (): void => {
   console.log(chalk.bold('Test 1: package.json script'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-  assert('skills:sync script matches spawned command', packageJson.scripts['skills:sync'] === expectedScriptCommand);
+  assert('sync:skills script matches spawned command', packageJson.scripts['sync:skills'] === expectedScriptCommand);
 };
 
 const checkFirstRun = (home: string): void => {

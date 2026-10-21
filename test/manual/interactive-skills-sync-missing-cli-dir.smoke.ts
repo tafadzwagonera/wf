@@ -1,5 +1,5 @@
 /**
- * Manual smoke test: `skills:sync` fails with an install hint when a CLI's skills dir is absent
+ * Manual smoke test: `sync:skills` fails with an install hint when a CLI's skills dir is absent
  * and never creates home config dirs
  *
  * Run: nr test:manual interactive-skills-sync-missing-cli-dir.smoke

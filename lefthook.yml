@@ -13,7 +13,7 @@ pre-commit:
         piped: true
         jobs:
           - name: docs-drift
-            run: yarn generated-docs:sync
+            run: yarn sync:generated-docs
           - name: build
             run: yarn build && chmod +x dist/main.js
 
