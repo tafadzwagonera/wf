@@ -4,6 +4,8 @@ This runbook guides you through setting up SSH keys for managing two separate gi
 - **Personal**: GitHub account `tafadzwagonera`
 - **Work**: Bitbucket account (Tour Axis org)
 
+> **Automated**: `nr setup:ssh` (`scripts/setup-ssh.ts`) runs this runbook end-to-end on macOS and Linux, skipping steps that are already done. The sections below remain the manual reference.
+
 ## 1. Prerequisites
 
 Check existing SSH keys:
