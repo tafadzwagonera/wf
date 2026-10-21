@@ -1,8 +1,9 @@
 import * as path from 'node:path';
 import { ConfigService } from '@nestjs/config';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import chalk from 'chalk';
 import { AiService, parseJsonResponse } from '../integrations/ai/ai.service';
+import { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
 import { appendToLogFile } from '../common/logger/log-file-writer';
 import {
@@ -11,9 +12,7 @@ import {
 } from '../common/schemas/design-conformance.schema';
 import type { AIRequest } from '../common/types/ai.types';
 import type { DesignConformanceFinding } from '../common/types/design-conformance.types';
-import type {
-  WfAiProviderName, WfImplementStageConfig, WfPlanStepVerificationConfig,
-} from '../common/types/config.types';
+import type { WfAiProviderName, WfBackendMode, WfImplementStageConfig } from '../common/types/config.types';
 import type { UiDesignScreenshot } from '../common/types/ui-design-screenshot';
 import { sliceHeadTail } from './plan-step-evidence-budget';
 
@@ -37,18 +36,35 @@ const buildPrompt = (diff: string, changedFiles: string[]): string => {
   return `## Changed files\n\n${files}\n\n## Diff\n\n${diff}\n\n## Your task\n\n${taskInstructions}`;
 };
 
-type ConformanceTarget = { provider?: WfAiProviderName; model?: string };
+type DesignConformanceConfig = NonNullable<WfImplementStageConfig['designConformance']>;
+
+type ConformanceTarget = { provider?: WfAiProviderName; model?: string; backend?: WfBackendMode };
+
+type CheckParams = { paths: string[]; diff: string; changedFiles: string[]; repoDir?: string; requested?: boolean };
+
+export const mergeDesignConformanceConfig = (
+  cfg: DesignConformanceConfig | undefined, requested?: boolean,
+): DesignConformanceConfig | undefined => (requested ? { ...cfg, enabled: true } : cfg);
+
+type CheckRun = { prompt: string; target: ConformanceTarget; repoDir?: string };
 
 const visionProviders: WfAiProviderName[] = ['anthropic', 'openai'];
 
-const buildRequest = (
-  screenshot: UiDesignScreenshot, prompt: string, target: ConformanceTarget,
-): AIRequest => ({
+const stageBackends: WfBackendMode[] = ['agent', 'cli'];
+
+const stageSystemPrompt = 'You compare design screenshots with code diffs and reply only with the requested JSON.';
+
+const structuredOutput = { name: 'design_conformance', schema: designConformanceResponseJsonSchema };
+
+const buildRequest = (screenshot: UiDesignScreenshot, prompt: string, target: ConformanceTarget): AIRequest => ({
   prompt, stage: 'implement', temperature: 0, maxTokens: MAX_OUTPUT_TOKENS,
   ...(target.provider && { provider: target.provider }), ...(target.model && { model: target.model }),
   context: { screenshots: [screenshot] },
-  structuredOutput: { name: 'design_conformance', schema: designConformanceResponseJsonSchema },
+  structuredOutput,
 });
+
+const isStageBackend = (backend: WfBackendMode | undefined): boolean =>
+  Boolean(backend && stageBackends.includes(backend));
 
 const toMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -70,14 +86,14 @@ export class UiDesignScreenshotConformanceService {
     private readonly aiService: AiService,
     private readonly configService: ConfigService,
     private readonly screenshotsStage: UiDesignScreenshotsStageService,
+    @Optional() @Inject(StageAgentService) private readonly stageAgentService?: StageAgentService,
   ) {}
 
-  async check(paths: string[], diff: string, changedFiles: string[]): Promise<DesignConformanceFinding[]> {
-    const cfg = this.configService.get<WfImplementStageConfig['designConformance']>(
-      'stages.implement.designConformance',
-    );
+  async check(params: CheckParams): Promise<DesignConformanceFinding[]> {
+    const { paths, diff, changedFiles, repoDir, requested } = params;
+    const cfg = this.loadConfig(requested);
     if (!cfg?.enabled || paths.length === 0) return [];
-    const target = this.resolveTarget();
+    const target = this.resolveTarget(cfg);
     const skipReason = this.resolveSkipReason(diff, target);
     if (skipReason) {
       this.warn(`design conformance check skipped: ${skipReason}`);
@@ -85,23 +101,39 @@ export class UiDesignScreenshotConformanceService {
     }
     const screenshots = this.selectScreenshots(paths, cfg.maxScreenshots);
     const prompt = buildPrompt(sliceHeadTail(diff, MAX_DIFF_CHARS), changedFiles);
-    return this.checkSequentially(screenshots, prompt, target);
+    return this.checkSequentially(screenshots, { prompt, target, repoDir });
   }
 
-  private resolveTarget(): ConformanceTarget {
-    const cfg = this.configService.get<WfPlanStepVerificationConfig>('stages.implement.planStepVerification');
+  private loadConfig(requested: boolean | undefined): DesignConformanceConfig | undefined {
+    return mergeDesignConformanceConfig(
+      this.configService.get<DesignConformanceConfig>('stages.implement.designConformance'), requested,
+    );
+  }
+
+  private resolveTarget(cfg: DesignConformanceConfig): ConformanceTarget {
     const implementProvider = this.configService.get<WfAiProviderName>('stages.implement.provider');
-    const provider = cfg?.provider ?? (cfg?.model ? implementProvider : undefined);
-    return { provider, model: cfg?.model };
+    const provider = cfg.provider ?? (cfg.model ? implementProvider : undefined);
+    const backend = cfg.backend ?? this.configService.get<WfBackendMode>('stages.implement.backend');
+    return { provider, model: cfg.model, backend };
   }
 
-  private resolveSkipReason(diff: string, target: ConformanceTarget): string | undefined {
-    const provider = target.provider
+  private resolveEffectiveProvider(target: ConformanceTarget): WfAiProviderName {
+    return target.provider
       ?? this.configService.get<WfAiProviderName>('stages.implement.provider')
       ?? this.configService.get<WfAiProviderName>('ai.provider')
       ?? 'anthropic';
+  }
+
+  private resolveSkipReason(diff: string, target: ConformanceTarget): string | undefined {
+    const provider = this.resolveEffectiveProvider(target);
     if (!visionProviders.includes(provider)) {
-      return `provider '${provider}' cannot read screenshots; set planStepVerification.provider to anthropic or openai.`;
+      return `provider '${provider}' cannot read screenshots; set designConformance.provider to anthropic or openai.`;
+    }
+    if (target.backend === 'agent' && provider === 'openai') {
+      return "the OpenAI agent backend cannot read screenshots; use backend 'cli' or 'standard' with provider 'openai'.";
+    }
+    if (isStageBackend(target.backend) && !this.stageAgentService) {
+      return `the '${target.backend}' backend is unavailable in this context.`;
     }
     return diff.trim() ? undefined : 'the diff is empty.';
   }
@@ -114,22 +146,33 @@ export class UiDesignScreenshotConformanceService {
   }
 
   private async checkSequentially(
-    screenshots: UiDesignScreenshot[], prompt: string, target: ConformanceTarget,
+    screenshots: UiDesignScreenshot[], run: CheckRun,
   ): Promise<DesignConformanceFinding[]> {
     const findings: DesignConformanceFinding[] = [];
     for (const [index, screenshot] of screenshots.entries()) {
       console.log(chalk.gray(`  [design-check] ${index + 1}/${screenshots.length} ${path.basename(screenshot.path)}`));
-      findings.push(...await this.checkOne(screenshot, prompt, target));
+      findings.push(...await this.checkOne(screenshot, run));
     }
     return findings;
   }
 
-  private async checkOne(
-    screenshot: UiDesignScreenshot, prompt: string, target: ConformanceTarget,
-  ): Promise<DesignConformanceFinding[]> {
+  private requestReply(screenshot: UiDesignScreenshot, run: CheckRun): Promise<{ content: string }> {
+    const { prompt, target, repoDir } = run;
+    if (!isStageBackend(target.backend) || !this.stageAgentService) {
+      return this.aiService.execute(buildRequest(screenshot, prompt, target));
+    }
+    const provider = this.resolveEffectiveProvider(target);
+    return this.stageAgentService.runScreenshotPrompt({
+      prompt, systemPrompt: stageSystemPrompt, screenshots: [screenshot], structuredOutput, repoDir,
+      backendOverride: target.backend,
+      ...(provider === 'anthropic' || provider === 'openai' ? { providerOverride: provider } : {}),
+      ...(target.model && { modelOverride: target.model }),
+    });
+  }
+
+  private async checkOne(screenshot: UiDesignScreenshot, run: CheckRun): Promise<DesignConformanceFinding[]> {
     try {
-      const request = buildRequest(screenshot, prompt, target);
-      const response = await withTimeout(this.aiService.execute(request), CALL_TIMEOUT_IN_MS);
+      const response = await withTimeout(this.requestReply(screenshot, run), CALL_TIMEOUT_IN_MS);
       const { findings } = designConformanceResponseSchema.parse(parseJsonResponse(response.content));
       return findings.map(finding => ({ screenshot: screenshot.path, ...finding }));
     } catch (error) {

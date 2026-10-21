@@ -2741,6 +2741,38 @@ describe('IssueCommand', () => {
     });
   });
 
+  describe('buildImplementerOptions designConformanceRequested', () => {
+    const build = async (issueOptions: Record<string, unknown>) => {
+      const command = await buildCommand();
+      return (command as any).buildImplementerOptions('repo', ['repo'], { tracker: 'jira', ...issueOptions }, false, {});
+    };
+
+    it.each([
+      ['a bare --ui-design-screenshots flag', true],
+      ['explicit screenshot files', ['hero.png', 'card.webp']],
+    ])('requests the design conformance check for %s', async (_name, uiDesignScreenshots) => {
+      const opts = await build({ uiDesignScreenshots });
+
+      expect(opts).toHaveProperty('designConformanceRequested', true);
+    });
+
+    it.each([
+      ['the flag is absent', undefined],
+      ['the flag is explicitly false', false],
+    ])('does not add the property when %s', async (_name, uiDesignScreenshots) => {
+      const opts = await build({ uiDesignScreenshots });
+
+      expect(opts).not.toHaveProperty('designConformanceRequested');
+    });
+
+    it('keeps figma forwarding independent of the screenshot request', async () => {
+      const opts = await build({ figma: true });
+
+      expect(opts).toHaveProperty('figma', true);
+      expect(opts).not.toHaveProperty('designConformanceRequested');
+    });
+  });
+
   describe('buildPlanPromptSuffix risks', () => {
     it('renders object risks with severity prefixes', async () => {
       const command = await buildCommand();

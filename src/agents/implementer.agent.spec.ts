@@ -2872,10 +2872,12 @@ describe('ImplementerAgent', () => {
     });
 
     describe('design conformance check', () => {
-      const runWithDesignConformance = async (enabled: boolean) => {
+      const runWithDesignConformance = async (
+        enabled: boolean | undefined, screenshotPaths: string[] = ['/designs/a.png'], requested?: boolean,
+      ) => {
         setupWithChanges();
         (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
-          if (key === 'stages.implement.designConformance') return { enabled };
+          if (key === 'stages.implement.designConformance') return enabled === undefined ? undefined : { enabled };
           if (key === 'stages.implement.provider') return 'anthropic';
           if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
           return fallback;
@@ -2884,7 +2886,7 @@ describe('ImplementerAgent', () => {
         const internals = agent as unknown as Record<string, unknown>;
         internals.designConformanceService = { check: mockCheck };
         internals.uiDesignScreenshotsStageService = {
-          resolveIfEnabled: jest.fn().mockResolvedValue({ screenshots: [], paths: ['/designs/a.png'] }),
+          resolveIfEnabled: jest.fn().mockResolvedValue({ screenshots: [], paths: screenshotPaths }),
         };
         (gitService as unknown as { getDiffFromRef: jest.Mock }).getDiffFromRef = jest.fn()
           .mockResolvedValue('diff --git a/src/example.ts b/src/example.ts\n+change\n');
@@ -2895,7 +2897,7 @@ describe('ImplementerAgent', () => {
         await agent.execute(
           ticketArtifact,
           buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
-          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, ...(requested && { designConformanceRequested: true }) },
         );
         return mockCheck;
       };
@@ -2904,11 +2906,12 @@ describe('ImplementerAgent', () => {
         const mockCheck = await runWithDesignConformance(true);
 
         expect(mockCheck).toHaveBeenCalledTimes(1);
-        expect(mockCheck).toHaveBeenCalledWith(
-          ['/designs/a.png'],
-          expect.stringContaining('+change'),
-          ['src/example.ts'],
-        );
+        expect(mockCheck).toHaveBeenCalledWith({
+          paths: ['/designs/a.png'],
+          diff: expect.stringContaining('+change'),
+          changedFiles: ['src/example.ts'],
+          repoDir: '/tmp/repo-a',
+        });
         expect(planStepVerificationService.run).toHaveBeenCalled();
       });
 
@@ -2916,6 +2919,63 @@ describe('ImplementerAgent', () => {
         const mockCheck = await runWithDesignConformance(false);
 
         expect(mockCheck).not.toHaveBeenCalled();
+      });
+
+      it('logs why the check was skipped when enabled but the plan lists no screenshots', async () => {
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        const mockCheck = await runWithDesignConformance(true, []);
+
+        expect(mockCheck).not.toHaveBeenCalled();
+        const lines = logSpy.mock.calls.map(call => String(call[0]));
+        expect(lines.some(line => line.includes('design conformance check skipped: the plan artifact lists no uiDesignScreenshots'))).toBe(true);
+      });
+
+      it('runs the check without any config when issue was started with --ui-design-screenshots', async () => {
+        const mockCheck = await runWithDesignConformance(undefined, ['/designs/a.png'], true);
+
+        expect(mockCheck).toHaveBeenCalledTimes(1);
+        expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({
+          paths: ['/designs/a.png'], requested: true, repoDir: '/tmp/repo-a',
+        }));
+      });
+
+      it('lets the --ui-design-screenshots request override enabled: false', async () => {
+        const mockCheck = await runWithDesignConformance(false, ['/designs/a.png'], true);
+
+        expect(mockCheck).toHaveBeenCalledTimes(1);
+        expect(mockCheck).toHaveBeenCalledWith(expect.objectContaining({ requested: true }));
+      });
+
+      it('keeps enabled: false disabled without the request', async () => {
+        const mockCheck = await runWithDesignConformance(false, ['/designs/a.png'], false);
+
+        expect(mockCheck).not.toHaveBeenCalled();
+      });
+
+      it('does not run without config and without the request', async () => {
+        const mockCheck = await runWithDesignConformance(undefined, ['/designs/a.png'], false);
+
+        expect(mockCheck).not.toHaveBeenCalled();
+      });
+
+      it('logs the no-screenshots skip for a requested check when the plan lists none', async () => {
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        const mockCheck = await runWithDesignConformance(undefined, [], true);
+
+        expect(mockCheck).not.toHaveBeenCalled();
+        const lines = logSpy.mock.calls.map(call => String(call[0]));
+        expect(lines.some(line => line.includes('design conformance check skipped'))).toBe(true);
+      });
+
+      it('stays silent about skipping when disabled', async () => {
+        const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        await runWithDesignConformance(false, []);
+
+        const lines = logSpy.mock.calls.map(call => String(call[0]));
+        expect(lines.some(line => line.includes('design conformance check skipped'))).toBe(false);
       });
     });
 

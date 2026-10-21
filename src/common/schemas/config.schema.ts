@@ -76,6 +76,18 @@ export const wfImplementStageModelRoutingThresholdsConfigSchema = z.object({
 
 export const wfStepVerificationModeSchema = z.enum(['push', 'pull']);
 
+const requireModelWithProvider = (
+  value: { provider?: unknown; model?: unknown },
+  ctx: z.RefinementCtx,
+): void => {
+  if (!value.provider || value.model) return;
+  ctx.addIssue({
+    code: 'custom',
+    message: "'model' is required when 'provider' is set",
+    path: ['model'],
+  });
+};
+
 export const wfPlanStepVerificationConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -86,15 +98,7 @@ export const wfPlanStepVerificationConfigSchema = z
     backend: wfBackendModeSchema.optional(),
   })
   .strict()
-  .superRefine((value, ctx) => {
-    if (!value.provider || value.model) return;
-    ctx.addIssue({
-      code: 'custom',
-      message: "'model' is required when 'provider' is set",
-      path: ['model'],
-    });
-  })
-  ;
+  .superRefine(requireModelWithProvider);
 
 type StepVerificationProviderTarget = {
   provider: z.infer<typeof wfAiProviderNameSchema>;
@@ -115,10 +119,16 @@ export const validatePullStepVerificationProvider = (
   });
 };
 
-export const wfDesignConformanceConfigSchema = z.object({
-  enabled: z.boolean().default(false),
-  maxScreenshots: z.number().int().positive().optional(),
-}).strict();
+export const wfDesignConformanceConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxScreenshots: z.number().int().positive().optional(),
+    provider: wfAiProviderNameSchema.optional(),
+    model: z.string().min(1).optional(),
+    backend: wfBackendModeSchema.optional(),
+  })
+  .strict()
+  .superRefine(requireModelWithProvider);
 
 export const wfImplementStageConfigSchema = wfAiStageTargetConfigSchema
   .omit({ outputFormat: true })

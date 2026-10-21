@@ -76,6 +76,11 @@ describe('StageAgentService', () => {
       expect(options.sandbox.filesystem).toEqual({ allowRead: ['/tmp/repo'], allowWrite: [] });
     });
 
+    it('adds screenshot read directories to the read roots only', () => {
+      const options = buildAnthropicBaseOptions({ ...baseOpts, readDirs: ['/designs'] }, 'sys');
+      expect(options.sandbox.filesystem).toEqual({ allowRead: ['/tmp/repo', '/designs'], allowWrite: [] });
+    });
+
     it('grants Edit/Write, drops the guard, and widens sandbox roots when allowEdits is set', () => {
       const options = buildAnthropicBaseOptions(
         { ...baseOpts, allowEdits: true, artifactDir: '/wf/proj' }, 'sys'
@@ -445,6 +450,107 @@ describe('StageAgentService', () => {
       expect(mockRunStagePrompt.mock.calls[0][0].prompt).toBe(mockRunStagePrompt.mock.calls[1][0].prompt);
       expect({ ...withEmpty.plan, timestamp: undefined }).toEqual({ ...withoutField.plan, timestamp: undefined });
       expect(withEmpty.plan.summary).toBe('Fix it');
+    });
+  });
+
+  describe('runScreenshotPrompt backend and provider overrides', () => {
+    const screenshots = [{ path: '/designs/a.png', mediaType: 'image/png' as const, base64: '' }];
+    const structuredOutput = { name: 'design_conformance', schema: { type: 'object' } };
+    const stubDispatch = (service: StageAgentService) => {
+      const stubs = {
+        runCliStagePrompt: jest.fn().mockResolvedValue({ content: 'claude-cli' }),
+        runCodexCliStagePrompt: jest.fn().mockResolvedValue({ content: 'codex-cli' }),
+        runAnthropicStagePrompt: jest.fn().mockResolvedValue({ content: 'anthropic-agent' }),
+        runOpenAiStagePrompt: jest.fn().mockResolvedValue('openai-agent'),
+      };
+      Object.assign(service as unknown as Record<string, unknown>, stubs);
+      return stubs;
+    };
+    const run = (service: StageAgentService, overrides: Record<string, unknown>) =>
+      service.runScreenshotPrompt({
+        prompt: 'compare', systemPrompt: 'sys', screenshots, structuredOutput, repoDir: '/repo', ...overrides,
+      });
+
+    it('runs the Claude CLI for backend cli with provider anthropic and passes the model and screenshots', async () => {
+      const service = new StageAgentService(createConfigService());
+      const stubs = stubDispatch(service);
+
+      const result = await run(service, {
+        backendOverride: 'cli', providerOverride: 'anthropic', modelOverride: 'claude-haiku-4-5-20251001',
+      });
+
+      expect(result.content).toBe('claude-cli');
+      expect(stubs.runCodexCliStagePrompt).not.toHaveBeenCalled();
+      const params = stubs.runCliStagePrompt.mock.calls[0][0];
+      expect(params).toMatchObject({
+        stage: 'implement', modelOverride: 'claude-haiku-4-5-20251001', screenshots, repoDir: '/repo',
+      });
+    });
+
+    it('runs Codex CLI for backend cli with provider openai', async () => {
+      const service = new StageAgentService(createConfigService());
+      const stubs = stubDispatch(service);
+
+      const result = await run(service, {
+        backendOverride: 'cli', providerOverride: 'openai', modelOverride: 'gpt-5.6-luna',
+      });
+
+      expect(result.content).toBe('codex-cli');
+      expect(stubs.runCliStagePrompt).not.toHaveBeenCalled();
+      expect(stubs.runCodexCliStagePrompt.mock.calls[0][0]).toMatchObject({ modelOverride: 'gpt-5.6-luna' });
+    });
+
+    it('runs the Anthropic agent for backend agent and appends the screenshot paths once', async () => {
+      const service = new StageAgentService(createConfigService());
+      const stubs = stubDispatch(service);
+
+      const result = await run(service, {
+        backendOverride: 'agent', providerOverride: 'anthropic', modelOverride: 'claude-haiku-4-5-20251001',
+      });
+
+      expect(result.content).toBe('anthropic-agent');
+      const prompt: string = stubs.runAnthropicStagePrompt.mock.calls[0][0].prompt;
+      expect(prompt.split('Design screenshots (accessible via filesystem)')).toHaveLength(2);
+      expect(prompt).toContain('- /designs/a.png');
+    });
+
+    it('rejects the OpenAI agent backend inside the service itself', async () => {
+      const service = new StageAgentService(createConfigService());
+      const stubs = stubDispatch(service);
+
+      await expect(run(service, {
+        backendOverride: 'agent', providerOverride: 'openai', modelOverride: 'gpt-5.6-luna',
+      })).rejects.toThrow('OpenAI agent backend cannot read screenshots');
+      expect(stubs.runOpenAiStagePrompt).not.toHaveBeenCalled();
+    });
+
+    it('logs the screenshot directories it grants read access to, once per unique directory', () => {
+      const service = new StageAgentService(createConfigService());
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      const shots = [
+        { path: '/designs/a.png', mediaType: 'image/png' as const, base64: '' },
+        { path: '/designs/b.png', mediaType: 'image/png' as const, base64: '' },
+        { path: '/other/c.png', mediaType: 'image/png' as const, base64: '' },
+      ];
+      const resolveDirs = (service as unknown as {
+        resolveScreenshotReadDirs: (s: unknown) => string[];
+      }).resolveScreenshotReadDirs.bind(service);
+
+      expect(resolveDirs(shots)).toEqual(['/designs', '/other']);
+      expect(resolveDirs([])).toEqual([]);
+      const lines = logSpy.mock.calls.map(call => String(call[0]));
+      expect(lines.filter(line => line.includes('Granting read access to design screenshot directories: /designs, /other'))).toHaveLength(1);
+    });
+
+    it('does not fall back to another model when a provider override reports the model unavailable', async () => {
+      const service = new StageAgentService(createConfigService());
+      const stubs = stubDispatch(service);
+      stubs.runCliStagePrompt.mockRejectedValue(new Error('model_not_found: unknown model'));
+
+      await expect(run(service, {
+        backendOverride: 'cli', providerOverride: 'anthropic', modelOverride: 'nope',
+      })).rejects.toThrow();
+      expect(stubs.runCliStagePrompt).toHaveBeenCalledTimes(1);
     });
   });
 

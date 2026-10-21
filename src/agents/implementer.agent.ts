@@ -33,7 +33,7 @@ import {
 } from '../common/utils/implement-verification';
 import { splitDiffIntoFileSections } from '../common/utils/commit-diff-stat';
 import type { DesignConformanceFinding } from '../common/types/design-conformance.types';
-import { UiDesignScreenshotConformanceService } from './ui-design-screenshot-conformance.service';
+import { UiDesignScreenshotConformanceService, mergeDesignConformanceConfig } from './ui-design-screenshot-conformance.service';
 import { getWfStateDir } from '../common/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
 import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../common/utils/implement-commit-policy';
@@ -323,23 +323,42 @@ export class ImplementerAgent {
 
   private async runDesignConformanceCheck(args: Omit<PlanStepVerificationArgs, 'ledger'>): Promise<void> {
     const paths = this.latestUiDesignScreenshotPaths;
-    const cfg = this.configService.get<WfImplementStageConfig['designConformance']>(
-      'stages.implement.designConformance',
-    );
-    if (!this.designConformanceService || !cfg?.enabled || !paths?.length) return;
+    const requested = args.options.designConformanceRequested;
+    const cfg = this.loadDesignConformanceConfig(requested);
+    if (!this.designConformanceService || !cfg?.enabled) return;
+    if (!paths?.length) return this.logDesignConformanceSkipped('the plan artifact lists no uiDesignScreenshots');
     if (args.result.type !== 'implementation') return;
     try {
-      const diffRef = args.baseline?.sha ?? 'HEAD';
-      appendToLogFile('INFO', `design-check.diff ref=${diffRef} screenshots=${paths.length}`, 'design-check');
-      const diff = await this.gitService.getDiffFromRef(diffRef, args.options.repoDir);
-      const changedFiles = [...splitDiffIntoFileSections(diff).keys()];
-      const findings = await this.designConformanceService.check(paths, diff, changedFiles);
+      const findings = await this.designConformanceService.check({
+        paths, requested, repoDir: args.options.repoDir, ...await this.collectConformanceDiff(args, paths.length),
+      });
       this.reportDesignConformance(findings);
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
       console.log(chalk.yellow(`  [design-check] check failed: ${cause}`));
       appendToLogFile('WARN', `design-check.unexpected cause=${cause}`, 'design-check');
     }
+  }
+
+  private loadDesignConformanceConfig(requested: boolean | undefined) {
+    return mergeDesignConformanceConfig(
+      this.configService.get<WfImplementStageConfig['designConformance']>('stages.implement.designConformance'),
+      requested,
+    );
+  }
+
+  private logDesignConformanceSkipped(reason: string): void {
+    console.log(chalk.gray(`  [design-check] design conformance check skipped: ${reason}.`));
+    appendToLogFile('INFO', `design-check.skipped reason=${reason}`, 'design-check');
+  }
+
+  private async collectConformanceDiff(
+    args: Omit<PlanStepVerificationArgs, 'ledger'>, screenshotCount: number,
+  ): Promise<{ diff: string; changedFiles: string[] }> {
+    const diffRef = args.baseline?.sha ?? 'HEAD';
+    appendToLogFile('INFO', `design-check.diff ref=${diffRef} screenshots=${screenshotCount}`, 'design-check');
+    const diff = await this.gitService.getDiffFromRef(diffRef, args.options.repoDir);
+    return { diff, changedFiles: [...splitDiffIntoFileSections(diff).keys()] };
   }
 
   private reportDesignConformance(findings: DesignConformanceFinding[]): void {

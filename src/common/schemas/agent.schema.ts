@@ -145,6 +145,7 @@ export const implementerOptionsSchema = z.object({
   figma: z.boolean().optional(),
   /** Skip post-pull dependency install (use when node_modules is known-clean). */
   skipInstall: z.boolean().optional(),
+  designConformanceRequested: z.boolean().optional(),
   onRecords: z.custom<RecordsCallback>().optional(),
 });
 

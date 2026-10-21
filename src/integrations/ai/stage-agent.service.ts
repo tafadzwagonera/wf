@@ -270,6 +270,8 @@ type ReviewCodeOpts = {
 };
 
 type StagePromptParams = {
+  backendOverride?: WfBackendMode;
+  providerOverride?: 'anthropic' | 'openai';
   structuredOutput?: AIRequest['structuredOutput'];
   jsonSchema?: string;
   forkSession?: boolean;
@@ -480,7 +482,7 @@ const resolveEffectiveSystemPrompt = (systemPrompt: string, repoDir?: string): s
     ? systemPrompt
     : `${systemPrompt}\n${NO_INSPECT_CLAUSE}`;
 
-type AnthropicEditGrant = { allowEdits?: boolean; artifactDir?: string; repoDir?: string };
+type AnthropicEditGrant = { allowEdits?: boolean; artifactDir?: string; repoDir?: string; readDirs?: string[] };
 
 const resolveAnthropicEditRoots = (opts: AnthropicEditGrant): string[] =>
   opts.allowEdits && opts.repoDir ? [opts.repoDir, ...(opts.artifactDir ? [opts.artifactDir] : [])] : [];
@@ -494,7 +496,7 @@ const buildAnthropicSandboxConfig = (opts: AnthropicEditGrant) => {
     enabled: true,
     failIfUnavailable: true,
     filesystem: {
-      allowRead: editRoots.length ? editRoots : readOnlyRoots,
+      allowRead: [...(editRoots.length ? editRoots : readOnlyRoots), ...(opts.readDirs ?? [])],
       allowWrite: editRoots,
     },
   };
@@ -506,6 +508,7 @@ const buildPriorStagePreamble = (priorStageSummary?: string): string => {
 };
 
 type AnthropicStageOpts = {
+  readDirs?: string[];
   allowEdits?: boolean;
   anthropicContext: string;
   artifactDir?: string;
@@ -1450,7 +1453,10 @@ export class StageAgentService {
   }
 
   private async runStagePromptOnce(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
-    this.logResolvedStageTarget(params.stage, { ...(params.modelOverride && { model: params.modelOverride }) });
+    this.logResolvedStageTarget(params.stage, {
+      ...(params.providerOverride && { provider: params.providerOverride }),
+      ...(params.modelOverride && { model: params.modelOverride }),
+    });
     try {
       return await this.dispatchToBackend(params);
     } catch (error) {
@@ -1460,13 +1466,33 @@ export class StageAgentService {
     }
   }
 
+  async runScreenshotPrompt(
+    params: Omit<StagePromptParams, 'stage' | 'screenshots'> & { screenshots: UiDesignScreenshot[] },
+  ): Promise<{ content: string }> {
+    this.assertScreenshotTargetCanReadImages(params);
+    const { content } = await this.runStagePrompt({ ...params, stage: 'implement' });
+    return { content };
+  }
+
+  private assertScreenshotTargetCanReadImages(
+    params: Pick<StagePromptParams, 'backendOverride' | 'providerOverride'>,
+  ): void {
+    const backend = params.backendOverride ?? this.resolveStageBackend('implement');
+    const provider = params.providerOverride ?? this.resolveStageProvider('implement');
+    if (backend === 'agent' && provider === 'openai') {
+      throw new ConfigurationError(
+        "The OpenAI agent backend cannot read screenshots; use backend 'cli' or 'standard' with provider 'openai'."
+      );
+    }
+  }
+
   private async runStagePrompt(params: StagePromptParams): Promise<StagePromptResult> {
     try {
       return await this.runStagePromptOnce(params);
     } catch (error) {
       if (!isUnavailableModelError(error)) throw error;
       const fallbackModel = this.resolveFallbackModel(params.stage);
-      if (!fallbackModel) throw error;
+      if (!fallbackModel || params.providerOverride) throw error;
       return this.runStagePromptWithFallback(params, error, fallbackModel);
     }
   }
@@ -1522,17 +1548,17 @@ export class StageAgentService {
   }
 
   private async dispatchToBackend(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
-    const backend = this.resolveStageBackend(params.stage);
+    const backend = params.backendOverride ?? this.resolveStageBackend(params.stage);
     if (backend === 'cli') return this.dispatchCliStagePrompt(params);
     const enriched = { ...params, prompt: appendAgentSdkScreenshotPaths(params.prompt, params.screenshots) };
-    const provider = this.resolveStageProvider(params.stage);
+    const provider = params.providerOverride ?? this.resolveStageProvider(params.stage);
     if (provider === 'anthropic') return this.runAnthropicStagePrompt(enriched);
     const content = await this.runOpenAiStagePrompt(enriched);
     return { content };
   }
 
   private dispatchCliStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
-    const provider = this.resolveStageProvider(params.stage);
+    const provider = params.providerOverride ?? this.resolveStageProvider(params.stage);
     return provider === 'openai' ? this.runCodexCliStagePrompt(params) : this.runCliStagePrompt(params);
   }
 
@@ -1546,9 +1572,19 @@ export class StageAgentService {
       anthropicContext, resumeProviderSessionId: params.resumeProviderSessionId,
       jsonSchema: params.jsonSchema,
       structuredOutput: params.structuredOutput,
+      readDirs: this.resolveScreenshotReadDirs(params.screenshots),
     });
     const { query } = await loadAnthropicAgentSdk();
     return this.processAnthropicStageResult(query(options), params.onProgress, params.onProviderSessionId);
+  }
+
+  private resolveScreenshotReadDirs(screenshots: UiDesignScreenshot[] | undefined): string[] {
+    const dirs = [...new Set((screenshots ?? []).map(screenshot => path.dirname(screenshot.path)))];
+    if (dirs.length === 0) return dirs;
+    const message = `Granting read access to design screenshot directories: ${dirs.join(', ')}`;
+    console.log(chalk.cyan(`  [${ANTHROPIC_AGENT_LABEL}] ${message}`));
+    appendToLogFile('INFO', message, 'stage-agent');
+    return dirs;
   }
 
   private requireAnthropicApiKey(): string {

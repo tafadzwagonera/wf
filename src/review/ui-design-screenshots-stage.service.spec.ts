@@ -73,6 +73,28 @@ describe('UiDesignScreenshotsStageService', () => {
       expect(result.screenshots[0].mediaType).toBe('image/jpeg');
     });
 
+    it('tells the user on the console which screenshot file was skipped', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      mockExistsSync.mockImplementation(p => p !== '/tmp/gone.png');
+      mockReadFileSync.mockReturnValue(pngBuffer);
+
+      const result = service.encodeFromPaths(['/tmp/a.png', '/tmp/gone.png']);
+
+      expect(result.paths).toEqual(['/tmp/a.png']);
+      const lines = logSpy.mock.calls.map(call => String(call[0]));
+      expect(lines.filter(line => line.includes('file not found, skipped: /tmp/gone.png'))).toHaveLength(1);
+    });
+
+    it('prints nothing when every file exists', () => {
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(pngBuffer);
+
+      service.encodeFromPaths(['/tmp/a.png']);
+
+      expect(logSpy).not.toHaveBeenCalled();
+    });
+
     it('WARNs and skips a file that does not exist', () => {
       mockExistsSync.mockReturnValue(false);
 

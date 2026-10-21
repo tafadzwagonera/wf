@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Injectable } from '@nestjs/common';
+import chalk from 'chalk';
 import { appendToLogFile } from '../common/logger/log-file-writer';
 import { readUiDesignScreenshotsFromPlanArtifact } from '../common/utils/plan-artifact';
 import type { UiDesignScreenshot, UiDesignScreenshotsResult, UiDesignScreenshotsStageOptions } from '../common/types/ui-design-screenshot';
@@ -30,6 +31,7 @@ export class UiDesignScreenshotsStageService {
     const screenshots: UiDesignScreenshot[] = [];
     for (const p of paths) {
       if (!fs.existsSync(p)) {
+        console.log(chalk.yellow(`  [ui-design-screenshots] file not found, skipped: ${p}`));
         appendToLogFile('WARN', `ui-design-screenshots: file not found at encode time — ${p}`, LOG_CONTEXT);
         continue;
       }

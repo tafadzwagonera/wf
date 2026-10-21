@@ -99,6 +99,14 @@ export const shouldForkReviewSession = (
   return passCount !== undefined && passCount > FORK_PASS_THRESHOLD;
 };
 
+type UiDesignScreenshotsOption = { uiDesignScreenshots?: boolean | string[] } | undefined;
+
+export const isUiDesignScreenshotsRequested = (options: UiDesignScreenshotsOption): boolean =>
+  options?.uiDesignScreenshots !== undefined && options.uiDesignScreenshots !== false;
+
+const designConformanceOption = (options: UiDesignScreenshotsOption): { designConformanceRequested?: true } =>
+  isUiDesignScreenshotsRequested(options) ? { designConformanceRequested: true } : {};
+
 interface IssueOptions {
   action?: string;
   branch?: boolean;
@@ -406,7 +414,7 @@ export class IssueCommand extends CommandRunner {
 
   @Option({
     flags: '--ui-design-screenshots [files...]',
-    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at implement and review time. On the agent and CLI plan backends the paths are also appended to the plan prompt and their directories made readable. Mutually exclusive with --figma.',
+    description: 'Local design screenshots (PNG/JPEG/WebP) injected during plan generation; paths stored in the plan artifact and re-read at implement and review time. On the agent and CLI plan backends the paths are also appended to the plan prompt and their directories made readable. Also turns on the advisory design conformance check in the implement stage, overriding enabled and merging with the rest of stages.implement.designConformance (maxScreenshots, provider, model and backend; unset values fall back to stages.implement). Mutually exclusive with --figma.',
   })
   parseUiDesignScreenshots(val: string, previous: string[] = []): string[] {
     return [...previous, val];
@@ -1570,7 +1578,7 @@ export class IssueCommand extends CommandRunner {
       silent: options.silent, noBranch: options.noBranch, branchNamePattern: options.branchNamePattern,
       skipInstall: options.skipInstall,
       isNewRepo: planArtifact?.plan.newRepositories?.includes(repo ?? '') ?? false,
-      figma: options?.figma,
+      figma: options?.figma, ...designConformanceOption(options),
       ...sessionContext,
     };
   }

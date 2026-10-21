@@ -32,7 +32,7 @@ export const COMMAND_DOCS = {
         command: 'wf issue --session-id 550e8400-e29b-41d4-a716-446655440000',
       },
       {
-        comment: 'Inject local design screenshots during plan generation (stored in plan artifact, re-read at review)',
+        comment: 'Inject local design screenshots during plan generation (stored in the plan artifact, re-read at implement and review) and turn on the advisory design conformance check',
         command: 'wf issue -k WBP-2971 --from fetch --action feature --ui-design-screenshots hero.png card.webp',
       },
     ],

@@ -190,22 +190,59 @@ describe('designConformance config', () => {
     expect(parsed.designConformance).toBeUndefined();
   });
 
-  it('defaults enabled to false when designConformance is an empty object', () => {
-    const parsed = wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: {} });
-    expect(parsed.designConformance).toEqual({ enabled: false });
+  it('keeps designConformance disabled when enabled is omitted', () => {
+    const parsed = wfImplementStageConfigSchema.parse({
+      provider: 'anthropic', designConformance: { backend: 'cli', model: 'claude-haiku-4-5' },
+    });
+    expect(parsed.designConformance).toEqual({ backend: 'cli', model: 'claude-haiku-4-5' });
+    expect(parsed.designConformance?.enabled).toBeUndefined();
   });
 
-  it('accepts maxScreenshots', () => {
+  it('accepts an empty designConformance object', () => {
+    const parsed = wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: {} });
+    expect(parsed.designConformance).toEqual({});
+  });
+
+  it('accepts maxScreenshots, provider, model and backend', () => {
     const parsed = wfImplementStageConfigSchema.parse({
       provider: 'anthropic',
-      designConformance: { enabled: true, maxScreenshots: 5 },
+      designConformance: {
+        enabled: true, maxScreenshots: 5, provider: 'openai', model: 'gpt-5.6-luna', backend: 'cli',
+      },
     });
-    expect(parsed.designConformance).toEqual({ enabled: true, maxScreenshots: 5 });
+    expect(parsed.designConformance).toEqual({
+      enabled: true, maxScreenshots: 5, provider: 'openai', model: 'gpt-5.6-luna', backend: 'cli',
+    });
   });
 
-  it('rejects a designConformance model now that planStepVerification supplies it', () => {
+  it('accepts a model without a provider', () => {
+    const parsed = wfImplementStageConfigSchema.parse({
+      provider: 'anthropic', designConformance: { enabled: true, model: 'claude-haiku-4-5-20251001' },
+    });
+    expect(parsed.designConformance?.model).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('rejects a provider without a model', () => {
+    const result = wfImplementStageConfigSchema.safeParse({
+      provider: 'anthropic', designConformance: { enabled: true, provider: 'openai' },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain("'model' is required when 'provider' is set");
+  });
+
+  it.each(['agent', 'cli', 'standard'])('accepts backend %s', backend => {
+    const parsed = wfImplementStageConfigSchema.parse({
+      provider: 'anthropic', designConformance: { enabled: true, backend },
+    });
+    expect(parsed.designConformance?.backend).toBe(backend);
+  });
+
+  it('rejects an unknown backend and unknown keys', () => {
     expect(() =>
-      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { model: 'x' } }),
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { backend: 'sdk' } }),
+    ).toThrow();
+    expect(() =>
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { stallWindow: 3 } }),
     ).toThrow();
   });
 
