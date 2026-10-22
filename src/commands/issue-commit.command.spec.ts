@@ -73,6 +73,9 @@ import { CommitDescriptionStageService } from '../workflows/stages/commit-descri
 import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../common/utils/resolve-commit-scope-summary';
 import { resolveCustomReviewArtifactPath, resolveReviewArtifactPath } from '../common/utils/resolve-review-summary';
 import { appendToLogFile } from '../common/logger/log-file-writer';
+import {
+  buildPlanArtifactManifest, hashPlanArtifactSources, writePlanArtifactManifest,
+} from '../common/utils/plan-artifact';
 import { OptionMeta } from 'nest-commander/src/constants';
 
 const setInteractiveSession = (isTTY: boolean): void => {
@@ -482,6 +485,82 @@ describe('IssueCommitCommand', () => {
 
       expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('matched 2'))).toBe(false);
       expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.any(String), 'issue-commit');
+    });
+
+    describe('manifest-based resolution', () => {
+      const sourceName = '2026-10-19-reviewer-country-filter';
+
+      const writeCustomManifest = (planName: string, customArtifactName = sourceName): string => {
+        const planPath = path.join(appDir, planName);
+        fs.writeFileSync(planPath, '# plan', 'utf-8');
+        const manifest = buildPlanArtifactManifest({
+          artifactPath: planPath, action: 'fix', format: 'md', hash: hashPlanArtifactSources([sourceName]),
+          sourceName, sourceKind: 'custom', createdAt: new Date('2026-10-19T00:00:00.000Z'),
+        });
+        writePlanArtifactManifest({ ...manifest, customArtifactName });
+        return planPath;
+      };
+
+      it('resolves the review beside a hashed plan through the full manifest name', async () => {
+        const hash = hashPlanArtifactSources([sourceName]);
+        writeCustomManifest(`2026-10-19-${hash}-fix-plan.md`);
+        const planReview = touchReview(appDir, `2026-10-19-${hash}-fix-plan-review.md`, 1000);
+        touchReview(trackerDir, `2026-10-21-${sourceName}-review.md`, 2000);
+        const { command } = await buildCommand();
+
+        await command.run([], { source: sourceName, tracker: 'jira', silent: true });
+
+        expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
+          expect.objectContaining({ reviewArtifactPath: planReview })
+        );
+        expect(appendToLogFile).toHaveBeenCalledWith('INFO', expect.stringContaining('manifest'), 'issue-commit');
+      });
+
+      it('resolves the custom review path of the manifest sourceName for a customArtifactName token', async () => {
+        writeCustomManifest(`2026-10-19-${hashPlanArtifactSources([sourceName])}-fix-plan.md`, 'alias-token');
+        const sourceReview = touchReview(appDir, `${sourceName}-review.md`, 1000);
+        expect(sourceReview).toBe(resolveCustomReviewArtifactPath('/tmp/current-app', sourceName));
+        const { command } = await buildCommand();
+
+        await command.run([], { source: 'alias-token', tracker: 'jira', silent: true });
+
+        expect(resolveCommitScopeSummary).toHaveBeenCalledWith(
+          expect.objectContaining({ reviewArtifactPath: sourceReview })
+        );
+        expect(appendToLogFile).toHaveBeenCalledWith('INFO', expect.stringContaining('manifest'), 'issue-commit');
+      });
+
+      it('warns and falls back to the date-prefixed scan when two manifests share the token', async () => {
+        writeCustomManifest(`2026-10-18-${sourceName}.md`, 'shared-name');
+        writeCustomManifest(`2026-10-19-${sourceName}-v2.md`, 'shared-name');
+        const dated = touchReview(appDir, '2026-10-20-shared-name-review.md', 1000);
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const { command } = await buildCommand();
+
+        await command.run([], { source: 'shared-name', tracker: 'jira' });
+
+        expect(appendToLogFile).toHaveBeenCalledWith(
+          'WARN', expect.stringContaining('Multiple plan artifacts found'), 'issue-commit'
+        );
+        expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('Multiple plan artifacts found')))
+          .toBe(true);
+        expect(resolveCommitScopeSummary).toHaveBeenCalledWith(expect.objectContaining({ reviewArtifactPath: dated }));
+      });
+
+      it('suppresses the manifest ambiguity console line under --silent but still logs', async () => {
+        writeCustomManifest(`2026-10-18-${sourceName}.md`, 'shared-name');
+        writeCustomManifest(`2026-10-19-${sourceName}-v2.md`, 'shared-name');
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+        const { command } = await buildCommand();
+
+        await command.run([], { source: 'shared-name', tracker: 'jira', silent: true });
+
+        expect(consoleSpy.mock.calls.some(call => String(call[0]).includes('Multiple plan artifacts found')))
+          .toBe(false);
+        expect(appendToLogFile).toHaveBeenCalledWith(
+          'WARN', expect.stringContaining('Multiple plan artifacts found'), 'issue-commit'
+        );
+      });
     });
 
     it('warns, logs, and still generates inline when no review artifact exists', async () => {

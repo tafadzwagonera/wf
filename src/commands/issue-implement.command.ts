@@ -12,14 +12,13 @@ import { ensureWfHome } from '../common/utils/ensure-wf-home';
 import { printCommandHeader } from '../common/utils/command-header.helper';
 import { LoggerService } from '../common/logger/logger.service';
 import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
-import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError, AmbiguousPlanArtifactError } from '../common/utils/errors';
+import { isAiProviderErrorLike, ValidationError, ExecutionError, FileSystemError } from '../common/utils/errors';
 import { assertUsableBranchNamePattern } from '../integrations/git/branch-name';
 import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import {
   buildSyntheticTicketArtifact,
   parsePlanArtifact,
   buildPlanArtifactResolutionNotice,
-  resolvePlanArtifactReference as resolvePlanArtifactReferenceInDir,
   supportedPlanExtensions,
 } from '../common/utils/plan-artifact';
 import { isRepoResolvable, resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath, scaffoldNewRepo } from '../agents/utils';
@@ -32,7 +31,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import type { PlanArtifactReference } from '../common/utils/plan-artifact';
+import {
+  deriveCustomSourceName, ensureCustomPlanArtifactManifest, findPlanArtifactReference,
+  type PlanArtifactReference,
+} from '../common/utils/plan-artifact';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 const validModelRouting: ModelRouting[] = ['auto', 'default', 'mechanical'];
 const wfConfigExtensions = ['.ts', '.mts', '.js', '.mjs', '.json', '.yaml', '.yml'];
@@ -272,6 +275,7 @@ export class IssueImplementCommand extends CommandRunner {
       throw new ValidationError('Custom plan context is incomplete. Re-run issue:implement with a resolved plan artifact.');
     }
     if (options?.dryRun) return this.previewCustomPlanDryRun(identifier, ref, plan, options);
+    this.ensureHandNamedPlanManifest(ref, plan.action, ctx.customArtifactDir);
     if (plan.action === 'investigate') return this.executeInvestigation(plan, ref.artifactPath);
 
     const syntheticTicket = buildSyntheticTicketArtifact(ref.artifactPath, plan);
@@ -280,6 +284,20 @@ export class IssueImplementCommand extends CommandRunner {
     const artifact: PlanArtifact = { plan, action: plan.action, path: ref.artifactPath };
     await this.expandReposFromPlan(ctx, artifact, options?.silent);
     await this.runImplementerLoop(syntheticTicket, artifact, ctx, options, slug);
+  }
+
+  private ensureHandNamedPlanManifest(
+    ref: PlanArtifactReference, action: ResolutionAction, customArtifactDir: string
+  ): void {
+    const isInCustomDir = path.resolve(path.dirname(ref.artifactPath)) === path.resolve(customArtifactDir);
+    if (!ref.isLegacy || ref.sourceKind !== 'custom' || !isInCustomDir) return;
+    try {
+      ensureCustomPlanArtifactManifest({ artifactPath: ref.artifactPath, action });
+    } catch (error) {
+      const message = `Could not write manifest for custom plan ${ref.artifactPath}: ${(error as Error).message}`;
+      appendToLogFile('WARN', message, 'issue-implement');
+      console.log(chalk.yellow(`⚠ ${message}`));
+    }
   }
 
   private resolveTicketKey(ctx: ReturnType<IssueImplementCommand['resolveImplementContext']>): string {
@@ -765,7 +783,7 @@ export class IssueImplementCommand extends CommandRunner {
     identifier: string, trackerDir: string, customArtifactDir: string, baseDir: string
   ): PlanArtifactReference | null {
     for (const artifactDir of [trackerDir, customArtifactDir]) {
-      const resolved = this.safePlanResolve(identifier, artifactDir);
+      const resolved = findPlanArtifactReference(identifier, { artifactDir });
       if (resolved) return resolved;
     }
 
@@ -793,7 +811,7 @@ export class IssueImplementCommand extends CommandRunner {
       format: path.extname(planPath).slice(1).toLowerCase() as 'json' | 'md' | 'yaml' | 'yml',
       hash: stem,
       sourceKind: 'custom',
-      sourceName: stem.replace(/-(feature|fix|investigate)$/i, ''),
+      sourceName: deriveCustomSourceName(path.basename(planPath)),
       isLegacy: true,
     };
   }
@@ -805,22 +823,6 @@ export class IssueImplementCommand extends CommandRunner {
    * @param baseDir - Repo-aware base directory
    * @returns Absolute path to the uniquely matched artifact
    */
-  /**
-   * Resolve a plan artifact reference without throwing.
-   * @returns The resolved reference, or null when no matching artifact exists
-   */
-  private safePlanResolve(
-    identifier: string,
-    artifactDir: string
-  ): ReturnType<typeof resolvePlanArtifactReferenceInDir> | null {
-    try {
-      return resolvePlanArtifactReferenceInDir(identifier, { artifactDir });
-    } catch (error) {
-      if (error instanceof AmbiguousPlanArtifactError) throw error;
-      return null;
-    }
-  }
-
   private resolveCustomPlanStem(identifier: string, baseDir: string): string {
     const basePath = path.isAbsolute(identifier)
       ? identifier

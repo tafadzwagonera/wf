@@ -46,6 +46,11 @@ jest.mock('../agents/utils', () => {
   };
 });
 
+jest.mock('../common/logger/log-file-writer', () => ({
+  ...jest.requireActual('../common/logger/log-file-writer'),
+  appendToLogFile: jest.fn(),
+}));
+
 jest.mock('inquirer', () => ({
   __esModule: true,
   default: {
@@ -66,12 +71,16 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerService } from '../common/logger/logger.service';
 import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
 import { AgentOrchestrator } from '../agents/agent-orchestrator.service';
-import { buildPlanArtifactManifestPath, hashPlanArtifactSources } from '../common/utils/plan-artifact';
+import {
+  buildPlanArtifactManifestPath, hashPlanArtifactSources, readPlanArtifactManifest,
+} from '../common/utils/plan-artifact';
 import { AmbiguousPlanArtifactError } from '../common/utils/errors';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { getWfHomeDir } from '../common/utils/wf-paths';
 import { initializeWfConfig } from '../config/wf-config-loader';
+import { appendToLogFile } from '../common/logger/log-file-writer';
 
 async function buildCommand(): Promise<IssueImplementCommand> {
   const module = await Test.createTestingModule({
@@ -303,67 +312,6 @@ describe('IssueImplementCommand', () => {
   });
 
   describe('AmbiguousPlanArtifactError propagation', () => {
-    it('safePlanResolve returns null when no artifact matches', async () => {
-      const command = await buildCommand();
-      jest.spyOn(require('fs'), 'existsSync').mockReturnValue(false);
-
-      const artifactDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
-      const result = (command as any).safePlanResolve('WBP-NOTFOUND', artifactDir);
-
-      expect(result).toBeNull();
-    });
-
-    it('safePlanResolve rethrows AmbiguousPlanArtifactError instead of swallowing it into a guessed action', async () => {
-      const command = await buildCommand();
-      const trackerDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
-      const hash1 = hashPlanArtifactSources(['WBP-0001-a']);
-      const hash2 = hashPlanArtifactSources(['WBP-0001-b']);
-      const planPath1 = path.join(trackerDir, `2026-04-16-${hash1}-fix-plan.json`);
-      const planPath2 = path.join(trackerDir, `2026-04-17-${hash2}-fix-plan.json`);
-      const manifestPath1 = buildPlanArtifactManifestPath(planPath1);
-      const manifestPath2 = buildPlanArtifactManifestPath(planPath2);
-
-      jest
-        .spyOn(require('fs'), 'existsSync')
-        .mockImplementation((input: string) =>
-          [trackerDir, planPath1, planPath2, manifestPath1, manifestPath2].includes(String(input)),
-        );
-      jest.spyOn(require('fs'), 'readdirSync').mockImplementation((input: any) =>
-        String(input) === trackerDir
-          ? [path.basename(manifestPath1), path.basename(manifestPath2)]
-          : [],
-      );
-      jest.spyOn(require('fs'), 'readFileSync').mockImplementation((input: any) => {
-        const filePath = String(input);
-        if (filePath === manifestPath1) {
-          return JSON.stringify({
-            artifactPath: planPath1,
-            action: 'fix',
-            createdAt: new Date('2026-04-16T00:00:00.000Z').toISOString(),
-            format: 'json',
-            hash: hash1,
-            sourceKind: 'ticket',
-            sourceName: 'WBP-0001',
-            ticketKey: 'WBP-0001',
-            trackerName: 'jira',
-          });
-        }
-        return JSON.stringify({
-          artifactPath: planPath2,
-          action: 'fix',
-          createdAt: new Date('2026-04-17T00:00:00.000Z').toISOString(),
-          format: 'json',
-          hash: hash2,
-          sourceKind: 'ticket',
-          sourceName: 'WBP-0001',
-          ticketKey: 'WBP-0001',
-          trackerName: 'jira',
-        });
-      });
-
-      expect(() => (command as any).safePlanResolve('WBP-0001', trackerDir)).toThrow(AmbiguousPlanArtifactError);
-    });
-
     it('resolvePlanArtifactReferenceAcrossDirs stops at the first ambiguous directory without checking the next one', async () => {
       const command = await buildCommand();
       const trackerDir = path.join(getWfHomeDir(), 'repo-a', 'jira');
@@ -622,6 +570,10 @@ describe('IssueImplementCommand', () => {
   });
 
   describe('custom plan mode', () => {
+    beforeEach(() => {
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
+    });
+
     it('resolves a custom filename from the repo custom namespace in dry-run mode', async () => {
       const command = await buildCommand();
       const dryRunPreview = (command as any).dryRunPreview as jest.Mocked<DryRunPreviewService>;
@@ -653,6 +605,7 @@ describe('IssueImplementCommand', () => {
         .mockImplementation((input: string) =>
           String(input).endsWith(path.join('.wf', 'repo-a', 'dark-building-creek-fix.json')),
         );
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation(() => {});
       jest.spyOn(require('fs'), 'readFileSync').mockReturnValue(
         JSON.stringify({
           action: 'fix',
@@ -732,6 +685,98 @@ describe('IssueImplementCommand', () => {
           ]),
         }),
       );
+    });
+  });
+
+  describe('hand-named custom plan manifests', () => {
+    const planName = '2026-10-19-reviewer-country-filter.md';
+    const planContent = [
+      '# Filter reviewers by country',
+      '',
+      '**Action:** fix',
+      '',
+      '## Summary',
+      '',
+      'Filter reviewers by country',
+      '',
+      '## Steps',
+      '',
+      '1. Update the filter',
+      '',
+    ].join('\n');
+    let priorWfHome: string | undefined;
+    let wfHome: string;
+    let planPath: string;
+
+    beforeEach(() => {
+      priorWfHome = process.env.WF_HOME;
+      wfHome = fs.mkdtempSync(path.join(os.tmpdir(), 'implement-manifest-'));
+      process.env.WF_HOME = wfHome;
+      fs.mkdirSync(path.join(wfHome, 'repo-a'), { recursive: true });
+      planPath = path.join(wfHome, 'repo-a', planName);
+      fs.writeFileSync(planPath, planContent);
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      if (priorWfHome === undefined) delete process.env.WF_HOME;
+      else process.env.WF_HOME = priorWfHome;
+      fs.rmSync(wfHome, { recursive: true, force: true });
+    });
+
+    it('writes a custom manifest beside a hand-named plan on a live run', async () => {
+      const command = await buildCommand();
+
+      await command.run([planName], { repos: ['repo-a'] });
+
+      const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath));
+      expect(manifest).toEqual(expect.objectContaining({
+        sourceKind: 'custom', sourceName: '2026-10-19-reviewer-country-filter',
+      }));
+    });
+
+    it('records the plan content action, not the filename-derived default, in the manifest', async () => {
+      const command = await buildCommand();
+      fs.writeFileSync(planPath, planContent.replace('**Action:** fix', '**Action:** feature'));
+
+      await command.run([planName], { repos: ['repo-a'] });
+
+      expect(readPlanArtifactManifest(buildPlanArtifactManifestPath(planPath))?.action).toBe('feature');
+    });
+
+    it('does not write a manifest on a dry run', async () => {
+      const command = await buildCommand();
+
+      await command.run([planName], { repos: ['repo-a'], dryRun: true });
+
+      expect(fs.existsSync(buildPlanArtifactManifestPath(planPath))).toBe(false);
+    });
+
+    it('does not write a manifest for a plan outside the custom artifact dir', async () => {
+      const command = await buildCommand();
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'implement-outside-'));
+      const outsidePath = path.join(outsideDir, planName);
+      fs.writeFileSync(outsidePath, planContent);
+
+      await command.run([outsidePath], { repos: ['repo-a'] });
+
+      expect(fs.existsSync(buildPlanArtifactManifestPath(outsidePath))).toBe(false);
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    });
+
+    it('continues and logs a warning when the manifest write fails', async () => {
+      const command = await buildCommand();
+      const realWriteFileSync = fs.writeFileSync;
+      jest.spyOn(require('fs'), 'writeFileSync').mockImplementation((...args: unknown[]) => {
+        if (String(args[0]).endsWith('.sources.json')) throw new Error('disk full');
+        return (realWriteFileSync as (...writeArgs: unknown[]) => void)(...args);
+      });
+
+      await command.run([planName], { repos: ['repo-a'] });
+
+      const mockOrchestrator = (command as any).orchestrator as jest.Mocked<AgentOrchestrator>;
+      expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
+      expect(appendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('disk full'), 'issue-implement');
     });
   });
 

@@ -301,6 +301,10 @@ export const COMMAND_DOCS = {
         comment: 'Use the review artifact of a ticket',
         command: 'wf issue:commit --source WBP-2971',
       },
+      {
+        comment: 'Use the review artifact of a custom plan resolved via its manifest name',
+        command: 'wf issue:commit --source 2026-10-19-reviewer-country-filter',
+      },
     ],
   },
   'issue:generate:lookup': {

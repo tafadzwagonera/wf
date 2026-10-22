@@ -18,6 +18,9 @@ import {
   resolvePlanToken,
   readUiDesignScreenshotsFromPlanArtifact,
   stripSupportedPlanExtension,
+  ensureCustomPlanArtifactManifest,
+  findPlanArtifactReference,
+  deriveCustomSourceName,
 } from './plan-artifact';
 import { PlanArtifactNotFoundError, AmbiguousPlanArtifactError, WorkflowParseError } from '../errors/app.error';
 import { formatPlanRisk } from './plan-risk';
@@ -896,6 +899,100 @@ describe('resolvePlanArtifactReference identifier matching', () => {
     expect(() =>
       resolvePlanArtifactReference('test', { artifactDir: tempDir })
     ).toThrow(AmbiguousPlanArtifactError);
+  });
+});
+
+describe('custom plan manifests for non-canonical artifacts', () => {
+  const stem = '2026-10-19-reviewer-country-filter';
+  let tempDir: string;
+
+  const writeCustomPlan = (name: string, sourceName: string, sourceKind: 'custom' | 'ticket' = 'custom'): string => {
+    const planPath = path.join(tempDir, `${name}.md`);
+    fs.writeFileSync(planPath, '# plan');
+    writePlanArtifactManifest(buildPlanArtifactManifest({
+      artifactPath: planPath, action: 'fix', format: 'md', hash: hashPlanArtifactSources([sourceName]),
+      sourceName, sourceKind, createdAt: new Date('2026-10-19T00:00:00.000Z'),
+    }));
+    return planPath;
+  };
+
+  beforeEach(() => {
+    tempDir = createManagedTempDir('custom-manifest');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it.each([
+    ['full stem', stem],
+    ['customArtifactName', 'alias-name'],
+    ['sourceName', 'reviewer-country-filter'],
+  ])('resolves a non-canonical custom plan by %s', (_label, token) => {
+    const planPath = writeCustomPlan(stem, 'reviewer-country-filter');
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+    const manifest = readPlanArtifactManifest(manifestPath) as NonNullable<ReturnType<typeof readPlanArtifactManifest>>;
+    writePlanArtifactManifest({ ...manifest, customArtifactName: 'alias-name' });
+
+    const result = resolvePlanArtifactReference(token, { artifactDir: tempDir });
+
+    expect(result.artifactPath).toBe(planPath);
+    expect(result.isLegacy).toBe(false);
+    expect(result.sourceKind).toBe('custom');
+  });
+
+  it('keeps rejecting non-canonical ticket manifests', () => {
+    writeCustomPlan(stem, 'WBP-9', 'ticket');
+
+    expect(() => resolvePlanArtifactReference('WBP-9', { artifactDir: tempDir }))
+      .toThrow(PlanArtifactNotFoundError);
+  });
+
+  it('throws AmbiguousPlanArtifactError for duplicate custom names on different filenames', () => {
+    writeCustomPlan('2026-10-18-first', 'dup-name');
+    writeCustomPlan('2026-10-19-second', 'dup-name');
+
+    expect(() => resolvePlanArtifactReference('dup-name', { artifactDir: tempDir }))
+      .toThrow(AmbiguousPlanArtifactError);
+  });
+
+  it('writes a custom manifest for a hand-named plan and is idempotent', () => {
+    const planPath = path.join(tempDir, `${stem}-fix.md`);
+    fs.writeFileSync(planPath, '# plan');
+    const manifestPath = buildPlanArtifactManifestPath(planPath);
+
+    ensureCustomPlanArtifactManifest({ artifactPath: planPath, action: 'fix' });
+    const first = fs.readFileSync(manifestPath, 'utf-8');
+    const manifest = readPlanArtifactManifest(manifestPath);
+    ensureCustomPlanArtifactManifest({ artifactPath: planPath, action: 'fix' });
+
+    expect(manifest).toEqual(expect.objectContaining({
+      sourceKind: 'custom', sourceName: stem, customArtifactName: stem, format: 'md',
+      hash: hashPlanArtifactSources([stem]),
+    }));
+    expect(Number.isNaN(new Date(manifest?.createdAt ?? '').getTime())).toBe(false);
+    expect(fs.readFileSync(manifestPath, 'utf-8')).toBe(first);
+  });
+
+  it.each([
+    ['2026-10-19-reviewer-country-filter-fix.md', '2026-10-19-reviewer-country-filter'],
+    ['2026-10-19-reviewer-country-filter-FEATURE.json', '2026-10-19-reviewer-country-filter'],
+    ['plan-investigate.yaml', 'plan'],
+    ['2026-10-19-reviewer-country-filter.md', '2026-10-19-reviewer-country-filter'],
+  ])('deriveCustomSourceName(%s) strips only a trailing action suffix', (fileName, expected) => {
+    expect(deriveCustomSourceName(fileName)).toBe(expected);
+  });
+
+  it('findPlanArtifactReference returns null for an unknown token', () => {
+    expect(findPlanArtifactReference('nothing-here', { artifactDir: tempDir })).toBeNull();
+  });
+
+  it('findPlanArtifactReference rethrows AmbiguousPlanArtifactError', () => {
+    writeCustomPlan('2026-10-18-first', 'dup-name');
+    writeCustomPlan('2026-10-19-second', 'dup-name');
+
+    expect(() => findPlanArtifactReference('dup-name', { artifactDir: tempDir }))
+      .toThrow(AmbiguousPlanArtifactError);
   });
 });
 

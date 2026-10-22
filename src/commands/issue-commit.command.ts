@@ -5,11 +5,11 @@ import { GitService } from '../integrations/git/git.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { ConfigService } from '@nestjs/config';
 import { DryRunPreviewService } from '../common/preview/dry-run-preview.service';
-import { GitError, ValidationError } from '../common/utils/errors';
+import { AmbiguousPlanArtifactError, GitError, ValidationError } from '../common/utils/errors';
 import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import { printCommandHeader } from '../common/utils/command-header.helper';
 import { parseReposOption } from './utils/repos-option';
-import { resolveRepoBasePath } from '../agents/utils';
+import { resolveArtifactDir, resolveCustomArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { resolveCommitScopeSummary, resolveFreshCommitDescription } from '../common/utils/resolve-commit-scope-summary';
 import {
   findDatePrefixedReviewArtifact,
@@ -18,7 +18,10 @@ import {
   resolveReviewArtifactPath,
 } from '../common/utils/resolve-review-summary';
 import { renderCommitDescriptionContext } from '../common/utils/commit-description-artifact';
-import { stripSupportedPlanExtension } from '../common/utils/plan-artifact';
+import {
+  deriveReviewArtifactPath, findPlanArtifactReference, stripSupportedPlanExtension,
+  type PlanArtifactReference,
+} from '../common/utils/plan-artifact';
 import { appendToLogFile } from '../common/logger/log-file-writer';
 import type { CommitDescriptionResponse } from '../common/types/commit-description.types';
 import { CommitDescriptionStageService } from '../workflows/stages/commit-description-stage.service';
@@ -61,7 +64,10 @@ const warnOnIgnoredRepos = (repos?: string[]): void => {
     + 'the commit message automatically. '
     + 'Use --source <plan-stem|ticket-key> to point at a specific review artifact; the lookup probes the tracker '
     + 'directory first, then the custom directory, and finds the artifact in any supported format (json|md|yaml|yml). '
-    + 'When no exact artifact matches, the tracker and custom directories are scanned for date-prefixed variants '
+    + 'When no exact artifact matches, the plan manifests (.sources.json) in both directories are matched by '
+    + 'ticket key, custom plan name, source name, hash, or plan stem and the matched plan\'s review artifact is used '
+    + '(a token matching several plans logs a warning and is skipped); then the tracker and custom directories are '
+    + 'scanned for date-prefixed variants '
     + '(YYYY-MM-DD-<token>-review.<ext> or the running repository\'s scoped YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; '
     + 'other repositories\' scoped artifacts are ignored) and the newest by mtime wins on ambiguity with a warning. '
     + 'When no fresh diff-grounded commit description exists for the staged diff, one is generated inline. '
@@ -311,12 +317,47 @@ export class IssueCommitCommand extends CommandRunner {
     ].flatMap(listReviewArtifactVariants);
     const found = candidates.find(candidate => fs.existsSync(candidate));
     if (found) return found;
+    const manifestMatch = this.resolveManifestReview(repoBaseDir, trackerName, stem, options.silent);
+    if (manifestMatch) return manifestMatch;
     const fallback = this.resolveDatePrefixedReview(repoBaseDir, trackerName, stem, options.silent);
     if (fallback) return fallback;
     const message = `--source '${options.source}' matched no review artifact (searched: ${candidates.join(', ')})`;
     appendToLogFile('WARN', message, 'issue-commit');
     if (!options?.silent) console.log(chalk.yellow(`  ⚠  ${message}`));
     return undefined;
+  }
+
+  private resolveManifestReview(
+    repoBaseDir: string, trackerName: string, stem: string, silent?: boolean
+  ): string | undefined {
+    const artifactDirs = [resolveArtifactDir(repoBaseDir, trackerName), resolveCustomArtifactDir(repoBaseDir)];
+    for (const artifactDir of artifactDirs) {
+      const ref = this.findManifestReference(stem, artifactDir, silent);
+      if (ref === 'ambiguous') return undefined;
+      if (!ref) continue;
+      const reviewPaths = ref.ticketKey
+        ? [resolveReviewArtifactPath(repoBaseDir, trackerName, ref.ticketKey)]
+        : [resolveCustomReviewArtifactPath(repoBaseDir, ref.sourceName), deriveReviewArtifactPath(ref.artifactPath)];
+      const found = reviewPaths.flatMap(listReviewArtifactVariants).find(candidate => fs.existsSync(candidate));
+      if (!found) continue;
+      appendToLogFile('INFO', `--source '${stem}' resolved via plan manifest to '${found}'`, 'issue-commit');
+      return found;
+    }
+    return undefined;
+  }
+
+  private findManifestReference(
+    stem: string, artifactDir: string, silent?: boolean
+  ): PlanArtifactReference | 'ambiguous' | null {
+    try {
+      return findPlanArtifactReference(stem, { artifactDir });
+    } catch (error) {
+      if (!(error instanceof AmbiguousPlanArtifactError)) throw error;
+      const message = `--source '${stem}' skipped manifest lookup: ${error.message}`;
+      appendToLogFile('WARN', message, 'issue-commit');
+      if (!silent) console.log(chalk.yellow(`  ⚠  ${message}`));
+      return 'ambiguous';
+    }
   }
 
   private resolveDatePrefixedReview(
@@ -389,12 +430,16 @@ export class IssueCommitCommand extends CommandRunner {
   @Option({
     flags: '--source <token>',
     description:
-      'Plan file or ticket key selecting the commit description source: when omitted, the description is derived from '
-      + 'the changeset retrieved by git diff; when provided, it comes from the commit description artifact associated '
-      + 'with <token> — probes the tracker directory, then the custom directory, matching any supported artifact format '
-      + '(json|md|yaml|yml); when no exact artifact matches, both directories are scanned for date-prefixed variants '
-      + '(YYYY-MM-DD-<token>-review.<ext> or the running repository\'s YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; '
-      + 'other repositories\' scoped artifacts are ignored) and the newest by mtime wins on ambiguity with a warning',
+      'Plan file or ticket key selecting the commit description source: when omitted, the description is derived '
+      + 'from the changeset retrieved by git diff; when provided, it comes from the commit description artifact '
+      + 'associated with <token> — probes the tracker directory, then the custom directory, matching any supported '
+      + 'artifact format '
+      + '(json|md|yaml|yml); when no exact artifact matches, plan manifests (.sources.json) in both directories are '
+      + 'matched by ticket key, custom plan name, source name, hash, or plan stem and the matched plan\'s review '
+      + 'artifact is used (a token matching several plans logs a warning and is skipped); then both directories are '
+      + 'scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext> or the running repository\'s '
+      + 'YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; other repositories\' scoped artifacts are ignored) and the '
+      + 'newest by mtime wins on ambiguity with a warning',
   })
   parseSource(val: string): string {
     return val;

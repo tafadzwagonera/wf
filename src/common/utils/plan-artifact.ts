@@ -344,13 +344,14 @@ const matchesManifestIdentifier = (
   return parsedStem ? manifest.hash.toLowerCase() === parsedStem.hash : false;
 };
 
-const isCanonicalArtifactPath = (artifactPath: string): boolean => {
-  const extension = path.extname(artifactPath).slice(1).toLowerCase();
+const isResolvableManifestArtifact = (manifest: PlanArtifactManifest): boolean => {
+  const extension = path.extname(manifest.artifactPath).slice(1).toLowerCase();
   if (!supportedPlanExtensions.includes(extension as (typeof supportedPlanExtensions)[number])) {
     return false;
   }
+  if (manifest.sourceKind === 'custom') return true;
 
-  const artifactStem = stripArtifactExtension(path.basename(artifactPath));
+  const artifactStem = stripArtifactExtension(path.basename(manifest.artifactPath));
   return parseCanonicalStem(artifactStem) !== null;
 };
 
@@ -384,7 +385,7 @@ const resolveManifestMatch = (
   const normalizedIdentifier = identifierStem.trim().toLowerCase();
   const candidates = readManifestCandidates(artifactDir).filter(
     manifest =>
-      isCanonicalArtifactPath(manifest.artifactPath)
+      isResolvableManifestArtifact(manifest)
       && matchesManifestIdentifier(manifest, identifierStem, normalizedIdentifier, requestedAction)
   );
   if (candidates.length === 0) return null;
@@ -417,6 +418,38 @@ export const resolvePlanArtifactReference = (
   throw new PlanArtifactNotFoundError(
     `Plan artifact not found for '${identifier}' in ${options.artifactDir}. Checked: ${candidateList.join(', ')}`
   );
+};
+
+export const findPlanArtifactReference = (
+  identifier: string,
+  options: ResolvePlanArtifactOptions
+): PlanArtifactReference | null => {
+  try {
+    return resolvePlanArtifactReference(identifier, options);
+  } catch (error) {
+    if (error instanceof AmbiguousPlanArtifactError) throw error;
+    return null;
+  }
+};
+
+export const deriveCustomSourceName = (artifactFileName: string): string => {
+  const stem = stripArtifactExtension(artifactFileName);
+  const action = [...validActions].find(candidate => stem.toLowerCase().endsWith(`-${candidate}`));
+  return action ? stem.slice(0, -(action.length + 1)) : stem;
+};
+
+export const ensureCustomPlanArtifactManifest = (
+  options: { artifactPath: string; action: ResolutionAction }
+): void => {
+  const { artifactPath, action } = options;
+  if (readPlanArtifactManifest(buildPlanArtifactManifestPath(artifactPath))) return;
+  const format = path.extname(artifactPath).slice(1).toLowerCase() as PlanArtifactFormat;
+  if (!supportedPlanExtensions.includes(format)) return;
+  const sourceName = deriveCustomSourceName(path.basename(artifactPath));
+  writePlanArtifactManifest(buildPlanArtifactManifest({
+    artifactPath, action, format, hash: hashPlanArtifactSources([sourceName]),
+    sourceName, sourceKind: 'custom', createdAt: new Date(),
+  }));
 };
 
 const resolveDatePrefix = (createdAt?: Date | string): string => {
