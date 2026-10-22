@@ -389,11 +389,12 @@ export class IssueCommitCommand extends CommandRunner {
   @Option({
     flags: '--source <token>',
     description:
-      'Plan file or ticket key whose review artifact supplies the commit description; probes the tracker directory, '
-      + 'then the custom directory, matching any supported artifact format (json|md|yaml|yml); when no exact artifact '
-      + 'matches, both directories are scanned for date-prefixed variants (YYYY-MM-DD-<token>-review.<ext> or the running '
-      + 'repository\'s YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; other repositories\' scoped artifacts are '
-      + 'ignored) and the newest by mtime wins on ambiguity with a warning',
+      'Plan file or ticket key selecting the commit description source: when omitted, the description is derived from '
+      + 'the changeset retrieved by git diff; when provided, it comes from the commit description artifact associated '
+      + 'with <token> — probes the tracker directory, then the custom directory, matching any supported artifact format '
+      + '(json|md|yaml|yml); when no exact artifact matches, both directories are scanned for date-prefixed variants '
+      + '(YYYY-MM-DD-<token>-review.<ext> or the running repository\'s YYYY-MM-DD-<token>-<repo-basename>-review.<ext>; '
+      + 'other repositories\' scoped artifacts are ignored) and the newest by mtime wins on ambiguity with a warning',
   })
   parseSource(val: string): string {
     return val;
