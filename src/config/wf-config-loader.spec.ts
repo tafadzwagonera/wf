@@ -1245,6 +1245,32 @@ describe('wf-config-loader', () => {
       });
     });
 
+    it('exposes process.env to ESM-style JavaScript configs that read environment variables', async () => {
+      const projectRoot = createProjectRoot();
+      const previousKey = process.env.WF_TEST_ESM_API_KEY;
+      process.env.WF_TEST_ESM_API_KEY = 'env-openai-key';
+
+      fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ type: 'module' }, null, 2));
+      fs.writeFileSync(
+        path.join(projectRoot, 'wf.config.js'),
+        [
+          'export default {',
+          '  ai: [{ provider: "openai", apiKey: process.env.WF_TEST_ESM_API_KEY, model: "gpt-5.4", default: true }],',
+          '};',
+          '',
+        ].join('\n')
+      );
+
+      try {
+        const config = await loadWfConfig({ cwd: projectRoot });
+
+        expect(config.ai.openaiApiKey).toBe('env-openai-key');
+      } finally {
+        if (previousKey === undefined) delete process.env.WF_TEST_ESM_API_KEY;
+        else process.env.WF_TEST_ESM_API_KEY = previousKey;
+      }
+    });
+
     it('fails fast when a discovered JavaScript config loads as an empty module namespace', async () => {
       const projectRoot = createProjectRoot();
 

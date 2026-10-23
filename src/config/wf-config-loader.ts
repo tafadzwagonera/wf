@@ -258,6 +258,7 @@ const createConfigScriptContext = (filePath: string, module: { exports: unknown 
     exports: module.exports,
     module,
     require: createRequire(filePath),
+    process,
     __filename: filePath,
     __dirname: path.dirname(filePath),
   });
