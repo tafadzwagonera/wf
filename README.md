@@ -232,27 +232,51 @@ If `build` or `verify-install` fails, nothing is published.
 Steps:
 
 1. Commit and push your work to `master`. Include the `dist-bundle/` line in `.gitignore`.
-2. Do a dry run. In GitHub, open Actions, choose Release, and click Run workflow. This builds and checks everything and publishes nothing. Fix any red job first.
+2. Do a dry run. In GitHub, open Actions, choose Release, and click Run workflow. This builds and checks everything and publishes nothing. All `build` and `verify-install` jobs must be green. `publish` shows as skipped, which is correct for a manual run.
 3. Set the version in `package.json` to the version you want to release, for example `0.1.0-rc.1` for a test release. Commit and push. The workflow stops a tag build if the tag does not match the `package.json` version.
-4. Create and push the tag. A tag with `-rc` in it is published as a pre-release:
+4. Create the tag, then push the commit and the tag, in that order. A tag with `-rc` in it is published as a pre-release. Pushing the tag starts the real release workflow, so only do it when you mean it:
 
    ```bash
    git tag v0.1.0-rc.1
+   git push origin master
    git push origin v0.1.0-rc.1
    ```
 
-5. Wait for the workflow to finish. On the release page, check that you see four `.tar.gz` files, `SHA256SUMS` and `install.sh`.
-6. On a second machine, install the pre-release with the tag-named command in the examples above. Run `wf --help` and `wf issue:cowsay`. On macOS, check that it opens without a warning.
-7. For the real release, set `"version": "0.1.0"` in `package.json`, commit and push, then tag and push:
+5. Watch the run until it finishes. It takes about 5 minutes. Use the Actions tab, or:
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   gh run list --workflow=release.yml --limit 3
+   gh run watch <run-id>
    ```
 
-If a tag build fails, fix the problem, delete the tag (`git tag -d v0.1.0` and `git push origin :refs/tags/v0.1.0`), and tag again. Delete a half-created release on GitHub first.
+   All `build` and `verify-install` jobs must be green, and then `publish` runs. If any job fails, nothing is published.
+6. Open the release page, `https://github.com/tafadzwagonera/wf/releases/tag/v0.1.0-rc.1`. Check that:
+   - it is marked as a pre-release;
+   - it lists four tarballs (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`), `SHA256SUMS` and `install.sh`.
+7. Install it from a clean place. Use a second machine if you can, or a fresh shell. The short install link skips pre-releases, so name the tag:
 
-Not yet checked: a run of the workflow on GitHub itself, the `macos-15-intel` and `ubuntu-22.04-arm` runners being available to this repository, and a real Agent SDK stage run through the binary. Try these during the dry run and the pre-release.
+   ```bash
+   curl -fsSL https://github.com/tafadzwagonera/wf/releases/download/v0.1.0-rc.1/install.sh | WF_VERSION=v0.1.0-rc.1 sh
+   wf --help
+   wf issue:cowsay
+   ```
+
+   `wf issue:cowsay` should print `wf v0.1.0-rc.1 is installed and working!`. This also proves the repository is public, because `curl` sends no token.
+8. On macOS, check that the binary opens without a Gatekeeper warning. If it is blocked, run `xattr -d com.apple.quarantine ~/.local/bin/wf`, or look into Apple notarization.
+9. Run one real Agent SDK stage with the installed binary. Use a stage with `backend: 'agent'` and a real `claude` on your `PATH`. No automated test covers this.
+10. For the real release, set `"version": "0.1.0"` in `package.json`, commit and push, then tag and push:
+
+    ```bash
+    git tag v0.1.0
+    git push origin master
+    git push origin v0.1.0
+    ```
+
+    After this, the plain install command at the top of this section works.
+
+If a tag build fails, fix the problem and push the fix. Then delete the tag locally and on GitHub (`git tag -d v0.1.0-rc.1` and `git push origin :refs/tags/v0.1.0-rc.1`) and create it again on the fixed commit. If a half-created release exists on GitHub, delete it first.
+
+Checked so far: a manual dry run of the workflow passed on all four targets, so the `macos-15-intel` and `ubuntu-22.04-arm` runners are available to this repository. Not yet checked: a real Agent SDK stage run through the binary (step 9), and the Gatekeeper behaviour on a downloaded binary (step 8).
 
 ## Configuration
 
