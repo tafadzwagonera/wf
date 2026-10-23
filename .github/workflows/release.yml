@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: darwin-arm64, runner: macos-14 }
+          - { target: darwin-x64, runner: macos-15-intel }
+          - { target: linux-x64, runner: ubuntu-22.04 }
+          - { target: linux-arm64, runner: ubuntu-22.04-arm }
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dispatch' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js from .nvmrc
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: 'yarn'
+
+      - name: Check tag matches package.json version
+        if: github.ref_type == 'tag'
+        run: |
+          package_version="v$(node -p "require('./package.json').version")"
+          if [ "$package_version" != "$VERSION" ]; then
+            echo "Tag $VERSION does not match package.json version $package_version"; exit 1
+          fi
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run tests
+        run: yarn test:ci
+
+      - name: Build SEA binary
+        run: yarn build:sea
+
+      - name: Smoke-test binary
+        run: yarn smoke:binary
+
+      - name: Pack artifact
+        run: |
+          mkdir -p out
+          tar -czf "out/wf-${VERSION}-${{ matrix.target }}.tar.gz" -C dist-bundle wf
+          cp install.sh out/install.sh
+          {
+            echo "### ${{ matrix.target }}"
+            echo "- node: $(node -v)"
+            echo "- binary: $(du -h dist-bundle/wf | cut -f 1)"
+            echo "- tarball: $(du -h "out/wf-${VERSION}-${{ matrix.target }}.tar.gz" | cut -f 1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wf-${{ matrix.target }}
+          path: out/
+          if-no-files-found: error
+
+  verify-install:
+    name: verify-install (${{ matrix.target }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: darwin-arm64, runner: macos-14 }
+          - { target: darwin-x64, runner: macos-15-intel }
+          - { target: linux-x64, runner: ubuntu-22.04 }
+          - { target: linux-arm64, runner: ubuntu-22.04-arm }
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dispatch' }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wf-${{ matrix.target }}
+          path: artifact
+
+      - name: Write checksums
+        working-directory: artifact
+        run: shasum -a 256 "wf-${VERSION}-${{ matrix.target }}.tar.gz" > SHA256SUMS
+
+      - name: Install, run and re-install
+        run: |
+          export WF_VERSION="$VERSION" WF_LOCAL_ARTIFACT_DIR="$PWD/artifact" WF_INSTALL_DIR="$RUNNER_TEMP/wf-bin"
+          sh artifact/install.sh
+          "$WF_INSTALL_DIR/wf" --help > /dev/null
+          "$WF_INSTALL_DIR/wf" issue:cowsay | grep -F "is installed and working!"
+          sh artifact/install.sh
+          "$WF_INSTALL_DIR/wf" --help > /dev/null
+
+      - name: Checksum mismatch aborts
+        run: |
+          export WF_VERSION="$VERSION" WF_INSTALL_DIR="$RUNNER_TEMP/wf-bad"
+          mkdir bad && cp artifact/* bad/ && echo "0000  wf-${VERSION}-${{ matrix.target }}.tar.gz" > bad/SHA256SUMS
+          if WF_LOCAL_ARTIFACT_DIR="$PWD/bad" sh artifact/install.sh; then
+            echo "installer accepted a bad checksum"; exit 1
+          fi
+          test ! -e "$WF_INSTALL_DIR/wf"
+
+      - name: Unsupported architecture gives a clear error
+        run: |
+          mkdir fakebin
+          printf '#!/bin/sh\nif [ "$1" = "-m" ]; then echo riscv64; else /usr/bin/uname "$@"; fi\n' > fakebin/uname
+          chmod +x fakebin/uname
+          if PATH="$PWD/fakebin:$PATH" WF_VERSION="$VERSION" sh artifact/install.sh 2> err.txt; then exit 1; fi
+          grep -F "unsupported architecture" err.txt
+
+      - name: Install in a bare ubuntu:22.04 container
+        if: startsWith(matrix.target, 'linux-')
+        run: |
+          docker run --rm -v "$PWD/artifact:/artifact:ro" -e WF_VERSION="$VERSION" \
+            -e WF_LOCAL_ARTIFACT_DIR=/artifact -e WF_INSTALL_DIR=/tmp/wf-bin ubuntu:22.04 \
+            sh -c 'sh /artifact/install.sh && /tmp/wf-bin/wf --help > /dev/null && /tmp/wf-bin/wf issue:cowsay | grep -F "is installed and working!"'
+
+  publish:
+    name: publish
+    needs: [build, verify-install]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wf-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
+        working-directory: artifacts
+        run: sha256sum wf-*.tar.gz > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-rc*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" artifacts/wf-*.tar.gz artifacts/SHA256SUMS artifacts/install.sh \
+            --repo "${{ github.repository }}" --title "$TAG" --generate-notes $prerelease

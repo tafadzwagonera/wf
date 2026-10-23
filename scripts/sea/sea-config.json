@@ -1,0 +1,27 @@
+{
+  "main": "dist-bundle/wf.cjs",
+  "output": "dist-bundle/wf.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": false,
+  "assets": {
+    "commands-help.catalog.json": "dist/bootstrap/commands-help.catalog.json",
+    "no-mcp.json": "src/bootstrap/no-mcp.json",
+    "package.json": "package.json",
+    "bootstrap/git-shim/git": "src/bootstrap/git-shim/git",
+    "skills/coding-style/SKILL.md": "src/skills/content/coding-style/SKILL.md",
+    "skills/commit/SKILL.md": "src/skills/content/commit/SKILL.md",
+    "skills/conclude-feature/SKILL.md": "src/skills/content/conclude-feature/SKILL.md",
+    "skills/conclude-feature-wf/SKILL.md": "src/skills/content/conclude-feature-wf/SKILL.md",
+    "skills/draft-manual-tests/SKILL.md": "src/skills/content/draft-manual-tests/SKILL.md",
+    "skills/figma-design-check/SKILL.md": "src/skills/content/figma-design-check/SKILL.md",
+    "skills/figma-implement/SKILL.md": "src/skills/content/figma-implement/SKILL.md",
+    "skills/frontend-design-nuxt/SKILL.md": "src/skills/content/frontend-design-nuxt/SKILL.md",
+    "skills/lint/SKILL.md": "src/skills/content/lint/SKILL.md",
+    "skills/plan/SKILL.md": "src/skills/content/plan/SKILL.md",
+    "skills/run-and-prune-manual-tests/SKILL.md": "src/skills/content/run-and-prune-manual-tests/SKILL.md",
+    "skills/run-manual-tests/SKILL.md": "src/skills/content/run-manual-tests/SKILL.md",
+    "skills/test-driven-development/SKILL.md": "src/skills/content/test-driven-development/SKILL.md",
+    "skills/verify/SKILL.md": "src/skills/content/verify/SKILL.md",
+    "skills/writing-plans/SKILL.md": "src/skills/content/writing-plans/SKILL.md"
+  }
+}

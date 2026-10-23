@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError } from '../../../common/utils/errors';
+import { AppError, ERROR_CODE } from '../../../common/errors/app.error';
 import { formatPlanRisks } from '../../../common/utils/plan-risk';
 import type { PlanProblem } from '../../../common/types/agent.types';
 import {
@@ -23,6 +24,8 @@ import type {
   VerificationOutcome,
 } from '../../../agents/interfaces';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
+import { isNodeOnPath, locateClaudeExecutable } from './locate-claude-executable';
+import { isSeaRuntime } from '../../../common/utils/runtime-assets';
 import { buildSkillPromptFragment } from '../../../skills';
 import { detectVerificationStatus, resolveSkippedSteps, printVerificationReport, STALL_THRESHOLD } from './verification-report';
 import { logFileSummary } from './file-summary';
@@ -374,18 +377,42 @@ const buildSdkSystemPrompt = (
   append: buildSystemPromptAppend(priorStageSummary, claudeContext, systemPromptBody),
 });
 
-const buildSdkOptions = (params: SdkOptionsParams) => {
+const scriptExecutablePattern = /\.m?js$/;
+
+const assertScriptRunnable = (executable: string): void => {
+  if (!scriptExecutablePattern.test(executable) || isNodeOnPath()) return;
+  throw new AppError(
+    ERROR_CODE.CONFIGURATION_ERROR,
+    `\`claude\` resolves to the script ${executable}, which needs \`node\` on PATH. `
+    + 'Install the native Claude Code binary or add node to PATH.'
+  );
+};
+
+const resolveSeaClaudeExecutable = (): string => {
+  const executable = locateClaudeExecutable();
+  if (!executable) {
+    throw new AppError(
+      ERROR_CODE.CONFIGURATION_ERROR,
+      'The wf binary needs the Claude Code CLI for Agent SDK stages, but `claude` was not found on PATH. '
+      + 'Install Claude Code and make sure `claude` is on PATH.'
+    );
+  }
+  assertScriptRunnable(executable);
+  return executable;
+};
+
+export const buildSdkOptions = (params: SdkOptionsParams) => {
   const { repoDir, additionalRepoDirs, model, apiKey, claudeContext, priorStageSummary, systemPromptBody } = params;
-  const { allowedCommands, activityState, deleteFileServer } = params;
   return {
     cwd: repoDir, model,
     tools: [...claudeCodeTools], allowedTools: [...claudeCodeTools, DELETE_FILE_TOOL_NAME],
-    mcpServers: { [DELETE_FILE_SERVER_NAME]: deleteFileServer },
+    mcpServers: { [DELETE_FILE_SERVER_NAME]: params.deleteFileServer },
     permissionMode: 'acceptEdits' as const, agentProgressSummaries: true,
     settingSources: ['project'] as SettingSource[], settings: buildClaudeCodeSettings(repoDir),
     systemPrompt: buildSdkSystemPrompt(priorStageSummary, claudeContext, systemPromptBody),
-    canUseTool: buildCanUseTool(allowedCommands, activityState),
+    canUseTool: buildCanUseTool(params.allowedCommands, params.activityState),
     env: { ...process.env, ANTHROPIC_API_KEY: apiKey },
+    ...(isSeaRuntime() && { pathToClaudeCodeExecutable: resolveSeaClaudeExecutable() }),
     sandbox: buildSandboxConfig(repoDir, additionalRepoDirs, params.uiDesignScreenshotPaths),
   };
 };

@@ -11,6 +11,8 @@ import { formatFieldNames } from '../common/utils/zod-error.util';
 import { findModelProviderMismatch } from '../common/utils/model-provider-match';
 import { setWfPathOverrides } from '../common/utils/wf-paths';
 import { appendToLogFile } from '../common/logger/log-file-writer';
+import { lazyModuleKey, requireLazyModule } from '../bootstrap/lazy-module';
+import { isSeaRuntime } from '../common/utils/runtime-assets';
 import type {
   WfVerificationConditionsConfig,
   NormalizedAiProviderConfig,
@@ -419,6 +421,14 @@ const createJitiLoader = (cwd: string): ((filePath: string) => unknown) | null =
   }
 };
 
+const createBundledJitiLoader = (cwd: string): ((filePath: string) => unknown) => {
+  const createJiti = requireLazyModule(lazyModuleKey.jiti, () => {
+    throw new ValidationError('Bundled jiti is not registered in this process.');
+  }) as (filename: string) => (targetPath: string) => unknown;
+  const jiti = createJiti(cwd);
+  return (filePath: string) => jiti(filePath);
+};
+
 const shouldReadTypeScriptConfigDirectly = (runtime: string, nodeVersion: string, execArgv: string[]): boolean =>
   runtime === 'bun'
   || runtime === 'deno'
@@ -427,7 +437,10 @@ const shouldReadTypeScriptConfigDirectly = (runtime: string, nodeVersion: string
 const getTypeScriptConfigLoader = (
   options: TypeScriptConfigLoadOptions,
   cwd: string
-): ((filePath: string) => unknown) | null | undefined => options.loadJiti ?? createJitiLoader(cwd) ?? undefined;
+): ((filePath: string) => unknown) | null | undefined =>
+  options.loadJiti
+  ?? (isSeaRuntime() ? createBundledJitiLoader(cwd) : createJitiLoader(cwd))
+  ?? undefined;
 
 const loadTypeScriptConfigWithLoader = (
   loader: (filePath: string) => unknown,

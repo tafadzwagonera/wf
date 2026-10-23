@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as logFileWriter from '../logger/log-file-writer';
 
 import {
   buildGitShimEnvOverrides,
+  resolveGitShimDir,
   prependToPath,
   resolveRealGitPath,
 } from './git-shim-path';
@@ -14,8 +16,23 @@ jest.mock('fs', () => {
     ...actual,
     existsSync: jest.fn(actual.existsSync),
     accessSync: jest.fn(actual.accessSync),
+    writeFileSync: jest.fn(actual.writeFileSync),
   };
 });
+
+const mockHomedir = jest.fn();
+const mockIsSea = jest.fn();
+const mockGetAsset = jest.fn();
+
+jest.mock('os', () => {
+  const actual = jest.requireActual<typeof import('os')>('os');
+  return { ...actual, homedir: (...args: unknown[]) => mockHomedir(...args) };
+});
+
+jest.mock('node:sea', () => ({
+  isSea: (...args: unknown[]) => mockIsSea(...args),
+  getAsset: (...args: unknown[]) => mockGetAsset(...args),
+}));
 
 describe('prependToPath', () => {
   afterEach(() => {
@@ -114,5 +131,78 @@ describe('buildGitShimEnvOverrides', () => {
     expect(overrides.PATH).toMatch(/bootstrap\/git-shim/);
     expect(overrides.PATH?.split(path.delimiter)[0]).toMatch(/bootstrap\/git-shim$/);
     expect(overrides.PATH).toContain('/usr/bin:/bin');
+  });
+});
+
+describe('resolveGitShimDir', () => {
+  let tmpHome: string;
+  const mockWriteFileSync = fs.writeFileSync as jest.Mock;
+
+  beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'git-shim-home-'));
+    mockHomedir.mockReturnValue(tmpHome);
+    mockIsSea.mockReturnValue(true);
+    mockGetAsset.mockReturnValue('#!/bin/sh\nexec git "$@"\n');
+    mockWriteFileSync.mockClear();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockIsSea.mockReset();
+    mockGetAsset.mockReset();
+    fs.rmSync(tmpHome, { recursive: true });
+  });
+
+  it('extracts the embedded shim to ~/.wf/bin/git-shim with mode 0755', () => {
+    const shimDir = resolveGitShimDir();
+
+    const shimFile = path.join(tmpHome, '.wf', 'bin', 'git-shim', 'git');
+    expect(shimDir).toBe(path.join(tmpHome, '.wf', 'bin', 'git-shim'));
+    expect(fs.statSync(shimFile).mode & 0o777).toBe(0o755);
+    expect(mockGetAsset.mock.calls[0]).toEqual(['bootstrap/git-shim/git', 'utf8']);
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+    expect(String(mockWriteFileSync.mock.calls[0][0]).startsWith(shimFile)).toBe(true);
+  });
+
+  it('does not rewrite the shim when the content hash is unchanged', () => {
+    resolveGitShimDir();
+    mockWriteFileSync.mockClear();
+
+    resolveGitShimDir();
+
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it('rewrites the shim when the embedded content changes', () => {
+    resolveGitShimDir();
+    mockWriteFileSync.mockClear();
+    mockGetAsset.mockReturnValue('#!/bin/sh\necho changed\n');
+
+    resolveGitShimDir();
+
+    expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('buildGitShimEnvOverrides when SEA extraction fails', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockIsSea.mockReset();
+    mockGetAsset.mockReset();
+  });
+
+  it('returns {} and logs a warning instead of throwing', () => {
+    mockIsSea.mockReturnValue(true);
+    mockGetAsset.mockImplementation(() => {
+      throw new Error('asset not found');
+    });
+    const mockAppendToLogFile = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
+
+    const overrides = buildGitShimEnvOverrides({ PATH: '/usr/bin' });
+
+    expect(overrides).toEqual({});
+    expect(mockAppendToLogFile).toHaveBeenCalledTimes(1);
+    expect(mockAppendToLogFile.mock.calls[0][0]).toBe('WARN');
+    expect(mockAppendToLogFile.mock.calls[0][1]).toContain('asset not found');
   });
 });

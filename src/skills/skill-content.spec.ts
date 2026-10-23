@@ -3,11 +3,11 @@ import { readSkillContent, buildSkillPromptFragment, fragmentIncludesSkill, TDD_
 import { ConfigurationError } from '../common/errors/app.error';
 import * as logFileWriter from '../common/logger/log-file-writer';
 
-jest.mock('fs/promises');
+jest.mock('../common/utils/runtime-assets');
 
-import * as fs from 'fs/promises';
+import { readRuntimeAsset } from '../common/utils/runtime-assets';
 
-const mockReadFile = fs.readFile as jest.MockedFunction<typeof fs.readFile>;
+const mockReadAsset = readRuntimeAsset as jest.MockedFunction<typeof readRuntimeAsset>;
 
 const bundledPath = (skillId: string) =>
   path.join(__dirname, 'content', skillId, 'SKILL.md');
@@ -20,15 +20,17 @@ describe('readSkillContent', () => {
   });
 
   it('returns file content when SKILL.md is found at the bundled path', async () => {
-    mockReadFile.mockResolvedValueOnce('# My Skill\nDo something.' as never);
+    mockReadAsset.mockReturnValueOnce('# My Skill\nDo something.');
 
     const result = await readSkillContent('my-skill');
     expect(result).toBe('# My Skill\nDo something.');
-    expect(mockReadFile).toHaveBeenCalledWith(bundledPath('my-skill'), 'utf-8');
+    expect(mockReadAsset).toHaveBeenCalledWith('skills/my-skill/SKILL.md', bundledPath('my-skill'));
   });
 
   it('returns null when SKILL.md is not found at the bundled path', async () => {
-    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockReadAsset.mockImplementationOnce(() => {
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    });
 
     const result = await readSkillContent('missing-skill');
     expect(result).toBeNull();
@@ -42,13 +44,10 @@ describe('buildSkillPromptFragment', () => {
     mockAppendToLogFile = jest.spyOn(logFileWriter, 'appendToLogFile').mockImplementation(() => undefined);
 
     const knownSkillIds = new Set(['my-skill', 'skill-a', 'skill-b']);
-    mockReadFile.mockImplementation((filePath: unknown) => {
-      const p = filePath as string;
-      const skillId = /content\/([^/]+)\/SKILL\.md$/.exec(p)?.[1];
-      if (skillId && knownSkillIds.has(skillId)) {
-        return Promise.resolve('# Skill content' as never);
-      }
-      return Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockReadAsset.mockImplementation((assetKey: string) => {
+      const skillId = /^skills\/([^/]+)\/SKILL\.md$/.exec(assetKey)?.[1];
+      if (skillId && knownSkillIds.has(skillId)) return '# Skill content';
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     });
   });
 

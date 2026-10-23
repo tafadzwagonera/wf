@@ -4,6 +4,7 @@ import chalk from 'chalk';
 import { formatCliCommandTokens } from '../common/utils/cli-command-colors';
 import { CommandHelpEntry, CommandHelpOption } from './help-catalog-parser';
 import { FileSystemError } from '../common/utils/errors';
+import { isSeaRuntime, readRuntimeAsset } from '../common/utils/runtime-assets';
 import {
   buildWrappedLines,
   getVisibleLength,
@@ -19,11 +20,11 @@ const COMMAND_NAME_COLUMN_WIDTH = 21;
 const COMMAND_DESCRIPTION_COLUMN = 2 + COMMAND_NAME_COLUMN_WIDTH + 2;
 
 const loadCatalogFromDisk = (): Record<string, CommandHelpEntry> => {
-  if (!fs.existsSync(CATALOG_PATH)) {
+  if (!isSeaRuntime() && !fs.existsSync(CATALOG_PATH)) {
     throw new FileSystemError(`Help catalog not found at ${CATALOG_PATH}. Run \`yarn build\` to generate it.`);
   }
 
-  return JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8')) as Record<string, CommandHelpEntry>;
+  return JSON.parse(readRuntimeAsset('commands-help.catalog.json', CATALOG_PATH)) as Record<string, CommandHelpEntry>;
 };
 
 const findRequestedCommand = (argv: string[]): string | undefined => argv.find(arg => !arg.startsWith('-'));

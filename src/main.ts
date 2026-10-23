@@ -4,6 +4,7 @@ import { CommandFactory } from 'nest-commander';
 import { resolveConfigCwd } from './bootstrap/resolve-config-cwd';
 import { isHelpInvocation } from './bootstrap/is-help-invocation';
 import { getHelpText } from './bootstrap/help-output';
+import { lazyModuleKey, requireLazyModule } from './bootstrap/lazy-module';
 
 const moduleRequire = createRequire(__filename);
 
@@ -29,10 +30,10 @@ export async function bootstrap(): Promise<void> {
     return;
   }
 
-  const { initializeWfConfig } = moduleRequire('./config/wf-config-loader');
+  const { initializeWfConfig } = requireLazyModule(lazyModuleKey.wfConfigLoader, () => moduleRequire('./config/wf-config-loader'));
   await initializeWfConfig(resolveConfigCwd(argv));
 
-  const { AppModule } = moduleRequire('./app.module');
+  const { AppModule } = requireLazyModule(lazyModuleKey.appModule, () => moduleRequire('./app.module'));
   registerSigintHandler();
   await CommandFactory.run(AppModule, ['warn', 'error']);
   process.exit(0);

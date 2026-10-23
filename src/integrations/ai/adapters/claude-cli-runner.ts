@@ -1,7 +1,9 @@
 import { execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildGitShimEnvOverrides } from '../../../common/utils/git-shim-path';
+import { extractRuntimeAsset, isSeaRuntime } from '../../../common/utils/runtime-assets';
 import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
 import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../common/utils/errors';
@@ -241,6 +243,15 @@ const appendScreenshotDirs = (args: string[], screenshots: UiDesignScreenshot[] 
   appendAddDirs(args, [...new Set(screenshots.map(s => path.dirname(s.path)))]);
 };
 
+const resolveNoMcpConfigPath = (): string =>
+  isSeaRuntime()
+    ? extractRuntimeAsset({
+        assetKey: 'no-mcp.json',
+        destPath: path.join(os.homedir(), '.wf', 'bin', 'no-mcp.json'),
+        mode: 0o644,
+      })
+    : path.join(__dirname, '..', '..', '..', 'bootstrap', 'no-mcp.json');
+
 export const buildCliArgs = (params: CliRunnerParams): string[] => {
   const args: string[] = ['-p', '--verbose', '--output-format', 'stream-json'];
   args.push('--model', params.model);
@@ -252,8 +263,7 @@ export const buildCliArgs = (params: CliRunnerParams): string[] => {
   appendAddDirs(args, params.addDirs);
   appendOptionalArg(args, '--json-schema', params.jsonSchema);
   appendScreenshotDirs(args, params.screenshots);
-  const noMcpConfig = path.join(__dirname, '..', '..', '..', 'bootstrap', 'no-mcp.json');
-  args.push('--mcp-config', noMcpConfig, '--strict-mcp-config');
+  args.push('--mcp-config', resolveNoMcpConfigPath(), '--strict-mcp-config');
   return args;
 };
 

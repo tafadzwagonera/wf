@@ -7,6 +7,7 @@ import * as path from 'path';
 import {
   AnthropicAgentAdapter,
   buildCanUseTool,
+  buildSdkOptions,
   buildSystemPrompt,
   computeUnvisited,
   deleteRepoFile,
@@ -17,6 +18,8 @@ import {
 import { detectMechanicalTask } from './shared-routing';
 import * as skillContent from '../../../skills/skill-content';
 import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
+import { isNodeOnPath, locateClaudeExecutable } from './locate-claude-executable';
+import { isSeaRuntime } from '../../../common/utils/runtime-assets';
 import type { VerificationScript } from '../../../agents/interfaces';
 import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
 
@@ -25,6 +28,14 @@ jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 jest.mock('./load-anthropic-agent-sdk', () => ({
   loadAnthropicAgentSdk: jest.fn(),
+}));
+jest.mock('./locate-claude-executable', () => ({
+  locateClaudeExecutable: jest.fn(),
+  isNodeOnPath: jest.fn(),
+}));
+jest.mock('../../../common/utils/runtime-assets', () => ({
+  ...jest.requireActual('../../../common/utils/runtime-assets'),
+  isSeaRuntime: jest.fn(() => false),
 }));
 jest.mock('os', () => ({
   ...jest.requireActual('os'),
@@ -1504,5 +1515,68 @@ describe('orphan deletion support', () => {
 
   it('names the DeleteFile tool in the system prompt tool list', () => {
     expect(buildSystemPrompt({ repoDir })).toContain('mcp__wf__DeleteFile(path)');
+  });
+});
+
+describe('buildSdkOptions executable resolution', () => {
+  const mockIsSeaRuntime = isSeaRuntime as jest.Mock;
+  const mockLocateClaude = locateClaudeExecutable as jest.Mock;
+  const mockIsNodeOnPath = isNodeOnPath as jest.Mock;
+
+  const createMockSdkOptionsParams = () => ({
+    repoDir: '/tmp/repo',
+    additionalRepoDirs: [],
+    uiDesignScreenshotPaths: [],
+    model: 'claude-sonnet-4-6',
+    apiKey: 'test-key',
+    claudeContext: null,
+    systemPromptBody: 'body',
+    allowedCommands: new Set<string>(),
+    activityState: {} as never,
+    deleteFileServer: {} as never,
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockIsSeaRuntime.mockReset();
+    mockLocateClaude.mockReset();
+    mockIsNodeOnPath.mockReset();
+  });
+
+  it('sets pathToClaudeCodeExecutable to the located native binary in a SEA binary', () => {
+    mockIsSeaRuntime.mockReturnValue(true);
+    mockLocateClaude.mockReturnValue('/opt/claude/bin/claude');
+
+    const options = buildSdkOptions(createMockSdkOptionsParams());
+
+    expect(options.pathToClaudeCodeExecutable).toBe('/opt/claude/bin/claude');
+    expect(mockLocateClaude).toHaveBeenCalledTimes(1);
+    expect(mockLocateClaude.mock.calls[0]).toEqual([]);
+  });
+
+  it('throws an actionable error when claude is not on PATH in a SEA binary', () => {
+    mockIsSeaRuntime.mockReturnValue(true);
+    mockLocateClaude.mockReturnValue(undefined);
+
+    expect(() => buildSdkOptions(createMockSdkOptionsParams())).toThrow(/claude.*PATH/s);
+    expect(mockLocateClaude).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws when claude resolves to a .js file and node is not on PATH', () => {
+    mockIsSeaRuntime.mockReturnValue(true);
+    mockLocateClaude.mockReturnValue('/opt/claude/cli.js');
+    mockIsNodeOnPath.mockReturnValue(false);
+
+    expect(() => buildSdkOptions(createMockSdkOptionsParams())).toThrow(/node.*PATH/s);
+    expect(mockIsNodeOnPath).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits pathToClaudeCodeExecutable outside a SEA binary', () => {
+    mockIsSeaRuntime.mockReturnValue(false);
+
+    const options = buildSdkOptions(createMockSdkOptionsParams());
+
+    expect(options.pathToClaudeCodeExecutable).toBeUndefined();
+    expect(mockLocateClaude).not.toHaveBeenCalled();
   });
 });

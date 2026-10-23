@@ -1,7 +1,7 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigurationError } from '../common/errors/app.error';
 import { appendToLogFile } from '../common/logger/log-file-writer';
+import { readRuntimeAsset } from '../common/utils/runtime-assets';
 
 export const TDD_SKILL_ID = 'test-driven-development';
 
@@ -13,7 +13,7 @@ export const fragmentIncludesSkill = (fragment: string | undefined, skillId: str
 /** Returns the raw SKILL.md content for the given skill, or null if the bundled file cannot be read. */
 export const readSkillContent = async (skillId: string): Promise<string | null> => {
   try {
-    return await fs.readFile(path.join(__dirname, 'content', skillId, 'SKILL.md'), 'utf-8');
+    return readRuntimeAsset(`skills/${skillId}/SKILL.md`, path.join(__dirname, 'content', skillId, 'SKILL.md'));
   } catch {
     return null;
   }

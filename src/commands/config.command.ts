@@ -4,6 +4,7 @@ import { LoggerService } from '../common/logger/logger.service';
 import { getWfLogDir, getWfStateDir } from '../common/utils/wf-paths';
 import { ConfigCleanCommand } from './config-clean.command';
 import { createRequire } from 'node:module';
+import { lazyModuleKey, requireLazyModule } from '../bootstrap/lazy-module';
 import { ValidationError } from '../common/utils/errors';
 import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import chalk from 'chalk';
@@ -18,7 +19,7 @@ const moduleRequire = createRequire(__filename);
  * @returns The discovered config path, if present
  */
 const discoverConfigPath = (cwd: string): string | null => {
-  const { discoverWfConfigPath } = moduleRequire('../config/wf-config-loader');
+  const { discoverWfConfigPath } = requireLazyModule(lazyModuleKey.wfConfigLoader, () => moduleRequire('../config/wf-config-loader'));
   return discoverWfConfigPath(cwd);
 };
 

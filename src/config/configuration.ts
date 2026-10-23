@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { lazyModuleKey, requireLazyModule } from '../bootstrap/lazy-module';
 
 const SKIP_CONFIG_BOOTSTRAP_ENV = 'WF_SKIP_CONFIG_BOOTSTRAP';
 const moduleRequire = createRequire(__filename);
@@ -13,6 +14,6 @@ export default () => {
     return {};
   }
 
-  const { getLoadedWfConfig } = moduleRequire('./wf-config-loader');
+  const { getLoadedWfConfig } = requireLazyModule(lazyModuleKey.wfConfigLoader, () => moduleRequire('./wf-config-loader'));
   return getLoadedWfConfig();
 };

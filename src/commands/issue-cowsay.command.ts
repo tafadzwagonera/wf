@@ -1,8 +1,8 @@
 import { Command, CommandRunner } from 'nest-commander';
 import { Injectable } from '@nestjs/common';
-import * as fs from 'fs';
 import * as path from 'path';
 import chalk from 'chalk';
+import { readRuntimeAsset } from '../common/utils/runtime-assets';
 
 @Injectable()
 @Command({
@@ -19,7 +19,7 @@ export class IssueCowsayCommand extends CommandRunner {
 
   private buildMessage(): string {
     const pkgPath = path.resolve(__dirname, '../../package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version: string };
+    const pkg = JSON.parse(readRuntimeAsset('package.json', pkgPath)) as { version: string };
     return `wf v${pkg.version} is installed and working!`;
   }
 

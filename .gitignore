@@ -18,3 +18,4 @@ docs/superpowers/
 wf.config.*
 verification.policy.*
 lefthook-local.yml
+dist-bundle/

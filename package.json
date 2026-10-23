@@ -53,7 +53,9 @@
     "test:handles": "jest --runInBand --detectOpenHandles --no-forceExit",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts",
-    "test:smoke:check": "ts-node -r tsconfig-paths/register scripts/check-smoke-tests.ts"
+    "test:smoke:check": "ts-node -r tsconfig-paths/register scripts/check-smoke-tests.ts",
+    "build:sea": "yarn build && ts-node -r tsconfig-paths/register scripts/sea/build-bundle.ts && sh scripts/sea/build-binary.sh",
+    "smoke:binary": "sh scripts/sea/smoke-binary.sh dist-bundle/wf"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.97",
@@ -102,10 +104,12 @@
     "@types/marked": "^5.0.2",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "esbuild": "^0.28.2",
     "eslint": "^9.18.0",
     "eslint-plugin-unicorn": "^72.0.0",
     "globals": "^16.0.0",
     "jest": "^30.0.0",
+    "postject": "^1.0.0-alpha.6",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.2.5",

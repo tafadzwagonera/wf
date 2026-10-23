@@ -17,6 +17,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 ## Table of Contents
 
 - [Installation](#installation)
+  - [Release](#release)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Commands](#commands)
@@ -34,27 +35,224 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 
 ## Prerequisites
 
-- **Node.js >= 22.17** (pinned in `.nvmrc`; run `nvm use` to activate)
-- **Yarn** (package manager)
+- **macOS or Ubuntu Linux** (arm64 or x64) to run the installed binary; no Node.js is needed
+- **Node.js >= 22.17** (pinned in `.nvmrc`; run `nvm use` to activate) and **Yarn** only for development
 
 ## Installation
 
 ```bash
-# Clone the repository
-cd /Users/tafadzwagonera/Projects/wf
-
-# Activate the pinned Node version
-nvm use
-
-# Install dependencies
-yarn install
-
-# Build the project
-yarn build
-
-# Link globally (optional)
-npm link
+curl -fsSL https://github.com/tafadzwagonera/wf/releases/latest/download/install.sh | sh
 ```
+
+The installer downloads the binary for your OS and architecture (macOS arm64/x64, Linux x64/arm64), verifies it against `SHA256SUMS`, and installs it to `~/.local/bin/wf`.
+
+| Variable | Purpose |
+|----------|---------|
+| `WF_VERSION` | Release tag to install, for example `v0.1.0`. Defaults to the latest release. |
+| `WF_INSTALL_DIR` | Install directory. Defaults to `$HOME/.local/bin`. |
+
+Agent SDK stages in the binary run through your installed Claude Code CLI, so a native `claude` must be on `PATH`. If it is missing, or it is a script and `node` is not on `PATH`, the stage fails with an error that says so.
+
+### Release
+
+This section explains how to install a released `wf` binary, how to test that install on your own machine, and how to publish a new release. The binary is one file. It does not need Node.js, Yarn or `node_modules`.
+
+#### Install a released binary
+
+1. Open a terminal on macOS or Ubuntu.
+2. Run the install command:
+
+   ```bash
+   curl -fsSL https://github.com/tafadzwagonera/wf/releases/latest/download/install.sh | sh
+   ```
+
+3. The installer does these things, in order:
+   - It detects your system (macOS or Linux) and chip (arm64 or x64).
+   - It downloads the matching `wf-<version>-<os>-<arch>.tar.gz` and the `SHA256SUMS` file.
+   - It checks the file against `SHA256SUMS`. If the check fails, it stops and installs nothing.
+   - It copies `wf` to `~/.local/bin/wf` and makes it executable.
+4. If the installer prints "add ... to PATH", add the folder to your shell profile and open a new terminal:
+
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"
+   ```
+
+5. Check that it works:
+
+   ```bash
+   wf --help
+   wf issue:cowsay
+   ```
+
+   `wf issue:cowsay` should print `wf v<version> is installed and working!`.
+
+Examples:
+
+```bash
+# Install a specific version
+curl -fsSL https://github.com/tafadzwagonera/wf/releases/download/v0.1.0/install.sh | WF_VERSION=v0.1.0 sh
+
+# Install into a different folder
+curl -fsSL https://github.com/tafadzwagonera/wf/releases/latest/download/install.sh | WF_INSTALL_DIR=/usr/local/bin sh
+
+# Try a pre-release (the "latest" link skips pre-releases, so name the tag)
+curl -fsSL https://github.com/tafadzwagonera/wf/releases/download/v0.1.0-rc.1/install.sh | WF_VERSION=v0.1.0-rc.1 sh
+```
+
+To update, run the install command again. It replaces the old file. To remove `wf`, delete `~/.local/bin/wf`. The binary also writes a few small helper files to `~/.wf/bin/` the first time it needs them. You can delete that folder too.
+
+Things to know:
+
+- `wf` stages that use the Anthropic Agent SDK run through the Claude Code CLI. A real `claude` command must be on your `PATH`. If it is missing, the stage stops with a message that says so.
+- A `wf.config.ts` file loads without installing anything in your project. The binary includes its own copy of `jiti`.
+- The release must be public for the `curl` command to work without a token.
+- If macOS blocks a downloaded binary, run `xattr -d com.apple.quarantine ~/.local/bin/wf`. Files fetched with `curl` are normally not blocked.
+- If `which wf` still shows an older `wf` (for example a development copy linked into the nvm folder), that one comes first on your `PATH`. Run `npm unlink -g wf` and then `hash -r`, or put `~/.local/bin` earlier in `PATH`.
+
+#### Test the install locally
+
+Do these steps before you publish. They run the same checks as the release workflow, on your machine. You need Node.js and Yarn for this part.
+
+Quick check: use your local binary as your `wf` command. Run `yarn build:sea` first, then:
+
+```bash
+rm ~/.local/bin/wf 2>/dev/null
+cp dist-bundle/wf ~/.local/bin/wf
+npm unlink -g wf
+hash -r
+which wf
+```
+
+What each line does:
+- `rm ~/.local/bin/wf 2>/dev/null` removes an older copy of the binary. It prints nothing if there is none.
+- `cp dist-bundle/wf ~/.local/bin/wf` puts your new binary in the install folder.
+- `npm unlink -g wf` removes a global development copy of `wf` that would otherwise come first on your `PATH`. Skip this line if you want to keep that copy.
+- `hash -r` makes your shell forget the old `wf` location.
+- `which wf` should print `$HOME/.local/bin/wf`. If it prints another path, that folder comes earlier in `PATH`.
+
+Then run `wf issue:cowsay` to confirm. This only tests the binary. The full steps below also test the installer and the checksum check.
+
+
+1. Build the binary:
+
+   ```bash
+   yarn build:sea
+   ```
+
+   This compiles the project, bundles it into one file, and writes `dist-bundle/wf`. It takes about a minute.
+
+2. Run the binary check:
+
+   ```bash
+   yarn smoke:binary
+   ```
+
+   It runs `dist-bundle/wf` from an empty folder with a nearly empty environment, then checks that:
+   - `--help` matches `scripts/sea/golden/help.txt` exactly;
+   - `issue:cowsay` prints the version from `package.json`;
+   - the file type is correct and, on macOS, `codesign -v` passes.
+
+   If you change a command description, the help text changes, and this check fails. Update the golden file with the new output.
+
+3. Pack the binary the same way the workflow does, and test the installer against it:
+
+   ```bash
+   VERSION=v0.0.0-dispatch
+   TARGET=darwin-arm64        # or darwin-x64, linux-x64, linux-arm64
+   WORK=$(mktemp -d)
+   mkdir -p "$WORK/artifact"
+   tar -czf "$WORK/artifact/wf-$VERSION-$TARGET.tar.gz" -C dist-bundle wf
+   cp install.sh "$WORK/artifact/install.sh"
+   (cd "$WORK/artifact" && shasum -a 256 "wf-$VERSION-$TARGET.tar.gz" > SHA256SUMS)
+
+   export WF_VERSION=$VERSION WF_LOCAL_ARTIFACT_DIR="$WORK/artifact" WF_INSTALL_DIR="$WORK/wf-bin"
+   sh "$WORK/artifact/install.sh"
+   "$WORK/wf-bin/wf" --help
+   "$WORK/wf-bin/wf" issue:cowsay
+   ```
+
+   `WF_LOCAL_ARTIFACT_DIR` makes the installer read files from a folder instead of downloading them. It needs `WF_VERSION` to be set.
+
+4. Check the installer's safety behaviour:
+   - Run the installer a second time. It should succeed and leave one `wf` file in the folder.
+   - Replace the contents of `SHA256SUMS` with `0000  wf-$VERSION-$TARGET.tar.gz` and run it again. It should print "checksum mismatch" and install nothing.
+   - Make `uname -m` report an unknown chip. It should print "unsupported architecture".
+
+5. Optional, on Linux or with Docker: test the install in a bare Ubuntu container with no Node.js. Build the Linux binary inside a `node:22.17.1` container first, then:
+
+   ```bash
+   docker run --rm -v "$PWD/out:/artifact:ro" -e WF_VERSION=v0.0.0-dispatch \
+     -e WF_LOCAL_ARTIFACT_DIR=/artifact -e WF_INSTALL_DIR=/tmp/wf-bin ubuntu:22.04 \
+     sh -c 'sh /artifact/install.sh && /tmp/wf-bin/wf issue:cowsay'
+   ```
+
+   Build and test with the same chip type as your Docker host (arm64 on Apple Silicon).
+
+6. Clean up the temporary folder: `rm -rf "$WORK"`.
+
+#### Run the tests
+
+```bash
+yarn test          # unit tests, including the SEA-specific specs
+yarn typecheck
+yarn lint
+```
+
+The unit tests for this feature are:
+
+| Spec | What it covers |
+|------|----------------|
+| `src/common/utils/runtime-assets.spec.ts`, `runtime-assets.extract.spec.ts` | Reading embedded files, and extracting them with the right permissions |
+| `src/common/utils/git-shim-path.spec.ts` | Extracting the git shim, and carrying on without it if that fails |
+| `src/integrations/ai/adapters/anthropic-agent.adapter.spec.ts` | The `claude` lookup and its error messages |
+| `src/integrations/ai/adapters/locate-claude-executable.spec.ts` | Finding `claude` and `node` on `PATH` |
+| `src/integrations/ai/adapters/claude-cli-runner.sea.spec.ts` | The extracted `no-mcp.json` path passed to `claude` |
+| `src/config/wf-config-loader.sea.spec.ts`, `wf-config-loader.sea-missing-jiti.spec.ts` | Loading `wf.config.ts` with the built-in `jiti` |
+| `src/skills/sea-config.spec.ts` | Every skill is listed in `scripts/sea/sea-config.json` |
+
+The binary itself is tested with manual smoke tests. Build it first with `yarn build:sea`, then run one test at a time:
+
+```bash
+yarn test:manual sea-binary-runs-without-repo-or-node.smoke
+yarn test:manual sea-binary-ts-config-bundled-jiti.smoke
+yarn test:manual sea-binary-cli-backend-extracts-shim-and-mcp-config.smoke
+yarn test:manual sea-binary-agent-sdk-requires-claude-on-path.smoke
+```
+
+#### Publish a release
+
+The release workflow is in `.github/workflows/release.yml`. It has three jobs:
+
+1. `build` runs once for each of `darwin-arm64`, `darwin-x64`, `linux-x64` and `linux-arm64`. It runs the tests, builds the binary, runs `yarn smoke:binary`, packs the tarball and uploads it.
+2. `verify-install` downloads each tarball on a clean machine and runs `install.sh` against it. It also runs the bad-checksum and unsupported-chip checks, and installs in a bare `ubuntu:22.04` container on Linux.
+3. `publish` runs only for a tag. It writes `SHA256SUMS` and creates the GitHub release. It is the only job allowed to write.
+
+If `build` or `verify-install` fails, nothing is published.
+
+Steps:
+
+1. Commit and push your work to `master`. Include the `dist-bundle/` line in `.gitignore`.
+2. Do a dry run. In GitHub, open Actions, choose Release, and click Run workflow. This builds and checks everything and publishes nothing. Fix any red job first.
+3. Set the version in `package.json` to the version you want to release, for example `0.1.0-rc.1` for a test release. Commit and push. The workflow stops a tag build if the tag does not match the `package.json` version.
+4. Create and push the tag. A tag with `-rc` in it is published as a pre-release:
+
+   ```bash
+   git tag v0.1.0-rc.1
+   git push origin v0.1.0-rc.1
+   ```
+
+5. Wait for the workflow to finish. On the release page, check that you see four `.tar.gz` files, `SHA256SUMS` and `install.sh`.
+6. On a second machine, install the pre-release with the tag-named command in the examples above. Run `wf --help` and `wf issue:cowsay`. On macOS, check that it opens without a warning.
+7. For the real release, set `"version": "0.1.0"` in `package.json`, commit and push, then tag and push:
+
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+
+If a tag build fails, fix the problem, delete the tag (`git tag -d v0.1.0` and `git push origin :refs/tags/v0.1.0`), and tag again. Delete a half-created release on GitHub first.
+
+Not yet checked: a run of the workflow on GitHub itself, the `macos-15-intel` and `ubuntu-22.04-arm` runners being available to this repository, and a real Agent SDK stage run through the binary. Try these during the dry run and the pre-release.
 
 ## Configuration
 
@@ -279,6 +477,7 @@ When a plan includes `targeted` verification steps whose `id` matches a baseline
 - Bun and Deno support TypeScript config files natively.
 - Node.js supports TypeScript configs natively on `>= 22.13.0` when started with `--experimental-strip-types`.
 - Otherwise install `jiti@>=2.2.0` in the consumer project. `wf` does not install it for you.
+- The standalone binary bundles its own `jiti`, so `wf.config.ts` loads there without installing anything in the consumer project.
 
 ```bash
 yarn add --dev jiti
@@ -1944,8 +2143,8 @@ yarn install
 # Build the project (compiles TypeScript to dist/)
 yarn build
 
-# Link globally so the `wf` command is available system-wide
-npm link
+# Build and smoke-test the standalone binary (dist-bundle/wf)
+yarn build:sea && yarn smoke:binary
 ```
 
 ### Development Workflow
