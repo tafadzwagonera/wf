@@ -511,6 +511,8 @@ yarn add --dev jiti
 node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 ```
 
+**⚠ Self-import pitfall (wf repository only):** inside the wf repository itself, `wf.config.ts` must import `defineConfig` relatively (`import { defineConfig } from './src/config/public-config'`), not as `import { defineConfig } from 'wf/config'`. The package spelling is a self-reference there: `tsc --noEmit` resolves it through this package's own `exports` map to a `dist/` declaration file, cannot map that output back to a source file, and fails with `TS2209: The project root is ambiguous`. Consumer projects that depend on wf are unaffected and should keep using `'wf/config'`.
+
 ### JavaScript Config Module Formats
 
 - `wf.config.js` supports both `module.exports = { ... }` and `export default { ... }`.
