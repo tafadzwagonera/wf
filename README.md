@@ -569,15 +569,51 @@ node --experimental-strip-types ./node_modules/.bin/wf issue:fetch WBP-2971
 **BitBucket API Token** (for BitBucket tracker support):
 
 - Go to: BitBucket Settings → Personal Settings → App passwords → API tokens
-- Create a new token with required scopes:
-  - `repository:read` - Read repository data
-  - `issue:read` - Read issues
-  - `issue:write` - Create and update issues
-  - `pullrequest:read` - Read pull requests
+- Create a new token with the scopes listed in [Token Scopes](#token-scopes)
 - Copy the generated token
 - Set `atlassian.bitbucket.apiToken` and `atlassian.bitbucket.workspace` in `wf.config.*`
 
 **⚠ Note:** BitBucket app passwords were deprecated on September 9, 2025. Only API tokens are supported.
+
+### Token Scopes
+
+Reference for recreating each token with the same access level. The minimal sets below are derived from the API calls wf actually makes (`src/integrations/jira/jira.service.ts`, `src/integrations/issue-trackers/bitbucket/bitbucket-adapter.ts`, `src/integrations/slack/slack.service.ts`).
+
+**`ATLASSIAN_JIRA_API_TOKEN`** (scoped Atlassian API token, created at https://id.atlassian.com/manage-profile/security/api-tokens):
+
+- `read:jira-work` — fetch issues, list priorities, read create metadata, and search via `POST /rest/api/3/search/jql`
+- `write:jira-work` — create issues (`POST /rest/api/3/issue`) and update issue fields (`PUT /rest/api/3/issue/{key}`)
+- `read:jira-user` — read user fields (assignee, reporter) returned on issues and set `assignee.accountId` on create/update
+
+Scoped tokens still inherit the account's Jira project permissions, so the account needs Browse, Create, and Edit issue permissions on the target projects.
+
+**`ATLASSIAN_BITBUCKET_API_TOKEN`** (scoped Atlassian API token):
+
+- `read:issue:bitbucket` — get, list, and search issues
+- `write:issue:bitbucket` — create and update issues, post issue comments
+- `read:pullrequest:bitbucket` — list pull requests by branch/title and fetch PR diffs
+- `write:pullrequest:bitbucket` — post PR comments, including inline review comments
+
+**`SLACK_BOT_TOKEN` / `SLACK_USER_TOKEN`** (Slack app OAuth scopes, configured at https://app.slack.com/app-settings → OAuth & Permissions):
+
+Both tokens are only used for read-only `conversations.history` and `conversations.replies` calls.
+
+Bot Token Scopes:
+
+- `channels:history` — view messages in public channels the bot has been added to
+- `channels:read` — view basic information about public channels in the workspace
+- `groups:history` — view messages in private channels the bot has been added to
+- `im:history` — view messages in direct messages the bot has been added to
+- `mpim:history` — view messages in group direct messages the bot has been added to
+
+User Token Scopes:
+
+- `channels:history` — view messages in the user's public channels
+- `groups:history` — view messages in the user's private channels
+- `im:history` — view messages in the user's direct messages
+- `mpim:history` — view messages in the user's group direct messages
+
+The bot token is tried first and must be a member of any channel it reads (`/invite @<bot-name>`); the user token is the fallback for DMs/private conversations the bot cannot see. After changing scopes, reinstall the Slack app for them to take effect.
 
 ## Usage
 
