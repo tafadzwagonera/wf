@@ -181,6 +181,12 @@ describe('planStepPrinciples', () => {
     expect(planStepPrinciples).not.toContain('stepIntents');
   });
 
+  it('instructs the planner to consolidate related state into a single data structure', () => {
+    expect(planStepPrinciples).toContain('consolidate');
+    expect(planStepPrinciples).toContain('impossible states');
+    expect(planStepPrinciples).toContain('concrete justification');
+  });
+
   it('requires a call assertion for mocked collaborators', () => {
     expect(planStepPrinciples).toContain(
       '   - Each test step states its observable assertion; when a collaborator is mocked, also assert after the act\n'

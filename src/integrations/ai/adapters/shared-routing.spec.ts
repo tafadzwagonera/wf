@@ -137,6 +137,15 @@ describe('buildPlanContext', () => {
     expect(rules).toContain('delete it');
   });
 
+  it('tells the implementer to consolidate related state into a single data structure', () => {
+    const rules = buildImplementerRulesSection({
+      read: 'Read', write: 'Write', edit: 'Edit', search: 'Grep', glob: 'Glob', verify: 'Bash',
+    });
+    expect(rules).toContain('consolidate');
+    expect(rules).toContain('impossible states');
+    expect(rules).toContain('concrete justification');
+  });
+
   it('inlines skillFragment content when provided', () => {
     const result = buildPlanContext({
       ...baseParams,

@@ -68,7 +68,14 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      step that it was called and with what arguments (extends the strongest-viable-positive-check rule above).
    - Each entry in \`steps\` is an object with a \`description\` and an optional \`intent\`. Add an \`intent\`
      only when the step prescribes a literal (a call chain, signature, regex, or test name), stated as a goal
-     checkable from the diff. Omit \`intent\` for every other step.`;
+     checkable from the diff. Omit \`intent\` for every other step.
+   - When a step would add a new field, flag, or parameter that tracks the same real-world state as an
+     existing one (e.g. a parallel array that must stay index-aligned with another, a boolean that is only
+     ever meaningful alongside a specific enum value, two fields that must be kept in sync by convention),
+     consolidate them into one data structure instead — judge whether the split makes impossible states
+     representable, not just whether it compiles. State a concrete justification (a
+     genuine format-compatibility or performance constraint) before proposing or keeping separate
+     representations of what is really one piece of state.`;
 
 export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not

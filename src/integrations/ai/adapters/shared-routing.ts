@@ -399,6 +399,14 @@ export type ImplementerToolNames = {
   verify: string;
 };
 
+const consolidateStateRule = 'When implementing a step calls for a new field, flag, or parameter that tracks the '
+  + 'same real-world state as an existing one (e.g. a parallel array that must stay index-aligned with another, a '
+  + 'boolean only meaningful alongside a specific enum value, two values that must be kept in sync by convention), '
+  + 'consolidate them into one data structure instead — judge whether the split makes impossible states '
+  + 'representable, not just whether it compiles. State a concrete justification (a genuine format-compatibility '
+  + 'or performance constraint) before introducing or preserving separate representations of what is really one '
+  + 'piece of state.';
+
 const buildImplementerEditingRuleLines = (t: ImplementerToolNames): string[] => [
   'Respond exclusively with tool calls — text without a tool call terminates the run. The only exception is the final summary (template below), output after all work and verification passes.',
   `Use ${t.edit} for existing files and ${t.write} only for new files — writing a full file wastes context on unchanged lines.`,
@@ -410,6 +418,7 @@ const buildImplementerEditingRuleLines = (t: ImplementerToolNames): string[] => 
   'Modify existing functions in place rather than duplicating them — this applies to constructors, methods, and standalone functions.',
   'Fix lint violations in every file you touch rather than suppressing them with eslint-disable comments — suppression masks real problems.',
   'If you need to create a file not listed in "Files to implement", first check whether any verification command contains an inline allowlist of file paths. If it does, the new file must not cause that check to fail. Creating an unplanned file that is caught by a verification grep or assertion will block you — the verification whitelist is frozen and cannot be changed during this session.',
+  consolidateStateRule,
 ];
 
 const buildImplementerCompletionRuleLines = (t: ImplementerToolNames): string[] => [
