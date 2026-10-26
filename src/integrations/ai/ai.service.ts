@@ -19,6 +19,8 @@ import {
   isDocsOnlyChangeset,
   declaresDocsOnlyType,
   extractConventionalType,
+  collectConventionalScopes,
+  buildKnownScopesLine,
 } from '../../common/utils/commit-diff-stat';
 import { postProcessCodeReview } from '../../review/code-review-post-processing';
 import chalk from 'chalk';
@@ -907,12 +909,18 @@ const buildCommitPrompt = (
   ticketContext?: string,
   correction?: string
 ): string => {
-  const ticketContextSection = ticketContext ? `Ticket context: ${ticketContext}\n\n` : '';
   const { statSummary, diffExcerpt } = buildDiffContextSections(diff);
   const principles = buildCommitPromptPrinciples(detectedFormat, correction);
-  return `\n${ticketContextSection}${statSummary}Git Diff:\n\`\`\`\n${diffExcerpt}\n\`\`\`\n\nRecent Commit History:\n`
-    + `${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\n${principles}`
+  const knownScopesSection = buildKnownScopesSection(detectedFormat, commitHistory);
+  return `\n${ticketContext ? `Ticket context: ${ticketContext}\n\n` : ''}${statSummary}Git Diff:\n\`\`\`\n${diffExcerpt}\n\`\`\`\n\nRecent Commit History:\n`
+    + `${commitHistory.slice(0, 5).join('\n')}\n\n${formatInstructions}\n\n${knownScopesSection}${principles}`
     + '\n\nReturn ONLY the commit message description, nothing else.';
+};
+
+const buildKnownScopesSection = (detectedFormat: 'conventional' | 'freeform', commitHistory: string[]): string => {
+  if (detectedFormat !== 'conventional') return '';
+  const line = buildKnownScopesLine(collectConventionalScopes(commitHistory));
+  return line ? `${line}\n\n` : '';
 };
 
 const buildDiffContextSections = (diff: string): { statSummary: string; diffExcerpt: string } => {

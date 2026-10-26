@@ -6,6 +6,7 @@ export interface DiffFileStat {
 const FILE_HEADER_PATTERN = /^diff --git a\/(.+?) b\/(.+)$/;
 const DOCS_ONLY_FILE_PATTERN = /(^|\/)README(\..+)?$|(^|\/)docs\/|\.md$/i;
 const CONVENTIONAL_TYPE_PATTERN = /^(?:[A-Z][A-Z0-9]*-\d+:\s*)?([a-z]+)(?:\([^)]+\))?:/;
+const CONVENTIONAL_SCOPE_PATTERN = /^(?:[A-Z][A-Z0-9]*-\d+:\s*)?[a-z]+\(([^)]+)\):/;
 const docsOnlyCommitTypes = new Set(['docs', 'style', 'chore']);
 
 export const splitDiffIntoFileSections = (diff: string): Map<string, string> => {
@@ -142,3 +143,21 @@ export const declaresDocsOnlyType = (message: string): boolean => {
   const type = extractConventionalType(message);
   return type !== null && docsOnlyCommitTypes.has(type);
 };
+
+export const extractConventionalScope = (message: string): string | null =>
+  CONVENTIONAL_SCOPE_PATTERN.exec(message.trim())?.[1]?.toLowerCase() ?? null;
+
+export const collectConventionalScopes = (messages: string[]): string[] => {
+  const scopes = new Set<string>();
+  for (const message of messages) {
+    const scope = extractConventionalScope(message);
+    if (scope) scopes.add(scope);
+  }
+  return Array.from(scopes).sort((a, b) => a.localeCompare(b));
+};
+
+export const buildKnownScopesLine = (scopes: string[]): string =>
+  scopes.length > 0
+    ? `Scopes already used in this repo's history: ${scopes.join(', ')}. `
+    + 'Reuse one of these when the change fits; introduce a new scope only if none do.'
+    : '';

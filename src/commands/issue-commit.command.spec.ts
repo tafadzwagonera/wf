@@ -86,6 +86,7 @@ const setInteractiveSession = (isTTY: boolean): void => {
 const mockGitService = {
   isGitRepository: jest.fn().mockResolvedValue(true),
   getDiff: jest.fn().mockResolvedValue('diff --git a/file b/file'),
+  getRecentCommits: jest.fn().mockResolvedValue([]),
   commit: jest.fn().mockResolvedValue('abc123'),
   getBranchInfo: jest.fn().mockResolvedValue({
     current: 'feature/WBP-123-change',
@@ -645,6 +646,33 @@ describe('IssueCommitCommand', () => {
       const meta = Reflect.getMetadata(OptionMeta, IssueCommitCommand.prototype.parseConventional);
 
       expect(meta.flags).toBe('--conventional');
+    });
+  });
+
+  describe('known-scope surfacing', () => {
+    it('fetches recent commit history to surface known scopes when --conventional is passed', async () => {
+      mockGitService.getRecentCommits.mockResolvedValueOnce([
+        { hash: 'a', message: 'feat(ai): add stage routing', author: 'x', date: new Date(0) },
+        { hash: 'b', message: 'fix(cli): correct help output', author: 'x', date: new Date(0) },
+      ]);
+      const { command, commitStageService } = await buildCommand();
+
+      await command.run([], { ticketKey: 'WBP-123', conventional: true });
+
+      expect(mockGitService.getRecentCommits).toHaveBeenCalledWith(expect.any(Number), '/tmp/current-app');
+      expect(commitStageService.generateCommitMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recentCommitMessages: ['feat(ai): add stage routing', 'fix(cli): correct help output'],
+        })
+      );
+    });
+
+    it('does not fetch recent commit history when --conventional is not passed', async () => {
+      const { command } = await buildCommand();
+
+      await command.run([], { ticketKey: 'WBP-123' });
+
+      expect(mockGitService.getRecentCommits).not.toHaveBeenCalled();
     });
   });
 });

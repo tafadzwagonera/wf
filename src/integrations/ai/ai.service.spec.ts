@@ -949,6 +949,37 @@ describe('AiService', () => {
       const prompt = adapter.execute.mock.calls[0][0].prompt;
       expect(prompt).toContain('Use "feat" only when the change introduces new behavior');
     });
+
+    it('surfaces scopes used anywhere in commit history, not just the displayed excerpt', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({ content: 'fix(review): isolate verification in a worktree' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+      const commitHistory = [
+        'feat(ai): add stage routing',
+        'fix(cli): correct help output',
+        'docs(readme): update usage',
+        'test(review): cover edge case',
+        'refactor(plan): simplify builder',
+        'chore(deps): bump lodash',
+        'feat(config): add new field',
+      ];
+
+      await service.generateCommitMessage(nonDocsDiff, commitHistory, 'conventional');
+
+      const prompt = adapter.execute.mock.calls[0][0].prompt;
+      expect(prompt).toContain("Scopes already used in this repo's history: ai, cli, config, deps, plan, readme, review");
+    });
+
+    it('omits the known-scopes line when no commit history declares a scope', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({ content: 'fix(review): isolate verification in a worktree' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generateCommitMessage(nonDocsDiff, [], 'conventional');
+
+      const prompt = adapter.execute.mock.calls[0][0].prompt;
+      expect(prompt).not.toContain('Scopes already used');
+    });
   });
 
   describe('reviewCode trace validation', () => {

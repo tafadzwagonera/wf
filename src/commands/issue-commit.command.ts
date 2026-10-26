@@ -41,6 +41,7 @@ interface IssueCommitOptions {
   silent?: boolean;
   source?: string;
 }
+const RECENT_COMMITS_FOR_SCOPE_SURFACE = 30;
 const warnOnIgnoredRepos = (repos?: string[]): void => {
   if ((repos?.length ?? 0) > 1) {
     console.log(
@@ -258,13 +259,21 @@ export class IssueCommitCommand extends CommandRunner {
     console.log(chalk.cyan('🤖 Generating commit message with AI...\n'));
 
     const scopeSummary = await this.resolveScopeSummary({ diff, ticketKey, repoBaseDir, options });
+    const recentCommitMessages = options?.conventional
+      ? await this.resolveRecentCommitMessages(repoBaseDir)
+      : undefined;
     const msg = await this.commitStageService.generateCommitMessage({
-      diff, ticketKey: ticketKey || undefined, conventional: options?.conventional, scopeSummary,
+      diff, ticketKey: ticketKey || undefined, conventional: options?.conventional, scopeSummary, recentCommitMessages,
     });
     console.log(chalk.green('✔ Generated commit message:\n'));
     console.log(chalk.bold.cyan(this.indentMessage(msg)));
     console.log();
     return msg;
+  }
+
+  private async resolveRecentCommitMessages(repoBaseDir: string): Promise<string[]> {
+    const commits = await this.gitService.getRecentCommits(RECENT_COMMITS_FOR_SCOPE_SURFACE, repoBaseDir);
+    return commits.map(c => c.message);
   }
 
   private async resolveScopeSummary(

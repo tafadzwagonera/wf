@@ -7,6 +7,8 @@ import {
   isDocsOnlyChangeset,
   declaresDocsOnlyType,
   extractConventionalType,
+  collectConventionalScopes,
+  buildKnownScopesLine,
 } from '../../common/utils/commit-diff-stat';
 
 const STANDALONE_DIFF_EXCERPT_MAX_CHARS = 3000;
@@ -18,6 +20,7 @@ interface GenerateCommitMessageOptions {
   commitHistory?: string[];
   ticketContext?: string;
   scopeSummary?: string; // Consumed only by standalone prompt path; enriched path uses ticketContext
+  recentCommitMessages?: string[]; // Consumed only by standalone prompt path, to surface known scopes
 }
 
 @Injectable()
@@ -43,6 +46,7 @@ export class CommitStageService {
     ticketKey?: string;
     conventional?: boolean;
     scopeSummary?: string;
+    recentCommitMessages?: string[];
   }): Promise<string> {
     const first = await this.executeStandalonePrompt(options);
     const stats = parseDiffFileStats(options.diff);
@@ -56,6 +60,7 @@ export class CommitStageService {
     ticketKey?: string;
     conventional?: boolean;
     scopeSummary?: string;
+    recentCommitMessages?: string[];
     correction?: string;
   }): Promise<string> {
     const prompt = this.buildCommitPrompt(options);
@@ -80,12 +85,14 @@ export class CommitStageService {
     ticketKey?: string;
     conventional?: boolean;
     scopeSummary?: string;
+    recentCommitMessages?: string[];
     correction?: string;
   }): string {
     let prompt = 'Generate a concise, informative git commit message for the following changes.\n\n';
     if (options.conventional) prompt += 'Use conventional commits format: <type>(<scope>): <description>\nTypes: feat, fix, docs, style, refactor, test, chore\n\n';
     if (options.ticketKey) prompt += `Related ticket: ${options.ticketKey}\n\n`;
     if (options.scopeSummary) prompt += `Known scope of this change (from prior review/plan): ${options.scopeSummary}\n\n`;
+    prompt += buildKnownScopesSection(options.conventional, options.recentCommitMessages);
     return prompt + this.buildStandaloneGuidelines(options.diff, options.conventional, options.correction);
   }
 
@@ -101,6 +108,12 @@ export class CommitStageService {
 
 const stripCodeFences = (message: string): string =>
   message.trim().replaceAll(/```[a-z]*\n?/g, '').replaceAll('```', '').trim();
+
+const buildKnownScopesSection = (conventional?: boolean, recentCommitMessages?: string[]): string => {
+  if (!conventional) return '';
+  const line = buildKnownScopesLine(collectConventionalScopes(recentCommitMessages ?? []));
+  return line ? `${line}\n\n` : '';
+};
 
 const buildConciseExampleBullet = (conventional?: boolean): string =>
   conventional

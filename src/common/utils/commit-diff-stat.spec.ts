@@ -6,6 +6,9 @@ import {
   extractConventionalType,
   declaresDocsOnlyType,
   splitDiffIntoFileSections,
+  extractConventionalScope,
+  collectConventionalScopes,
+  buildKnownScopesLine,
 } from './commit-diff-stat';
 
 const buildDiff = (files: { path: string; addedLines: number }[]): string =>
@@ -196,5 +199,51 @@ describe('declaresDocsOnlyType', () => {
 
   it('returns false for freeform messages', () => {
     expect(declaresDocsOnlyType('Restore login redirect after callback')).toBe(false);
+  });
+});
+
+describe('extractConventionalScope', () => {
+  it('extracts the scope from a type(scope): message', () => {
+    expect(extractConventionalScope('fix(auth): restore login redirect')).toBe('auth');
+  });
+
+  it('extracts the scope from a ticket-prefixed message with a colon inside the scope', () => {
+    expect(extractConventionalScope('WBP-123: docs(issue:review): document the thing')).toBe('issue:review');
+  });
+
+  it('returns null when the message has no scope', () => {
+    expect(extractConventionalScope('fix: restore login redirect')).toBeNull();
+  });
+
+  it('returns null for a freeform message', () => {
+    expect(extractConventionalScope('Restore login redirect after callback')).toBeNull();
+  });
+});
+
+describe('collectConventionalScopes', () => {
+  it('returns the distinct scopes used across messages, sorted alphabetically', () => {
+    const messages = [
+      'fix(auth): restore login redirect',
+      'feat(review): add findings export',
+      'docs(auth): document the flow',
+    ];
+    expect(collectConventionalScopes(messages)).toEqual(['auth', 'review']);
+  });
+
+  it('ignores messages with no scope', () => {
+    expect(collectConventionalScopes(['chore: bump deps', 'Restore login redirect'])).toEqual([]);
+  });
+});
+
+describe('buildKnownScopesLine', () => {
+  it('lists the known scopes and instructs reuse over invention', () => {
+    expect(buildKnownScopesLine(['auth', 'review'])).toBe(
+      "Scopes already used in this repo's history: auth, review. "
+      + 'Reuse one of these when the change fits; introduce a new scope only if none do.'
+    );
+  });
+
+  it('returns an empty string when no scopes are known', () => {
+    expect(buildKnownScopesLine([])).toBe('');
   });
 });

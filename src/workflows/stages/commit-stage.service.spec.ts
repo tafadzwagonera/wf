@@ -61,6 +61,35 @@ describe('CommitStageService', () => {
     expect(prompt).toContain('Use "feat" only when the change introduces new behavior');
   });
 
+  it('surfaces scopes used in recent standalone commit history', async () => {
+    const { service, aiService } = await buildService();
+    const execute = aiService.execute as jest.Mock;
+
+    await service.generateCommitMessage({
+      diff: 'diff --git a/file b/file',
+      ticketKey: 'WBP-123',
+      conventional: true,
+      recentCommitMessages: ['feat(ai): add stage routing', 'fix(cli): correct help output'],
+    });
+
+    const prompt = execute.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain("Scopes already used in this repo's history: ai, cli");
+  });
+
+  it('omits the known-scopes line when no recent commit history is supplied', async () => {
+    const { service, aiService } = await buildService();
+    const execute = aiService.execute as jest.Mock;
+
+    await service.generateCommitMessage({
+      diff: 'diff --git a/file b/file',
+      ticketKey: 'WBP-123',
+      conventional: true,
+    });
+
+    const prompt = execute.mock.calls[0][0].prompt as string;
+    expect(prompt).not.toContain('Scopes already used');
+  });
+
   it('omits conventional-format examples and instructions when --conventional is not requested', async () => {
     const { service, aiService } = await buildService();
     const execute = aiService.execute as jest.Mock;
