@@ -17,7 +17,12 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 ## Table of Contents
 
 - [Installation](#installation)
-  - [Release](#release)
+- [Release](#release)
+  - [Install a released binary](#install-a-released-binary)
+  - [Test the install locally](#test-the-install-locally)
+  - [Run the tests](#run-the-tests)
+  - [Publish a release](#publish-a-release)
+  - [Hold a release candidate before promoting](#hold-a-release-candidate-before-promoting)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Commands](#commands)
@@ -53,11 +58,11 @@ The installer downloads the binary for your OS and architecture (macOS arm64/x64
 
 Agent SDK stages in the binary run through your installed Claude Code CLI, so a native `claude` must be on `PATH`. If it is missing, or it is a script and `node` is not on `PATH`, the stage fails with an error that says so.
 
-### Release
+## Release
 
 This section explains how to install a released `wf` binary, how to test that install on your own machine, and how to publish a new release. The binary is one file. It does not need Node.js, Yarn or `node_modules`.
 
-#### Install a released binary
+### Install a released binary
 
 1. Open a terminal on macOS or Ubuntu.
 2. Run the install command:
@@ -109,28 +114,24 @@ Things to know:
 - If macOS blocks a downloaded binary, run `xattr -d com.apple.quarantine ~/.local/bin/wf`. Files fetched with `curl` are normally not blocked.
 - If `which wf` still shows an older `wf` (for example a development copy linked into the nvm folder), that one comes first on your `PATH`. Run `npm unlink -g wf` and then `hash -r`, or put `~/.local/bin` earlier in `PATH`.
 
-#### Test the install locally
+### Test the install locally
 
 Do these steps before you publish. They run the same checks as the release workflow, on your machine. You need Node.js and Yarn for this part.
 
-Quick check: use your local binary as your `wf` command. Run `yarn build:sea` first, then:
+Quick check: use your local binary as your `wf` command:
 
 ```bash
-rm ~/.local/bin/wf 2>/dev/null
-cp dist-bundle/wf ~/.local/bin/wf
+yarn release:local
 npm unlink -g wf
-hash -r
 which wf
 ```
 
 What each line does:
-- `rm ~/.local/bin/wf 2>/dev/null` removes an older copy of the binary. It prints nothing if there is none.
-- `cp dist-bundle/wf ~/.local/bin/wf` puts your new binary in the install folder.
+- `yarn release:local` builds the binary, copies it to `~/.local/bin/wf` (or `$WF_INSTALL_DIR/wf` if set), and runs `wf issue:cowsay`. It then prints a `hash -r` reminder to run in your shell.
 - `npm unlink -g wf` removes a global development copy of `wf` that would otherwise come first on your `PATH`. Skip this line if you want to keep that copy.
-- `hash -r` makes your shell forget the old `wf` location.
 - `which wf` should print `$HOME/.local/bin/wf`. If it prints another path, that folder comes earlier in `PATH`.
 
-Then run `wf issue:cowsay` to confirm. This only tests the binary. The full steps below also test the installer and the checksum check.
+This only tests the binary. The full steps below also test the installer and the checksum check.
 
 
 1. Build the binary:
@@ -190,7 +191,7 @@ Then run `wf issue:cowsay` to confirm. This only tests the binary. The full step
 
 6. Clean up the temporary folder: `rm -rf "$WORK"`.
 
-#### Run the tests
+### Run the tests
 
 ```bash
 yarn test          # unit tests, including the SEA-specific specs
@@ -219,7 +220,7 @@ yarn test:manual sea-binary-cli-backend-extracts-shim-and-mcp-config.smoke
 yarn test:manual sea-binary-agent-sdk-requires-claude-on-path.smoke
 ```
 
-#### Publish a release
+### Publish a release
 
 The release workflow is in `.github/workflows/release.yml`. It has three jobs:
 
@@ -233,13 +234,11 @@ Steps:
 
 1. Commit and push your work to `master`. Include the `dist-bundle/` line in `.gitignore`.
 2. Do a dry run. In GitHub, open Actions, choose Release, and click Run workflow. This builds and checks everything and publishes nothing. All `build` and `verify-install` jobs must be green. `publish` shows as skipped, which is correct for a manual run.
-3. Set the version in `package.json` to the version you want to release, for example `0.1.0-rc.1` for a test release. Commit and push. The workflow stops a tag build if the tag does not match the `package.json` version.
-4. Create the tag, then push the commit and the tag, in that order. A tag with `-rc` in it is published as a pre-release. Pushing the tag starts the real release workflow, so only do it when you mean it:
+3. Bump the version, commit and tag in one step. For a test release run `yarn release --prerelease rc`. The workflow stops a tag build if the tag does not match the `package.json` version, and this command keeps them in step.
+4. Push the commit and the tag. A tag with `-rc` in it is published as a pre-release. Pushing the tag starts the real release workflow, so only do it when you mean it:
 
    ```bash
-   git tag v0.1.0-rc.1
-   git push origin master
-   git push origin v0.1.0-rc.1
+   git push --follow-tags origin master
    ```
 
 5. Watch the run until it finishes. It takes about 5 minutes. Use the Actions tab, or:
@@ -264,19 +263,44 @@ Steps:
    `wf issue:cowsay` should print `wf v0.1.0-rc.1 is installed and working!`. This also proves the repository is public, because `curl` sends no token.
 8. On macOS, check that the binary opens without a Gatekeeper warning. If it is blocked, run `xattr -d com.apple.quarantine ~/.local/bin/wf`, or look into Apple notarization.
 9. Run one real Agent SDK stage with the installed binary. Use a stage with `backend: 'agent'` and a real `claude` on your `PATH`. No automated test covers this.
-10. For the real release, set `"version": "0.1.0"` in `package.json`, commit and push, then tag and push:
+10. For the real release, run `yarn release` (or `yarn release --release-as X.Y.Z`), then push the commit and tag:
 
     ```bash
-    git tag v0.1.0
-    git push origin master
-    git push origin v0.1.0
+    git push --follow-tags origin master
     ```
 
-    After this, the plain install command at the top of this section works.
+    After this, the plain install command in the Installation section works.
 
-If a tag build fails, fix the problem and push the fix. Then delete the tag locally and on GitHub (`git tag -d v0.1.0-rc.1` and `git push origin :refs/tags/v0.1.0-rc.1`) and create it again on the fixed commit. If a half-created release exists on GitHub, delete it first.
+Version bump rules before `1.0.0`:
+- A `feat:` commit gives a patch bump, and a `BREAKING CHANGE:` footer gives a minor bump. `1.0.0` only comes from `yarn release --release-as 1.0.0`.
+- `feat!:` is rejected by the lefthook commit-msg regex, so mark breaking changes with a `BREAKING CHANGE:` footer.
+- Run `yarn release` from a clean working tree.
+- The pre-push hook reruns `yarn test:ci` when you push.
+
+If a tag build fails, fix the problem and push the fix. If a half-created release exists on GitHub, delete it first. Then pick one path:
+- Preferred: run `yarn release` on the fixed commit to cut a new, higher version. No tag is deleted.
+- Reuse the number: delete the tag locally and on GitHub (`git tag -d vX.Y.Z` and `git push origin :refs/tags/vX.Y.Z`). Keep the same `package.json` version on the fix commit, then re-tag by hand with `git tag vX.Y.Z && git push origin vX.Y.Z`. Do not rerun `yarn release` here, because it would bump the version again instead of recreating the tag.
 
 Checked so far: a manual dry run of the workflow passed on all four targets, so the `macos-15-intel` and `ubuntu-22.04-arm` runners are available to this repository. Not yet checked: a real Agent SDK stage run through the binary (step 9), and the Gatekeeper behaviour on a downloaded binary (step 8).
+
+### Hold a release candidate before promoting
+
+Use this when a release candidate such as `0.1.0-rc.2` should run for a while before you release `0.1.0`. The plain install command skips pre-releases, so only people who name the tag get the candidate. Check `git tag` first to see which candidates already exist.
+
+Pick one option:
+
+1. Wait on the current candidate. Leave `package.json` at `0.1.0-rc.2` and keep working on `master`. When you are ready, run `yarn release`. It turns `0.1.0-rc.2` into `0.1.0`. Then run `git push --follow-tags origin master`.
+2. Ship more candidates while you wait. After fixes, run `yarn release --prerelease rc`. This gives `0.1.0-rc.3`, then `rc.4`, and so on. Push each one with `git push --follow-tags origin master`. The workflow publishes each as a pre-release because the tag contains `-rc`.
+3. Choose the version yourself. `yarn release --release-as 0.1.0` forces `0.1.0`, the same result as option 1. Use `--release-as 0.2.0` if the next release should skip `0.1.0`.
+
+Things to know:
+- `HEAD` is the latest commit on your current branch. `yarn release` puts the new version tag on that commit.
+- Example: you cut `0.1.0-rc.2`, test it for a week, and merge three more commits to `master` in that time. If you then run `yarn release`, `0.1.0` includes those three commits. The candidate testing did not cover them.
+- To avoid this, pick one:
+  - Release from the candidate commit. Check out the commit tagged `v0.1.0-rc.2` and run `yarn release` there. The release commit and tag then sit off `master`, so sort out the branch before you push. This flow is untested.
+  - Ship another candidate first. Run `yarn release --prerelease rc` to cut `0.1.0-rc.3` with the new commits in it. Test it, then promote it.
+- If you merge nothing after the candidate, none of this applies. `HEAD` is the candidate commit.
+- Run `yarn release` from a clean working tree in every case.
 
 ## Configuration
 

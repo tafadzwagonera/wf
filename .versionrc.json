@@ -1,0 +1,4 @@
+{
+  "skip": { "changelog": true },
+  "releaseCommitMessageFormat": "chore(release): Set version to {{currentTag}}"
+}

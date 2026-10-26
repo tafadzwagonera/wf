@@ -55,6 +55,8 @@
     "test:manual": "ts-node -r tsconfig-paths/register run-manual-test.ts",
     "test:smoke:check": "ts-node -r tsconfig-paths/register scripts/check-smoke-tests.ts",
     "build:sea": "yarn build && ts-node -r tsconfig-paths/register scripts/sea/build-bundle.ts && sh scripts/sea/build-binary.sh",
+    "release": "commit-and-tag-version",
+    "release:local": "sh scripts/sea/release-local.sh",
     "smoke:binary": "sh scripts/sea/smoke-binary.sh dist-bundle/wf"
   },
   "dependencies": {
@@ -104,6 +106,7 @@
     "@types/marked": "^5.0.2",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "commit-and-tag-version": "^13.3.0",
     "esbuild": "^0.28.2",
     "eslint": "^9.18.0",
     "eslint-plugin-unicorn": "^72.0.0",
