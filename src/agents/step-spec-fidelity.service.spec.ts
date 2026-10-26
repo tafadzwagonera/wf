@@ -7,8 +7,12 @@ import { stripRepoNamePrefix } from './plan-step-verification.service';
 import { AiService } from '../integrations/ai/ai.service';
 import { GitService } from '../integrations/git/git.service';
 import { stepFidelityResponseJsonSchema } from '../common/schemas/step-spec-fidelity.schema';
+import { collectUntrackedFiles } from './untracked-files';
 
 jest.mock('../common/logger/log-file-writer', () => ({ appendToLogFile: jest.fn() }));
+jest.mock('./untracked-files', () => ({ collectUntrackedFiles: jest.fn() }));
+
+const mockCollectUntrackedFiles = collectUntrackedFiles as jest.MockedFunction<typeof collectUntrackedFiles>;
 
 const MOCK_DIFF = 'diff --git a/src/foo.ts b/src/foo.ts\n+const x = 1;';
 
@@ -19,6 +23,7 @@ describe('StepSpecFidelityService', () => {
 
   beforeEach(async () => {
     mockAiExecute = jest.fn();
+    mockCollectUntrackedFiles.mockResolvedValue([]);
     mockGitService = { getDiffFromRef: jest.fn().mockResolvedValue(MOCK_DIFF) };
     const module = await Test.createTestingModule({
       providers: [
@@ -229,6 +234,47 @@ describe('StepSpecFidelityService', () => {
       );
       const call = mockAiExecute.mock.calls[0][0];
       expect(call).not.toHaveProperty('backend');
+    });
+  });
+
+  describe('verifyAll() untracked evidence', () => {
+    const untrackedScript = {
+      path: 'scripts/sea/release-local.sh',
+      content: '#!/bin/sh\nset -eu\nyarn build:sea\n',
+    };
+
+    it('includes untracked file content in the fidelity prompt under a new-files heading', async () => {
+      mockCollectUntrackedFiles.mockResolvedValue([untrackedScript]);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+
+      await service.verifyAll([{ index: 1, text: 'Create scripts/sea/release-local.sh with set -eu' }], '/repo');
+
+      const prompt = mockAiExecute.mock.calls[0][0].prompt as string;
+      expect(prompt).toContain('scripts/sea/release-local.sh');
+      expect(prompt).toContain('set -eu');
+      expect(prompt).toContain('New untracked files');
+    });
+
+    it('runs the fidelity check when the diff is empty but untracked files exist', async () => {
+      mockGitService.getDiffFromRef.mockResolvedValue('');
+      mockCollectUntrackedFiles.mockResolvedValue([untrackedScript]);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+
+      const result = await service.verifyAll([{ index: 1, text: 'Create the release script' }], '/repo');
+
+      expect(mockAiExecute).toHaveBeenCalledTimes(1);
+      expect(result.failures).toEqual([]);
+    });
+
+    it('keeps the tracked diff alongside the untracked content', async () => {
+      mockCollectUntrackedFiles.mockResolvedValue([untrackedScript]);
+      mockAiExecute.mockResolvedValue({ content: '{"findings":[]}' });
+
+      await service.verifyAll([{ index: 1, text: 'Create the release script' }], '/repo');
+
+      const prompt = mockAiExecute.mock.calls[0][0].prompt as string;
+      expect(prompt).toContain('diff --git a/src/foo.ts b/src/foo.ts');
+      expect(prompt).toContain('yarn build:sea');
     });
   });
 

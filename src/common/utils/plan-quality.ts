@@ -111,6 +111,32 @@ const detectTestCallAssertionViolations = (
   return [createViolation(CALL_ASSERTION_RULE_ID, callAssertionViolationMessage(flaggedSteps))];
 };
 
+const SHELL_UNSAFE_RULE_ID = 'shell-unsafe-verification-command';
+const INLINE_DOUBLE_QUOTED_PATTERN = /^(?:bash|sh) -c "/;
+const UNESCAPED_DOLLAR_PATTERN = /(?:^|[^\\])\$/;
+
+const hasUnescapedDollarInDoubleQuotes = (command: string): boolean => {
+  const trimmed = command.trim();
+  if (!INLINE_DOUBLE_QUOTED_PATTERN.test(trimmed) || !trimmed.endsWith('"')) return false;
+  const payload = trimmed.slice(trimmed.indexOf('"') + 1, -1);
+  return UNESCAPED_DOLLAR_PATTERN.test(payload);
+};
+
+const shellUnsafeViolationMessage = (ids: string[]): string =>
+  `Verification command ${ids.join(', ')} wraps shell expansion in double quotes, so the outer shell expands `
+  + '`$(...)` and `$vars` before bash/sh runs and the command can never pass. '
+  + 'Use single quotes (`bash -c \'...\'`) or escape the dollars (`\\$`).';
+
+const detectShellUnsafeVerificationViolations = (
+  verification: ResolutionPlan['verification'] | undefined
+): PlanQualityViolation[] => {
+  const unsafeIds = (verification?.targeted ?? [])
+    .filter(entry => hasUnescapedDollarInDoubleQuotes(entry.run))
+    .map(entry => entry.id);
+  if (unsafeIds.length === 0) return [];
+  return [createViolation(SHELL_UNSAFE_RULE_ID, shellUnsafeViolationMessage(unsafeIds))];
+};
+
 const normalizeRepoLocalVerificationCommand = (command: string, affectedRepositories?: string[]): string => {
   const trimmed = command.trim();
   const cdPrefixMatch = REPO_LOCAL_CD_PREFIX_PATTERN.exec(trimmed);
@@ -464,6 +490,7 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
     ...detectRenameViolations(steps),
     ...detectNeedleSearchViolations(steps, params.plan.verification),
     ...detectTestCallAssertionViolations(steps, params.plan.verification),
+    ...detectShellUnsafeVerificationViolations(params.plan.verification),
     ...detectVerificationViolations(
       params.plan.verification, params.testInfra, params.affectedRepositories, params.packageManager
     ),

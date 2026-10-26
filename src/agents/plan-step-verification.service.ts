@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
@@ -18,7 +17,8 @@ import { mentionsPath } from '../common/utils/mentions-path';
 import type { WfAiProviderName, WfBackendMode, WfStepVerificationMode } from '../common/types/config.types';
 import { PullStepAssessorService, type PullStepAssessmentParams } from './pull-step-assessor.service';
 import type { AssessableStep } from './step-spec-fidelity.service';
-import { executeAsyncWithCatch, executeWithCatch } from '../common/utils/execute-with-catch';
+import { collectUntrackedFiles, type UntrackedFile } from './untracked-files';
+import { executeAsyncWithCatch } from '../common/utils/execute-with-catch';
 import type { VerificationOutcome } from '../common/types/agent.types';
 import type { CommitPolicy } from '../common/utils/implement-commit-policy';
 import {
@@ -39,7 +39,6 @@ export { EVIDENCE_CEILING_CHARS, EVIDENCE_FLOOR_CHARS } from './plan-step-eviden
 const execFileAsync = promisify(execFile);
 const FETCH_CEILING_CHARS = 3 * EVIDENCE_CEILING_CHARS;
 const OVERSIZE_PROMPT_CHARS = 300_000;
-const NUL_SNIFF_BYTES = 8_192;
 const GIT_MAX_BUFFER = 10 * 1024 * 1024;
 
 const countStatuses = (statuses: Iterable<StepAssessment>): Record<StepAssessment['status'], number> => {
@@ -101,7 +100,7 @@ export type PushEvidence = {
   sections: EvidenceSection[];
 };
 
-export type UntrackedFile = { path: string; content: string; binary?: boolean };
+export type { UntrackedFile } from './untracked-files';
 
 export type ExecutionEvidence = {
   outcomes: VerificationOutcome[];
@@ -197,13 +196,6 @@ export const collectPushEvidence = async (params: PushEvidenceParams): Promise<P
     params, parseChangedPaths(nameStatus), params.untrackedFiles ?? [],
   );
   return buildPushEvidence(nameStatus, sections, unfetched);
-};
-
-const readUntrackedFile = (repoDir: string, file: string): UntrackedFile => {
-  const buffer = fs.readFileSync(path.resolve(repoDir, file));
-  const binary = buffer.subarray(0, NUL_SNIFF_BYTES).includes(0);
-  const content = binary ? `[binary file, ${buffer.length} bytes]` : buffer.toString('utf-8');
-  return { path: file, content, binary };
 };
 
 const buildGroupEvidence = (
@@ -1014,7 +1006,7 @@ export class PlanStepVerificationService {
       baseRef: params.baseRef ?? 'HEAD',
       stepTexts: strippedSteps.map(step => step.text),
       affectedFiles: params.affectedFiles?.map(file => stripRepoPrefix(file, params.repoDir)),
-      untrackedFiles: await this.collectUntrackedFiles(params.repoDir),
+      untrackedFiles: await collectUntrackedFiles(this.gitService, params.repoDir),
     });
     this.logEvidenceBudget(evidence, params.silent);
     return evidence;
@@ -1068,20 +1060,6 @@ export class PlanStepVerificationService {
       stagedFiles,
       ...(commitsSinceBaseline !== undefined && { commitsSinceBaseline }),
     };
-  }
-
-  private async collectUntrackedFiles(repoDir: string): Promise<UntrackedFile[]> {
-    const status = await this.gitService.getStatus(repoDir);
-    const untrackedPaths: string[] = (status as { not_added?: string[] }).not_added ?? [];
-    const files: UntrackedFile[] = [];
-    for (const file of untrackedPaths) {
-      const [untracked] = executeWithCatch({
-        fn: () => readUntrackedFile(repoDir, file),
-        onError: () => { appendToLogFile('DEBUG', `step-verify.untracked.unreadable path=${file}`, 'step-verification'); },
-      });
-      if (untracked !== undefined) files.push(untracked);
-    }
-    return files;
   }
 
   logSkip(reason: string, silent?: boolean): void {

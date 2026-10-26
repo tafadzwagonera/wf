@@ -96,6 +96,7 @@ export class PlanStageService {
     const firstAttempt = await this.generatePlanAttempt(ctx);
     const first = await this.validatePlanViolations(firstAttempt.plan, ctx);
     if (first.blocking.length === 0) return this.withAdvisoryRisks(firstAttempt, first.advisory);
+    console.log(formatPlanQualityViolations(first.blocking, 'Plan quality violations (retrying with feedback)'));
     const retryAttempt = await this.generatePlanAttempt(ctx, first.blocking);
     const retry = await this.validatePlanViolations(retryAttempt.plan, ctx);
     return this.withAdvisoryRisks(retryAttempt, [...retry.blocking, ...retry.advisory]);

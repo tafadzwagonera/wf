@@ -17,8 +17,9 @@ import { appendToLogFile } from '../common/logger/log-file-writer';
 import { splitDiffIntoFileSections } from '../common/utils/commit-diff-stat';
 import { mentionsPath } from '../common/utils/mentions-path';
 import {
-  EVIDENCE_FLOOR_CHARS, allocateEvidence, sliceHeadTail, type EvidenceSection,
+  EVIDENCE_FLOOR_CHARS, allocateEvidence, type EvidenceSection,
 } from './plan-step-evidence-budget';
+import { collectUntrackedFiles, type UntrackedFile } from './untracked-files';
 
 export type StepPlanProblem = Omit<PlanProblem, 'step'>;
 
@@ -27,6 +28,8 @@ export type AssessableStep = {
 };
 
 const FIDELITY_CEILING_CHARS = 120_000;
+const UNSECTIONED_DIFF_PATH = '(unsectioned diff)';
+const UNTRACKED_EVIDENCE_HEADING = '## New untracked files (full content; not part of the diff above)';
 
 const clampFidelityBudget = (measuredTotal: number): number =>
   Math.min(FIDELITY_CEILING_CHARS, Math.max(EVIDENCE_FLOOR_CHARS, measuredTotal));
@@ -122,6 +125,38 @@ const toRunParams = (step: AssessableStep, diff: string): StepSpecFidelityRunPar
   stepText: step.text, diff, intent: step.intent, planProblem: step.planProblem,
 });
 
+const buildTrackedSections = (diff: string, stepText: string): EvidenceSection[] => {
+  const fileSections = splitDiffIntoFileSections(diff);
+  if (fileSections.size > 0) {
+    return [...fileSections].map(([filePath, content]) => ({
+      path: filePath, kind: 'tracked', content, mentioned: mentionsPath(stepText, filePath),
+    }));
+  }
+  return diff.trim() ? [{ path: UNSECTIONED_DIFF_PATH, kind: 'tracked', content: diff, mentioned: true }] : [];
+};
+
+const buildUntrackedSections = (untracked: UntrackedFile[], stepText: string): EvidenceSection[] =>
+  untracked.map(file => ({
+    path: file.path, kind: 'untracked', content: file.content, binary: file.binary,
+    mentioned: mentionsPath(stepText, file.path),
+  }));
+
+const composeFidelityEvidence = (
+  tracked: EvidenceSection[], untracked: EvidenceSection[], rendered: Map<string, string>,
+): string => {
+  const trackedText = tracked
+    .filter(section => rendered.has(section.path))
+    .map(section => stripSectionHeading(rendered.get(section.path) ?? '', section.path))
+    .join('\n');
+  const untrackedText = untracked
+    .filter(section => rendered.has(section.path))
+    .map(section => rendered.get(section.path) ?? '')
+    .join('\n\n');
+  if (!untrackedText) return trackedText;
+  const untrackedBlock = `${UNTRACKED_EVIDENCE_HEADING}\n\n${untrackedText}`;
+  return trackedText ? `${trackedText}\n\n${untrackedBlock}` : untrackedBlock;
+};
+
 @Injectable()
 export class StepSpecFidelityService {
   constructor(
@@ -136,13 +171,21 @@ export class StepSpecFidelityService {
     assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<StepFidelityVerificationResult> {
     const result = this.createVerificationResult(steps);
+    const diff = await this.captureDiffOrRecordFailure(result, repoDir, baseRef);
+    if (diff === undefined) return result;
+    const untracked = await collectUntrackedFiles(this.gitService, repoDir);
+    await this.processSteps(steps, diff, untracked, result, assessorTarget);
+    return result;
+  }
+
+  private async captureDiffOrRecordFailure(
+    result: StepFidelityVerificationResult, repoDir: string, baseRef?: string,
+  ): Promise<string | undefined> {
     const [diff] = await executeAsyncWithCatch({
       fn: () => this.captureDiff(repoDir, baseRef ?? 'HEAD'),
       onError: err => this.addDiffFailure(result, err),
     });
-    if (diff === undefined) return result;
-    await this.processSteps(steps, diff, result, assessorTarget);
-    return result;
+    return diff;
   }
 
   private addDiffFailure(result: StepFidelityVerificationResult, error: unknown): void {
@@ -154,13 +197,13 @@ export class StepSpecFidelityService {
   }
 
   private async processSteps(
-    steps: AssessableStep[], diff: string, result: StepFidelityVerificationResult,
+    steps: AssessableStep[], diff: string, untracked: UntrackedFile[], result: StepFidelityVerificationResult,
     assessorTarget?: { assessorProvider?: WfAiProviderName; assessorModel?: string; assessorBackend?: WfBackendMode },
   ): Promise<void> {
     const { assessorProvider: provider, assessorModel: model, assessorBackend: backend } = assessorTarget ?? {};
     const loggedGaps = new Set<string>();
     for (const step of steps) {
-      const stepDiff = this.fitDiffToBudget(diff, step.text, loggedGaps);
+      const stepDiff = this.fitDiffToBudget(diff, untracked, step.text, loggedGaps);
       const r = await this.run({ ...toRunParams(step, stepDiff), provider, model, backend });
       result.findingsPerStep.set(step.index, r.findings);
       if (r.failure) {
@@ -201,32 +244,17 @@ export class StepSpecFidelityService {
     return this.gitService.getDiffFromRef(baseRef, repoDir);
   }
 
-  private fitDiffToBudget(diff: string, stepText: string, loggedGaps: Set<string>): string {
-    const fileSections = splitDiffIntoFileSections(diff);
-    if (fileSections.size === 0) return this.fitUnsectionedDiff(diff, loggedGaps);
-    const sections: EvidenceSection[] = [...fileSections].map(([filePath, content]) => ({
-      path: filePath, kind: 'tracked', content, mentioned: mentionsPath(stepText, filePath),
-    }));
+  private fitDiffToBudget(diff: string, untracked: UntrackedFile[], stepText: string, loggedGaps: Set<string>): string {
+    const tracked = buildTrackedSections(diff, stepText);
+    const untrackedSections = buildUntrackedSections(untracked, stepText);
+    const sections = [...tracked, ...untrackedSections];
+    if (sections.length === 0) return diff;
     const measuredTotal = sections.reduce((sum, section) => sum + section.content.length, 0);
     const { rendered, report } = allocateEvidence(sections, clampFidelityBudget(measuredTotal));
     const gapPaths = [...report.truncated.map(t => t.path), ...report.omitted];
-    return gapPaths.length ? this.rejoinTruncated(sections, rendered, gapPaths, loggedGaps) : diff;
-  }
-
-  private rejoinTruncated(
-    sections: EvidenceSection[], rendered: Map<string, string>, gapPaths: string[], loggedGaps: Set<string>,
-  ): string {
-    this.logGapOnce(`paths=${gapPaths.join(',')}`, loggedGaps);
-    return sections
-      .filter(section => rendered.has(section.path))
-      .map(section => stripSectionHeading(rendered.get(section.path) ?? '', section.path))
-      .join('\n');
-  }
-
-  private fitUnsectionedDiff(diff: string, loggedGaps: Set<string>): string {
-    const fitted = sliceHeadTail(diff, clampFidelityBudget(diff.length));
-    if (fitted.length < diff.length) this.logGapOnce('paths=(unsectioned diff)', loggedGaps);
-    return fitted;
+    if (gapPaths.length) this.logGapOnce(`paths=${gapPaths.join(',')}`, loggedGaps);
+    if (untrackedSections.length === 0 && gapPaths.length === 0) return diff;
+    return composeFidelityEvidence(tracked, untrackedSections, rendered);
   }
 
   private logGapOnce(detail: string, loggedGaps: Set<string>): void {

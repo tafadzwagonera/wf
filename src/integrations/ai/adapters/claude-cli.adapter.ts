@@ -56,12 +56,14 @@ const CLI_ADAPTER_LABEL = 'claude-cli';
 const implementTools = ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'Skill'];
 type ActivityState = {
   lastVerificationCommand?: string;
+  verificationCommandsByToolUseId?: Map<string, string>;
   verificationOutcomes: VerificationOutcome[];
   planProblems: PlanProblem[];
 };
 
 type ToolBlock = {
   type: string;
+  id?: string;
   name?: string;
   input?: Record<string, unknown>;
 };
@@ -345,10 +347,15 @@ const logWriteEditEvent = (
   return true;
 };
 
-const logBashEvent = (input: Record<string, unknown>, activityState: ActivityState): void => {
+const logBashEvent = (block: ToolBlock, activityState: ActivityState): void => {
+  const input = block.input ?? {};
   const command = typeof input['command'] === 'string' ? input['command'].trim() : '';
   if (!command) return;
   activityState.lastVerificationCommand = command;
+  if (block.id) {
+    activityState.verificationCommandsByToolUseId ??= new Map();
+    activityState.verificationCommandsByToolUseId.set(block.id, command);
+  }
   console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] Verification running: ${command}`));
 };
 
@@ -365,18 +372,29 @@ const logReadEvent = (toolName: string, input: Record<string, unknown>): void =>
   console.log(chalk.cyan(`  [${CLI_ADAPTER_LABEL}] ${toolName}: ${short}`));
 };
 
+const resolveResultCommand = (block: ResultBlock, activityState: ActivityState): string | undefined => {
+  if (block.tool_use_id) {
+    const command = activityState.verificationCommandsByToolUseId?.get(block.tool_use_id);
+    if (command !== undefined) activityState.verificationCommandsByToolUseId?.delete(block.tool_use_id);
+    return command;
+  }
+  const fallback = activityState.lastVerificationCommand;
+  activityState.lastVerificationCommand = undefined;
+  return fallback;
+};
+
 const logToolResultVerification = (
   block: ResultBlock,
   activityState: ActivityState,
 ): void => {
   const content = typeof block.content === 'string' ? block.content : '';
-  if (!content || !activityState.lastVerificationCommand) return;
+  if (!content) return;
   const status = detectVerificationStatus(content, block.is_error);
   if (!status) return;
-  const command = activityState.lastVerificationCommand;
+  const command = resolveResultCommand(block, activityState);
+  if (!command) return;
   const color = status === 'failed' ? chalk.red : chalk.green;
   console.log(color(`  [${CLI_ADAPTER_LABEL}] Verification ${status}: ${command}`));
-  activityState.lastVerificationCommand = undefined;
 };
 
 const computeUnvisitedFiles = (
@@ -807,7 +825,7 @@ export class ClaudeCliAdapter implements ImplementerBackend {
     const input = block.input ?? {};
     if (block.name === 'Write' || block.name === 'Edit')
       return logWriteEditEvent(block.name, input, repoDir, touchedFiles);
-    if (block.name === 'Bash') logBashEvent(input, activityState);
+    if (block.name === 'Bash') logBashEvent(block, activityState);
     if (block.name === 'Read' || block.name === 'Glob' || block.name === 'Grep') logReadEvent(block.name, input);
     if (block.name === 'Skill') this.logSkillBlock(input);
     return false;

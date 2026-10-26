@@ -636,6 +636,33 @@ describe('PlanStageService', () => {
     );
   });
 
+  it('prints the blocking violations before retrying plan generation with feedback', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const { service, aiService } = await buildService();
+    (aiService.generatePlan as jest.Mock)
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: [{ description: 'Rename AuthService in repo-a/src/auth.ts.' }],
+        affectedRepositories: ['repo-a'],
+      })
+      .mockResolvedValueOnce({
+        ...mockPlan,
+        steps: [{ description: 'Rename AuthService to AuthSessionService in repo-a/src/auth.ts.' }],
+        affectedRepositories: ['repo-a'],
+      });
+
+    await service.generatePlan('Ticket body', {
+      action: 'fix',
+      ticketKey: 'WBP-404',
+      affectedRepositories: ['repo-a'],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map(call => String(call[0]));
+    expect(logCalls.some(line => line.includes('Plan quality violations (retrying with feedback)'))).toBe(true);
+    expect(logCalls.some(line => line.includes('rename-target-required'))).toBe(true);
+    consoleSpy.mockRestore();
+  });
+
   it('includes detected yarn runner forms in verification retry feedback', async () => {
     const { service, aiService } = await buildService();
     (aiService.generatePlan as jest.Mock)

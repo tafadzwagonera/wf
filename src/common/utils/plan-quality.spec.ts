@@ -846,6 +846,46 @@ describe('validatePlanQuality — needle-search-required', () => {
   });
 });
 
+describe('validatePlanQuality — shell-unsafe-verification-command', () => {
+  const shellViolations = (run: string) =>
+    validatePlanQuality({
+      plan: {
+        steps: [{ description: 'Add the release command to wf/package.json.' }],
+        verification: { targeted: [{ id: 'hook-check', run, policy: 'enforced' as const, reason: 'hook regex' }] },
+      },
+    }).filter(v => v.ruleId === 'shell-unsafe-verification-command');
+
+  it('flags a double-quoted bash -c command with an unescaped command substitution', () => {
+    const violations = shellViolations(
+      'bash -c "f=$(mktemp) && echo \'chore(release): Set version to 0.1.0\' > $f && sh .lefthook/commit-msg/validate-conventional-commit.sh $f"',
+    );
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].message).toContain('hook-check');
+    expect(violations[0].message).toContain('single quotes');
+  });
+
+  it('flags a double-quoted sh -c command with an unescaped variable', () => {
+    expect(shellViolations('sh -c "echo $HOME"')).toHaveLength(1);
+  });
+
+  it('passes a single-quoted payload with shell variables', () => {
+    expect(shellViolations("bash -c 'f=$(mktemp) && echo ok > $f'")).toEqual([]);
+  });
+
+  it('passes a double-quoted payload whose dollars are escaped', () => {
+    expect(shellViolations('bash -c "f=\\$(mktemp) && echo ok > \\$f"')).toEqual([]);
+  });
+
+  it('passes a double-quoted payload without shell expansion', () => {
+    expect(shellViolations('bash -c "yarn release --dry-run"')).toEqual([]);
+  });
+
+  it('ignores commands that are not inline shell invocations', () => {
+    expect(shellViolations('yarn test src/a.spec.ts')).toEqual([]);
+  });
+});
+
 describe('validatePlanQuality — test-call-assertion-required', () => {
   const callViolations = (plan: Parameters<typeof validatePlanQuality>[0]['plan']) =>
     validatePlanQuality({ plan }).filter(v => v.ruleId === 'test-call-assertion-required');

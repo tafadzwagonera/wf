@@ -581,6 +581,62 @@ describe('ClaudeCliAdapter', () => {
     consoleSpy.mockRestore();
   });
 
+  it('attributes verification outcomes to the command that produced them, not the latest Bash command', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    mockSpawnCli.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'bash -c "broken"' } }] },
+        };
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'tool_use', id: 'b2', name: 'Bash', input: { command: 'git status' } }] },
+        };
+        yield {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'syntax error', is_error: true }] },
+        };
+        yield {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 'b2', content: 'exit code 0', is_error: false }] },
+        };
+        yield { type: 'result', result: 'done', session_id: 's1', num_turns: 3 };
+      })()
+    );
+
+    const adapter = new ClaudeCliAdapter(createMockConfigService() as any);
+    await adapter.generateAndVerify({
+      ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
+      planArtifact: {
+        plan: {
+          action: 'feature',
+          summary: 'test',
+          steps: [{ description: 'step 1' }],
+          estimatedComplexity: 'low',
+          affectedFiles: [],
+          affectedRepositories: [],
+          risks: [],
+        },
+        action: 'feature',
+        path: '/tmp/p.json',
+      },
+      options: { trackerName: 'jira', repoDir: '/repo' },
+      verificationScripts: [],
+      repoFiles: [],
+      repoName: 'repo',
+      trackedFilePaths: [],
+    });
+
+    const logCalls = consoleSpy.mock.calls.map(c => String(c[0]));
+    expect(logCalls.some(l => /Verification failed.*bash -c "broken"/.test(l))).toBe(true);
+    expect(logCalls.some(l => /Verification passed.*git status/.test(l))).toBe(true);
+    expect(logCalls.some(l => /Verification failed.*git status/.test(l))).toBe(false);
+
+    consoleSpy.mockRestore();
+  });
+
   it('logs session ID when present in result', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
