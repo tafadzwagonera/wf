@@ -1,15 +1,23 @@
 ---
 name: run-manual-tests
-description: Run the newly generated manual smoke tests until they all pass. Use after manual tests have been written (e.g. from draft-manual-tests prompts) to verify the change. Deleting manual tests is out of scope — that is run-and-prune-manual-tests' job.
+description: Generate manual smoke tests from draft-manual-tests prompts when none exist yet, then run every newly generated test until each one passes. Use after draft-manual-tests has produced prompts, or after manual tests have already been written, to verify the change. Deleting manual tests is out of scope — that is run-and-prune-manual-tests' job.
 ---
 
 **Category:** Methodology skill.
 
 ## Purpose
 
-Execute every newly generated smoke test in the current project's `test/manual` through the real runner until each one passes. Pre-existing manual tests are not run, and nothing is deleted — pruning and teardown belong to the `run-and-prune-manual-tests` skill.
+Turn `draft-manual-tests` prompts into real test files when none exist yet, then execute every newly generated smoke test in the current project's `test/manual` through the real runner until each one passes. Pre-existing manual tests are not run, and nothing is deleted — pruning and teardown belong to the `run-and-prune-manual-tests` skill.
 
-This skill is the companion to `draft-manual-tests`, which produced the prompts the tests were implemented from.
+This skill is the companion to `draft-manual-tests`, which produces the prompts the tests are implemented from.
+
+## Generate from drafts if none exist
+
+0. **Check whether generated tests already exist** before doing anything else: `git status --porcelain` for `test/manual/`. If untracked or newly added `test/manual/*.smoke.ts` files are already present, skip to "Run until green" — someone already implemented the drafts.
+   If none exist, look for `draft-manual-tests` prompts to implement:
+   - Prompts produced earlier in this conversation — implement each one as written.
+   - Otherwise ask the user for the prompts, or run `draft-manual-tests` first; do not invent test scenarios that weren't drafted.
+   For each prompt, write `test/manual/{feature}.smoke.ts` following the reference implementation and conventions documented in the `draft-manual-tests` skill (docs header, reporter helpers, compiled-path entry via `dist/`, single `summarise(counts)` call). If `test/manual` or its runner infrastructure (`run-manual-test.ts`, `test/manual/support/reporter.ts`, the `test:manual` script in `package.json`) doesn't exist yet, scaffold it per that same reference before writing the first test. Once every prompt has a matching test file, continue to "Run until green".
 
 ## Run until green
 

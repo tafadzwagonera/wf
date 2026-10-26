@@ -1,6 +1,6 @@
 ---
 name: run-and-prune-manual-tests
-description: Run the live smoke tests related to a change until they pass, then remove redundant manual tests whose observable coverage duplicates other manual tests or existing framework tests. Use to verify a change and curate the manual test suite.
+description: Generate manual smoke tests from draft-manual-tests prompts when none exist yet, run the live smoke tests related to a change until they pass, then remove redundant manual tests whose observable coverage duplicates other manual tests or existing framework tests. Use to verify a change and curate the manual test suite.
 ---
 
 **Category:** Methodology skill.
@@ -10,6 +10,17 @@ description: Run the live smoke tests related to a change until they pass, then 
 Two-phase finishing pass over the current project's `test/manual` suite: first prove the change works by running its related live smoke tests to green, then shrink the suite by deleting tests that assert nothing another test doesn't already assert — whether that other test is a manual test or a framework test (unit/integration specs, e.g. co-located `*.spec.ts` Jest files).
 
 Unlike a full teardown, this keeps the manual test infrastructure and every test that earns its place. Only redundancy is removed.
+
+## Phase 0 — Generate from drafts if none exist
+
+Check `git status --porcelain` for `test/manual/` before starting Phase 1. If untracked or newly added `test/manual/*.smoke.ts` files already exist, skip straight to Phase 1 — someone already implemented the drafts.
+
+If none exist, look for `draft-manual-tests` prompts to implement:
+
+- Prompts produced earlier in this conversation — implement each one as written.
+- Otherwise ask the user for the prompts, or run `draft-manual-tests` first; do not invent test scenarios that weren't drafted.
+
+For each prompt, write `test/manual/{feature}.smoke.ts` following the reference implementation and conventions documented in the `draft-manual-tests` skill (docs header, reporter helpers, compiled-path entry via `dist/`, single `summarise(counts)` call). If `test/manual` or its runner infrastructure (`run-manual-test.ts`, `test/manual/support/reporter.ts`, the `test:manual` script in `package.json`) doesn't exist yet, scaffold it per that same reference before writing the first test. Once every prompt has a matching test file, continue to Phase 1.
 
 ## Phase 1 — Run related live tests until green
 
