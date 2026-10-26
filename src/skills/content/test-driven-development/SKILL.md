@@ -58,11 +58,11 @@ it('returns null when SKILL.md cannot be read', async () => {
 
 Before marking work complete:
 
-- [ ] Every new function has a test.
-- [ ] Each test was watched failing before writing the implementation.
-- [ ] Each test failed because the feature was absent (not a typo or import error).
-- [ ] Minimal code was written to make each test pass.
-- [ ] All tests pass with no warnings in the output.
+- Every new function has a test.
+- Each test was watched failing before writing the implementation.
+- Each test failed because the feature was absent (not a typo or import error).
+- Minimal code was written to make each test pass.
+- All tests pass with no warnings in the output.
 
 ## Planning
 
