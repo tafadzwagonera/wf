@@ -32,6 +32,7 @@ import {
   planFileListingInstructions,
   planChangePrinciple,
   planStepPrinciples,
+  planSubAgentGuidance,
 } from './prompt-fragments';
 import type { UiDesignScreenshot } from '../../common/types/ui-design-screenshot';
 import { appendToLogFile } from '../../common/logger/log-file-writer';
@@ -105,6 +106,7 @@ const OPENAI_STAGE_MAX_TURNS = 16;
 const OPENAI_CHAT_MAX_TURNS = 8;
 const anthropicStageTools = ['Read', 'Glob', 'Grep', 'Bash'] as const;
 const subAgentTools = ['Task', 'Agent'] as const;
+const subAgentEligibleStages = new Set<AgentStageName>(['review', 'plan']);
 const allowedReadOnlyCommandPrefixes = [
   'pwd',
   'ls',
@@ -461,6 +463,7 @@ const buildPlanPromptBody = async (opts: PlanPromptBodyOpts): Promise<string> =>
     buildPlanTestConventionsBlock(!!opts.testInfraSection),
     planChangePrinciple,
     buildPlanVerificationBlock(opts.hasNodeInfra),
+    planSubAgentGuidance,
     buildPlanJsonSchemaExample(opts),
     skillFragment,
   ].join('\n');
@@ -1589,7 +1592,7 @@ export class StageAgentService {
       jsonSchema: params.jsonSchema,
       structuredOutput: params.structuredOutput,
       readDirs: this.resolveScreenshotReadDirs(params.screenshots),
-      allowSubAgents: params.stage === 'review',
+      allowSubAgents: subAgentEligibleStages.has(params.stage),
     });
   }
 
@@ -1979,7 +1982,7 @@ export class StageAgentService {
 
   private resolveCliStagePassTools(stage: AgentStageName, repoDir?: string): string[] {
     const inspectionTools = this.resolveCliInspectionTools(repoDir);
-    if (stage !== 'review' || inspectionTools.length === 0) return inspectionTools;
+    if (!subAgentEligibleStages.has(stage) || inspectionTools.length === 0) return inspectionTools;
     return [...inspectionTools, ...subAgentTools];
   }
 

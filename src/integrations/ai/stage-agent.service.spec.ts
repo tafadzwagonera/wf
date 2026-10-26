@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { buildAnthropicBaseOptions, buildRipgrepCommand, StageAgentService, buildSanitisedJsonSchema, extractCliResultContent } from './stage-agent.service';
 import { AiProviderError, ExecutionError } from '../../common/utils/errors';
 import { discoverDirAgentConfigs } from './adapters/discover-dir-agent-configs';
-import { headlessPipelineInstruction } from './prompt-fragments';
+import { headlessPipelineInstruction, planSubAgentGuidance } from './prompt-fragments';
 import { z } from 'zod';
 import { planModelOutputSchema } from '../../common/schemas/ai.schema';
 import { batchSummarySchema } from '../../common/schemas/batch-summary.schema';
@@ -902,6 +902,24 @@ describe('StageAgentService', () => {
     expect(prompt).toContain('When an optional field has no value, omit it from the JSON entirely. Do not use null.');
     expect(prompt.indexOf('When an optional field has no value, omit it from the JSON entirely. Do not use null.')).toBeLessThan(
       prompt.indexOf('IMPORTANT: Minify the JSON')
+    );
+  });
+
+  it('includes planSubAgentGuidance before the plan example block', async () => {
+    const service = new StageAgentService(createConfigService());
+    const mockRunStagePrompt = jest.fn().mockResolvedValue({
+      content: JSON.stringify({
+        action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], risks: [],
+      }),
+    });
+    (service as unknown as { runStagePrompt: jest.Mock }).runStagePrompt = mockRunStagePrompt;
+
+    await service.generatePlan({ action: 'fix', issueContent: 'Fix callback handling', affectedRepositories: ['repo-a'] });
+
+    const prompt = mockRunStagePrompt.mock.calls[0]?.[0]?.prompt as string;
+    expect(prompt).toContain(planSubAgentGuidance);
+    expect(prompt.indexOf(planSubAgentGuidance)).toBeLessThan(
+      prompt.indexOf('Return ONLY a valid JSON object. Reference:')
     );
   });
 
@@ -2230,6 +2248,91 @@ describe('StageAgentService', () => {
       const options = mockQuery.mock.calls[0][0].options;
       expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Task', 'Agent']);
       expect(options.allowedTools).toEqual(options.tools);
+    });
+  });
+
+  describe('Agent SDK plan sub-agent grants', () => {
+    const validPlanJson = JSON.stringify({
+      action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], risks: [],
+    });
+
+    const createAnthropicAgentPlanConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'agent',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+            'ai.anthropicApiKey': 'test-key',
+          };
+
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    beforeEach(() => {
+      mockLoadAnthropicAgentSdk.mockReset();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('grants the plan agent SDK pass sub-agent tools', async () => {
+      const mockQuery = jest.fn().mockReturnValue(Object.assign(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', result: validPlanJson };
+        })(),
+        { close: jest.fn() }
+      ));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery });
+      const service = new StageAgentService(createAnthropicAgentPlanConfigService());
+
+      await service.generatePlan({ action: 'fix', issueContent: 'Fix callback handling' });
+
+      const options = mockQuery.mock.calls[0][0].options;
+      expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Task', 'Agent']);
+      expect(options.allowedTools).toEqual(options.tools);
+    });
+  });
+
+  describe('CLI plan sub-agent grants', () => {
+    const createClaudeCliPlanConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': 'cli',
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-5-20250514',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-5-20250514',
+          };
+
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    beforeEach(() => {
+      spawnCli.mockReset();
+      buildCliArgs.mockClear();
+    });
+
+    it('allows sub-agent tools on the Claude CLI plan turn', async () => {
+      spawnCli.mockReturnValue((async function* () {
+        yield {
+          type: 'result', subtype: 'success',
+          result: JSON.stringify({
+            action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low',
+            affectedFiles: [], risks: [],
+          }),
+          session_id: 'claude-plan-session-1',
+        };
+      })());
+
+      const service = new StageAgentService(createClaudeCliPlanConfigService());
+
+      await service.generatePlan({ action: 'fix', issueContent: 'Fix callback handling' });
+
+      expect(buildCliArgs.mock.calls[0][0].tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Skill', 'Task', 'Agent']);
     });
   });
 

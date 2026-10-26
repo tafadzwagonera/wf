@@ -1,21 +1,22 @@
 /**
- * Manual smoke test: the Claude CLI review turn is granted sub-agent tools (Task, Agent) while the
- * review epilogue and the plan stage stay inspection-only
+ * Manual smoke test: the Claude CLI review turn and the Claude CLI plan turn are both granted
+ * sub-agent tools (Task, Agent); the review epilogue stays inspection-only
  *
  * Run (after `yarn build`): nr test:manual review-subagent-tool-grant.smoke
  *
  * Scenario: `node dist/main.js issue:review --silent --skip-verification` with the review stage on the
  * claude CLI backend and an uncommitted change in a temp git repo. A fake `claude` records each spawn's
- * argv and stdin, then returns a minimal approved review.
+ * argv and stdin, then returns a minimal approved review. A second scenario runs `issue:plan` through
+ * the plan harness on the same backend.
  *
  * Config under test:
- *   stages: { review: { provider: 'anthropic', backend: 'cli' } }
+ *   stages: { review: { provider: 'anthropic', backend: 'cli' }, plan: { provider: 'anthropic', backend: 'cli' } }
  *
  * Verify:
  *   1. The review command exits 0 and spawns the fake claude exactly twice (main turn, epilogue).
  *   2. Spawn 1 (main review turn) receives --allowedTools Read,Glob,Grep,Bash,Skill,Task,Agent.
  *   3. Spawn 2 (review epilogue) receives --allowedTools Read,Glob,Grep,Bash,Skill.
- *   4. A plan-stage run through the plan harness receives an --allowedTools without Task or Agent.
+ *   4. A plan-stage run through the plan harness receives --allowedTools Read,Glob,Grep,Bash,Skill,Task,Agent.
  *
  * Wire up: support/review-cli-harness.ts and support/plan-cli-harness.ts (temp repos, fake `claude`
  * on PATH, isolated HOME); requires `yarn build`.
@@ -74,16 +75,14 @@ function verifyReviewToolGrants(): void {
   }
 }
 
-function verifyPlanStaysInspectionOnly(): void {
+function verifyPlanToolGrants(): void {
   const harness = setupPlanHarness('wf-plan-subagent-tools-', plan, { 'src/a.ts': 'export {};\n' });
   try {
     const { exitCode, output } = runPlan(harness);
     assert('plan command exits 0', exitCode === 0, output.slice(-600));
     const planTools = readAllowedTools(readPlanPrompt(harness, 1));
-    assert('plan turn has an --allowedTools value', planTools.length > 0, planTools);
-    assert('plan turn receives neither Task nor Agent',
-      !planTools.split(',').includes('Task') && !planTools.split(',').includes('Agent'),
-      `--allowedTools=${planTools}`);
+    assert('plan turn is granted sub-agent tools',
+      planTools === 'Read,Glob,Grep,Bash,Skill,Task,Agent', `--allowedTools=${planTools}`);
   } finally {
     cleanupPlanHarness(harness);
   }
@@ -98,7 +97,7 @@ function main(): void {
   console.log(chalk.bold.cyan('\n  Review sub-agent tool grant — smoke test\n'));
   if (!fs.existsSync(distMainPath)) failMissingDist();
   verifyReviewToolGrants();
-  verifyPlanStaysInspectionOnly();
+  verifyPlanToolGrants();
   summarise(counts);
 }
 

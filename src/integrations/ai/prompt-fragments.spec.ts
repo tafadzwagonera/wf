@@ -5,6 +5,7 @@ import {
   buildUiDesignComplianceSystemPromptSection,
   planFileListingInstructions,
   planStepPrinciples,
+  planSubAgentGuidance,
   implementerSearchRule,
   implementerDeleteOrphanRule,
   needleSearchReminder,
@@ -150,6 +151,33 @@ describe('reviewSubAgentGuidance', () => {
 
   it('falls back to inline tracing when no sub-agent tool is available', () => {
     expect(reviewSubAgentGuidance).toContain('Without a sub-agent tool');
+  });
+});
+
+describe('planSubAgentGuidance', () => {
+  it('scopes delegation to multi-repo or multi-area tickets', () => {
+    expect(planSubAgentGuidance).toContain('sub-agent');
+    expect(planSubAgentGuidance).toContain('multiple repositories or distinct areas');
+  });
+
+  it('decomposes discovery verification into independent sub-agent tasks', () => {
+    expect(planSubAgentGuidance).toContain('reuse candidate');
+    expect(planSubAgentGuidance).toContain('call sites and consumers');
+    expect(planSubAgentGuidance).toContain('repository conventions');
+  });
+
+  it('requires file:line evidence and discards unevidenced sub-agent claims', () => {
+    expect(planSubAgentGuidance).toContain('file:line');
+    expect(planSubAgentGuidance).toContain('discard');
+  });
+
+  it('restricts the composed plan fields to substantiated findings', () => {
+    expect(planSubAgentGuidance).toContain('affectedFiles');
+    expect(planSubAgentGuidance).toContain('affectedFilesContext');
+  });
+
+  it('falls back to inline verification for single-repo, single-area tickets', () => {
+    expect(planSubAgentGuidance).toContain('single-repo, single-area ticket');
   });
 });
 

@@ -77,6 +77,19 @@ export const planStepPrinciples = `   Plan step principles — apply judgment, n
      genuine format-compatibility or performance constraint) before proposing or keeping separate
      representations of what is really one piece of state.`;
 
+export const planSubAgentGuidance = `   Sub-agent delegation — apply when a sub-agent tool (Task or Agent) is available and the ticket
+   spans multiple repositories or distinct areas of one repository:
+   - Before finalizing affectedFiles and steps, delegate verification of the pre-computed discovery
+     context to parallel read-only sub-agents: one confirms each reuse candidate's scope still matches
+     this ticket, one traces the real call sites and consumers for each repository or area the plan
+     touches, one verifies the cited repository conventions still hold for the files being changed.
+   - Require every affected file, call site, and convention a sub-agent reports to cite file:line
+     evidence it actually read; discard unevidenced claims and re-read the cited lines yourself
+     before adopting a surprising one.
+   - Compose affectedFiles, affectedFilesContext, and step descriptions only from substantiated findings.
+   - For a single-repo, single-area ticket, perform the same verification inline with your read-only
+     tools instead — delegation only pays off when the investigation threads are independent.`;
+
 export const planFileListingInstructions = `3. Files that will be **modified** — use objects with "filePath" and "status". Prefix EVERY
    path with its repository name. Use REAL file paths from the repository — not globs, not
    placeholders. Set status to "found" for existing files, "to-delete" for orphaned files the plan deletes, or "to-create" for new files.
