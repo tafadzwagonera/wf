@@ -103,6 +103,7 @@ const MAX_BUFFER_IN_BYTES = 1024 * 1024 * 4;
 const OPENAI_STAGE_MAX_TURNS = 16;
 const OPENAI_CHAT_MAX_TURNS = 8;
 const anthropicStageTools = ['Read', 'Glob', 'Grep', 'Bash'] as const;
+const subAgentTools = ['Task', 'Agent'] as const;
 const allowedReadOnlyCommandPrefixes = [
   'pwd',
   'ls',
@@ -510,6 +511,7 @@ const buildPriorStagePreamble = (priorStageSummary?: string): string => {
 type AnthropicStageOpts = {
   readDirs?: string[];
   allowEdits?: boolean;
+  allowSubAgents?: boolean;
   anthropicContext: string;
   artifactDir?: string;
   apiKey: string;
@@ -523,10 +525,15 @@ type AnthropicStageOpts = {
   structuredOutput?: AIRequest['structuredOutput'];
 };
 
+const resolveAnthropicStageToolset = (opts: AnthropicStageOpts, canEdit: boolean): string[] => {
+  if (!opts.repoDir) return [];
+  const baseTools = [...anthropicStageTools, ...(opts.allowSubAgents ? subAgentTools : [])];
+  return canEdit ? [...baseTools, 'Edit', 'Write'] : baseTools;
+};
+
 export const buildAnthropicBaseOptions = (opts: AnthropicStageOpts, systemAppend: string) => {
   const canEdit = Boolean(opts.allowEdits && opts.repoDir);
-  const baseTools = opts.repoDir ? [...anthropicStageTools] : [];
-  const tools = canEdit ? [...baseTools, 'Edit', 'Write'] : baseTools;
+  const tools = resolveAnthropicStageToolset(opts, canEdit);
   return {
     ...(canEdit ? {} : { canUseTool: anthropicReadOnlyToolGuard }),
     cwd: opts.repoDir ?? process.cwd(), model: opts.model, tools, allowedTools: tools,
@@ -1565,7 +1572,15 @@ export class StageAgentService {
   private async runAnthropicStagePrompt(params: StagePromptParams): Promise<{ content: string; sessionId?: string }> {
     const apiKey = this.requireAnthropicApiKey();
     const anthropicContext = await loadAiContextConfig(path.join(os.homedir(), '.claude', 'CLAUDE.md'), 'CLAUDE.md', 'anthropic', true);
-    const options = buildAnthropicStageOptions({
+    const options = this.buildAnthropicStagePromptOptions(params, apiKey, anthropicContext);
+    const { query } = await loadAnthropicAgentSdk();
+    return this.processAnthropicStageResult(query(options), params.onProgress, params.onProviderSessionId);
+  }
+
+  private buildAnthropicStagePromptOptions(
+    params: StagePromptParams, apiKey: string, anthropicContext: string
+  ): ReturnType<typeof buildAnthropicStageOptions> {
+    return buildAnthropicStageOptions({
       prompt: params.prompt, model: this.resolveModelForStage(params.stage, params.modelOverride), apiKey,
       repoDir: params.repoDir,
       systemPrompt: params.systemPrompt, priorStageSummary: params.priorStageSummary,
@@ -1573,9 +1588,8 @@ export class StageAgentService {
       jsonSchema: params.jsonSchema,
       structuredOutput: params.structuredOutput,
       readDirs: this.resolveScreenshotReadDirs(params.screenshots),
+      allowSubAgents: params.stage === 'review',
     });
-    const { query } = await loadAnthropicAgentSdk();
-    return this.processAnthropicStageResult(query(options), params.onProgress, params.onProviderSessionId);
   }
 
   private resolveScreenshotReadDirs(screenshots: UiDesignScreenshot[] | undefined): string[] {
@@ -1951,7 +1965,7 @@ export class StageAgentService {
   ): ReturnType<typeof buildCliArgs> {
     return buildCliArgs({
       prompt, appendSystemPrompt: opts.systemPrompt, model: opts.model,
-      cwd: opts.repoDir ?? process.cwd(), tools: this.resolveCliInspectionTools(opts.repoDir),
+      cwd: opts.repoDir ?? process.cwd(), tools: this.resolveCliStagePassTools(opts.stage, opts.repoDir),
       permissionMode: 'plan', sessionId: isResume ? opts.sessionId : undefined,
       jsonSchema: opts.jsonSchema, forkSession: opts.passNumber === 1 ? opts.forkSession : undefined,
       screenshots: opts.screenshots,
@@ -1960,6 +1974,12 @@ export class StageAgentService {
 
   private resolveCliInspectionTools(repoDir?: string): string[] {
     return repoDir ? ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] : [];
+  }
+
+  private resolveCliStagePassTools(stage: AgentStageName, repoDir?: string): string[] {
+    const inspectionTools = this.resolveCliInspectionTools(repoDir);
+    if (stage !== 'review' || inspectionTools.length === 0) return inspectionTools;
+    return [...inspectionTools, ...subAgentTools];
   }
 
   private async processCliStagePassMessages(

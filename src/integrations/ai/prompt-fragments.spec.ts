@@ -11,6 +11,7 @@ import {
   buildReviewPrompt,
   reviewInstructions,
   reviewTraceGuidance,
+  reviewSubAgentGuidance,
   reviewOutputSchema,
 } from './prompt-fragments';
 
@@ -86,10 +87,11 @@ describe('buildReviewPrompt', () => {
     expect(parsed.issues.some((issue: { risk?: number }) => typeof issue.risk === 'number')).toBe(true);
   });
 
-  it('orders code changes, numbered guidelines, instructions, trace guidance and schema', () => {
+  it('orders code changes, numbered guidelines, instructions, trace guidance, sub-agent guidance and schema', () => {
     const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
-    const positions = ['Code Changes:', '1. a', reviewInstructions, reviewTraceGuidance, reviewOutputSchema]
-      .map(section => result.indexOf(section));
+    const positions = [
+      'Code Changes:', '1. a', reviewInstructions, reviewTraceGuidance, reviewSubAgentGuidance, reviewOutputSchema,
+    ].map(section => result.indexOf(section));
     expect(positions.every(position => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
@@ -110,9 +112,9 @@ describe('buildReviewPrompt', () => {
     expect(result).toContain(`${reviewInstructions}\n${reviewTraceGuidance}`);
   });
 
-  it('puts exactly two newlines between trace guidance and the schema', () => {
+  it('joins trace guidance to sub-agent guidance, then two newlines before the schema', () => {
     const result = buildReviewPrompt({ diff: 'D', guidelines: [] });
-    expect(result).toContain(`${reviewTraceGuidance}\n\n${reviewOutputSchema}`);
+    expect(result).toContain(`${reviewTraceGuidance}\n${reviewSubAgentGuidance}\n\n${reviewOutputSchema}`);
   });
 
   it('renders an empty guidelines block without numbered lines', () => {
@@ -123,6 +125,31 @@ describe('buildReviewPrompt', () => {
 
   it('wraps the diff in a triple-backtick fence', () => {
     expect(buildReviewPrompt({ diff: 'DIFF', guidelines: [] })).toContain('```\nDIFF\n```');
+  });
+});
+
+describe('reviewSubAgentGuidance', () => {
+  it('delegates call stack, state transition, and flow-anomaly tracing to parallel read-only sub-agents', () => {
+    expect(reviewSubAgentGuidance).toContain('sub-agent');
+    expect(reviewSubAgentGuidance).toContain('parallel');
+    expect(reviewSubAgentGuidance).toContain('call stack');
+    expect(reviewSubAgentGuidance).toContain('state captures and mutations');
+    expect(reviewSubAgentGuidance).toContain('dead or unreachable code');
+    expect(reviewSubAgentGuidance).toContain('impossible states');
+  });
+
+  it('requires file:line evidence for every sub-agent claim and discards unevidenced ones', () => {
+    expect(reviewSubAgentGuidance).toContain('file:line');
+    expect(reviewSubAgentGuidance).toContain('discard');
+  });
+
+  it('directs substantiated anomalies into issues with file, line, severity, and risk', () => {
+    expect(reviewSubAgentGuidance).toContain('issues');
+    expect(reviewSubAgentGuidance).toContain('risk');
+  });
+
+  it('falls back to inline tracing when no sub-agent tool is available', () => {
+    expect(reviewSubAgentGuidance).toContain('Without a sub-agent tool');
   });
 });
 

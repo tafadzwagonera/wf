@@ -166,6 +166,20 @@ export const reviewTraceGuidance = `   Trace principles — use judgment, not me
    - Prefer honest provenance: label "unavailable" with empty structures rather than
      fabricating a path you cannot trace confidently.`;
 
+export const reviewSubAgentGuidance = `   Sub-agent delegation — apply when a sub-agent tool (Task or Agent) is available:
+   - Before composing the trace, delegate codebase investigation to parallel read-only sub-agents:
+     one walks the concrete call stack outward from each changed entry point, one records the
+     state captures and mutations along those frames, and one hunts execution-flow anomalies —
+     incorrect or needlessly complex flow, dead or unreachable code, impossible states,
+     contradictory guards, and other subtle bugs the diff introduces or exposes.
+   - Require every frame, capture, mutation, and anomaly a sub-agent reports to cite file:line
+     evidence it actually read; discard unevidenced claims and re-read the cited lines yourself
+     before adopting a surprising one.
+   - Compose callStack and stateTransition only from substantiated frames, and report each
+     substantiated anomaly under issues with its file, line, and honest severity and risk.
+   - Without a sub-agent tool, perform the same tracing and anomaly hunt inline with your
+     read-only tools.`;
+
 export const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
 {"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","risk":0.8,"message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","risk":0.4,"message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","risk":0.2,"message":"Log message change loses diagnostic value."}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":[{"name":"dep","value":"Dep { ... }"}],"changes":[{"name":"dep","before":"old","after":"new"}],"children":[{"frame":"Helper.transform(input)","captured":[],"changes":[{"name":"result","before":null,"after":"transformed"}],"children":[]}]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
 
@@ -174,11 +188,13 @@ When an optional field has no value, omit it from the JSON entirely. Do not use 
 
 ${JSON_OUTPUT_RULES}`;
 
-export const buildReviewPrompt = ({ diff, guidelines, figmaContextSection }: {
+type ReviewPromptParams = {
   diff: string;
   guidelines: string[];
   figmaContextSection?: string;
-}): string => {
+};
+
+export const buildReviewPrompt = ({ diff, guidelines, figmaContextSection }: ReviewPromptParams): string => {
   const numberedGuidelines = guidelines.map((g, i) => (i + 1) + '. ' + g).join('\n');
   return [
     `\nCode Changes:\n\`\`\`\n${diff}\n\`\`\``,
@@ -186,6 +202,7 @@ export const buildReviewPrompt = ({ diff, guidelines, figmaContextSection }: {
     `\n${reviewInstructions}`,
     ...(figmaContextSection ? [figmaContextSection] : []),
     reviewTraceGuidance,
+    reviewSubAgentGuidance,
     `\n${reviewOutputSchema}`,
   ].join('\n');
 };

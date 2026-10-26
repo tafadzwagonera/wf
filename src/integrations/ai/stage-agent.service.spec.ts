@@ -98,6 +98,24 @@ describe('StageAgentService', () => {
       expect(options.tools).toEqual([]);
       expect(options.sandbox.filesystem).toEqual({ allowRead: [], allowWrite: [] });
     });
+
+    it('appends sub-agent tools to the read-only toolset when allowSubAgents is set', () => {
+      const options = buildAnthropicBaseOptions({ ...baseOpts, allowSubAgents: true }, 'sys');
+      expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Task', 'Agent']);
+      expect(options.allowedTools).toEqual(options.tools);
+      expect(options.canUseTool).toBeDefined();
+    });
+
+    it('omits sub-agent tools by default', () => {
+      const options = buildAnthropicBaseOptions(baseOpts, 'sys');
+      expect(options.tools).not.toContain('Task');
+      expect(options.tools).not.toContain('Agent');
+    });
+
+    it('ignores allowSubAgents when repoDir is empty', () => {
+      const options = buildAnthropicBaseOptions({ ...baseOpts, repoDir: '', allowSubAgents: true }, 'sys');
+      expect(options.tools).toEqual([]);
+    });
   });
 
   it('normalizes deterministic OpenAI Agent SDK structured output', async () => {
@@ -2167,6 +2185,53 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('Agent SDK review sub-agent grants', () => {
+    const validReviewJson = JSON.stringify({
+      summary: 'Looks good overall',
+      issues: [],
+      suggestions: [],
+      approved: true,
+    });
+
+    const createAnthropicAgentReviewConfigService = (): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.review.backend': 'agent',
+            'stages.review.provider': 'anthropic',
+            'stages.review.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+            'ai.anthropicApiKey': 'test-key',
+          };
+
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    beforeEach(() => {
+      mockLoadAnthropicAgentSdk.mockReset();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('grants the review agent SDK pass sub-agent tools', async () => {
+      const mockQuery = jest.fn().mockReturnValue(Object.assign(
+        (async function* () {
+          yield { type: 'result', subtype: 'success', result: validReviewJson };
+        })(),
+        { close: jest.fn() }
+      ));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery });
+      const service = new StageAgentService(createAnthropicAgentReviewConfigService());
+
+      await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
+
+      const options = mockQuery.mock.calls[0][0].options;
+      expect(options.tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Task', 'Agent']);
+      expect(options.allowedTools).toEqual(options.tools);
+    });
+  });
+
   describe('CLI review epilogue', () => {
     beforeEach(() => {
       spawnCli.mockReset();
@@ -2259,6 +2324,32 @@ describe('StageAgentService', () => {
         undefined,
         { wallClock: 'stages.review.epilogueTimeoutMs' }
       );
+    });
+
+    it('allows sub-agent tools on the main review turn and keeps the epilogue inspection-only', async () => {
+      buildCliArgs.mockClear();
+      spawnCli
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'result',
+            subtype: 'success',
+            result: validReviewJson,
+            session_id: 'claude-review-session-42',
+          })
+        )
+        .mockImplementationOnce(
+          makeClaudeStream({
+            type: 'assistant',
+            message: { content: [{ type: 'text', text: 'Approved with one follow-up suggestion.' }] },
+          })
+        );
+
+      const service = new StageAgentService(createClaudeCliReviewConfigService());
+
+      await service.reviewCode('diff --git a/f b/f', [], '/tmp/repo');
+
+      expect(buildCliArgs.mock.calls[0][0].tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Skill', 'Task', 'Agent']);
+      expect(buildCliArgs.mock.calls.at(-1)?.[0].tools).toEqual(['Read', 'Glob', 'Grep', 'Bash', 'Skill']);
     });
 
     it('uses the same Claude Code CLI arguments as the main review turn', async () => {
