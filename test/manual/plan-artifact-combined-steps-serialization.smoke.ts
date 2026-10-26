@@ -1,15 +1,16 @@
 /**
- * Manual smoke test: issue:plan coerces a legacy-shaped model response (flat steps + stepIntents)
- * and persists the artifact in the combined step shape — JSON carries step objects with no
- * stepIntents key; markdown carries an Intent: line indented under its numbered step.
+ * Manual smoke test: issue:plan persists artifacts in the combined step shape — a model
+ * response with legacy flat string steps is coerced into intent-less step objects in the
+ * saved JSON, and a combined response's intent is rendered as an Intent: line indented
+ * under its numbered step in the saved markdown.
  *
  * Run (after `yarn build`): nr test:manual plan-artifact-combined-steps-serialization.smoke
  *
  * Verifies:
- *   1. issue:plan --format json exits 0 on a legacy-shaped model response
- *   2. the saved .json artifact carries combined steps: step 1 has the zipped intent, step 2 has no intent key
- *   3. the saved .json artifact contains no stepIntents key
- *   4. issue:plan --format md exits 0 and the .md artifact has the Intent: line under step 1 only
+ *   1. issue:plan --format json exits 0 on a flat-steps model response
+ *   2. the saved .json artifact carries intent-less combined step objects and no stepIntents key
+ *   3. issue:plan --format md exits 0 on a combined model response carrying an intent
+ *   4. the .md artifact has the Intent: line under step 1 only
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -25,17 +26,22 @@ const STEP_ONE = 'Rename AuthGuard to SharedAuthGuard in repo/src/auth/guard.ts'
 const STEP_TWO = 'Update imports in repo/src/controllers/index.ts';
 const INTENT_TEXT = 'guard.ts declares SharedAuthGuard and no longer declares AuthGuard';
 
-const legacyModelResponse = {
+const basePlanResponse = {
   action: 'fix',
   summary: 'Rename guard',
-  steps: [STEP_ONE, STEP_TWO],
-  stepIntents: [INTENT_TEXT, null],
   affectedFiles: [
     { filePath: 'repo/src/auth/guard.ts', status: 'found' },
     { filePath: 'repo/src/controllers/index.ts', status: 'found' },
   ],
   affectedRepositories: ['repo'],
   risks: [],
+};
+
+const flatLegacyModelResponse = { ...basePlanResponse, steps: [STEP_ONE, STEP_TWO] };
+
+const combinedModelResponse = {
+  ...basePlanResponse,
+  steps: [{ description: STEP_ONE, intent: INTENT_TEXT }, { description: STEP_TWO }],
 };
 
 const repoFiles = {
@@ -54,9 +60,10 @@ const findArtifact = (harness: PlanHarness, extension: string): string | undefin
 };
 
 const withFormat = (
-  format: string, verify: (exitCode: number | null, output: string, artifact?: string) => void,
+  format: string, modelResponse: Record<string, unknown>,
+  verify: (exitCode: number | null, output: string, artifact?: string) => void,
 ): void => {
-  const harness = setupPlanHarness('wf-combined-steps-', legacyModelResponse, repoFiles);
+  const harness = setupPlanHarness('wf-combined-steps-', modelResponse, repoFiles);
   try {
     const { exitCode, output } = runPlanCli(harness, [
       '--action', 'fix', '--custom-plan', path.join(harness.repoDir, 'source.md'), '--silent', '--format', format,
@@ -70,14 +77,14 @@ const withFormat = (
 const assertCombinedJsonSteps = (raw: string): void => {
   const plan = JSON.parse(raw);
   assert(
-    'json step 1 is a combined object carrying the zipped intent',
-    plan.steps?.[0]?.description === STEP_ONE && plan.steps?.[0]?.intent === INTENT_TEXT,
-    JSON.stringify(plan.steps?.[0]),
+    'json steps are intent-less combined objects coerced from flat strings',
+    plan.steps?.[0]?.description === STEP_ONE && plan.steps?.[1]?.description === STEP_TWO,
+    JSON.stringify(plan.steps),
   );
   assert(
-    'json step 2 is a combined object without an intent key',
-    plan.steps?.[1]?.description === STEP_TWO && !('intent' in (plan.steps?.[1] ?? {})),
-    JSON.stringify(plan.steps?.[1]),
+    'json steps carry no intent keys',
+    !('intent' in (plan.steps?.[0] ?? {})) && !('intent' in (plan.steps?.[1] ?? {})),
+    JSON.stringify(plan.steps),
   );
   assert('json artifact contains no stepIntents key', !raw.includes('stepIntents'));
 };
@@ -95,16 +102,16 @@ const assertMarkdownIntentLines = (md: string): void => {
 };
 
 const verifyJsonArtifact = (): void => {
-  withFormat('json', (exitCode, output, artifact) => {
-    assert('issue:plan --format json exits 0', exitCode === 0, output.slice(-800));
+  withFormat('json', flatLegacyModelResponse, (exitCode, output, artifact) => {
+    assert('issue:plan --format json exits 0 on a flat-steps model response', exitCode === 0, output.slice(-800));
     if (!artifact) return fail('json artifact was written', 'no *-fix-plan.json under the fake wf home');
     assertCombinedJsonSteps(fs.readFileSync(artifact, 'utf-8'));
   });
 };
 
 const verifyMarkdownArtifact = (): void => {
-  withFormat('md', (exitCode, output, artifact) => {
-    assert('issue:plan --format md exits 0', exitCode === 0, output.slice(-800));
+  withFormat('md', combinedModelResponse, (exitCode, output, artifact) => {
+    assert('issue:plan --format md exits 0 on a combined model response', exitCode === 0, output.slice(-800));
     if (!artifact) return fail('md artifact was written', 'no *-fix-plan.md under the fake wf home');
     assertMarkdownIntentLines(fs.readFileSync(artifact, 'utf-8'));
   });

@@ -203,20 +203,14 @@ describe('parsePlanArtifact step intents', () => {
   const jsonPlan = (extra: Record<string, unknown>) =>
     JSON.stringify({ action: 'fix', summary: 's', steps: ['one', 'two'], ...extra });
 
-  it('combines legacy flat steps with their stepIntents', () => {
-    const plan = parsePlanArtifact(jsonPlan({ stepIntents: [null, 'goal'] }), '/tmp/plan.json');
-
-    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two', intent: 'goal' }]);
+  it('rejects a JSON artifact carrying the retired stepIntents field', () => {
+    expect(() => parsePlanArtifact(jsonPlan({ stepIntents: [null, 'goal'] }), '/tmp/plan.json'))
+      .toThrow(WorkflowParseError);
   });
 
-  it('ignores non-string legacy intents', () => {
-    const plan = parsePlanArtifact(jsonPlan({ stepIntents: [5, 'goal'] }), '/tmp/plan.json');
-
-    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two', intent: 'goal' }]);
-  });
-
-  it('rejects a JSON artifact whose stepIntents length differs from steps', () => {
-    expect(() => parsePlanArtifact(jsonPlan({ stepIntents: ['goal'] }), '/tmp/plan.json')).toThrow(WorkflowParseError);
+  it('names the retired format and the file path in the rejection', () => {
+    expect(() => parsePlanArtifact(jsonPlan({ stepIntents: ['goal', null] }), '/tmp/plan.json'))
+      .toThrow(/retired stepIntents format.*\/tmp\/plan\.json/);
   });
 
   it('loads legacy flat steps without stepIntents as intent-free step objects', () => {

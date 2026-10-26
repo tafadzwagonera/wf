@@ -1,12 +1,13 @@
 /**
- * Manual smoke test: a legacy plan artifact whose stepIntents length differs from steps is
- * rejected loudly by the compiled CLI instead of being silently zipped.
+ * Manual smoke test: a plan artifact carrying the retired stepIntents field is rejected
+ * loudly by the compiled CLI with a migration hint — stepIntents plans were all migrated
+ * to combined step objects and the format is no longer accepted.
  *
- * Run (after `yarn build`): nr test:manual misaligned-step-intents-rejection.smoke
+ * Run (after `yarn build`): nr test:manual retired-step-intents-rejection.smoke
  *
  * Verifies:
- *   1. compiled issue:implement exits non-zero on a misaligned legacy artifact
- *   2. the output names the counts: "Plan file has 2 stepIntents for 1 steps"
+ *   1. compiled issue:implement exits non-zero on a stepIntents artifact
+ *   2. the output names the retired format and tells the user how to migrate
  *   3. the output contains the artifact path so the user can find the file
  *   4. the stubbed provider was never spawned — the run aborted before implementation work
  */
@@ -19,11 +20,11 @@ import { createReporter, summarise } from './support/reporter';
 
 const { counts, pass, fail } = createReporter();
 
-const misalignedPlanFixture = {
+const retiredPlanFixture = {
   action: 'fix',
-  summary: 'Mismatch fixture',
+  summary: 'Retired format fixture',
   steps: ['Update repo/src/a.ts'],
-  stepIntents: ['goal a', 'goal b'],
+  stepIntents: ['goal a'],
   estimatedComplexity: 'medium',
   affectedFiles: ['repo/src/a.ts'],
   affectedRepositories: ['repo'],
@@ -40,8 +41,8 @@ const assertRejectedLoudly = (
 ): void => {
   assert('compiled issue:implement exits non-zero', exitCode !== 0 && exitCode !== null, `exitCode=${exitCode}`);
   assert(
-    'output names the mismatched counts',
-    output.includes('Plan file has 2 stepIntents for 1 steps'),
+    'output names the retired stepIntents format',
+    output.includes('retired stepIntents format'),
     output.slice(-800),
   );
   assert('output contains the artifact path', output.includes(harness.planPath), output.slice(-400));
@@ -49,9 +50,9 @@ const assertRejectedLoudly = (
 };
 
 const runScenario = (): void => {
-  const harness = setupImplementHarness('wf-misaligned-intents-', 'noop', ['src/a.ts']);
+  const harness = setupImplementHarness('wf-retired-intents-', 'noop', ['src/a.ts']);
   try {
-    fs.writeFileSync(harness.planPath, JSON.stringify(misalignedPlanFixture), 'utf-8');
+    fs.writeFileSync(harness.planPath, JSON.stringify(retiredPlanFixture), 'utf-8');
     const { exitCode, output } = runImplement(harness);
     assertRejectedLoudly(harness, exitCode, output);
   } finally {
@@ -65,7 +66,7 @@ const failMissingDist = (): never => {
 };
 
 const main = (): void => {
-  console.log(chalk.bold.cyan('\n  misaligned stepIntents rejection smoke test\n'));
+  console.log(chalk.bold.cyan('\n  retired stepIntents rejection smoke test\n'));
   if (!fs.existsSync(distMainPath)) failMissingDist();
   runScenario();
   summarise(counts);

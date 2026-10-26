@@ -4,7 +4,7 @@ import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
 import { planComplexitySchema, planPhaseSchema } from '../schemas/ai.schema';
 import type { PlanComplexity, PlanStep } from '../types/ai.types';
-import { combineLegacyPlanSteps, hasAlignedLegacyStepIntents } from './plan-steps';
+import { combineLegacyPlanSteps } from './plan-steps';
 import { estimatePlanComplexity } from './estimate-plan-complexity';
 import { formatPlanRisk, normalizePlanRisks } from './plan-risk';
 import type { ResolutionAction, TicketArtifact } from '../types/agent.types';
@@ -498,13 +498,13 @@ const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: str
 });
 
 const normalizePlanStepList = (rawPlan: Record<string, unknown>, filePath: string): PlanStep[] => {
-  const steps = Array.isArray(rawPlan.steps) ? rawPlan.steps : [];
-  if (!hasAlignedLegacyStepIntents(steps, rawPlan.stepIntents)) {
+  if ('stepIntents' in rawPlan) {
     throw new WorkflowParseError(
-      `Plan file has ${(rawPlan.stepIntents as unknown[]).length} stepIntents for ${steps.length} steps: ${filePath}`
+      'Plan file uses the retired stepIntents format — fold each intent into its step as '
+      + `{ "description", "intent" }: ${filePath}`
     );
   }
-  return combineLegacyPlanSteps(steps, normalizeStepIntents(rawPlan.stepIntents));
+  return combineLegacyPlanSteps(rawPlan.steps);
 };
 
 const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
@@ -559,9 +559,15 @@ const parseMarkdownSections = (content: string): ParsedMarkdownPlan => {
   return parsed;
 };
 
-const buildMarkdownStepFields = (stepLines?: string[]) => {
-  const steps = extractNumberedList(stepLines);
-  return { steps, stepIntents: extractStepIntents(steps.length, stepLines) };
+const buildMarkdownStepFields = (stepLines?: string[]): { steps: PlanStep[] } => {
+  const descriptions = extractNumberedList(stepLines);
+  const intents = extractStepIntents(descriptions.length, stepLines);
+  return {
+    steps: descriptions.map((description, index) => {
+      const intent = intents?.[index];
+      return intent ? { description, intent } : { description };
+    }),
+  };
 };
 
 const buildMarkdownPlanFields = (sections: Map<string, string[]>, metadata: Map<string, string>) => ({
@@ -596,9 +602,6 @@ const extractStepIntents = (stepCount: number, lines: string[] = []): (string | 
   const aligned = Array.from({ length: stepCount }, (_, index) => intents[index] ?? null);
   return aligned.some(intent => intent !== null) ? aligned : undefined;
 };
-
-const normalizeStepIntents = (value: unknown): (string | null)[] | undefined =>
-  Array.isArray(value) ? value.map(item => (typeof item === 'string' ? item : null)) : undefined;
 
 const extractBulletedList = (lines?: string[]): string[] =>
   (lines ?? []).map(line => (/^-\s+(.+)$/.exec(line))?.[1]?.trim() ?? '').filter(Boolean);
