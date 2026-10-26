@@ -110,6 +110,14 @@ const buildConciseExampleBullet = (conventional?: boolean): string =>
     : 'Be concise and to the point — e.g. "JWT token validation", "Token refresh race condition", '
       + '"Consistent symbols" — just the unscoped description, no type prefix';
 
+const buildConventionalOnlyBullets = (conventional?: boolean): string[] =>
+  conventional
+    ? [
+        'The type/scope must reflect the full file list below, not just the first files in the diff',
+        'Use "feat" only when the change introduces new behavior; a correction to existing behavior is "fix", not "feat"',
+      ]
+    : [];
+
 const buildGuidelineBullets = (conventional?: boolean, correction?: string): string => {
   const bullets = [
     'First line: concise summary (50 chars or less)',
@@ -117,7 +125,7 @@ const buildGuidelineBullets = (conventional?: boolean, correction?: string): str
     buildConciseExampleBullet(conventional),
     'Be specific and clear',
     'Do not include the ticket key (will be added automatically)',
-    ...(conventional ? ['The type/scope must reflect the full file list below, not just the first files in the diff'] : []),
+    ...buildConventionalOnlyBullets(conventional),
   ];
   const correctionLine = correction ? `\n${correction}` : '';
   return `Guidelines:\n${bullets.map(b => `- ${b}`).join('\n')}${correctionLine}`;

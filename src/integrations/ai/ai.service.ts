@@ -931,6 +931,7 @@ const buildCommitPromptPrinciples = (detectedFormat: 'conventional' | 'freeform'
     'Be concise but informative — a reader should understand the "why" without opening the diff',
     'Omit ticket IDs or project codes (e.g. WBP-1234) — the prefix is added automatically',
     'The type/scope must reflect the full file list above, not just the first files in the diff',
+    'Use "feat" only when the change introduces new behavior; a correction to existing behavior is "fix", not "feat"',
   ];
   const bulletLines = bullets.map(b => `- ${b}`).join('\n');
   const correctionLine = correction ? `\n\n${correction}` : '';

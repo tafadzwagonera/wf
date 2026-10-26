@@ -47,6 +47,20 @@ describe('CommitStageService', () => {
     expect(message).toBe('WBP-123: fix(auth): restore login redirect');
   });
 
+  it('instructs the model to use "feat" only for new behavior, not behavior-preserving fixes', async () => {
+    const { service, aiService } = await buildService();
+    const execute = aiService.execute as jest.Mock;
+
+    await service.generateCommitMessage({
+      diff: 'diff --git a/file b/file',
+      ticketKey: 'WBP-123',
+      conventional: true,
+    });
+
+    const prompt = execute.mock.calls[0][0].prompt as string;
+    expect(prompt).toContain('Use "feat" only when the change introduces new behavior');
+  });
+
   it('omits conventional-format examples and instructions when --conventional is not requested', async () => {
     const { service, aiService } = await buildService();
     const execute = aiService.execute as jest.Mock;

@@ -938,6 +938,17 @@ describe('AiService', () => {
 
       expect(adapter.execute).toHaveBeenCalledTimes(1);
     });
+
+    it('instructs the model to use "feat" only for new behavior, not behavior-preserving fixes', async () => {
+      const adapter = createAdapter();
+      adapter.execute.mockResolvedValueOnce({ content: 'fix(review): isolate verification in a worktree' });
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      await service.generateCommitMessage(nonDocsDiff, [], 'conventional');
+
+      const prompt = adapter.execute.mock.calls[0][0].prompt;
+      expect(prompt).toContain('Use "feat" only when the change introduces new behavior');
+    });
   });
 
   describe('reviewCode trace validation', () => {
