@@ -11,6 +11,17 @@
             "statusMessage": "Checking plan review gate"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/src/hooks/skill-gate.sh check",
+            "timeout": 10,
+            "statusMessage": "Checking skill gate"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -20,6 +31,16 @@
           {
             "type": "command",
             "command": "~/Projects/wf/src/hooks/plan-review-gate.sh consume",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/Projects/wf/src/hooks/skill-gate.sh mark",
             "timeout": 10
           }
         ]

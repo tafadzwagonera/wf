@@ -11,6 +11,12 @@
           },
           {
             "type": "command",
+            "command": "~/Projects/wf/src/hooks/skill-gate.sh check-stop",
+            "timeout": 15,
+            "statusMessage": "Checking skill gate"
+          },
+          {
+            "type": "command",
             "command": "cwd=$(cat | jq -r '.cwd'); cd \"$cwd\" && ~/Projects/wf/quality-checks.sh",
             "timeout": 120,
             "statusMessage": "Running quality checks"
