@@ -28,7 +28,7 @@ function buildPlanArtifact(complexity: CommitComplexity): PlanArtifact {
     plan: {
       action: 'fix',
       summary: 'test plan',
-      steps: ['do the thing'],
+      steps: [{ description: 'do the thing' }],
       estimatedComplexity: complexity,
     },
     action: 'fix',

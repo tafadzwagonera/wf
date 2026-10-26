@@ -16,6 +16,7 @@ import {
   buildPlanArtifactManifestPath,
 } from './plan-artifact';
 import { getWfHomeDir } from './wf-paths';
+import { planStepDescriptions } from './plan-steps';
 import { collectWfArtifactFiles } from './collect-wf-artifact-files';
 
 export type { PriorPlanContext, PriorPlanSummary, PlanCorrelationMatch, PlanCorrelationResult };
@@ -86,7 +87,7 @@ export const extractContentKeywords = (text: string): string[] => {
 export const extractPlanKeywords = (plan: ResolutionPlan): string[] => {
   const affectedFilePaths = extractAffectedFilePaths(plan.affectedFiles);
   const riskDescriptions = (plan.risks ?? []).map(r => r.description);
-  const combined = [plan.summary, ...(plan.steps ?? []), ...affectedFilePaths, ...riskDescriptions]
+  const combined = [plan.summary, ...planStepDescriptions(plan.steps ?? []), ...affectedFilePaths, ...riskDescriptions]
     .join(' ')
     .slice(0, EXTRACT_MAX_CHARS);
 
@@ -116,7 +117,7 @@ const parsePlanFile = (filePath: string): PriorPlanSummary | null => {
     const manifest = readPlanArtifactManifest(buildPlanArtifactManifestPath(filePath));
     return {
       title: plan.summary, summary: plan.summary, filename: path.basename(filePath),
-      artifactPath: filePath, keywords: extractPlanKeywords(plan), steps: plan.steps,
+      artifactPath: filePath, keywords: extractPlanKeywords(plan), steps: planStepDescriptions(plan.steps),
       action: plan.action, estimatedComplexity: plan.estimatedComplexity,
       ticketKey: manifest?.ticketKey ?? null,
     };

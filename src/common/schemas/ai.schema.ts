@@ -82,11 +82,15 @@ export const planRiskSchema = z.object({
   severity: planComplexitySchema,
 });
 
+export const planStepSchema = z.object({
+  description: z.string(),
+  intent: nullableOptional(z.string()),
+});
+
 const planModelOutputShape = {
   action: z.enum(['fix', 'feature', 'investigate']),
   summary: z.string(),
-  steps: z.array(z.string()),
-  stepIntents: nullableOptional(z.array(z.string().nullable())),
+  steps: z.array(planStepSchema),
   affectedFiles: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
   affectedFilesContext: nullableOptional(z.array(z.union([z.string(), fileEntrySchema]))),
   affectedRepositories: nullableOptional(z.array(z.string())),
@@ -99,22 +103,9 @@ const planModelOutputShape = {
   phases: nullableOptional(z.array(planPhaseSchema)),
 };
 
-export type PlanWithStepIntents = { steps: string[]; stepIntents?: (string | null)[] };
+export const planModelOutputSchema = z.object(planModelOutputShape);
 
-export const hasAlignedStepIntents = (plan: PlanWithStepIntents): boolean =>
-  plan.stepIntents === undefined || plan.stepIntents.length === plan.steps.length;
-
-const withStepIntentAlignment = <T extends z.ZodType<PlanWithStepIntents>>(schema: T) =>
-  schema.refine(hasAlignedStepIntents, {
-    message: 'stepIntents must have exactly one entry per step',
-    path: ['stepIntents'],
-  });
-
-export const planModelOutputSchema = withStepIntentAlignment(z.object(planModelOutputShape));
-
-export const resolutionPlanSchema = withStepIntentAlignment(
-  z.object({ ...planModelOutputShape, estimatedComplexity: planComplexitySchema })
-);
+export const resolutionPlanSchema = z.object({ ...planModelOutputShape, estimatedComplexity: planComplexitySchema });
 
 // Re-export review schemas used in AI context
 export { codeIssueSchema, codeReviewSchema };

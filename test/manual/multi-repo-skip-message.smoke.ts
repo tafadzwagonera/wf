@@ -26,7 +26,7 @@ const buildPlan = (overrides?: Partial<PlanArtifact['plan']>): PlanArtifact => (
   plan: {
     action: 'fix',
     summary: 'Test plan',
-    steps: ['Update a file'],
+    steps: [{ description: 'Update a file' }],
     estimatedComplexity: 'low' as const,
     affectedFiles: ['repo-a/src/a.ts'],
     affectedRepositories: ['repo-a'],

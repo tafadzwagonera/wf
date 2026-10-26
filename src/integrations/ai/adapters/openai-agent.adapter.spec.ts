@@ -19,6 +19,7 @@ import {
 import { detectMechanicalTask, planProblemInstruction } from './shared-routing';
 import { loadAiContextConfig } from './load-ai-context-config';
 import type { VerificationScript } from '../../../agents/interfaces';
+import type { PlanStep } from '../../../common/types/ai.types';
 import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
 
 jest.mock('@openai/agents-openai', () => ({
@@ -184,7 +185,7 @@ const makeParams = (repoDir: string, verificationScripts: VerificationScript[] =
     plan: {
       action: 'fix' as const,
       summary: 'test',
-      steps: [],
+      steps: [] as PlanStep[],
       estimatedComplexity: 'medium' as const,
     },
   },
@@ -531,7 +532,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Migrate all loggers',
-        steps: ['Migrate all Logger instances to PinoLogger'],
+        steps: [{ description: 'Migrate all Logger instances to PinoLogger' }],
         estimatedComplexity: 'medium',
         affectedFiles: ['src/a.ts', 'src/b.ts'],
       });
@@ -543,7 +544,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Update imports',
-        steps: ['Update imports'],
+        steps: [{ description: 'Update imports' }],
         estimatedComplexity: 'medium',
         affectedFiles: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
       });
@@ -555,7 +556,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Rename function',
-        steps: ['Rename foo to bar in each file'],
+        steps: [{ description: 'Rename foo to bar in each file' }],
         estimatedComplexity: 'low',
         affectedFiles: Array.from({ length: 25 }, (_, i) => `src/f${i}.ts`),
       });
@@ -566,7 +567,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'feature',
         summary: 'Add auth module',
-        steps: ['Design auth schema', 'Implement middleware', 'Add tests'],
+        steps: [{ description: 'Design auth schema' }, { description: 'Implement middleware' }, { description: 'Add tests' }],
         estimatedComplexity: 'high',
         affectedFiles: ['src/auth.ts', 'src/auth.spec.ts'],
       });
@@ -578,7 +579,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Update config',
-        steps: ['Update value', 'Update another value', 'Update third value'],
+        steps: [{ description: 'Update value' }, { description: 'Update another value' }, { description: 'Update third value' }],
         estimatedComplexity: 'low',
         affectedFiles: Array.from({ length: 5 }, (_, i) => `src/f${i}.ts`),
       });
@@ -590,7 +591,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'feature',
         summary: 'Migrate all services',
-        steps: ['Migrate all services to new architecture'],
+        steps: [{ description: 'Migrate all services to new architecture' }],
         estimatedComplexity: 'high',
         affectedFiles: ['src/service1.ts', 'src/service2.ts'],
       });
@@ -602,7 +603,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Standardize code',
-        steps: ['Standardize naming convention', 'Apply same approach in every module'],
+        steps: [{ description: 'Standardize naming convention' }, { description: 'Apply same approach in every module' }],
         estimatedComplexity: 'medium',
         affectedFiles: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
       });
@@ -614,7 +615,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'feature',
         summary: 'Normalize and refactor',
-        steps: ['Normalize the config format', 'Refactor the parser module'],
+        steps: [{ description: 'Normalize the config format' }, { description: 'Refactor the parser module' }],
         estimatedComplexity: 'medium',
         affectedFiles: ['src/config.ts', 'src/parser.ts'],
       });
@@ -626,7 +627,7 @@ describe('OpenAIAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Prevent repeat failures',
-        steps: ['Do not repeat this mistake in production'],
+        steps: [{ description: 'Do not repeat this mistake in production' }],
         estimatedComplexity: 'medium',
         affectedFiles: ['src/handler.ts'],
       });
@@ -752,7 +753,7 @@ describe('OpenAIAgentAdapter', () => {
           plan: {
             action: 'fix' as const,
             summary: 'Migrate all loggers',
-            steps: ['Migrate all Logger instances to PinoLogger'],
+            steps: [{ description: 'Migrate all Logger instances to PinoLogger' }],
             estimatedComplexity: 'low' as const,
           },
         },
@@ -1489,7 +1490,7 @@ describe('OpenAIAgentAdapter', () => {
           plan: {
             action: 'feature' as const,
             summary: 'large migration',
-            steps: Array.from({ length: 17 }, (_, i) => `Step ${i + 1}`),
+            steps: Array.from({ length: 17 }, (_, i) => ({ description: `Step ${i + 1}` })),
             estimatedComplexity: 'high' as const,
           },
         },
@@ -1522,7 +1523,7 @@ describe('OpenAIAgentAdapter', () => {
           plan: {
             action: 'fix' as const,
             summary: 'test',
-            steps: ['Migrate Logger to PinoLogger', 'Update unit tests'],
+            steps: [{ description: 'Migrate Logger to PinoLogger' }, { description: 'Update unit tests' }],
             estimatedComplexity: 'low' as const,
           },
         },
@@ -1787,7 +1788,7 @@ describe('OpenAIAgentAdapter', () => {
             plan: {
               action: 'fix' as const,
               summary: 'mid-size plan',
-              steps: Array.from({ length: 8 }, (_, i) => `Step ${i + 1}`),
+              steps: Array.from({ length: 8 }, (_, i) => ({ description: `Step ${i + 1}` })),
               estimatedComplexity: 'medium' as const,
             },
           },
@@ -1836,7 +1837,7 @@ describe('OpenAIAgentAdapter', () => {
             plan: {
               action: 'fix' as const,
               summary: 'large plan',
-              steps: Array.from({ length: 15 }, (_, i) => `Step ${i + 1}`),
+              steps: Array.from({ length: 15 }, (_, i) => ({ description: `Step ${i + 1}` })),
               estimatedComplexity: 'high' as const,
             },
           },
@@ -2345,7 +2346,7 @@ describe('OpenAIAgentAdapter', () => {
           mockRunner.mockImplementation(() => ({ run: mockRun, config: {} }));
           jest.spyOn(console, 'log').mockImplementation(() => {});
           const params = { ...makeParams(repoDir), repoFiles };
-          (params.planArtifact.plan.steps as string[]) = ['step 1', 'step 2'];
+          params.planArtifact.plan.steps = [{ description: 'step 1' }, { description: 'step 2' }];
           const result = await new OpenAIAgentAdapter(makeConfigService()).generateAndVerify(params);
           return { result, mockRun };
         };

@@ -12,8 +12,7 @@ const DOWNGRADE_RULE = 'a literal that differs from the diff is a "warning", not
 const planFixture = {
   action: 'fix',
   summary: 'Match component files',
-  steps: ['Update repo/src/a.ts to export the regex /\\.(vue|tsx)$/'],
-  stepIntents: [INTENT_TEXT],
+  steps: [{ description: 'Update repo/src/a.ts to export the regex /\\.(vue|tsx)$/', intent: INTENT_TEXT }],
   estimatedComplexity: 'medium',
   affectedFiles: ['repo/src/a.ts'],
   affectedRepositories: ['repo'],

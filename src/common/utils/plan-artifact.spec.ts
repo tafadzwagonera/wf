@@ -199,30 +199,39 @@ describe('parsePlanArtifact markdown risks and complexity', () => {
   });
 });
 
-describe('parsePlanArtifact stepIntents', () => {
+describe('parsePlanArtifact step intents', () => {
   const jsonPlan = (extra: Record<string, unknown>) =>
     JSON.stringify({ action: 'fix', summary: 's', steps: ['one', 'two'], ...extra });
 
-  it('loads stepIntents from a JSON artifact', () => {
+  it('combines legacy flat steps with their stepIntents', () => {
     const plan = parsePlanArtifact(jsonPlan({ stepIntents: [null, 'goal'] }), '/tmp/plan.json');
 
-    expect(plan.stepIntents).toEqual([null, 'goal']);
+    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two', intent: 'goal' }]);
   });
 
-  it('maps non-string JSON intents to null', () => {
+  it('ignores non-string legacy intents', () => {
     const plan = parsePlanArtifact(jsonPlan({ stepIntents: [5, 'goal'] }), '/tmp/plan.json');
 
-    expect(plan.stepIntents).toEqual([null, 'goal']);
+    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two', intent: 'goal' }]);
   });
 
   it('rejects a JSON artifact whose stepIntents length differs from steps', () => {
     expect(() => parsePlanArtifact(jsonPlan({ stepIntents: ['goal'] }), '/tmp/plan.json')).toThrow(WorkflowParseError);
   });
 
-  it('leaves stepIntents undefined when a JSON artifact omits them', () => {
+  it('loads legacy flat steps without stepIntents as intent-free step objects', () => {
     const plan = parsePlanArtifact(jsonPlan({}), '/tmp/plan.json');
 
-    expect(plan.stepIntents).toBeUndefined();
+    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two' }]);
+  });
+
+  it('loads combined step objects from a JSON artifact unchanged', () => {
+    const plan = parsePlanArtifact(
+      jsonPlan({ steps: [{ description: 'one' }, { description: 'two', intent: 'goal' }] }),
+      '/tmp/plan.json'
+    );
+
+    expect(plan.steps).toEqual([{ description: 'one' }, { description: 'two', intent: 'goal' }]);
   });
 
   it('loads an Intent line under numbered step 2 only', () => {
@@ -231,7 +240,7 @@ describe('parsePlanArtifact stepIntents', () => {
       '/tmp/plan.md'
     );
 
-    expect(plan.stepIntents).toEqual([null, 'goal text']);
+    expect(plan.steps).toEqual([{ description: 'First' }, { description: 'Second', intent: 'goal text' }]);
   });
 
   it('does not treat an Intent line as bold metadata or step text', () => {
@@ -241,7 +250,7 @@ describe('parsePlanArtifact stepIntents', () => {
     );
 
     expect(plan.action).toBe('fix');
-    expect(plan.steps).toEqual(['First', 'Second']);
+    expect(plan.steps.map(step => step.description)).toEqual(['First', 'Second']);
     expect(plan.summary).toBe('S');
   });
 
@@ -251,14 +260,13 @@ describe('parsePlanArtifact stepIntents', () => {
       '/tmp/plan.md'
     );
 
-    expect(plan.stepIntents).toBeUndefined();
+    expect(plan.steps).toEqual([{ description: 'First' }, { description: 'Second' }]);
   });
 
-  it('loads markdown without Intent lines with stepIntents undefined', () => {
+  it('loads markdown without Intent lines as intent-free step objects', () => {
     const plan = parsePlanArtifact('**Action:** fix\n\n## Summary\n\nS\n\n## Steps\n\n1. First\n2. Second\n', '/tmp/plan.md');
 
-    expect(plan.stepIntents).toBeUndefined();
-    expect(plan.steps).toEqual(['First', 'Second']);
+    expect(plan.steps).toEqual([{ description: 'First' }, { description: 'Second' }]);
   });
 });
 

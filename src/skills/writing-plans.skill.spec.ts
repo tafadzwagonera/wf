@@ -35,13 +35,13 @@ describe('writing-plans skill: no-placeholders quality rule', () => {
 
   it('returns empty array for a clean plan with no placeholders', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['Implement the authentication flow.', 'Add unit tests.'] });
+    const violations = rule.validate({ steps: [{ description: 'Implement the authentication flow.' }, { description: 'Add unit tests.' }] });
     expect(violations).toEqual([]);
   });
 
   it('detects TBD in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['TBD'] });
+    const violations = rule.validate({ steps: [{ description: 'TBD' }] });
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('Step 1');
     expect(violations[0]).toContain('TBD');
@@ -49,52 +49,57 @@ describe('writing-plans skill: no-placeholders quality rule', () => {
 
   it('detects TODO in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['TODO: add implementation'] });
+    const violations = rule.validate({ steps: [{ description: 'TODO: add implementation' }] });
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('Step 1');
   });
 
   it('detects "implement later" in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['We will implement later this part.'] });
+    const violations = rule.validate({ steps: [{ description: 'We will implement later this part.' }] });
     expect(violations).toHaveLength(1);
     expect(violations[0]).toContain('Step 1');
   });
 
   it('detects "fill in details" in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['fill in details here'] });
+    const violations = rule.validate({ steps: [{ description: 'fill in details here' }] });
     expect(violations).toHaveLength(1);
   });
 
   it('detects "fill in detail" (singular) in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['fill in detail for the implementation'] });
+    const violations = rule.validate({ steps: [{ description: 'fill in detail for the implementation' }] });
     expect(violations).toHaveLength(1);
   });
 
   it('detects "similar to task" in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['Similar to task 3, add error handling.'] });
+    const violations = rule.validate({ steps: [{ description: 'Similar to task 3, add error handling.' }] });
     expect(violations).toHaveLength(1);
   });
 
   it('detects "similar to step" in a step', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['Similar to step 2, configure the client.'] });
+    const violations = rule.validate({ steps: [{ description: 'Similar to step 2, configure the client.' }] });
     expect(violations).toHaveLength(1);
   });
 
   it('is case-insensitive', () => {
     const rule = getRule();
-    const violations = rule.validate({ steps: ['tbd', 'todo: do this'] });
+    const violations = rule.validate({ steps: [{ description: 'tbd' }, { description: 'todo: do this' }] });
     expect(violations).toHaveLength(2);
   });
 
   it('includes the step index (1-based) in violation messages', () => {
     const rule = getRule();
     const violations = rule.validate({
-      steps: ['Clean step', 'TBD', 'Another clean step', 'TODO: implement'],
+      steps: [
+        { description: 'Clean step' },
+        { description: 'TBD' },
+        { description: 'Another clean step' },
+        { description: 'TODO: implement' },
+      ],
     });
     expect(violations).toHaveLength(2);
     expect(violations[0]).toContain('Step 2');
@@ -122,13 +127,11 @@ describe('writing-plans SKILL.md example', () => {
     expect(() => planModelOutputSchema.parse(JSON.parse(example))).not.toThrow();
   });
 
-  it('instructs the planner to emit index-aligned stepIntents only for literal-prescribing steps', () => {
-    expect(skillMd).toContain('Emit `stepIntents` only for steps that prescribe a literal');
+  it('instructs the planner to emit per-step intent only for literal-prescribing steps', () => {
+    expect(skillMd).toContain('Add an `intent` only when the step prescribes a literal');
     expect(skillMd).toContain('(a call chain, signature, regex, or test name)');
     expect(skillMd).toContain('checkable from the diff');
-    expect(skillMd).toContain('Omit `stepIntents` when no step prescribes a literal');
-    expect(skillMd).toContain('index-aligned with `steps`');
-    expect(skillMd).toContain('`null` for every other step');
+    expect(skillMd).toContain('omit it for every other step');
   });
 
   it('does not claim verification.targeted is required', () => {

@@ -5,6 +5,7 @@ import type { SkillQualityRule } from '../../skills/skill.types';
 import type { PackageManager } from './detect-repo-conventions';
 import { formatRunnerInvocation, parseRunnerInvocation } from './verification-commands';
 import { buildPlannedPathSet } from './planned-paths';
+import { planStepDescriptions } from './plan-steps';
 import { detectDuplicateResolverViolations } from './plan-quality-duplicate-resolver';
 import chalk from 'chalk';
 
@@ -457,9 +458,7 @@ const detectSkillViolations = (params: ValidatePlanQualityParams): PlanQualityVi
 
 // eslint-disable-next-line max-lines-per-function
 const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViolation[] => {
-  const steps = Array.isArray(params.plan.steps)
-    ? params.plan.steps.filter((step): step is string => true)
-    : [];
+  const steps = planStepDescriptions(params.plan.steps ?? []);
 
   return uniqueViolations([
     ...detectRenameViolations(steps),
@@ -482,7 +481,7 @@ const validatePlanQuality = (params: ValidatePlanQualityParams): PlanQualityViol
 const validatePlanQualityWithLookups = async (
   params: ValidatePlanQualityParams
 ): Promise<PlanQualityViolation[]> => {
-  const steps = Array.isArray(params.plan.steps) ? params.plan.steps : [];
+  const steps = planStepDescriptions(params.plan.steps ?? []);
   const duplicateResolverViolations = await detectDuplicateResolverViolations({
     steps,
     affectedFiles: params.plan.affectedFiles,

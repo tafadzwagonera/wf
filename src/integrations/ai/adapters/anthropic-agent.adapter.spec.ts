@@ -21,6 +21,7 @@ import { loadAnthropicAgentSdk } from './load-anthropic-agent-sdk';
 import { isNodeOnPath, locateClaudeExecutable } from './locate-claude-executable';
 import { isSeaRuntime } from '../../../common/utils/runtime-assets';
 import type { VerificationScript } from '../../../agents/interfaces';
+import type { PlanStep } from '../../../common/types/ai.types';
 import { createTempDir as createManagedTempDir } from '../../../common/testing/temp-dir';
 
 jest.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -267,7 +268,7 @@ const makeParams = (repoDir = '/repo/primary', verificationScripts: Verification
     plan: {
       action: 'fix' as const,
       summary: 'test',
-      steps: [],
+      steps: [] as PlanStep[],
       estimatedComplexity: 'medium' as const,
     },
   },
@@ -399,7 +400,7 @@ describe('AnthropicAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Migrate all loggers',
-        steps: ['Replace every Logger with PinoLogger'],
+        steps: [{ description: 'Replace every Logger with PinoLogger' }],
         estimatedComplexity: 'medium',
         affectedFiles: ['src/a.ts', 'src/b.ts'],
       });
@@ -411,7 +412,7 @@ describe('AnthropicAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'fix',
         summary: 'Update imports',
-        steps: ['Update imports'],
+        steps: [{ description: 'Update imports' }],
         estimatedComplexity: 'medium',
         affectedFiles: Array.from({ length: 15 }, (_, i) => `src/f${i}.ts`),
       });
@@ -423,7 +424,7 @@ describe('AnthropicAgentAdapter', () => {
       const result = detectMechanicalTask({
         action: 'feature',
         summary: 'Add auth module',
-        steps: ['Design schema', 'Implement middleware', 'Add tests'],
+        steps: [{ description: 'Design schema' }, { description: 'Implement middleware' }, { description: 'Add tests' }],
         estimatedComplexity: 'high',
         affectedFiles: ['src/auth.ts', 'src/auth.spec.ts'],
       });
@@ -1280,7 +1281,7 @@ describe('AnthropicAgentAdapter', () => {
       mockQuery.mockImplementation(() => makeSdkSession([makeResultSuccess({ session_id: 'session-pp' })]));
       mockSdkModule({ query: mockQuery } as never);
       const params = makeParams();
-      (params.planArtifact.plan.steps as string[]) = ['step 1', 'step 2'];
+      params.planArtifact.plan.steps = [{ description: 'step 1' }, { description: 'step 2' }];
       params.repoFiles = repoFiles;
       return new AnthropicAgentAdapter(makeConfigService()).generateAndVerify(params);
     };

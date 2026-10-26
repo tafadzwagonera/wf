@@ -62,6 +62,7 @@ import {
 import type { AIRequest } from '../../common/types/ai.types';
 import { planModelOutputSchema } from '../../common/schemas/ai.schema';
 import { estimatePlanComplexity } from '../../common/utils/estimate-plan-complexity';
+import { coerceLegacyPlanShape } from '../../common/utils/plan-steps';
 import { codeReviewSchema } from '../../common/schemas/review.schema';
 import { generateTicketSchema } from '../../common/schemas/generate-ticket.schema';
 import { AiProviderError, ConfigurationError, ExecutionError, isAiProviderErrorLike } from '../../common/utils/errors';
@@ -444,9 +445,9 @@ ${planFileListingInstructions}`;
 
 const buildPlanJsonSchemaExample = (opts: PlanPromptBodyOpts): string => `
 Return ONLY a valid JSON object. Reference:
-{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Write a failing spec in ${opts.repoExample}/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests","Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","Update all import paths in ${opts.repoExample}/src/controllers/"],"stepIntents":[null,"guard.ts declares SharedAuthGuard and no longer declares AuthGuard",null],"affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/auth/shared-auth-guard.spec.ts","status":"to-create"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(opts.packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${opts.action}","summary":"Extract shared auth guard into a reusable middleware.","steps":[{"description":"Write a failing spec in ${opts.repoExample}/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests"},{"description":"Rename AuthGuard to SharedAuthGuard in ${opts.repoExample}/src/auth/guard.ts","intent":"guard.ts declares SharedAuthGuard and no longer declares AuthGuard"},{"description":"Update all import paths in ${opts.repoExample}/src/controllers/"}],"affectedFiles":[{"filePath":"${opts.repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${opts.repoExample}/src/auth/shared-auth-guard.spec.ts","status":"to-create"},{"filePath":"${opts.repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${opts.repoExample}/package.json","status":"found"}],"affectedRepositories":["${opts.repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(opts.packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
-When an optional field has no value, omit it from the JSON entirely. Do not use null. The only exception is inside stepIntents, where null marks a step with no intent.
+When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
 ${JSON_OUTPUT_RULES}`;
 
@@ -1049,7 +1050,7 @@ const stageResponseSchemas: Partial<Record<AgentStageName, string>> = {
 };
 
 const stageZodSchemas: Partial<Record<AgentStageName, { parse: (v: unknown) => unknown }>> = {
-  plan: planModelOutputSchema,
+  plan: { parse: v => planModelOutputSchema.parse(coerceLegacyPlanShape(v)) },
   review: codeReviewSchema,
   generate: generateTicketSchema,
 };
@@ -1252,7 +1253,7 @@ export class StageAgentService {
         'AI provider returned an empty plan response'
       )
     );
-    const base = planModelOutputSchema.parse(parsedPlan);
+    const base = planModelOutputSchema.parse(coerceLegacyPlanShape(parsedPlan));
     const plan = { ...base, estimatedComplexity: estimatePlanComplexity(base) };
     return this.applyRepositoriesAffected(plan, parsedPlan.repositoriesAffected);
   }

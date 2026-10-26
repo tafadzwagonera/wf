@@ -209,6 +209,31 @@ describe('AiService', () => {
       expect(plan.estimatedComplexity).toBe('high');
     });
 
+    it('combines legacy flat steps and stepIntents from the model into step objects', async () => {
+      const adapter = {
+        execute: jest.fn().mockResolvedValue({
+          content: JSON.stringify({
+            action: 'fix',
+            summary: 'Legacy shaped plan',
+            steps: ['Rename guard', 'Update imports'],
+            stepIntents: ['guard.ts declares SharedAuthGuard', null],
+            affectedRepositories: ['repo-a'],
+          }),
+          provider: 'openai',
+          model: 'gpt-5.4',
+        }),
+        executeWithHistory: jest.fn().mockResolvedValue({ content: 'ok' }),
+      } as unknown as jest.Mocked<LlmAdapter>;
+      const service = new AiService(mockLogger, adapter, createConfigService());
+
+      const plan = await service.generatePlan('fix', '# WBP-123: Fix', { affectedRepositories: ['repo-a'] });
+
+      expect(plan.steps).toEqual([
+        { description: 'Rename guard', intent: 'guard.ts declares SharedAuthGuard' },
+        { description: 'Update imports' },
+      ]);
+    });
+
     it('requests and preserves plan-level verification policies when generating plans', async () => {
       const adapter = {
         execute: jest.fn().mockResolvedValue({
@@ -360,10 +385,9 @@ describe('AiService', () => {
       const expectedPlanSchema = [
         'Return ONLY a valid JSON object. Reference:\n',
         '{"action":"fix","summary":"Extract shared auth guard into a reusable middleware.",',
-        '"steps":["Write a failing spec in repo-a/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests",',
-        '"Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts",',
-        '"Update all import paths in repo-a/src/controllers/"],',
-        '"stepIntents":[null,"guard.ts declares SharedAuthGuard and no longer declares AuthGuard",null],',
+        '"steps":[{"description":"Write a failing spec in repo-a/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests"},',
+        '{"description":"Rename AuthGuard to SharedAuthGuard in repo-a/src/auth/guard.ts","intent":"guard.ts declares SharedAuthGuard and no longer declares AuthGuard"},',
+        '{"description":"Update all import paths in repo-a/src/controllers/"}],',
         '"affectedFiles":[{"filePath":"repo-a/src/auth/guard.ts","status":"found"},',
         '{"filePath":"repo-a/src/auth/shared-auth-guard.spec.ts","status":"to-create"},',
         '{"filePath":"repo-a/src/middleware/auth.middleware.ts","status":"to-create"}],',

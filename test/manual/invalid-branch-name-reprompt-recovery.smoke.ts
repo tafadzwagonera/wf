@@ -60,7 +60,7 @@ function buildTestArtifacts(repoDir: string): { ticket: TicketArtifact; planArti
   const planArtifact: PlanArtifact = {
     action: 'feature',
     path: path.join(repoDir, 'WBP-9101-plan-feature.json'),
-    plan: { action: 'feature', summary: 'Reprompt recovery smoke', steps: ['n/a'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: ['repo'], risks: [] },
+    plan: { action: 'feature', summary: 'Reprompt recovery smoke', steps: [{ description: 'n/a' }], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: ['repo'], risks: [] },
   };
   return { ticket, planArtifact, options: { trackerName: 'jira', repoDir, silent: false, suppressHeader: true } };
 }

@@ -173,14 +173,13 @@ const annotateWithPlanProblem = (text: string, report?: PlanProblem): string =>
   report ? `${text}\n\n${formatPlanProblemAnnotation(report)}` : text;
 
 const toPlannedSteps = ({ plan }: PlanArtifact): PlannedStep[] =>
-  plan.steps.map((text, index) => ({ text, intent: plan.stepIntents?.[index] }));
+  plan.steps.map(step => ({ text: step.description, intent: step.intent }));
 
 const scopePlanToSteps = (planArtifact: PlanArtifact, steps: PlannedStep[]): PlanArtifact => ({
   ...planArtifact,
   plan: {
     ...planArtifact.plan,
-    steps: steps.map(step => step.text),
-    stepIntents: planArtifact.plan.stepIntents && steps.map(step => step.intent ?? null),
+    steps: steps.map(step => ({ description: step.text, ...(typeof step.intent === 'string' && { intent: step.intent }) })),
   },
 });
 

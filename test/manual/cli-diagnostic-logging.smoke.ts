@@ -40,7 +40,7 @@ const stripAnsi = (s: string): string => s.replaceAll(/\x1b\[[0-9;]*m/g, '');
 const makePlan = () => ({
   action: 'feature' as const,
   summary: 'test',
-  steps: ['step 1'],
+  steps: [{ description: 'step 1' }],
   estimatedComplexity: 'low' as const,
   affectedFiles: [],
   affectedRepositories: [],

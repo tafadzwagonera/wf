@@ -70,7 +70,7 @@ describe('CodexCliAdapter', () => {
         plan: {
           action: 'feature',
           summary: 'test',
-          steps: ['step 1'],
+          steps: [{ description: 'step 1' }],
           estimatedComplexity: 'low',
           affectedFiles: [],
           affectedRepositories: [],
@@ -106,7 +106,7 @@ describe('CodexCliAdapter', () => {
         plan: {
           action: 'feature',
           summary: 'test',
-          steps: ['step 1'],
+          steps: [{ description: 'step 1' }],
           estimatedComplexity: 'high',
           affectedFiles: [],
           affectedRepositories: [],
@@ -131,7 +131,7 @@ describe('CodexCliAdapter', () => {
     ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
     planArtifact: {
       plan: {
-        action: 'feature' as const, summary: 'test', steps: ['step 1'],
+        action: 'feature' as const, summary: 'test', steps: [{ description: 'step 1' }],
         estimatedComplexity: 'low' as const, affectedFiles: [], affectedRepositories: [], risks: [],
       },
       action: 'feature' as const, path: '/tmp/p.json',
@@ -337,7 +337,7 @@ describe('CodexCliAdapter', () => {
         ticket: { ticketKey: 'TEST-1', content: 'test', path: '/tmp/t.md' },
         planArtifact: {
           plan: {
-            action: 'feature', summary: 'test', steps: ['step 1', 'step 2'], estimatedComplexity: 'low',
+            action: 'feature', summary: 'test', steps: [{ description: 'step 1' }, { description: 'step 2' }], estimatedComplexity: 'low',
             affectedFiles: [], affectedRepositories: [], risks: [],
           },
           action: 'feature',

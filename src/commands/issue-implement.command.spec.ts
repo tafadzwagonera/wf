@@ -878,7 +878,7 @@ describe('IssueImplementCommand', () => {
       expect(mockOrchestrator.implementer.execute).toHaveBeenCalledTimes(1);
       const [, planArg] = mockOrchestrator.implementer.execute.mock.calls[0];
       expect(planArg.path).toBe(canonicalPlanPath);
-      expect(planArg.plan.steps).toEqual(['First step']);
+      expect(planArg.plan.steps).toEqual([{ description: 'First step' }]);
     });
   });
 

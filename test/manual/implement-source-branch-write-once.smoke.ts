@@ -59,7 +59,7 @@ function buildTestArtifacts(tempRoot: string): {
   const planArtifact: PlanArtifact = {
     action: 'feature',
     path: path.join(tempRoot, 'WBP-9001-plan-feature.json'),
-    plan: { action: 'feature', summary: 'Write-once source branch smoke test', steps: ['n/a'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: ['repo'], risks: [] },
+    plan: { action: 'feature', summary: 'Write-once source branch smoke test', steps: [{ description: 'n/a' }], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: ['repo'], risks: [] },
   };
   const manifestPath = buildPlanArtifactManifestPath(planArtifact.path);
   writePlanArtifactManifest(buildPlanArtifactManifest({ artifactPath: planArtifact.path, action: 'feature', format: 'json', hash: 'abc123', sourceName: 'WBP-9001', sourceKind: 'ticket', createdAt: new Date() }));

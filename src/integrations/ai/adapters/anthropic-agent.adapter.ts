@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError } from '../../../common/utils/errors';
 import { AppError, ERROR_CODE } from '../../../common/errors/app.error';
 import { formatPlanRisks } from '../../../common/utils/plan-risk';
+import { planStepDescriptions } from '../../../common/utils/plan-steps';
 import type { PlanProblem } from '../../../common/types/agent.types';
 import {
   type CanUseTool,
@@ -860,7 +861,7 @@ const buildAgentSessionTaskBriefParams = (s: AgentSessionParams, skillFragment: 
   ticketKey: s.params.ticket.ticketKey, repoName: s.params.repoName,
   repoFiles: s.params.repoFiles, contextFiles: s.params.contextFiles,
   trackedFilePaths: s.params.trackedFilePaths, verificationScripts: s.params.verificationScripts,
-  planSteps: s.params.planArtifact.plan.steps, planSummary: s.params.planArtifact.plan.summary,
+  planSteps: planStepDescriptions(s.params.planArtifact.plan.steps), planSummary: s.params.planArtifact.plan.summary,
   planRisks: formatPlanRisks(s.params.planArtifact.plan.risks), planAction: s.params.planArtifact.plan.action,
   skillFragment: skillFragment.length > 0 ? skillFragment : undefined,
   figmaContextSection: joinContextSections(

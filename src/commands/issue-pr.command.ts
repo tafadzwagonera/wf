@@ -10,6 +10,7 @@ import { printCommandHeader } from '../common/utils/command-header.helper';
 import { resolveArtifactDir, resolveRepoBasePath } from '../agents/utils';
 import { parsePlanArtifact, resolvePlanArtifactReference } from '../common/utils/plan-artifact';
 import type { PlanArtifactReference, ResolutionAction } from '../common/types/plan-artifact.types';
+import type { PlanStep } from '../common/types/ai.types';
 import type { ResolutionPlan } from '../integrations/ai/ai.service';
 import { parseReposOption } from './utils/repos-option';
 import chalk from 'chalk';
@@ -222,7 +223,7 @@ export class IssuePrCommand extends CommandRunner {
    */
   private buildPrBody(
     ticketKey: string,
-    plan: { summary?: string; action?: string; steps?: string[] },
+    plan: { summary?: string; action?: string; steps?: PlanStep[] },
     planPath: string
   ): string {
     const lines: string[] = ['## ' + ticketKey, ''];
@@ -231,7 +232,7 @@ export class IssuePrCommand extends CommandRunner {
     if (plan.action) lines.push('**Type:** ' + plan.action, '');
 
     if (plan.steps?.length) {
-      lines.push('## Implementation steps', '', ...plan.steps.map(s => '- ' + s), '');
+      lines.push('## Implementation steps', '', ...plan.steps.map(s => '- ' + s.description), '');
     }
 
     lines.push('---\n*Generated from plan artifact: `' + path.basename(planPath) + '`*');

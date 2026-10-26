@@ -1,7 +1,7 @@
 import { estimatePlanComplexity } from './estimate-plan-complexity';
 
 const files = (n: number) => Array.from({ length: n }, (_, i) => `f${i}.ts`);
-const steps = (n: number) => Array.from({ length: n }, (_, i) => `s${i}`);
+const steps = (n: number) => Array.from({ length: n }, (_, i) => ({ description: `s${i}` }));
 
 describe('estimatePlanComplexity', () => {
   describe('size tier', () => {

@@ -187,7 +187,7 @@ describe('resolveModelRouting', () => {
   const createMockPlan = (estimatedComplexity: 'low' | 'medium' | 'high'): ResolutionPlan => ({
     action: 'fix' as const,
     summary: 'Test plan',
-    steps: ['Step 1'],
+    steps: [{ description: 'Step 1' }],
     estimatedComplexity,
     affectedFiles: estimatedComplexity === 'low' ? Array(5).fill({ filePath: 'src/test.ts', status: 'found' as const }) : [],
   });
@@ -328,7 +328,7 @@ describe('resolveModelRouting', () => {
     });
     const plan = {
       ...createMockPlan('high'),
-      steps: ['Step 1', 'Step 2', 'Step 3'],
+      steps: [{ description: 'Step 1' }, { description: 'Step 2' }, { description: 'Step 3' }],
     };
 
     const result = resolveModelRouting({

@@ -42,7 +42,7 @@ const mockReadPlanArtifactManifest = readPlanArtifactManifest as jest.MockedFunc
 const createMockPlanJson = (overrides: Record<string, unknown> = {}) => ({
   action: 'fix',
   summary: 'Fix PricingService timeout',
-  steps: ['Inspect PricingService', 'Patch BookingController timeout handling'],
+  steps: [{ description: 'Inspect PricingService' }, { description: 'Patch BookingController timeout handling' }],
   estimatedComplexity: 'medium',
   affectedFiles: ['src/pricing/pricing.service.ts'],
   risks: [{ description: 'ECONNREFUSED can still surface during timeout spikes', severity: 'medium' }],
@@ -85,7 +85,7 @@ describe('extractPlanKeywords', () => {
     const result = extractPlanKeywords(
       createMockPlanJson({
         affectedFiles: ['src/pricing/pricing.service.ts'],
-        steps: ['Inspect PricingService and BookingController'],
+        steps: [{ description: 'Inspect PricingService and BookingController' }],
         risks: [{ description: 'Timeout can still throw ECONNREFUSED', severity: 'medium' }],
       }) as any
     );
@@ -111,7 +111,7 @@ describe('extractPlanKeywords', () => {
     const result = extractPlanKeywords(
       createMockPlanJson({
         summary: 'PricingService timeout',
-        steps: ['Inspect PricingService'],
+        steps: [{ description: 'Inspect PricingService' }],
         affectedFiles: ['src/pricing/pricing.service.ts', 'src/pricing/pricing.service.ts'],
         risks: [{ description: 'timeout', severity: 'medium' }],
       }) as any

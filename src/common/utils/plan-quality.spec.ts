@@ -72,8 +72,8 @@ describe('validatePlanQuality', () => {
         summary: 'Tighten plan validation',
         estimatedComplexity: 'medium',
         steps: [
-          'Rename AuthService to AuthSessionService in wf/src/auth/auth.service.ts.',
-          'Add wf/src/auth/auth.service.spec.ts using afterEach(() => jest.restoreAllMocks()) and createMockAuthRepository().',
+          { description: 'Rename AuthService to AuthSessionService in wf/src/auth/auth.service.ts.' },
+          { description: 'Add wf/src/auth/auth.service.spec.ts using afterEach(() => jest.restoreAllMocks()) and createMockAuthRepository().' },
         ],
         affectedFiles: [`${repoName}/src/auth/auth.service.ts`],
         affectedRepositories: [repoName],
@@ -101,7 +101,7 @@ describe('validatePlanQuality', () => {
         action: 'fix',
         summary: 'Rename auth service',
         estimatedComplexity: 'low',
-        steps: ['Rename AuthService in wf/src/auth/auth.service.ts.'],
+        steps: [{ description: 'Rename AuthService in wf/src/auth/auth.service.ts.' }],
         affectedRepositories: [repoName],
         verification: { waivers: [{ id: 'needle-search-required', reason: 'not a term removal' }] },
       },
@@ -123,7 +123,7 @@ describe('validatePlanQuality', () => {
         action: 'fix',
         summary: 'Rename auth service',
         estimatedComplexity: 'low',
-        steps: ['Rename AuthService as part of cleanup in wf/src/auth/auth.service.ts.'],
+        steps: [{ description: 'Rename AuthService as part of cleanup in wf/src/auth/auth.service.ts.' }],
         affectedRepositories: [repoName],
         verification: { waivers: [{ id: 'needle-search-required', reason: 'not a term removal' }] },
       },
@@ -145,7 +145,7 @@ describe('validatePlanQuality', () => {
         action: 'fix',
         summary: 'Use bad verification',
         estimatedComplexity: 'low',
-        steps: ['Inspect auth flow.'],
+        steps: [{ description: 'Inspect auth flow.' }],
         affectedRepositories: [repoName],
         verification: {
           targeted: [
@@ -256,7 +256,7 @@ describe('validatePlanQuality', () => {
         action: 'fix',
         summary: 'Use repo-local verification',
         estimatedComplexity: 'low',
-        steps: ['Inspect auth flow.'],
+        steps: [{ description: 'Inspect auth flow.' }],
         affectedRepositories: [repoName],
         verification: {
           targeted: [
@@ -282,7 +282,7 @@ describe('validatePlanQuality', () => {
         summary: 'Use conflicting test conventions',
         estimatedComplexity: 'medium',
         steps: [
-          'Add wf/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()) and createFakeAuthRepository().',
+          { description: 'Add wf/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()) and createFakeAuthRepository().' },
         ],
         affectedRepositories: [repoName],
       },
@@ -311,7 +311,7 @@ describe('validatePlanQuality', () => {
         action: 'feature',
         summary: 'Add config',
         estimatedComplexity: 'low',
-        steps: ['Add config fields'],
+        steps: [{ description: 'Add config fields' }],
         affectedFiles: [
           { filePath: `${repoName}/src/config/configuration.ts`, status: 'found' },
           { filePath: `${repoName}/src/factory.ts`, status: 'to-create' },
@@ -345,7 +345,7 @@ describe('validatePlanQuality', () => {
         action: 'feature',
         summary: 'Add config',
         estimatedComplexity: 'low',
-        steps: ['Add config fields'],
+        steps: [{ description: 'Add config fields' }],
         affectedFiles: [
           { filePath: `${repoName}/src/config/configuration.ts`, status: 'found' },
           { filePath: `${repoName}/src/factory.ts`, status: 'to-create' },
@@ -376,7 +376,7 @@ describe('validatePlanQuality', () => {
         action: 'feature',
         summary: 'Add config',
         estimatedComplexity: 'low',
-        steps: ['Add config fields'],
+        steps: [{ description: 'Add config fields' }],
         affectedRepositories: [repoName],
         verification: {
           targeted: [
@@ -402,7 +402,7 @@ describe('validatePlanQuality', () => {
         action: 'feature',
         summary: 'Add config',
         estimatedComplexity: 'low',
-        steps: ['Add config fields'],
+        steps: [{ description: 'Add config fields' }],
         affectedFiles: [{ filePath: `${repoName}/src/config.ts`, status: 'found' }],
         affectedRepositories: [repoName],
         verification: {
@@ -429,7 +429,7 @@ describe('validatePlanQuality', () => {
         action: 'fix',
         summary: 'Add vitest test',
         estimatedComplexity: 'low',
-        steps: ['Add test with afterEach(() => vi.resetAllMocks()).'],
+        steps: [{ description: 'Add test with afterEach(() => vi.resetAllMocks()).' }],
         affectedRepositories: [repoName],
       },
       affectedRepositories: [repoName],
@@ -479,7 +479,7 @@ describe('validatePlanQuality with skillRules', () => {
 
   it('accepts arbitrary string ruleIds from skill rules', () => {
     const result = validatePlanQuality({
-      plan: { steps: ['Do work'] },
+      plan: { steps: [{ description: 'Do work' }] },
       skillRules: [{ ruleId: 'skill:custom-rule', validate: () => ['violation message'] }],
     });
 
@@ -491,7 +491,7 @@ describe('validatePlanQuality with skillRules', () => {
   it('merges skill violations with built-in violations', () => {
     const result = validatePlanQuality({
       plan: {
-        steps: ['Rename AuthService in wf/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService in wf/src/auth.ts.' }],
       },
       affectedRepositories: ['wf'],
       skillRules: [{ ruleId: 'custom-skill-rule', validate: () => ['skill says no'] }],
@@ -509,7 +509,7 @@ describe('validatePlanQuality with skillRules', () => {
     };
 
     const result = validatePlanQuality({
-      plan: { steps: ['Clean step'] },
+      plan: { steps: [{ description: 'Clean step' }] },
       skillRules: [duplicateRule],
     });
 
@@ -519,7 +519,7 @@ describe('validatePlanQuality with skillRules', () => {
 
   it('returns no skill violations when skillRules is empty', () => {
     const result = validatePlanQuality({
-      plan: { steps: ['Clean step'] },
+      plan: { steps: [{ description: 'Clean step' }] },
       skillRules: [],
     });
 
@@ -528,7 +528,7 @@ describe('validatePlanQuality with skillRules', () => {
 
   it('returns no violations when skillRules is omitted', () => {
     const result = validatePlanQuality({
-      plan: { steps: ['Clean step'] },
+      plan: { steps: [{ description: 'Clean step' }] },
     });
 
     expect(result).toEqual([]);
@@ -793,36 +793,36 @@ describe('validatePlanQuality — needle-search-required', () => {
   });
 
   it('flags a removal step with no zero-match command', () => {
-    expect(needleViolations({ steps: [removalStep] })).toHaveLength(1);
+    expect(needleViolations({ steps: [{ description: removalStep }] })).toHaveLength(1);
   });
 
   it('passes a negated case-insensitive git grep', () => {
     expect(needleViolations({
-      steps: [removalStep], verification: targeted('! git grep -I -i -q -F NUXT_POWERREVIEWS'),
+      steps: [{ description: removalStep }], verification: targeted('! git grep -I -i -q -F NUXT_POWERREVIEWS'),
     })).toEqual([]);
   });
 
   it('flags a command without -i', () => {
     expect(needleViolations({
-      steps: [removalStep], verification: targeted('! git grep -I -q -F NUXT_POWERREVIEWS'),
+      steps: [{ description: removalStep }], verification: targeted('! git grep -I -q -F NUXT_POWERREVIEWS'),
     })).toHaveLength(1);
   });
 
   it('flags a command that uses word-boundary patterns', () => {
     expect(needleViolations({
-      steps: [removalStep], verification: targeted("! grep -rniE '\\bpowerreviews\\b' ."),
+      steps: [{ description: removalStep }], verification: targeted("! grep -rniE '\\bpowerreviews\\b' ."),
     })).toHaveLength(1);
   });
 
   it('is suppressed by a matching waiver', () => {
     expect(needleViolations({
-      steps: [removalStep],
+      steps: [{ description: removalStep }],
       verification: { waivers: [{ id: 'needle-search-required', reason: 'ADR keeps the old name' }] },
     })).toEqual([]);
   });
 
   it('ignores steps without removal or replacement verbs', () => {
-    expect(needleViolations({ steps: ['Add a spec for the parser in wf/src/parser.spec.ts.'] })).toEqual([]);
+    expect(needleViolations({ steps: [{ description: 'Add a spec for the parser in wf/src/parser.spec.ts.' }] })).toEqual([]);
   });
 
   it('recommended bash -c form satisfies the needle rule and the verification allowlist together', () => {
@@ -839,7 +839,7 @@ describe('validatePlanQuality — needle-search-required', () => {
       }],
     };
     const violations = validatePlanQuality({
-      plan: { steps: [removalStep], verification: targeted("bash -c '! git grep -I -i -q -F NUXT_POWERREVIEWS'") },
+      plan: { steps: [{ description: removalStep }], verification: targeted("bash -c '! git grep -I -i -q -F NUXT_POWERREVIEWS'") },
       testInfra,
     });
     expect(violations).toEqual([]);
@@ -852,40 +852,40 @@ describe('validatePlanQuality — test-call-assertion-required', () => {
 
   it('flags a spec step that mentions a mock without a call assertion', () => {
     const step = 'Add wf/src/reader.spec.ts that uses real temp files or a mocked `fs.readFileSync`.';
-    const violations = callViolations({ steps: [step] });
+    const violations = callViolations({ steps: [{ description: step }] });
     expect(violations).toHaveLength(1);
     expect(violations[0].message).toContain('Step 1');
   });
 
   it('passes when the step asserts the call count', () => {
     const step = 'Add wf/src/reader.spec.ts with a mocked `fs.readFileSync`; assert `toHaveBeenCalledTimes(1)`.';
-    expect(callViolations({ steps: [step] })).toEqual([]);
+    expect(callViolations({ steps: [{ description: step }] })).toEqual([]);
   });
 
   it('does not flag cleanup and factory wording', () => {
     const step = 'Add wf/src/auth.spec.ts using `afterEach(() => jest.restoreAllMocks())` and '
       + '`createMockAuthRepository()` to check the returned token.';
-    expect(callViolations({ steps: [step] })).toEqual([]);
+    expect(callViolations({ steps: [{ description: step }] })).toEqual([]);
   });
 
   it('still flags a step that says invoked by the controller without a call assertion', () => {
     const step = 'Add wf/src/ctl.spec.ts with a mock service that is invoked by the controller.';
-    expect(callViolations({ steps: [step] })).toHaveLength(1);
+    expect(callViolations({ steps: [{ description: step }] })).toHaveLength(1);
   });
 
   it('passes when the step asserts the collaborator is never called', () => {
     const step = 'Add wf/src/guard.spec.ts with a mocked `notifier`; assert it is never called on empty input.';
-    expect(callViolations({ steps: [step] })).toEqual([]);
+    expect(callViolations({ steps: [{ description: step }] })).toEqual([]);
   });
 
   it('ignores steps that name no spec file', () => {
-    expect(callViolations({ steps: ['Introduce a mock adapter in wf/src/adapter.ts.'] })).toEqual([]);
+    expect(callViolations({ steps: [{ description: 'Introduce a mock adapter in wf/src/adapter.ts.' }] })).toEqual([]);
   });
 
   it('is suppressed by a matching waiver', () => {
     const step = 'Add wf/src/reader.spec.ts that uses a mocked `fs.readFileSync`.';
     expect(callViolations({
-      steps: [step],
+      steps: [{ description: step }],
       verification: { waivers: [{ id: 'test-call-assertion-required', reason: 'output-only check' }] },
     })).toEqual([]);
   });
@@ -894,7 +894,7 @@ describe('validatePlanQuality — test-call-assertion-required', () => {
 describe('validatePlanQualityWithLookups', () => {
   const mockClusterLookup = jest.mocked(findConfigReadClusters);
   const plan = {
-    steps: ['Read `stages.implement.provider` and `ai.stages.plan.provider` in one helper.'],
+    steps: [{ description: 'Read `stages.implement.provider` and `ai.stages.plan.provider` in one helper.' }],
     affectedFiles: ['src/helper.ts'],
   };
 

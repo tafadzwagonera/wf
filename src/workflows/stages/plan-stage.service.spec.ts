@@ -54,7 +54,7 @@ describe('PlanStageService', () => {
     action: 'fix',
     summary: 'Update auth redirect handling',
     estimatedComplexity: 'medium',
-    steps: ['Inspect redirect logic', 'Adjust callback handling'],
+    steps: [{ description: 'Inspect redirect logic' }, { description: 'Adjust callback handling' }],
     affectedFiles: ['src/auth/callback.ts'],
     verification: {
       targeted: [
@@ -466,7 +466,7 @@ describe('PlanStageService', () => {
         response: JSON.stringify({
           action: 'fix',
           summary: 'Agent draft',
-          steps: ['Inspect auth flow'],
+          steps: [{ description: 'Inspect auth flow' }],
           estimatedComplexity: 'low',
         }),
         sessionId: 'test-session-123',
@@ -610,12 +610,12 @@ describe('PlanStageService', () => {
     (aiService.generatePlan as jest.Mock)
       .mockResolvedValueOnce({
         ...mockPlan,
-        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService in repo-a/src/auth.ts.' }],
         affectedRepositories: ['repo-a'],
       })
       .mockResolvedValueOnce({
         ...mockPlan,
-        steps: ['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService to AuthSessionService in repo-a/src/auth.ts.' }],
         affectedRepositories: ['repo-a'],
       });
 
@@ -625,7 +625,7 @@ describe('PlanStageService', () => {
       affectedRepositories: ['repo-a'],
     });
 
-    expect(result.plan.steps).toEqual(['Rename AuthService to AuthSessionService in repo-a/src/auth.ts.']);
+    expect(result.plan.steps).toEqual([{ description: 'Rename AuthService to AuthSessionService in repo-a/src/auth.ts.' }]);
     expect(aiService.generatePlan).toHaveBeenNthCalledWith(
       2,
       'fix',
@@ -665,14 +665,14 @@ describe('PlanStageService', () => {
         ...mockPlan,
         estimatedComplexity: 'low',
         risks: [],
-        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService in repo-a/src/auth.ts.' }],
         affectedRepositories: ['repo-a'],
       })
       .mockResolvedValueOnce({
         ...mockPlan,
         estimatedComplexity: 'low',
         risks: [],
-        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService in repo-a/src/auth.ts.' }],
         affectedRepositories: ['repo-a'],
       });
 
@@ -700,7 +700,7 @@ describe('PlanStageService', () => {
     (aiService.generatePlan as jest.Mock).mockResolvedValue({
       ...mockPlan,
       risks: [],
-      steps: ['Read `stages.implement.provider` and `ai.stages.plan.provider` in a new helper.'],
+      steps: [{ description: 'Read `stages.implement.provider` and `ai.stages.plan.provider` in a new helper.' }],
     });
     jest.spyOn(console, 'log').mockImplementation();
 
@@ -1163,7 +1163,7 @@ describe('PlanStageService', () => {
       const invalidPlan = {
         ...mockPlan,
         action: 'fix',
-        steps: ['Rename AuthService in src/auth.ts'],
+        steps: [{ description: 'Rename AuthService in src/auth.ts' }],
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
@@ -1243,7 +1243,7 @@ describe('PlanStageService', () => {
         estimatedComplexity: 'low',
         risks: [],
         action: 'fix',
-        steps: ['Rename AuthService in src/auth.ts'],
+        steps: [{ description: 'Rename AuthService in src/auth.ts' }],
         affectedRepositories: ['repo-a'],
       };
       fs.writeFileSync(planPath, JSON.stringify(invalidPlan, null, 2));
@@ -1316,7 +1316,7 @@ describe('PlanStageService', () => {
       const validPlan = {
         ...mockPlan,
         action: 'fix',
-        steps: ['Rename AuthService to AuthSessionService in src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService to AuthSessionService in src/auth.ts.' }],
         verification: {
           targeted: [
             {
@@ -1359,7 +1359,7 @@ describe('PlanStageService', () => {
       const validPlan = {
         ...mockPlan,
         action: 'fix',
-        steps: ['Rename AuthService to AuthSessionService in src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService to AuthSessionService in src/auth.ts.' }],
         verification: {
           targeted: [
             {

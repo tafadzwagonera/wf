@@ -2103,7 +2103,7 @@ export class IssueCommand extends CommandRunner {
   }
 
   private buildPlanPromptSuffix(plan: any): string {
-    const formatStep = (s: string, i: number): string => '  ' + (i + 1) + '. ' + s;
+    const formatStep = (s: { description: string }, i: number): string => '  ' + (i + 1) + '. ' + s.description;
     const resolveFilePath = (f: any): string => typeof f === 'string' ? f : f.filePath;
     const formatFile = (f: any): string => '  - ' + resolveFilePath(f);
     const formatRisk = (r: PlanRisk): string => '  - ' + formatPlanRisk(r);

@@ -5,6 +5,7 @@ import type { PlanProblem } from '../../../common/types/agent.types';
 import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
 import { AiProviderError, ExecutionError } from '../../../common/utils/errors';
 import { formatPlanRisks } from '../../../common/utils/plan-risk';
+import { planStepDescriptions } from '../../../common/utils/plan-steps';
 import type {
   TicketArtifact,
   PlanArtifact,
@@ -434,7 +435,7 @@ const buildCliTaskBriefParams = (
 ): BuildPlanContextParams => ({
   ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
-  verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
+  verificationScripts: params.verificationScripts, planSteps: planStepDescriptions(params.planArtifact.plan.steps),
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: formatPlanRisks(params.planArtifact.plan.risks), contextFiles: params.contextFiles,
   skillFragment: skillFragment.length > 0 ? skillFragment : undefined, figmaContextSection: params.figmaContextSection,

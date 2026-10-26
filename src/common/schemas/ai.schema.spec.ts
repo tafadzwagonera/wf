@@ -3,7 +3,7 @@ import { fileStatusSchema, planModelOutputSchema, resolutionPlanSchema } from '.
 const createMockStructuredPlanOutput = () => ({
   action: 'feature',
   summary: 'Centralize interactive CLI skills',
-  steps: ['Add taxonomy manifest', 'Add sync script'],
+  steps: [{ description: 'Add taxonomy manifest' }, { description: 'Add sync script', intent: null }],
   affectedFiles: ['src/skills/skill-taxonomy.ts'],
   affectedFilesContext: null,
   affectedRepositories: null,
@@ -61,40 +61,47 @@ describe('planModelOutputSchema', () => {
   });
 });
 
-describe('planModelOutputSchema stepIntents', () => {
-  it('parses a plan with no stepIntents', () => {
-    const plan = planModelOutputSchema.parse(createMockStructuredPlanOutput());
+describe('planModelOutputSchema steps', () => {
+  it('parses steps carrying a description and an intent', () => {
+    const plan = planModelOutputSchema.parse({
+      ...createMockStructuredPlanOutput(),
+      steps: [{ description: 'Rename AuthGuard', intent: 'guard.ts declares SharedAuthGuard' }],
+    });
 
-    expect(plan.stepIntents).toBeUndefined();
+    expect(plan.steps).toEqual([{ description: 'Rename AuthGuard', intent: 'guard.ts declares SharedAuthGuard' }]);
   });
 
-  it('preserves stepIntents values exactly', () => {
+  it('strips a null intent to undefined', () => {
+    const plan = planModelOutputSchema.parse(createMockStructuredPlanOutput());
+
+    expect(plan.steps[1].intent).toBeUndefined();
+  });
+
+  it('rejects flat string steps', () => {
+    const result = planModelOutputSchema.safeParse({
+      ...createMockStructuredPlanOutput(),
+      steps: ['Add taxonomy manifest'],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('drops a legacy stepIntents field', () => {
     const plan = planModelOutputSchema.parse({
       ...createMockStructuredPlanOutput(),
       stepIntents: ['goal', null],
     });
 
-    expect(plan.stepIntents).toEqual(['goal', null]);
+    expect('stepIntents' in plan).toBe(false);
   });
 
-  it('rejects stepIntents whose length differs from steps', () => {
-    const result = planModelOutputSchema.safeParse({
-      ...createMockStructuredPlanOutput(),
-      stepIntents: ['goal'],
-    });
-
-    expect(result.success).toBe(false);
-    expect(JSON.stringify(result.error?.issues)).toContain('stepIntents');
-  });
-
-  it('applies the same alignment rule to resolutionPlanSchema', () => {
+  it('accepts combined steps in resolutionPlanSchema', () => {
     const result = resolutionPlanSchema.safeParse({
       ...createMockStructuredPlanOutput(),
       estimatedComplexity: 'low',
-      stepIntents: ['goal'],
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 

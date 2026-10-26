@@ -225,12 +225,19 @@ describe('IssuePlanCommand', () => {
   });
 
   describe('formatPlanAsMarkdown step intents', () => {
-    const basePlan = { action: 'fix', estimatedComplexity: 'low', summary: 'S', steps: ['First', 'Second'] };
+    const basePlan = {
+      action: 'fix', estimatedComplexity: 'low', summary: 'S',
+      steps: [{ description: 'First' }, { description: 'Second' }],
+    };
+    const withIntent = (intent: string) => ({
+      ...basePlan,
+      steps: [{ description: 'First' }, { description: 'Second', intent }],
+    });
 
     it('emits an Intent line only under the step that has one', async () => {
       const { command } = await buildCommand();
 
-      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal'] });
+      const md = (command as any).formatPlanAsMarkdown(withIntent('goal'));
 
       expect(md).toContain('1. First\n2. Second\n   Intent: goal\n\n');
       expect(md).not.toContain('1. First\n   Intent:');
@@ -239,12 +246,12 @@ describe('IssuePlanCommand', () => {
     it('collapses newlines inside an intent so it cannot start a phantom step', async () => {
       const { command } = await buildCommand();
 
-      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal\n3. fake'] });
+      const md = (command as any).formatPlanAsMarkdown(withIntent('goal\n3. fake'));
 
       expect(md).toContain('2. Second\n   Intent: goal 3. fake\n');
     });
 
-    it('renders a plan without stepIntents exactly as before', async () => {
+    it('renders a plan without intents exactly as before', async () => {
       const { command } = await buildCommand();
 
       const md = (command as any).formatPlanAsMarkdown(basePlan);
@@ -254,13 +261,13 @@ describe('IssuePlanCommand', () => {
       );
     });
 
-    it('round-trips stepIntents through the markdown parser', async () => {
+    it('round-trips step intents through the markdown parser', async () => {
       const { command } = await buildCommand();
-      const md = (command as any).formatPlanAsMarkdown({ ...basePlan, stepIntents: [null, 'goal'] });
+      const md = (command as any).formatPlanAsMarkdown(withIntent('goal'));
 
       const parsed = require('../common/utils/plan-artifact').parsePlanArtifact(md, '/tmp/plan.md');
 
-      expect(parsed.stepIntents).toEqual([null, 'goal']);
+      expect(parsed.steps).toEqual([{ description: 'First' }, { description: 'Second', intent: 'goal' }]);
     });
   });
 
@@ -918,7 +925,7 @@ describe('IssuePlanCommand', () => {
         action: 'fix',
         summary: 'Fix login',
         estimatedComplexity: 'medium',
-        steps: ['Rename AuthService in repo-a/src/auth.ts.'],
+        steps: [{ description: 'Rename AuthService in repo-a/src/auth.ts.' }],
         affectedFiles: ['repo-a/src/auth.ts'],
         affectedRepositories: ['repo-a'],
       },
@@ -1016,7 +1023,7 @@ describe('IssuePlanCommand', () => {
         action: 'fix',
         summary: 'Fix login',
         estimatedComplexity: 'medium',
-        steps: ['Add repo-a/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()).'],
+        steps: [{ description: 'Add repo-a/src/auth/auth.service.test.ts with afterEach(() => jest.resetAllMocks()).' }],
         affectedFiles: ['repo-a/src/auth.ts'],
         affectedRepositories: ['repo-a'],
       },
@@ -1429,7 +1436,7 @@ describe('IssuePlanCommand', () => {
         action: 'fix',
         summary: 'Test',
         estimatedComplexity: 'low',
-        steps: ['Test'],
+        steps: [{ description: 'Test' }],
         affectedFiles: ['repo-a/src/test.ts'],
         affectedRepositories: ['repo-a'],
       },

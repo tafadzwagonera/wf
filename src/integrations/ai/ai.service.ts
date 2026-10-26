@@ -57,6 +57,7 @@ import type { CodeReview } from '../../common/types/review.types';
 import { codeReviewSchema } from '../../common/schemas/review.schema';
 import { planModelOutputSchema } from '../../common/schemas/ai.schema';
 import { estimatePlanComplexity } from '../../common/utils/estimate-plan-complexity';
+import { coerceLegacyPlanShape } from '../../common/utils/plan-steps';
 import type { ResolutionAction, StageProgressCallback, AgentStageName } from '../../common/types/agent.types';
 import { JSON_OUTPUT_RULES } from './json-output-rules';
 import {
@@ -641,9 +642,9 @@ const buildPlanOutputSchema = (
   packageManager: PackageManager = 'npm',
 ): string => {
   return `Return ONLY a valid JSON object. Reference:
-{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":["Write a failing spec in ${repoExample}/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests","Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","Update all import paths in ${repoExample}/src/controllers/"],"stepIntents":[null,"guard.ts declares SharedAuthGuard and no longer declares AuthGuard",null],"affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/auth/shared-auth-guard.spec.ts","status":"to-create"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
+{"action":"${action}","summary":"Extract shared auth guard into a reusable middleware.","steps":[{"description":"Write a failing spec in ${repoExample}/src/auth/shared-auth-guard.spec.ts asserting SharedAuthGuard rejects unauthenticated requests"},{"description":"Rename AuthGuard to SharedAuthGuard in ${repoExample}/src/auth/guard.ts","intent":"guard.ts declares SharedAuthGuard and no longer declares AuthGuard"},{"description":"Update all import paths in ${repoExample}/src/controllers/"}],"affectedFiles":[{"filePath":"${repoExample}/src/auth/guard.ts","status":"found"},{"filePath":"${repoExample}/src/auth/shared-auth-guard.spec.ts","status":"to-create"},{"filePath":"${repoExample}/src/middleware/auth.middleware.ts","status":"to-create"}],"affectedFilesContext":[{"filePath":"${repoExample}/package.json","status":"found"}],"affectedRepositories":["${repoExample}"],"newRepositories":[],"risks":[{"description":"Renaming may break downstream consumers","severity":"medium"}],"verification":{"targeted":[{"id":"manual-review","run":"${formatRunnerInvocation(packageManager, 'test:manual', 'test-auth-guard')}","policy":"enforced","reason":"Verify guard behaviour after rename"}]}}
 
-When an optional field has no value, omit it from the JSON entirely. Do not use null. The only exception is inside stepIntents, where null marks a step with no intent.
+When an optional field has no value, omit it from the JSON entirely. Do not use null.
 
 ${JSON_OUTPUT_RULES}`;
 };
@@ -716,22 +717,6 @@ const detectNodeTestInfra = (context?: Record<string, unknown>): boolean => {
   const infra = context.testInfra as { ecosystems?: Array<{ ecosystem?: string }> };
   return Array.isArray(infra.ecosystems) && infra.ecosystems.some(e => e.ecosystem === 'node');
 };
-
-/**
- * Normalize plan steps from the AI response into a plain string array.
- * @param rawSteps Array of unknown step values from the parsed plan
- * @returns String array of steps
- */
-const normalizePlanSteps = (rawSteps: unknown[]): string[] =>
-  rawSteps.map(step => {
-    if (typeof step === 'string') return step;
-    if (step && typeof step === 'object') {
-      const s = step as Record<string, unknown>;
-      const text = s['description'] ?? s['text'] ?? s['title'] ?? s['content'];
-      if (typeof text === 'string') return text;
-    }
-    return String(step);
-  });
 
 /**
  * Throw when a response was truncated by the output token limit.
@@ -1303,7 +1288,6 @@ export class AiService {
   ): void {
     if (!plan.affectedRepositories && plan.repositoriesAffected) plan.affectedRepositories = plan.repositoriesAffected;
     delete plan.repositoriesAffected;
-    plan.steps = normalizePlanSteps(Array.isArray(plan.steps) ? plan.steps : []);
     const { provider, model } = response.provider && response.model ? { provider: response.provider, model: response.model } : this.resolveAiTarget('plan');
     plan.provider = provider ?? 'anthropic';
     plan.source = deriveModelSource(plan.provider, model ?? '');
@@ -1381,7 +1365,7 @@ export class AiService {
   }
 
   private parsePlanContent(parsedPlan: PlanModelOutput & { repositoriesAffected?: string[] }): ResolutionPlan {
-    const base = planModelOutputSchema.parse(parsedPlan);
+    const base = planModelOutputSchema.parse(coerceLegacyPlanShape(parsedPlan));
     const plan = { ...base, estimatedComplexity: estimatePlanComplexity(base) };
     return this.applyRepositoriesAffected(plan, parsedPlan.repositoriesAffected);
   }

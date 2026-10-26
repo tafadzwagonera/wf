@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { exec } from 'node:child_process';
 import { appendToLogFile } from '../../../common/logger/log-file-writer';
 import { ConfigurationError } from '../../../common/utils/errors';
+import { planStepDescriptions } from '../../../common/utils/plan-steps';
 import { fragmentIncludesSkill, TDD_SKILL_ID } from '../../../skills/skill-content';
 import { headlessPipelineInstruction, implementerDeleteOrphanRule, implementerSearchRule } from '../prompt-fragments';
 import * as fs from 'node:fs/promises';
@@ -115,7 +116,7 @@ export const detectMechanicalTask = (
   if (plan.estimatedComplexity === 'high') return { isMechanical: false, reason: 'high complexity task' };
   const highRatio = stepsCount > 0 && filesCount > 3 && filesCount / stepsCount > 3;
   if (highRatio) return { isMechanical: true, reason: `high file-to-step ratio: ${filesCount} files / ${stepsCount} steps` };
-  return detectPatternRouting(plan.steps) ?? { isMechanical: false, reason: 'creative task' };
+  return detectPatternRouting(planStepDescriptions(plan.steps)) ?? { isMechanical: false, reason: 'creative task' };
 };
 
 export type ModelRoutingResult = {

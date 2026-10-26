@@ -70,7 +70,7 @@ describe('ImplementerAgent', () => {
     plan: {
       action: 'feature',
       summary: 'Implement verification',
-      steps: ['Update source file'],
+      steps: [{ description: 'Update source file' }],
       estimatedComplexity: 'medium',
       affectedFiles: ['repo-a/src/example.ts'],
       affectedRepositories: ['repo-a'],
@@ -2285,9 +2285,9 @@ describe('ImplementerAgent', () => {
         ticketArtifact,
         buildPlan({
           steps: [
-            'Update repo-a/src/services/booking.mapper.ts to fix the issue',
-            'Update cop-nuxt-app/src/services/booking.service.ts for the API change',
-            'Run verification tests',
+            { description: 'Update repo-a/src/services/booking.mapper.ts to fix the issue' },
+            { description: 'Update cop-nuxt-app/src/services/booking.service.ts for the API change' },
+            { description: 'Run verification tests' },
           ],
           affectedFiles: ['repo-a/src/services/booking.mapper.ts'],
           affectedRepositories: ['repo-a'],
@@ -2297,9 +2297,9 @@ describe('ImplementerAgent', () => {
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
       expect(passedPlan.steps).toHaveLength(2);
-      expect(passedPlan.steps).toContain('Update repo-a/src/services/booking.mapper.ts to fix the issue');
-      expect(passedPlan.steps).toContain('Run verification tests');
-      expect(passedPlan.steps).not.toContain('Update cop-nuxt-app/src/services/booking.service.ts for the API change');
+      expect(passedPlan.steps).toContainEqual({ description: 'Update repo-a/src/services/booking.mapper.ts to fix the issue' });
+      expect(passedPlan.steps).toContainEqual({ description: 'Run verification tests' });
+      expect(passedPlan.steps).not.toContainEqual({ description: 'Update cop-nuxt-app/src/services/booking.service.ts for the API change' });
     });
 
     it('passes all steps through when repoName is empty (no repoDir)', async () => {
@@ -2308,7 +2308,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          steps: ['Step A', 'Step B'],
+          steps: [{ description: 'Step A' }, { description: 'Step B' }],
           affectedFiles: ['src/example.ts'],
           affectedRepositories: [],
         }),
@@ -2316,7 +2316,7 @@ describe('ImplementerAgent', () => {
       );
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
-      expect(passedPlan.steps).toEqual(['Step A', 'Step B']);
+      expect(passedPlan.steps).toEqual([{ description: 'Step A' }, { description: 'Step B' }]);
     });
 
     it('passes all steps through when repoFiles is empty', async () => {
@@ -2325,7 +2325,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          steps: ['Step A', 'Step B'],
+          steps: [{ description: 'Step A' }, { description: 'Step B' }],
           affectedFiles: [],
           affectedRepositories: ['repo-a'],
         }),
@@ -2333,7 +2333,7 @@ describe('ImplementerAgent', () => {
       );
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
-      expect(passedPlan.steps).toEqual(['Step A', 'Step B']);
+      expect(passedPlan.steps).toEqual([{ description: 'Step A' }, { description: 'Step B' }]);
     });
 
     it('always includes generic steps with no repo-prefixed path', async () => {
@@ -2342,7 +2342,11 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          steps: ['Run yarn test', 'Check CI status', 'Update src/example.ts in repo-a'],
+          steps: [
+            { description: 'Run yarn test' },
+            { description: 'Check CI status' },
+            { description: 'Update src/example.ts in repo-a' },
+          ],
           affectedFiles: ['repo-a/src/example.ts'],
           affectedRepositories: ['repo-a'],
         }),
@@ -2350,9 +2354,9 @@ describe('ImplementerAgent', () => {
       );
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
-      expect(passedPlan.steps).toContain('Run yarn test');
-      expect(passedPlan.steps).toContain('Check CI status');
-      expect(passedPlan.steps).toContain('Update src/example.ts in repo-a');
+      expect(passedPlan.steps).toContainEqual({ description: 'Run yarn test' });
+      expect(passedPlan.steps).toContainEqual({ description: 'Check CI status' });
+      expect(passedPlan.steps).toContainEqual({ description: 'Update src/example.ts in repo-a' });
     });
 
     it('does not exclude a step using the "<repo> — src/..." planner format', async () => {
@@ -2361,7 +2365,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          steps: ['api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint'],
+          steps: [{ description: 'api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint' }],
           affectedFiles: ['api-gateway-v1/src/reviews/reviews.controller.ts'],
           affectedRepositories: ['api-gateway-v1'],
         }),
@@ -2369,8 +2373,8 @@ describe('ImplementerAgent', () => {
       );
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
-      expect(passedPlan.steps).toContain(
-        'api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint',
+      expect(passedPlan.steps).toContainEqual(
+        { description: 'api-gateway-v1 — in src/reviews/reviews.controller.ts add endpoint' },
       );
     });
 
@@ -2380,7 +2384,7 @@ describe('ImplementerAgent', () => {
       await agent.execute(
         ticketArtifact,
         buildPlan({
-          steps: ['update docs/src-notes.md with changelog'],
+          steps: [{ description: 'update docs/src-notes.md with changelog' }],
           affectedFiles: [],
           affectedRepositories: ['repo-a'],
         }),
@@ -2388,7 +2392,7 @@ describe('ImplementerAgent', () => {
       );
 
       const passedPlan = adapterSpy.mock.calls[0][0].planArtifact.plan;
-      expect(passedPlan.steps).toContain('update docs/src-notes.md with changelog');
+      expect(passedPlan.steps).toContainEqual({ description: 'update docs/src-notes.md with changelog' });
     });
   });
 
@@ -2545,7 +2549,7 @@ describe('ImplementerAgent', () => {
         {
           action: 'investigate',
           path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-investigate.json',
-          plan: { action: 'investigate', summary: 'check auth', steps: ['check'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+          plan: { action: 'investigate', summary: 'check auth', steps: [{ description: 'check' }], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
         }
       );
 
@@ -2565,7 +2569,7 @@ describe('ImplementerAgent', () => {
         {
           action: 'investigate',
           path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-investigate.json',
-          plan: { action: 'investigate', summary: 'check auth', steps: ['check'], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
+          plan: { action: 'investigate', summary: 'check auth', steps: [{ description: 'check' }], estimatedComplexity: 'low', affectedFiles: [], affectedRepositories: [] },
         }
       );
 
@@ -2610,7 +2614,7 @@ describe('ImplementerAgent', () => {
     const executeWith = (steps: string[], extraOptions: Record<string, unknown> = {}) =>
       agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: steps.map(description => ({ description })) }),
         { ...baseOptions, ...extraOptions },
       );
 
@@ -2864,7 +2868,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -2896,7 +2900,7 @@ describe('ImplementerAgent', () => {
 
         await agent.execute(
           ticketArtifact,
-          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
           { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, ...(requested && { designConformanceRequested: true }) },
         );
         return mockCheck;
@@ -2995,7 +2999,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3013,7 +3017,7 @@ describe('ImplementerAgent', () => {
         return fallback;
       });
       jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({ sessionId: 'sess-1', verificationOutcomes: [] });
-      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }), {
+      await agent.execute(ticketArtifact, buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }), {
         trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true,
       });
       expect(planStepVerificationService.run).toHaveBeenCalledWith(expect.objectContaining({
@@ -3035,7 +3039,7 @@ describe('ImplementerAgent', () => {
         });
         await agent.execute(
           ticketArtifact,
-          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
           { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
         );
       };
@@ -3145,7 +3149,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3163,7 +3167,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3185,7 +3189,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3208,7 +3212,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3231,7 +3235,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3251,7 +3255,7 @@ describe('ImplementerAgent', () => {
         ticketArtifact,
         buildPlan({
           affectedFiles: ['repo-a/src/example.ts'],
-          steps: ['Run the tests', 'Confirm existing behaviour'],
+          steps: [{ description: 'Run the tests' }, { description: 'Confirm existing behaviour' }],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
       );
@@ -3269,7 +3273,7 @@ describe('ImplementerAgent', () => {
         ticketArtifact,
         buildPlan({
           affectedFiles: ['repo-a/src/example.ts'],
-          steps: ['Run the tests', 'repo-a/src/example.ts: update handler'],
+          steps: [{ description: 'Run the tests' }, { description: 'repo-a/src/example.ts: update handler' }],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
       );
@@ -3289,7 +3293,7 @@ describe('ImplementerAgent', () => {
         ticketArtifact,
         buildPlan({
           affectedFiles: ['repo-a/src/example.ts'],
-          steps: ['api-gateway-v1 — in src/example.ts add endpoint'],
+          steps: [{ description: 'api-gateway-v1 — in src/example.ts add endpoint' }],
           estimatedComplexity: 'high',
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
@@ -3355,7 +3359,7 @@ describe('ImplementerAgent', () => {
         ticketArtifact,
         buildPlan({
           affectedFiles: ['repo-a/src/example.ts'],
-          steps: ['Run the tests', 'Update CHANGELOG'],
+          steps: [{ description: 'Run the tests' }, { description: 'Update CHANGELOG' }],
         }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true, additionalRepoDirs: ['/tmp/repo-b'] },
       );
@@ -3405,7 +3409,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['repo-a/src/example.ts: update'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'repo-a/src/example.ts: update' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3444,7 +3448,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3490,7 +3494,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Add regex /\\.ts$/'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Add regex /\\.ts$/' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3508,7 +3512,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['repo-a/src/example.ts: update'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'repo-a/src/example.ts: update' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3524,7 +3528,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3548,7 +3552,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Add regex /\\.ts$/'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Add regex /\\.ts$/' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3568,9 +3572,9 @@ describe('ImplementerAgent', () => {
 
     describe('step intents', () => {
       const intentSteps = [
-        'repo-b/src/other.ts: change A',
-        'repo-a/src/example.ts: change B',
-        'repo-a/src/example.ts: change C',
+        { description: 'repo-b/src/other.ts: change A', intent: 'ia' },
+        { description: 'repo-a/src/example.ts: change B', intent: 'ib' },
+        { description: 'repo-a/src/example.ts: change C' },
       ];
 
       const runWithIntents = async (
@@ -3596,7 +3600,7 @@ describe('ImplementerAgent', () => {
       };
 
       it('keeps intents aligned with steps when a step for another repo is dropped', async () => {
-        await runWithIntents({ stepIntents: ['ia', 'ib', null] });
+        await runWithIntents({});
 
         expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledTimes(1);
         const steps = stepSpecFidelityService.verifyAll.mock.calls[0][0];
@@ -3607,17 +3611,20 @@ describe('ImplementerAgent', () => {
         expect(steps[1].intent).toBeUndefined();
       });
 
-      it('passes the filtered intents on the scoped plan', async () => {
-        const generateSpy = await runWithIntents({ stepIntents: ['ia', 'ib', null] });
+      it('passes the filtered intents on the scoped plan steps', async () => {
+        const generateSpy = await runWithIntents({});
 
         expect(generateSpy).toHaveBeenCalledTimes(1);
-        const serialised = JSON.stringify(generateSpy.mock.calls[0]);
-        expect(serialised).toContain('"stepIntents":["ib",null]');
+        const passedPlan = generateSpy.mock.calls[0][0].planArtifact.plan;
+        expect(passedPlan.steps).toEqual([
+          { description: 'repo-a/src/example.ts: change B', intent: 'ib' },
+          { description: 'repo-a/src/example.ts: change C' },
+        ]);
       });
 
       it('keeps intents aligned through the multi-repo assessed-steps filter', async () => {
         await runWithIntents(
-          { steps: ['Generic first', 'repo-a/src/example.ts: change B'], stepIntents: ['ig', 'ib'] },
+          { steps: [{ description: 'Generic first', intent: 'ig' }, { description: 'repo-a/src/example.ts: change B', intent: 'ib' }] },
           { additionalRepoDirs: ['/tmp/repo-b'] },
           [0],
         );
@@ -3628,11 +3635,17 @@ describe('ImplementerAgent', () => {
         ]);
       });
 
-      it('leaves stepIntents undefined for a plan without intents', async () => {
-        const generateSpy = await runWithIntents({});
+      it('omits intent on every step for a plan without intents', async () => {
+        const generateSpy = await runWithIntents({
+          steps: intentSteps.map(({ description }) => ({ description })),
+        });
 
         expect(generateSpy).toHaveBeenCalledTimes(1);
-        expect(JSON.stringify(generateSpy.mock.calls[0])).not.toContain('stepIntents');
+        const passedPlan = generateSpy.mock.calls[0][0].planArtifact.plan;
+        expect(passedPlan.steps).toEqual([
+          { description: 'repo-a/src/example.ts: change B' },
+          { description: 'repo-a/src/example.ts: change C' },
+        ]);
         expect(stepSpecFidelityService.verifyAll.mock.calls[0][0][0].intent).toBeUndefined();
       });
     });
@@ -3661,7 +3674,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Add regex /\\.ts$/'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Add regex /\\.ts$/' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3683,7 +3696,7 @@ describe('ImplementerAgent', () => {
 
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3704,7 +3717,7 @@ describe('ImplementerAgent', () => {
 
       const result = await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 
@@ -3729,7 +3742,7 @@ describe('ImplementerAgent', () => {
       });
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
       expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
@@ -3753,7 +3766,7 @@ describe('ImplementerAgent', () => {
       });
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
       expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
@@ -3777,7 +3790,7 @@ describe('ImplementerAgent', () => {
       });
       await agent.execute(
         ticketArtifact,
-        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: ['Update source file'] }),
+        buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
       expect(stepSpecFidelityService.verifyAll).toHaveBeenCalledWith(
@@ -3891,7 +3904,7 @@ describe('ImplementerAgent', () => {
 
       await testAgent.execute(
         { ticketKey: 'WBP-1000', content: '# T', path: '/tmp/.wf/repo-a/jira/WBP-1000.md' },
-        { action: 'feature', path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-feature.json', plan: { action: 'feature', summary: 'Test', steps: ['Update src'], estimatedComplexity: 'medium', affectedFiles: ['repo-a/src/example.ts'], affectedRepositories: ['repo-a'] } },
+        { action: 'feature', path: '/tmp/.wf/repo-a/jira/WBP-1000-plan-feature.json', plan: { action: 'feature', summary: 'Test', steps: [{ description: 'Update src' }], estimatedComplexity: 'medium', affectedFiles: ['repo-a/src/example.ts'], affectedRepositories: ['repo-a'] } },
         { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
       );
 

@@ -11,6 +11,7 @@ import type {
   planComplexitySchema,
   planRiskSchema,
   planModelOutputSchema,
+  planStepSchema,
 } from '../schemas/ai.schema';
 
 export type AIStageName = z.infer<typeof aiStageName>;
@@ -24,3 +25,4 @@ export type ResolutionPlan = z.infer<typeof resolutionPlanSchema>;
 export type PlanComplexity = z.infer<typeof planComplexitySchema>;
 export type PlanRisk = z.infer<typeof planRiskSchema>;
 export type PlanModelOutput = z.infer<typeof planModelOutputSchema>;
+export type PlanStep = z.infer<typeof planStepSchema>;

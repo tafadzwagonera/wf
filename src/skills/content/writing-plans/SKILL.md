@@ -13,8 +13,9 @@ The plan output is a single JSON object. Required fields are marked **required**
 {
   "action": "fix",
   "summary": "one-sentence description of the plan",
-  "steps": ["string — one literal change per step"],
-  "stepIntents": ["string — goal checkable from the diff, or null"],
+  "steps": [
+    { "description": "string — one literal change per step", "intent": "string — goal checkable from the diff (optional)" }
+  ],
   "phases": [
     { "label": "string", "stepIndices": [0, 1], "verifyAfter": ["yarn test ..."] }
   ],
@@ -43,8 +44,8 @@ The plan output is a single JSON object. Required fields are marked **required**
 Field notes:
 - `action` — **required**. One of `"fix" | "feature" | "investigate"`.
 - `summary` — **required**. One-sentence description of the plan.
-- `steps` — **required**. One literal change per step.
-- `stepIntents` — optional. Emit `stepIntents` only for steps that prescribe a literal (a call chain, signature, regex, or test name). State each intent as a goal checkable from the diff, keep it index-aligned with `steps` (same length), and use `null` for every other step. Omit `stepIntents` when no step prescribes a literal. Only the spec-fidelity check reads intents; the step assessor sees step text alone.
+- `steps` — **required**. Objects with a `description` (one literal change per step) and an optional `intent`.
+- `steps[].intent` — optional. Add an `intent` only when the step prescribes a literal (a call chain, signature, regex, or test name). State it as a goal checkable from the diff and omit it for every other step. Only the spec-fidelity check reads intents; the step assessor sees step text alone.
 - `phases` — optional. Groups steps into named phases with optional post-phase verification commands.
 - `affectedFiles` — optional. Files changed by the plan. Valid `status` values: `"found"` for existing files, `"to-delete"` for orphaned files the plan deletes, `"to-create"` for new files, `"not-found"` when a file was searched for but does not exist. All listed paths must be verified to exist before listing them with `"found"`.
 - `affectedFilesContext` — optional. Files read for context but not modified.

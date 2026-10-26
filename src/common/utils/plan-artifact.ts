@@ -2,10 +2,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as YAML from 'yaml';
 import { type ResolutionPlan, type FileEntry, normalizeFileEntries } from '../../integrations/ai/ai.service';
-import {
-  hasAlignedStepIntents, planComplexitySchema, planPhaseSchema, type PlanWithStepIntents,
-} from '../schemas/ai.schema';
-import type { PlanComplexity } from '../types/ai.types';
+import { planComplexitySchema, planPhaseSchema } from '../schemas/ai.schema';
+import type { PlanComplexity, PlanStep } from '../types/ai.types';
+import { combineLegacyPlanSteps, hasAlignedLegacyStepIntents } from './plan-steps';
 import { estimatePlanComplexity } from './estimate-plan-complexity';
 import { formatPlanRisk, normalizePlanRisks } from './plan-risk';
 import type { ResolutionAction, TicketArtifact } from '../types/agent.types';
@@ -493,11 +492,20 @@ const normalizePlanPhases = (rawPlan: Record<string, unknown>): ResolutionPlan['
 const normalizeCorePlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
   action: normalizeAction(rawPlan.action, filePath),
   summary: typeof rawPlan.summary === 'string' ? rawPlan.summary : '',
-  steps: normalizeStringList(rawPlan.steps),
-  stepIntents: normalizeStepIntents(rawPlan.stepIntents),
+  steps: normalizePlanStepList(rawPlan, filePath),
   affectedFiles: normalizeFileEntryList(rawPlan.affectedFiles ?? rawPlan.filesAffected),
   affectedFilesContext: normalizeFileEntryList(rawPlan.affectedFilesContext ?? rawPlan.filesContext),
 });
+
+const normalizePlanStepList = (rawPlan: Record<string, unknown>, filePath: string): PlanStep[] => {
+  const steps = Array.isArray(rawPlan.steps) ? rawPlan.steps : [];
+  if (!hasAlignedLegacyStepIntents(steps, rawPlan.stepIntents)) {
+    throw new WorkflowParseError(
+      `Plan file has ${(rawPlan.stepIntents as unknown[]).length} stepIntents for ${steps.length} steps: ${filePath}`
+    );
+  }
+  return combineLegacyPlanSteps(steps, normalizeStepIntents(rawPlan.stepIntents));
+};
 
 const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: string) => ({
   affectedRepositories: normalizeOptionalStringList(rawPlan.affectedRepositories ?? rawPlan.repositoriesAffected),
@@ -510,20 +518,12 @@ const normalizeExtraPlanFields = (rawPlan: Record<string, unknown>, filePath: st
   phases: normalizePlanPhases(rawPlan),
 });
 
-const assertStepIntentsAligned = (plan: PlanWithStepIntents, filePath: string): void => {
-  if (hasAlignedStepIntents(plan)) return;
-  throw new WorkflowParseError(
-    `Plan file has ${plan.stepIntents?.length} stepIntents for ${plan.steps.length} steps: ${filePath}`
-  );
-};
-
 const normalizePlan = (value: unknown, filePath: string): ResolutionPlan => {
   if (!value || typeof value !== 'object') {
     throw new WorkflowParseError(`Plan file is not valid: ${filePath}`);
   }
   const rawPlan = value as Record<string, unknown>;
   const base = { ...normalizeCorePlanFields(rawPlan, filePath), ...normalizeExtraPlanFields(rawPlan, filePath) };
-  assertStepIntentsAligned(base, filePath);
   const explicitComplexity = normalizeComplexity(rawPlan.estimatedComplexity, filePath);
   const estimatedComplexity = explicitComplexity ?? estimatePlanComplexity(base);
   return { ...base, estimatedComplexity };
@@ -624,14 +624,6 @@ const normalizeComplexity = (value: unknown, filePath: string): PlanComplexity |
   throw new WorkflowParseError(`Plan file has an invalid complexity: ${filePath}`);
 };
 
-const normalizeStringList = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.map(String);
-};
-
 const normalizeOptionalStringList = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
@@ -717,7 +709,7 @@ const buildSyntheticStepsSection = (plan: ResolutionPlan): string[] => [
   '## Steps',
   '',
   ...(plan.steps.length > 0
-    ? plan.steps.map((step, index) => `${index + 1}. ${step}`)
+    ? plan.steps.map((step, index) => `${index + 1}. ${step.description}`)
     : ['1. Follow the custom implementation plan']),
 ];
 

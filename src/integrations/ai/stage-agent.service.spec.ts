@@ -920,7 +920,8 @@ describe('StageAgentService', () => {
     const exampleLine = prompt.split('Return ONLY a valid JSON object. Reference:\n')[1].split('\n')[0];
     const example = planModelOutputSchema.parse(JSON.parse(exampleLine));
     expect(example.steps).toHaveLength(3);
-    expect(example.steps[0]).toMatch(/failing spec/i);
+    expect(example.steps[0].description).toMatch(/failing spec/i);
+    expect(example.steps[1].intent).toMatch(/declares SharedAuthGuard/);
   });
 
   it('includes prior plan context in the generated plan prompt when provided', async () => {

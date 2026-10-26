@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiProviderError, ConfigurationError, ExecutionError, ValidationError } from '../../../common/utils/errors';
 import { isWithinRoot, resolveWritablePath as resolveWritableAbsolutePath } from '../../../common/utils/path-within-root';
 import { formatPlanRisks } from '../../../common/utils/plan-risk';
+import { planStepDescriptions } from '../../../common/utils/plan-steps';
 import {
   Agent,
   MaxTurnsExceededError,
@@ -1352,7 +1353,7 @@ const buildCompactionSession = (
 const buildOaiTaskBriefParams = (params: GenerateAndVerifyParams, repoDir: string): BuildPlanContextParams => ({
   ticketKey: params.ticket.ticketKey, repoDir, repoName: params.repoName,
   repoFiles: params.repoFiles, trackedFilePaths: params.trackedFilePaths,
-  verificationScripts: params.verificationScripts, planSteps: params.planArtifact.plan.steps,
+  verificationScripts: params.verificationScripts, planSteps: planStepDescriptions(params.planArtifact.plan.steps),
   planSummary: params.planArtifact.plan.summary, planAction: params.planArtifact.plan.action,
   planRisks: formatPlanRisks(params.planArtifact.plan.risks), contextFiles: params.contextFiles,
   figmaContextSection: params.figmaContextSection,

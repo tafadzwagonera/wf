@@ -126,7 +126,7 @@ function testTicketArtifactRejectsMissingContent(): void {
 function testPlanArtifactAcceptsValid(): void {
   testCase('planArtifactSchema accepts valid plan artifact', () => {
     const planArtifact: PlanArtifact = {
-      plan: { action: 'fix', summary: 'Fix the build', steps: ['Step 1'], estimatedComplexity: 'low' },
+      plan: { action: 'fix', summary: 'Fix the build', steps: [{ description: 'Step 1' }], estimatedComplexity: 'low' },
       action: 'fix',
       path: '/tmp/.wf/state/WBP-1000-plan.md',
     };
@@ -137,7 +137,7 @@ function testPlanArtifactAcceptsValid(): void {
 
 function testPlanArtifactRejectsInvalidAction(): void {
   testCase('planArtifactSchema rejects invalid action', () => {
-    const result = planArtifactSchema.safeParse({ plan: { action: 'fix', summary: 'Fix', steps: ['Step 1'], estimatedComplexity: 'low' }, action: 'destroy', path: '/tmp/plan.md' });
+    const result = planArtifactSchema.safeParse({ plan: { action: 'fix', summary: 'Fix', steps: [{ description: 'Step 1' }], estimatedComplexity: 'low' }, action: 'destroy', path: '/tmp/plan.md' });
     assert.ok(!result.success, 'Expected parse to fail');
   });
 }
