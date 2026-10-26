@@ -128,6 +128,7 @@ which wf
 
 What each line does:
 - `yarn release:local` builds the binary, copies it to `~/.local/bin/wf` (or `$WF_INSTALL_DIR/wf` if set), and runs `wf issue:cowsay`. It then prints a `hash -r` reminder to run in your shell.
+- You only need to run `hash -r` once per open terminal, the first time `wf` appears at that install path. After that, `yarn release:local` keeps overwriting the same file, so later rebuilds show up automatically in a terminal that already found `wf` there. Run `hash -r` again only if you change `PATH` or install to a different directory.
 - `npm unlink -g wf` removes a global development copy of `wf` that would otherwise come first on your `PATH`. Skip this line if you want to keep that copy.
 - `which wf` should print `$HOME/.local/bin/wf`. If it prints another path, that folder comes earlier in `PATH`.
 
