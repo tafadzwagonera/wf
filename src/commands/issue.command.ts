@@ -1,6 +1,7 @@
 import { Command, CommandRunner, Option } from 'nest-commander';
 import type { PlanRisk } from '../common/types/ai.types';
 import { formatPlanRisk } from '../common/utils/plan-risk';
+import { formatIssueSeverityLabel } from '../review/risk-adjusted-severity';
 import { ensureWfHome } from '../common/utils/ensure-wf-home';
 import { ConversationService } from '../integrations/ai/conversation/conversation.service';
 import { ConversationContext, WorkflowStage as ConvWorkflowStage } from '../integrations/ai/conversation/interfaces';
@@ -2138,7 +2139,7 @@ export class IssueCommand extends CommandRunner {
       const lineRef = issue.line ? ':' + issue.line : '';
       location = ' (' + issue.file + lineRef + ')';
     }
-    return '  [' + issue.severity + '] ' + issue.message + location;
+    return '  [' + formatIssueSeverityLabel(issue) + '] ' + issue.message + location;
   }
 
   /**

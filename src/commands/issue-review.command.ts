@@ -11,6 +11,7 @@ import {
   REVIEW_VERDICT_CHANGES_REQUESTED,
 } from '../integrations/ai/ai.service';
 import { buildCodeReviewPresentation } from '../review/code-review-post-processing';
+import { deriveRiskAdjustedSeverity, formatIssueSeverityLabel } from '../review/risk-adjusted-severity';
 import { formatReviewCallStack, formatReviewStateTransition } from '../integrations/ai/review-trace';
 import { ReviewPresenter } from '../common/presentation/review-presenter.service';
 import { GitService } from '../integrations/git/git.service';
@@ -189,7 +190,7 @@ const loadCriteriaFromFile = (filePath: string, baseDir: string): string[] => {
   description:
     'AI-powered code review of local changes, ticket-associated pull requests, or PR diffs. '
     + 'Each review includes nested trace provenance, issue-local suggestions, and diff-aligned inline comment anchors. Ticket-keyed reviews are cached to `<ticket>-review.<format>`, where the format comes from `-f/--format` or `stages.review.outputFormat` (default md); a cached artifact is served regardless of the format it was written in, and regenerating with `--force` under a different format replaces the stale variant so each ticket keeps exactly one review artifact. In multi-repo runs the artifact gains a repo-scope suffix — `<ticket>-<repo-basename>-review.<ext>`, one file per repository — so each repo\'s cached result is stored independently and the first repository\'s cached review is never served to subsequent repositories in the same run; mono-repo runs stay unscoped so the artifact shares its stem with the commit-description sidecar. '
-    + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. The verdict follows severity: a review that contains any `error` issue is recorded as Changes requested even when the model returned `approved: true`, while warning and info issues do not block approval. '
+    + 'The review rubric includes Accessibility (roles, focus states, screen-reader operability), Scope & necessity (replaces the former separate Scope and Necessity criteria), and Pattern grounding (checks flagged patterns against actual codebase conventions before raising an issue) among its default criteria. The verdict follows risk-adjusted severity: each issue carries a `risk` (the probability, 0 to 1, that it manifests in reality) that weights its severity, and a review that contains any issue still at `error` after risk adjustment is recorded as Changes requested even when the model returned `approved: true`. Issues at warning or info after risk adjustment do not block approval; an issue without a risk keeps its reported severity. '
     + 'Reviews are enriched with detected repo conventions (linter, formatter, language, TypeScript config) and structured verification results; for eligible PR and single-repository reviews, lint, typecheck, and test run live in an invocation-scoped disposable git worktree after the exact reviewed diff is applied, leaving the target repository untouched. Verification records passed, failed, or not-run status and are persisted beside the review in Markdown, JSON, and YAML output. Use `--skip-verification` to bypass it. '
     + 'Blank or blocked AI review responses fail fast with provider-aware diagnostics instead of generic parse errors; Codex CLI schema/configuration rejections preserve the provider detail and are not reported as rate-limit failures. '
     + 'Runs the SonarQube CLI (`sonar analyze secrets` then `sonar analyze`) when `stages.review.sonar` is `true` or `--sonar` is passed; requires `sonar` on PATH and an authenticated `sonar auth status`. Scopes the scan to staged changes when present, otherwise to the merge-base diff against a source branch recovered from `--session-id`, a locally-persisted session for `--ticket-key`, a plan manifest, git reflog, or an interactive prompt, in that order. A bare `--ticket-key` with no matching local session, or any run where no base branch can be resolved, falls back to an unscoped `sonar analyze` and logs a WARN entry to the on-disk log with context `sonar-stage`; a recorded source-branch lookup that fails (for example an unreadable session directory) logs a WARN with the same context and the scan falls back to the development or upstream branch. Findings are reported and logged at WARN with context `sonar-scanner`, and review continues; a clean scan is confirmed too, both on the console and in the persisted log (at INFO), so it stays distinguishable from a scan that never ran; a missing CLI or auth/project misconfiguration continues the review without Sonar findings, leaving other targets in the same run unaffected. That failure warning is always logged at WARN with context `sonar-stage` and is not hidden by `--silent`. '
@@ -1245,7 +1246,7 @@ export class IssueReviewCommand extends CommandRunner {
     if (!adapter.createInlineComment) return;
     const issues = (review.issues ?? []).filter(
       (i: CodeIssue) => i.origin !== 'comment-policy'
-        && (i.severity === 'error' || i.severity === 'warning')
+        && deriveRiskAdjustedSeverity(i) !== 'info'
         && i.file != null && i.line != null && i.line > 0
     );
     if (issues.length === 0) return;
@@ -1287,7 +1288,7 @@ export class IssueReviewCommand extends CommandRunner {
     for (const { issue, suggestion } of rows) {
       const lineRef = issue.line ? ':' + issue.line : '';
       const loc = issue.file ? ' (' + issue.file + lineRef + ')' : '';
-      lines.push('- [' + issue.severity + '] ' + issue.message + loc);
+      lines.push('- [' + formatIssueSeverityLabel(issue) + '] ' + issue.message + loc);
       if (suggestion) lines.push('  Suggestion: ' + suggestion);
     }
     return lines;
@@ -1593,7 +1594,7 @@ export class IssueReviewCommand extends CommandRunner {
     return filtered.map(i => {
       const lineRef = i.line ? ':' + i.line : '';
       const loc = i.file ? ' (' + i.file + lineRef + ')' : '';
-      return '  [' + i.severity + '] ' + i.message + loc;
+      return '  [' + formatIssueSeverityLabel(i) + '] ' + i.message + loc;
     }).join('\n');
   }
 
@@ -1861,7 +1862,7 @@ export class IssueReviewCommand extends CommandRunner {
     const lines = ['ISSUES FOUND (' + rows.length + '):'];
     for (const [i, { issue, suggestion }] of rows.entries()) {
       const lineRef = issue.line ? ':' + issue.line : '';
-      lines.push('', (i + 1) + '. [' + issue.severity + '] ' + issue.message);
+      lines.push('', (i + 1) + '. [' + formatIssueSeverityLabel(issue) + '] ' + issue.message);
       if (issue.file) lines.push('   File: ' + issue.file + lineRef);
       if (suggestion) lines.push('   Suggestion: ' + suggestion);
     }

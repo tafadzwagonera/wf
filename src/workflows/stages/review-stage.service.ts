@@ -16,6 +16,7 @@ import { StageAgentService, buildSanitisedJsonSchema } from '../../integrations/
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
 import { batchSummarySchema } from '../../common/schemas/batch-summary.schema';
 import { formatIssueFileLocation } from '../../common/schemas/review.schema';
+import { formatIssueSeverityLabel } from '../../review/risk-adjusted-severity';
 import {
   splitDiffByFile,
   summariseDiff,
@@ -373,7 +374,7 @@ export class ReviewStageService {
     const { issue, suggestion } = row;
     const location = issue.file ? ` (${formatIssueFileLocation(issue)})` : '';
     const lines = [
-      `- [${issue.severity}] ${issue.message}${location}`,
+      `- [${formatIssueSeverityLabel(issue)}] ${issue.message}${location}`,
       suggestion ? `  - Suggestion: ${suggestion}` : null,
     ];
     return lines.filter((line): line is string => line != null).join('\n');

@@ -1481,6 +1481,22 @@ describe('IssueReviewCommand', () => {
       expect(output).toContain('1. Extra idea');
     });
 
+    it('renders the risk and risk-adjusted severity in text output and PR comments', async () => {
+      const { command } = await buildCommand();
+      const riskReview = {
+        ...mockReview,
+        issues: [
+          { severity: 'error', risk: 0.5, message: 'Unlikely regression', file: 'src/first.ts', line: 10 },
+        ],
+      };
+
+      const textOutput = (command as any).formatReviewBlockText(riskReview);
+      const commentOutput = (command as any).formatReviewAsComment(riskReview);
+
+      expect(textOutput).toContain('1. [error → warning (risk 0.5)] Unlikely regression');
+      expect(commentOutput).toContain('- [error → warning (risk 0.5)] Unlikely regression (src/first.ts:10)');
+    });
+
     it('renders paired suggestions directly under each issue in PR comments', async () => {
       const { command } = await buildCommand();
 

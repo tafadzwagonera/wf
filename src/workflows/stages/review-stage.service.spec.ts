@@ -335,6 +335,30 @@ describe('ReviewStageService', () => {
     expect(reviewMarkdown).toContain('- Trailing idea');
   });
 
+  it('renders the risk and risk-adjusted severity on persisted issue rows', async () => {
+    const { service } = await buildService();
+    const tempDir = createManagedTempDir('review');
+    const ticketPath = path.join(tempDir, 'WBP-126.md');
+    fs.writeFileSync(ticketPath, '# WBP-126: Risk-adjusted rows');
+
+    const artifact = service.createReviewArtifact(
+      {
+        ticketKey: 'WBP-126',
+        content: '# WBP-126: Risk-adjusted rows',
+        path: ticketPath,
+      },
+      {
+        ...mockReview,
+        issues: [
+          { severity: 'error', risk: 0.5, message: 'Unlikely regression', file: 'src/first.ts', line: 10 },
+        ],
+      } as any
+    );
+
+    const reviewMarkdown = fs.readFileSync(artifact.path, 'utf-8');
+    expect(reviewMarkdown).toContain('- [error → warning (risk 0.5)] Unlikely regression (src/first.ts:10)');
+  });
+
   it('marks agent-backed traces as evidence-based when trace payload exists', async () => {
     const { service, aiService, stageAgentService } = await buildService({
       agentEnabled: true,

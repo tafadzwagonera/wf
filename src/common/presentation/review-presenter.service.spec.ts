@@ -33,6 +33,21 @@ describe('ReviewPresenter', () => {
     expect(output).toContain('Approved');
   });
 
+  it('renders the risk and risk-adjusted severity on issues that carry a risk', () => {
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const presenter = new ReviewPresenter();
+
+    presenter.displayReview({
+      ...mockReview,
+      issues: [
+        { severity: 'error', risk: 0.5, message: 'Unlikely regression', file: 'src/auth.ts', line: 42 },
+      ],
+    });
+
+    const output = consoleLogSpy.mock.calls.flat().map(String).join('\n');
+    expect(output).toContain('[error → warning (risk 0.5)] Unlikely regression');
+  });
+
   it('renders green checkmark for approved reviews', () => {
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
     const presenter = new ReviewPresenter();

@@ -231,6 +231,30 @@ describe('codeIssueSchema', () => {
     });
   });
 
+  describe('risk field', () => {
+    it.each([[0], [0.5], [1]])('accepts risk %s', risk => {
+      const result = codeIssueSchema.parse({ severity: 'error', message: 'msg', risk });
+
+      expect(result.risk).toBe(risk);
+    });
+
+    it('treats missing risk as undefined', () => {
+      const result = codeIssueSchema.parse({ severity: 'error', message: 'msg' });
+
+      expect(result.risk).toBeUndefined();
+    });
+
+    it('treats null risk as undefined via nullableOptional', () => {
+      const result = codeIssueSchema.parse({ severity: 'error', message: 'msg', risk: null });
+
+      expect(result.risk).toBeUndefined();
+    });
+
+    it.each([[-0.1], [1.1]])('rejects out-of-range risk %s', risk => {
+      expect(() => codeIssueSchema.parse({ severity: 'error', message: 'msg', risk })).toThrow();
+    });
+  });
+
   describe('review repair metadata', () => {
     it('accepts repairStrategy "validation" on a review payload', () => {
       const result = codeReviewSchema.safeParse({

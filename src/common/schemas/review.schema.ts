@@ -92,8 +92,12 @@ export const formatIssueFileLocation = (issue: { file?: string; line?: number; e
   return issue.file + lineRange;
 };
 
+export const codeIssueRiskSchema = z.number().min(0).max(1);
+
 export const codeIssueSchema = z.object({
   severity: codeIssueSeveritySchema,
+  risk: nullableOptional(codeIssueRiskSchema)
+    .describe('probability (0 to 1) that the issue manifests in reality'),
   message: z.string(),
   file: nullableOptional(z.string()),
   line: nullableOptional(z.number()),

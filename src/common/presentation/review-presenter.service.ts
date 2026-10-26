@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import chalk from 'chalk';
 import { buildCodeReviewPresentation } from '../../review/code-review-post-processing';
+import { deriveRiskAdjustedSeverity, formatIssueSeverityLabel } from '../../review/risk-adjusted-severity';
 import { formatIssueFileLocation } from '../schemas/review.schema';
 import { formatReviewCallStack, formatReviewStateTransition } from '../../integrations/ai/review-trace';
 import {
@@ -103,8 +104,8 @@ export class ReviewPresenter {
     }
     console.log(chalk.bold('\nIssues Found:'));
     for (const { issue, suggestion } of rows) {
-      const color = this.resolveSeverityColor(issue.severity);
-      console.log(color('  [' + issue.severity + '] ' + issue.message));
+      const color = this.resolveSeverityColor(deriveRiskAdjustedSeverity(issue));
+      console.log(color('  [' + formatIssueSeverityLabel(issue) + '] ' + issue.message));
       if (issue.file) console.log(chalk.gray('    File: ' + formatIssueFileLocation(issue)));
       if (suggestion) console.log(chalk.cyan('    Suggestion: ' + suggestion));
     }

@@ -76,6 +76,16 @@ describe('buildReviewPrompt', () => {
     expect(step.children.length).toBeGreaterThan(0);
   });
 
+  it('instructs the model to estimate per-issue risk and includes risk in the schema example', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('probability');
+    expect(prompt).toContain('risk-adjusted severity');
+    const schemaLineStart = prompt.indexOf('{"summary"');
+    const schemaLineEnd = prompt.indexOf('\n', schemaLineStart);
+    const parsed = JSON.parse(prompt.substring(schemaLineStart, schemaLineEnd));
+    expect(parsed.issues.some((issue: { risk?: number }) => typeof issue.risk === 'number')).toBe(true);
+  });
+
   it('orders code changes, numbered guidelines, instructions, trace guidance and schema', () => {
     const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
     const positions = ['Code Changes:', '1. a', reviewInstructions, reviewTraceGuidance, reviewOutputSchema]

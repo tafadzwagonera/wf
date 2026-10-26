@@ -48,6 +48,44 @@ describe('deriveApproval', () => {
     });
   });
 
+  describe('risk-adjusted severity', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns true when an error issue carries a risk low enough to demote it below error', () => {
+      const issues = [
+        { severity: 'error' as const, message: 'Unlikely issue', file: 'src/test.ts', line: 1, risk: 0.5 },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when an error issue carries a risk that keeps it at error', () => {
+      const issues = [
+        { severity: 'error' as const, message: 'Likely issue', file: 'src/test.ts', line: 1, risk: 0.9 },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(false);
+    });
+
+    it('returns false when an error issue carries no risk', () => {
+      const issues = [
+        { severity: 'error' as const, message: 'Critical issue', file: 'src/test.ts', line: 1 },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(false);
+    });
+
+    it('returns true when only warnings remain even at full risk', () => {
+      const issues = [
+        { severity: 'warning' as const, message: 'Minor issue', file: 'src/test.ts', line: 1, risk: 1 },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(true);
+    });
+  });
+
   describe('model approval value handling', () => {
     afterEach(() => {
       jest.restoreAllMocks();
