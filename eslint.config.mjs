@@ -47,6 +47,7 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-unsafe-enum-comparison': 'off',
       '@typescript-eslint/require-await': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-non-null-assertion': 'warn',
       '@typescript-eslint/prefer-regexp-exec': 'warn',
       '@typescript-eslint/restrict-template-expressions': 'off',
