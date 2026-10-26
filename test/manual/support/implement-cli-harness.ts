@@ -14,7 +14,7 @@ export const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 export type FakeClaudeMode
   = | 'noop' | 'declare' | 'declareFormatted' | 'declareAndEdit' | 'writeEachPass' | 'deleteOrphan'
     | 'assessorProbe' | 'assessorRenumber' | 'assessorOmitOne' | 'assessorPullOutOfScope' | 'intentFidelity'
-    | 'planProblem' | 'planProblemMalformed';
+    | 'planProblem' | 'planProblemMalformed' | 'untrackedFidelity' | 'interleavedToolResults';
 
 export type PlanOverrides = {
   steps?: string[];
@@ -106,6 +106,27 @@ if (mode === 'intentFidelity' && n === 1) {
   fs.appendFileSync('src/a.ts', '// implemented\\n');
   toolUse('Edit', 'src/a.ts');
 }
+if (mode === 'untrackedFidelity' && n === 1) {
+  fs.appendFileSync('src/a.ts', '// implemented\\n');
+  toolUse('Edit', 'src/a.ts');
+  fs.mkdirSync('scripts', { recursive: true });
+  fs.writeFileSync('scripts/new-tool.sh', '#!/bin/sh\\nset -eu\\n');
+  toolUse('Write', 'scripts/new-tool.sh');
+}
+if (mode === 'interleavedToolResults' && n === 1) {
+  const bash = (id, command) => emit({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] },
+  });
+  const toolResult = (toolUseId, content, isError) => emit({
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: isError }] },
+  });
+  bash('b1', 'bash -c "broken"');
+  bash('b2', 'git status');
+  toolResult('b1', 'syntax error near unexpected token', true);
+  toolResult('b2', 'exit code 0', false);
+}
 if (mode === 'writeEachPass' && n > 1) {
   fs.writeFileSync('extra-' + n + '.ts', 'export {};\\n');
   toolUse('Write', 'extra-' + n + '.ts');
@@ -127,7 +148,7 @@ if (mode === 'declareAndEdit' && n === 2) {
 result(text);
 };
 const isFidelityPrompt = fullPrompt.includes('## Plan step') && fullPrompt.includes('## Your task');
-const usesFidelityStub = mode === 'intentFidelity' || mode.startsWith('planProblem');
+const usesFidelityStub = mode === 'intentFidelity' || mode === 'untrackedFidelity' || mode.startsWith('planProblem');
 if (usesFidelityStub && isFidelityPrompt) result('{"findings":[]}');
 else if ((mode.startsWith('assessor') || usesFidelityStub) && isAssessorPrompt) respondAsAssessor();
 else respondAsImplementer();
