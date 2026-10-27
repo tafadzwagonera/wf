@@ -1,17 +1,19 @@
 ---
 name: run-and-prune-manual-tests
-description: Generate manual smoke tests from draft-manual-tests prompts when none exist yet, run the live smoke tests related to a change until they pass, then remove redundant manual tests whose observable coverage duplicates other manual tests or existing framework tests. Use to verify a change and curate the manual test suite.
+description: Generate manual smoke tests from draft-manual-tests prompts when none exist yet, run the live smoke tests related to a change until they pass, prune redundant ones, then remove everything the workflow generated (tests, runner, script, config, docs) so the codebase returns to its state before draft-manual-tests ran. Use to verify a change with throwaway live smoke tests.
 ---
 
 **Category:** Methodology skill.
 
 ## Purpose
 
-Two-phase finishing pass over the current project's `test/manual` suite: first prove the change works by running its related live smoke tests to green, then shrink the suite by deleting tests that assert nothing another test doesn't already assert — whether that other test is a manual test or a framework test (unit/integration specs, e.g. co-located `*.spec.ts` Jest files).
+Verification pass that leaves no trace: generate the drafted manual smoke tests (if none exist), prove the change works by running the related live tests to green, prune redundant tests, then tear down all generated test infrastructure so the working tree matches its pre-`draft-manual-tests` state. Production fixes made while getting to green are the one thing kept.
 
-Unlike a full teardown, this keeps the manual test infrastructure and every test that earns its place. Only redundancy is removed.
+Only generated artifacts are removed. Manual-test infrastructure or tests that already existed at the baseline (tracked in `HEAD`, or untracked before this run) are never touched.
 
 ## Phase 0 — Generate from drafts if none exist
+
+Before writing anything, record the baseline: `git status --porcelain`, whether `run-manual-test.ts`, `test/manual/`, and a `test:manual` script already exist, and the current content of every tracked config file you may edit (`package.json`, `tsconfig*.json`, `README.md`). Phase 3 restores to this baseline, so keep the list of every file you create or edit as you go.
 
 Check `git status --porcelain` for `test/manual/` before starting Phase 1. If untracked or newly added `test/manual/*.smoke.ts` files already exist, skip straight to Phase 1 — someone already implemented the drafts.
 
@@ -64,3 +66,14 @@ A test is **not** redundant when even one assertion is unique, when it exercises
 A later `options-alphabetical-order.smoke.ts` asserts, via the same `--help` surface, only that `issue:commit` options are alphabetically ordered — a strict subset of assertion 3 on the identical entry point. It is redundant: delete it, citing `issue-commit-ticket-key-flag.smoke.ts` assertion 3 as the surviving coverage. (Had it swept *every* command's help for ordering, it would be the broader test — then the right move is deleting assertion 3 from the flag test instead, or keeping both and noting the overlap.)
 
 Framework-overlap variant: a manual test that imports `commitOptionsSchema` and asserts `parse` rejects an empty ticket key duplicates the co-located `commit-options.schema.spec.ts` — it never leaves the process, so it adds nothing a spec doesn't already pin. Delete it; the schema's observable effect, the CLI rejecting the flag value with a readable error, belongs in a manual test that invokes the CLI.
+
+## Phase 3 — Tear down generated infrastructure
+
+Only after Phase 2 and a green final run. The goal is a working tree identical to the Phase 0 baseline, apart from production fixes. Do this automatically; do not ask.
+
+1. **Stop leftovers.** Kill any gateway or stub process the tests spawned and confirm the ports are free.
+2. **Delete generated files** — only those absent from the baseline: the tests in `test/manual/`, `test/manual/support/`, the runner (`run-manual-test.ts`), and any scratch output. Remove `test/manual/` itself if it did not exist at the baseline and is now empty. Use `git rm -rf` for staged files, `rm` for untracked ones, and never touch a file that was in the baseline.
+3. **Revert generated edits to tracked files** by removing only the hunks this workflow added — the `test:manual` script in `package.json`, the runner entry in a `tsconfig*.json` exclude, any manual-test section in `README.md` or other docs. Check `git diff` for each file first: if it also holds unrelated changes (the user's or the production fix), edit those hunks out by hand and leave the rest. Use `git restore` on a file only when the diff shows nothing but generated changes.
+4. **Keep production fixes** made in Phase 1 (changes under `src/`), along with their framework specs. They are the deliverable, not infrastructure.
+5. **Verify the end state:** a search for `test:manual`, `run-manual-test`, and `test/manual` over the repo (excluding `node_modules`, `dist`, `.git`) returns nothing that was not in the baseline; `git status` matches the baseline plus intended production changes; the project's build and lint still pass.
+6. **Report** what was removed and what was kept, in a short list.
