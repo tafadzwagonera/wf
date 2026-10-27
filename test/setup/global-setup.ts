@@ -13,7 +13,19 @@ import * as path from 'node:path';
  * Runs in the main process before any worker starts, so the exported variable is inherited
  * by every worker.
  */
+const repoBindingVariables = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_PREFIX',
+  'GIT_NAMESPACE',
+];
+
 export default (): void => {
+  for (const name of repoBindingVariables) delete process.env[name];
   const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-test-run-'));
   process.env['WF_TEST_RUN_DIR'] = runDir;
 };
