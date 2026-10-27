@@ -2295,6 +2295,153 @@ describe('StageAgentService', () => {
     });
   });
 
+  describe('Anthropic stage tool activity narration', () => {
+    const validPlanJson = JSON.stringify({
+      action: 'fix', summary: 'Fix it', steps: ['step 1'], estimatedComplexity: 'low', affectedFiles: [], risks: [],
+    });
+
+    const createAnthropicPlanConfigService = (backend: 'cli' | 'agent'): ConfigService =>
+      ({
+        get: jest.fn((key: string, defaultValue?: unknown) => {
+          const values: Record<string, unknown> = {
+            'stages.plan.backend': backend,
+            'stages.plan.provider': 'anthropic',
+            'stages.plan.model': 'claude-sonnet-4-6',
+            'ai.provider': 'anthropic',
+            'ai.model': 'claude-sonnet-4-6',
+            'ai.anthropicApiKey': 'test-key',
+          };
+          return key in values ? values[key] : defaultValue;
+        }),
+      }) as unknown as ConfigService;
+
+    async function* createMockToolStream() {
+      yield {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'yarn build' } },
+            { type: 'tool_use', id: 't2', name: 'Read', input: { file_path: 'src/a.ts' } },
+          ],
+        },
+      };
+      yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } };
+      yield {
+        type: 'user',
+        message: { content: [{ type: 'tool_result', tool_use_id: 't2', is_error: true, content: 'no such file' }] },
+      };
+      yield { type: 'result', subtype: 'success', result: validPlanJson };
+    }
+
+    beforeEach(() => {
+      spawnCli.mockClear();
+      mockLoadAnthropicAgentSdk.mockReset();
+      jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('narrates tool starts and results for the Claude CLI stage runner', async () => {
+      spawnCli.mockReturnValue(createMockToolStream());
+      const service = new StageAgentService(createAnthropicPlanConfigService('cli'));
+      const onProgress = jest.fn();
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(spawnCli).toHaveBeenCalledTimes(1);
+      expect(spawnCli).toHaveBeenCalledWith([], expect.any(String), 'test', undefined, expect.any(Number), undefined);
+      expect(result).toMatchObject({ content: validPlanJson });
+      expect(onProgress.mock.calls).toEqual([
+        ['  [claude-cli] Running: Bash(yarn build)'],
+        ['  [claude-cli] Running: Read(src/a.ts)'],
+        ['  [claude-cli] Tool completed'],
+        ['  [claude-cli] Tool failed: no such file'],
+      ]);
+    });
+
+    it('emits no tool lines for malformed, empty, or unrelated blocks', async () => {
+      async function* malformedStream() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash' }, { type: 'tool_use', id: 't9', name: 'Bash', input: {} }, { type: 'text', text: 'hi' }, null] } };
+        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: '' }, { type: 'tool_result', content: 'no id' }] } };
+        yield { type: 'user', message: { content: 'not-an-array' } };
+        yield { type: 'result', subtype: 'success', result: validPlanJson };
+      }
+      spawnCli.mockReturnValue(malformedStream());
+      const service = new StageAgentService(createAnthropicPlanConfigService('cli'));
+      const onProgress = jest.fn();
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(onProgress.mock.calls).toEqual([]);
+    });
+
+    it('skips tools with empty input other than Bash, Read, Grep, and Glob', async () => {
+      async function* emptyInputStream() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'WebFetch', input: {} }] } };
+        yield { type: 'result', subtype: 'success', result: validPlanJson };
+      }
+      spawnCli.mockReturnValue(emptyInputStream());
+      const service = new StageAgentService(createAnthropicPlanConfigService('cli'));
+      const onProgress = jest.fn();
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(onProgress.mock.calls).toEqual([]);
+    });
+
+    it('narrates tool use when the assistant message also contains text', async () => {
+      async function* mixedStream() {
+        yield {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'checking' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] },
+        };
+        yield { type: 'result', subtype: 'success', result: validPlanJson };
+      }
+      spawnCli.mockReturnValue(mixedStream());
+      const service = new StageAgentService(createAnthropicPlanConfigService('cli'));
+      const onProgress = jest.fn();
+
+      const runner = (service as any).runCliStagePrompt.bind(service);
+      await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(onProgress.mock.calls).toEqual([['  [claude-cli] Running: Bash(ls)']]);
+    });
+
+    it('narrates tool starts and results for the Anthropic Agent SDK plan path', async () => {
+      const mockClose = jest.fn();
+      const mockQuery = jest.fn().mockReturnValue(Object.assign(createMockToolStream(), { close: mockClose }));
+      mockLoadAnthropicAgentSdk.mockResolvedValue({ query: mockQuery });
+      const service = new StageAgentService(createAnthropicPlanConfigService('agent'));
+      const onProgress = jest.fn();
+
+      const runner = (service as any).runAnthropicStagePrompt.bind(service);
+      const result = await runner({ stage: 'plan', prompt: 'test', systemPrompt: 'sys', onProgress });
+
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(mockQuery).toHaveBeenCalledWith({
+        prompt: 'test',
+        options: expect.objectContaining({
+          model: 'claude-sonnet-4-6',
+          canUseTool: expect.any(Function),
+          env: expect.objectContaining({ ANTHROPIC_API_KEY: 'test-key' }),
+        }),
+      });
+      expect(mockClose).toHaveBeenCalled();
+      expect(result).toMatchObject({ content: validPlanJson });
+      expect(onProgress.mock.calls).toEqual([
+        ['  [claude-agent-sdk] Running: Bash(yarn build)'],
+        ['  [claude-agent-sdk] Running: Read(src/a.ts)'],
+        ['  [claude-agent-sdk] Tool completed'],
+        ['  [claude-agent-sdk] Tool failed: no such file'],
+      ]);
+    });
+  });
+
   describe('CLI plan sub-agent grants', () => {
     const createClaudeCliPlanConfigService = (): ConfigService =>
       ({

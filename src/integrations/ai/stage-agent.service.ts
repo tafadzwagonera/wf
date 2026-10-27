@@ -237,6 +237,54 @@ const formatCodexProgressMessage = (message: CodexCliMessage): string | null => 
   return null;
 };
 
+const summarizeAnthropicToolInput = (name: string, input: Record<string, unknown>): string | null => {
+  if (name === 'Bash') return typeof input.command === 'string' ? input.command : null;
+  if (!['Read', 'Grep', 'Glob'].includes(name)) return Object.keys(input).length === 0 ? null : JSON.stringify(input);
+  const pathLike = input.file_path ?? input.pattern;
+  return typeof pathLike === 'string' ? pathLike : null;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const formatAnthropicToolUseBlock = (block: Record<string, unknown>, label: string): string[] => {
+  if (block.type !== 'tool_use' || typeof block.id !== 'string' || typeof block.name !== 'string') return [];
+  if (!isRecord(block.input)) return [];
+  const summary = summarizeAnthropicToolInput(block.name, block.input);
+  if (summary === null) return [];
+  return [`  [${label}] Running: ${block.name}(${truncateCodexText(summary, 80)})`];
+};
+
+const formatAnthropicToolUseBlocks = (blocks: Record<string, unknown>[], label: string): string[] =>
+  blocks.flatMap(block => formatAnthropicToolUseBlock(block, label));
+
+const readToolResultText = (content: unknown): string => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(isRecord)
+    .map(part => (typeof part.text === 'string' ? part.text : ''))
+    .join(' ');
+};
+
+const formatAnthropicToolResultBlock = (block: Record<string, unknown>, label: string): string[] => {
+  if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') return [];
+  const text = readToolResultText(block.content).trim();
+  if (text === '') return [];
+  if (block.is_error !== true) return [`  [${label}] Tool completed`];
+  return [`  [${label}] Tool failed: ${truncateCodexText(text, 60)}`];
+};
+
+const formatAnthropicToolResultBlocks = (blocks: Record<string, unknown>[], label: string): string[] =>
+  blocks.flatMap(block => formatAnthropicToolResultBlock(block, label));
+
+const formatAnthropicToolActivity = (message: Record<string, unknown>, label: string): string[] => {
+  const content = isRecord(message.message) ? message.message.content : undefined;
+  if (!Array.isArray(content)) return [];
+  const blocks = content.filter(isRecord);
+  return [...formatAnthropicToolUseBlocks(blocks, label), ...formatAnthropicToolResultBlocks(blocks, label)];
+};
+
 const extractTextBlockContent = (block: unknown): string => {
   if (typeof block !== 'object' || block === null) return '';
   const record = block as Record<string, unknown>;
@@ -771,11 +819,17 @@ const observeProviderSessionId = (
   return observed;
 };
 
-const emitCliProgress = (message: ClaudeCliMessage, onProgress?: StageProgressCallback): void => {
+const emitAnthropicProgressLines = (
+  message: Record<string, unknown>, label: string, onProgress?: StageProgressCallback
+): void => {
   if (!onProgress) return;
-  const line = formatAnthropicProgressMessage(message as never, CLI_STAGE_LABEL);
-  if (line) onProgress(line);
+  const curatedLine = formatAnthropicProgressMessage(message as never, label);
+  const lines = [...(curatedLine ? [curatedLine] : []), ...formatAnthropicToolActivity(message, label)];
+  for (const line of lines) onProgress(line);
 };
+
+const emitCliProgress = (message: ClaudeCliMessage, onProgress?: StageProgressCallback): void =>
+  emitAnthropicProgressLines(message as Record<string, unknown>, CLI_STAGE_LABEL, onProgress);
 
 const accumulateCliMessage = (
   acc: CliPassAccumulator, message: ClaudeCliMessage, onProgress?: StageProgressCallback,
@@ -1034,8 +1088,7 @@ const extractAnthropicResultMessage = (
   message: Record<string, unknown>, onProgress?: StageProgressCallback
 ): string | undefined => {
   if ((message as { type: string }).type !== 'result') {
-    const line = onProgress ? formatAnthropicProgressMessage(message as never) : null;
-    if (line) onProgress?.(line);
+    emitAnthropicProgressLines(message, ANTHROPIC_AGENT_LABEL, onProgress);
     return undefined;
   }
   const result = message as AnthropicResultMessage;
