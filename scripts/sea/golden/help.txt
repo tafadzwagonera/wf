@@ -339,70 +339,71 @@ Commands:
                          enter a fix round even when the code looks
                          superficially complete. Warning-severity findings (diff
                          is silent on a claim) are surfaced but do not trigger a
-                         fix round. When the plan carries a `stepIntents` entry
-                         for a step, the pre-pass adds it to the prompt for that
-                         step, and a literal that differs from the diff is
-                         downgraded to a warning when the diff still satisfies
-                         the stated intent (only intents checkable from the diff
-                         count); per-repo step filtering keeps each intent with
-                         its step, and plans without `stepIntents` behave as
-                         before. an agent that cannot or should not implement a
-                         step as written can add a final-message line
-                         `PLAN-PROBLEM: <step number from the Plan steps list> |
-                         <reason> | <what you did instead>` (exactly three
-                         non-empty parts; bold, bullet, backticks, `Step N` and
-                         any casing are tolerated; out-of-range steps and
-                         malformed lines are ignored with a WARN log; the first
-                         report per step wins; text is capped at 500 characters
-                         and 20 reports per run). Reports are accepted on every
-                         backend (Codex reads only its final message), printed
-                         as `Plan problem reported for step N`, saved as
-                         run.planProblems in the newest implement-verification
-                         run file, shown to the spec-fidelity auditor and to the
-                         fix-round prompts, and listed in the review context;
-                         under `wf issue` with a saved session, plan problems
-                         and blocking spec-fidelity deviations are also stored
-                         per repo in the `records` of the implement stage in the
-                         session file (deduplicated, at most 20 per repo, 500
-                         characters each) and passed to the review stage as a
-                         labelled data block in its prior-stage context; the
-                         auditor still judges whether the alternative is sound,
-                         and verification commands remain the hard gate. Only
-                         the spec-fidelity pre-pass reads intents; the step
-                         assessor sees step text alone. The pre-pass is skipped
-                         when the diff is empty and never throws; any internal
-                         error is silently swallowed so the verification loop is
-                         unaffected. Ordinary review-stage chat requests remain
-                         unstructured unless they explicitly provide a response
-                         schema, so they do not inherit the review schema
-                         accidentally. Runs a Figma implementation pass when
-                         stages.implement.figma is true or --figma is passed;
-                         Figma frame links stored in the plan manifest by
-                         issue:plan are re-read at implement time to fetch
-                         design context via the Figma REST API, injecting frame
-                         name, dimensions, and screenshot URL into the backend
-                         prompt so the implementer can reconcile generated code
-                         against spacing, colour, and component-structure
-                         constraints before committing. The manifest is resolved
-                         directly from the ticket artifact path so the correct
-                         links are always loaded without a branch-name search.
-                         Figma frame URLs that lack a `?node-id=` query
-                         parameter are skipped with a WARN rather than
-                         generating a malformed API call. If all frame fetches
-                         fail despite valid links being present, a WARN is
-                         written to the on-disk agent log to distinguish network
-                         or token failures from the links-absent case.When the
-                         plan artifact lists uiDesignScreenshots (set by
-                         issue:plan --ui-design-screenshots), the Anthropic
-                         agent backend adds their paths to the task brief and
-                         grants the sandbox read access to each parent directory
-                         (logged), and the Claude CLI backend passes each parent
-                         directory with --add-dir and repeats a one-line
-                         reminder on continuation passes; the OpenAI agent
-                         backend cannot show images and logs a warning. The
-                         design conformance check is off by default; it runs
-                         when stages.implement.designConformance.enabled is
-                         true, or automatically when wf issue is started with
+                         fix round. When a plan step carries an `intent`, the
+                         pre-pass adds it to the prompt for that step, and a
+                         literal that differs from the diff is downgraded to a
+                         warning when the diff still satisfies the stated intent
+                         (only intents checkable from the diff count); per-repo
+                         step filtering keeps each intent with its step because
+                         the intent lives on the step object, and steps without
+                         an `intent` behave as before. an agent that cannot or
+                         should not implement a step as written can add a
+                         final-message line `PLAN-PROBLEM: <step number from the
+                         Plan steps list> | <reason> | <what you did instead>`
+                         (exactly three non-empty parts; bold, bullet,
+                         backticks, `Step N` and any casing are tolerated;
+                         out-of-range steps and malformed lines are ignored with
+                         a WARN log; the first report per step wins; text is
+                         capped at 500 characters and 20 reports per run).
+                         Reports are accepted on every backend (Codex reads only
+                         its final message), printed as `Plan problem reported
+                         for step N`, saved as run.planProblems in the newest
+                         implement-verification run file, shown to the
+                         spec-fidelity auditor and to the fix-round prompts, and
+                         listed in the review context; under `wf issue` with a
+                         saved session, plan problems and blocking spec-fidelity
+                         deviations are also stored per repo in the `records` of
+                         the implement stage in the session file (deduplicated,
+                         at most 20 per repo, 500 characters each) and passed to
+                         the review stage as a labelled data block in its
+                         prior-stage context; the auditor still judges whether
+                         the alternative is sound, and verification commands
+                         remain the hard gate. Only the spec-fidelity pre-pass
+                         reads intents; the step assessor sees step text alone.
+                         The pre-pass is skipped when the diff is empty and
+                         never throws; any internal error is silently swallowed
+                         so the verification loop is unaffected. Ordinary
+                         review-stage chat requests remain unstructured unless
+                         they explicitly provide a response schema, so they do
+                         not inherit the review schema accidentally. Runs a
+                         Figma implementation pass when stages.implement.figma
+                         is true or --figma is passed; Figma frame links stored
+                         in the plan manifest by issue:plan are re-read at
+                         implement time to fetch design context via the Figma
+                         REST API, injecting frame name, dimensions, and
+                         screenshot URL into the backend prompt so the
+                         implementer can reconcile generated code against
+                         spacing, colour, and component-structure constraints
+                         before committing. The manifest is resolved directly
+                         from the ticket artifact path so the correct links are
+                         always loaded without a branch-name search. Figma frame
+                         URLs that lack a `?node-id=` query parameter are
+                         skipped with a WARN rather than generating a malformed
+                         API call. If all frame fetches fail despite valid links
+                         being present, a WARN is written to the on-disk agent
+                         log to distinguish network or token failures from the
+                         links-absent case.When the plan artifact lists
+                         uiDesignScreenshots (set by issue:plan
+                         --ui-design-screenshots), the Anthropic agent backend
+                         adds their paths to the task brief and grants the
+                         sandbox read access to each parent directory (logged),
+                         and the Claude CLI backend passes each parent directory
+                         with --add-dir and repeats a one-line reminder on
+                         continuation passes; the OpenAI agent backend cannot
+                         show images and logs a warning. The design conformance
+                         check is off by default; it runs when
+                         stages.implement.designConformance.enabled is true, or
+                         automatically when wf issue is started with
                          --ui-design-screenshots, which switches the check on
                          even when enabled is false and merges it with the rest
                          of stages.implement.designConformance (maxScreenshots,
@@ -478,28 +479,29 @@ Commands:
                          with a mocked collaborator must also state that the
                          collaborator is asserted called after the act step (or
                          carry a `test-call-assertion-required` waiver); this is
-                         reported the same advisory way. A plan may carry an
-                         optional `stepIntents` array, index-aligned with
-                         `steps` (same length, `null` for steps without an
-                         intent): the planner is told to emit an intent only for
-                         steps that prescribe a literal (a call chain,
-                         signature, regex or test name), phrased as a goal
-                         checkable from the diff; a length mismatch fails plan
-                         validation, and markdown artifacts store each intent as
-                         an `Intent:` line directly under its numbered step. The
-                         planner is told to search the needle case-insensitively
-                         across the whole repository, including docs, specs,
-                         config, env files and CI, and may mark orphaned files
-                         it deletes with the `to-delete` file status (rejected
-                         in affectedFilesContext). A step that names two config
-                         keys (backticked or quoted, starting with `ai.`,
-                         `stages.`, `git.` or `figma.`) with the same final
-                         segment, or that adds a `resolve*`, `get*`, `pick*`,
-                         `select*` or `build*` function, is checked against the
-                         repository with `git grep`; when an existing resolver
-                         in a file the plan does not list already reads those
-                         keys or defines that name, the plan records a
-                         `duplicate-resolver` risk ("reuse <name> in
+                         reported the same advisory way. Each plan step is an
+                         object with a `description` and an optional `intent`:
+                         the planner is told to emit an intent only for steps
+                         that prescribe a literal (a call chain, signature,
+                         regex or test name), phrased as a goal checkable from
+                         the diff; legacy artifacts with flat string `steps` are
+                         converted to intent-less step objects on load,
+                         artifacts carrying the retired `stepIntents` array are
+                         rejected with a migration error, and markdown artifacts
+                         store each intent as an `Intent:` line directly under
+                         its numbered step. The planner is told to search the
+                         needle case-insensitively across the whole repository,
+                         including docs, specs, config, env files and CI, and
+                         may mark orphaned files it deletes with the `to-delete`
+                         file status (rejected in affectedFilesContext). A step
+                         that names two config keys (backticked or quoted,
+                         starting with `ai.`, `stages.`, `git.` or `figma.`)
+                         with the same final segment, or that adds a `resolve*`,
+                         `get*`, `pick*`, `select*` or `build*` function, is
+                         checked against the repository with `git grep`; when an
+                         existing resolver in a file the plan does not list
+                         already reads those keys or defines that name, the plan
+                         records a `duplicate-resolver` risk ("reuse <name> in
                          <file>:<line>, or state why it cannot be reused")
                          without a repair retry. The lookup is skipped when no
                          repository directory is known and fails open on any git
@@ -547,21 +549,25 @@ Commands:
                          criteria), and Pattern grounding (checks flagged
                          patterns against actual codebase conventions before
                          raising an issue) among its default criteria. The
-                         verdict follows severity: a review that contains any
-                         `error` issue is recorded as Changes requested even
-                         when the model returned `approved: true`, while warning
-                         and info issues do not block approval. Reviews are
-                         enriched with detected repo conventions (linter,
-                         formatter, language, TypeScript config) and structured
-                         verification results; for eligible PR and
-                         single-repository reviews, lint, typecheck, and test
-                         run live in an invocation-scoped disposable git
-                         worktree after the exact reviewed diff is applied,
-                         leaving the target repository untouched. Verification
-                         records passed, failed, or not-run status and are
-                         persisted beside the review in Markdown, JSON, and YAML
-                         output. Use `--skip-verification` to bypass it. Blank
-                         or blocked AI review responses fail fast with
+                         verdict follows risk-adjusted severity: each issue
+                         carries a `risk` (the probability, 0 to 1, that it
+                         manifests in reality) that weights its severity, and a
+                         review that contains any issue still at `error` after
+                         risk adjustment is recorded as Changes requested even
+                         when the model returned `approved: true`. Issues at
+                         warning or info after risk adjustment do not block
+                         approval; an issue without a risk keeps its reported
+                         severity. Reviews are enriched with detected repo
+                         conventions (linter, formatter, language, TypeScript
+                         config) and structured verification results; for
+                         eligible PR and single-repository reviews, lint,
+                         typecheck, and test run live in an invocation-scoped
+                         disposable git worktree after the exact reviewed diff
+                         is applied, leaving the target repository untouched.
+                         Verification records passed, failed, or not-run status
+                         and are persisted beside the review in Markdown, JSON,
+                         and YAML output. Use `--skip-verification` to bypass
+                         it. Blank or blocked AI review responses fail fast with
                          provider-aware diagnostics instead of generic parse
                          errors; Codex CLI schema/configuration rejections
                          preserve the provider detail and are not reported as
