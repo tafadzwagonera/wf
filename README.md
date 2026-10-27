@@ -614,12 +614,15 @@ Reference for recreating each token with the same access level. The minimal sets
 
 Scoped tokens still inherit the account's Jira project permissions, so the account needs Browse, Create, and Edit issue permissions on the target projects.
 
+**⚠ Note:** wf calls Jira directly at `atlassian.baseUrl` (e.g. `https://yoursite.atlassian.net/rest/api/3/...`). Scoped API tokens (created via the "Select app" / "Select scopes" token flow) only authenticate against the `api.atlassian.com/ex/jira/{cloudId}/...` gateway, not the tenant domain, and will fail Basic Auth with a 401/404 against `baseUrl`. Until wf's Jira integration routes through that gateway, use a **classic API token** (no app/scope selection step) for `ATLASSIAN_JIRA_API_TOKEN`.
+
 **`ATLASSIAN_BITBUCKET_API_TOKEN`** (scoped Atlassian API token):
 
 - `read:issue:bitbucket` — get, list, and search issues
 - `write:issue:bitbucket` — create and update issues, post issue comments
-- `read:pullrequest:bitbucket` — list pull requests by branch/title and fetch PR diffs
+- `read:pullrequest:bitbucket` — list pull requests by branch/title
 - `write:pullrequest:bitbucket` — post PR comments, including inline review comments
+- `read:repository:bitbucket` — fetch PR diffs (`pullrequests.getDiff`); the diff endpoint reads repository content, not just PR metadata, so `read:pullrequest:bitbucket` alone returns 403
 
 **`SLACK_BOT_TOKEN` / `SLACK_USER_TOKEN`** (Slack app OAuth scopes, configured at https://app.slack.com/app-settings → OAuth & Permissions):
 
