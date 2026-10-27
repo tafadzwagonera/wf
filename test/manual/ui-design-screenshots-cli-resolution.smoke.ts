@@ -31,6 +31,15 @@
  *      the repo working tree.
  *   6. The explicit-path run does not look under
  *      $WF_HOME/<repo>/<ticketKey>/ for those filenames.
+ *   7. With a non-ASCII-named screenshot (a real macOS-style basename
+ *      containing U+202F) placed under $WF_HOME/<repo-basename>/WBP-780/,
+ *      the saved plan artifact's uiDesignScreenshots entry is the
+ *      ASCII-safe `.wf-safe/` copy — never the raw non-ASCII path — proving
+ *      the real plan command (not just resolveUiDesignScreenshots in
+ *      isolation) persists the sanitized path that downstream stages re-read.
+ *   8. That persisted safe-path copy exists and is byte-identical to the
+ *      original screenshot; the original screenshot itself is left
+ *      untouched at its original path with its original name.
  *
  * Wire up: build the project first, create a temp git repo with a
  * wf.config.js for Claude CLI planning, and use a fake `claude` executable
@@ -142,6 +151,7 @@ function writeTrackerFixtures(trackerDir: string): void {
   fs.writeFileSync(path.join(trackerDir, 'WBP-777.md'), '# WBP-777: Fix broken layout\n\nDetails here.\n', 'utf-8');
   fs.writeFileSync(path.join(trackerDir, 'WBP-778.md'), '# WBP-778: Fix another layout\n\nDetails here.\n', 'utf-8');
   fs.writeFileSync(path.join(trackerDir, 'WBP-779.md'), '# WBP-779: Unrelated fix\n\nDetails here.\n', 'utf-8');
+  fs.writeFileSync(path.join(trackerDir, 'WBP-780.md'), '# WBP-780: Fix non-ASCII screenshot layout\n\nDetails here.\n', 'utf-8');
 }
 
 function buildEnvVars(wfHomeDir: string, binDir: string): NodeJS.ProcessEnv {
@@ -212,6 +222,91 @@ function testScanMode(
   const scanResult = runPlan(repoDir, env, buildScanArgs(repoDir));
   checkScanResult(scanResult);
   validateScanPlanArtifact(trackerDir);
+}
+
+const PRINTABLE_ASCII = /^[\x20-\x7E]+$/;
+
+function setupNonAsciiScanDir(
+  wfHomeDir: string, repoBasename: string,
+): { scanDir: string; nonAsciiPath: string; nonAsciiBytes: Buffer } {
+  const scanDir = path.join(wfHomeDir, repoBasename, 'WBP-780');
+  fs.mkdirSync(scanDir, { recursive: true });
+  const nonAsciiBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const nonAsciiPath = path.join(scanDir, 'Screenshot 2026-10-16 at 4.55.50 pm.png');
+  fs.writeFileSync(nonAsciiPath, nonAsciiBytes);
+  return { scanDir, nonAsciiPath, nonAsciiBytes };
+}
+
+function buildNonAsciiScanArgs(repoDir: string): string[] {
+  return ['-k', 'WBP-780', '--action', 'fix', '-r', repoDir, '--ui-design-screenshots'];
+}
+
+function checkNonAsciiScanResult(result: SpawnResult): void {
+  if (result.status === 0) {
+    pass('non-ASCII scan-mode run exits 0');
+  } else {
+    fail('non-ASCII scan-mode run should exit 0', `${result.stdout}\n${result.stderr}`);
+  }
+}
+
+function findPlanArtifactExcluding(trackerDir: string, existing: Set<string>): string | undefined {
+  const files = fs.readdirSync(trackerDir).filter(f => f.endsWith('-plan.json'));
+  const newFile = files.find(f => !existing.has(f));
+  return newFile ? path.join(trackerDir, newFile) : undefined;
+}
+
+function isSanitizedSafePath(scanDir: string, safePath: string | undefined): boolean {
+  if (!safePath) return false;
+  const isUnderSafeDir = path.dirname(safePath) === path.join(scanDir, '.wf-safe');
+  return PRINTABLE_ASCII.test(path.basename(safePath)) && isUnderSafeDir;
+}
+
+function validateNonAsciiPlanArtifactShape(
+  trackerDir: string, scanDir: string, existingPlans: Set<string>,
+): string | undefined {
+  const planPath = findPlanArtifactExcluding(trackerDir, existingPlans);
+  const plan = planPath ? JSON.parse(fs.readFileSync(planPath, 'utf-8')) : undefined;
+  const shots: string[] = plan?.uiDesignScreenshots ?? [];
+  if (shots.length === 1 && isSanitizedSafePath(scanDir, shots[0])) {
+    pass(`plan artifact records the sanitized ASCII-safe path: ${path.basename(shots[0])}`);
+    return shots[0];
+  }
+  fail('plan artifact should record exactly one ASCII-safe path under .wf-safe/', JSON.stringify(plan));
+  return undefined;
+}
+
+function validateNonAsciiSafeCopyContent(safePath: string | undefined, nonAsciiBytes: Buffer): void {
+  if (safePath && fs.existsSync(safePath) && fs.readFileSync(safePath).equals(nonAsciiBytes)) {
+    pass('safe-path copy exists with byte-identical content to the original screenshot');
+  } else {
+    fail('safe-path copy missing or content does not match the original screenshot');
+  }
+}
+
+function validateOriginalNonAsciiFileIntact(nonAsciiPath: string, nonAsciiBytes: Buffer): void {
+  const exists = fs.existsSync(nonAsciiPath);
+  const matches = exists && fs.readFileSync(nonAsciiPath).equals(nonAsciiBytes);
+  if (exists && matches) {
+    pass('original non-ASCII-named screenshot untouched at its original path');
+  } else {
+    fail('original non-ASCII screenshot was modified, renamed, or deleted', `exists=${exists}`);
+  }
+}
+
+function testScanModeNonAscii(
+  repoDir: string,
+  env: NodeJS.ProcessEnv,
+  wfHomeDir: string,
+  repoBasename: string,
+  trackerDir: string,
+): void {
+  const { scanDir, nonAsciiPath, nonAsciiBytes } = setupNonAsciiScanDir(wfHomeDir, repoBasename);
+  const existingPlans = new Set(fs.readdirSync(trackerDir).filter(f => f.endsWith('-plan.json')));
+  const result = runPlan(repoDir, env, buildNonAsciiScanArgs(repoDir));
+  checkNonAsciiScanResult(result);
+  const safePath = validateNonAsciiPlanArtifactShape(trackerDir, scanDir, existingPlans);
+  validateNonAsciiSafeCopyContent(safePath, nonAsciiBytes);
+  validateOriginalNonAsciiFileIntact(nonAsciiPath, nonAsciiBytes);
 }
 
 function resetTrackerDir(trackerDir: string): void {
@@ -336,6 +431,7 @@ function createTempDirs(): TempDirs {
 
 async function runTests(dirs: any, env: NodeJS.ProcessEnv): Promise<void> {
   testScanMode(dirs.repoDir, env, dirs.wfHomeDir, dirs.repoBasename, dirs.trackerDir);
+  testScanModeNonAscii(dirs.repoDir, env, dirs.wfHomeDir, dirs.repoBasename, dirs.trackerDir);
   testExplicitFiles(dirs.repoDir, env, dirs.wfHomeDir, dirs.repoBasename, dirs.trackerDir);
   testNoFlag(dirs.repoDir, env, dirs.wfHomeDir);
 }

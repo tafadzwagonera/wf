@@ -6,7 +6,14 @@
  * real filesystem I/O, filters out unsupported extensions, logs a WARN when the scan
  * directory is missing, and throws `FileSystemError` for missing explicit files.
  *
- * Run: nr test:manual resolve-ui-design-screenshots.smoke.ts
+ * Also verifies that a non-ASCII screenshot basename (e.g. a real macOS screenshot
+ * name containing U+202F) is sanitized to a model-safe ASCII path backed by a real
+ * copy in a `.wf-safe/` sibling directory, that the original file is left completely
+ * untouched, that no `.wf-safe/` directory is created when every scanned file is
+ * already ASCII-named, and that resolving the same non-ASCII fixture twice is
+ * idempotent.
+ *
+ * Run: nr test:manual resolve-ui-design-screenshots.smoke
  */
 
 import * as fs from 'node:fs';
@@ -104,6 +111,94 @@ function checkMissingFileThrows(tmpRoot: string, artifactDir: string, identifier
   }
 }
 
+const PRINTABLE_ASCII = /^[\x20-\x7E]+$/;
+
+type NonAsciiFixture = {
+  artifactDir: string;
+  identifier: string;
+  scanDir: string;
+  nonAsciiPath: string;
+  asciiPath: string;
+  nonAsciiBytes: Buffer;
+};
+
+function setupNonAsciiScanDir(tmpWfHome: string): NonAsciiFixture {
+  const artifactDir = path.join(tmpWfHome, 'source-artifacts');
+  const identifier = 'TICKET-NONASCII';
+  const scanDir = path.join(tmpWfHome, 'source-artifacts', identifier);
+  fs.mkdirSync(scanDir, { recursive: true });
+  const nonAsciiBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const nonAsciiPath = path.join(scanDir, 'Screenshot 2026-10-16 at 4.55.50 pm.png');
+  const asciiPath = path.join(scanDir, 'plain-name.png');
+  fs.writeFileSync(nonAsciiPath, nonAsciiBytes);
+  fs.writeFileSync(asciiPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01]));
+  return { artifactDir, identifier, scanDir, nonAsciiPath, asciiPath, nonAsciiBytes };
+}
+
+function checkNonAsciiSanitizedShape(fixture: NonAsciiFixture): string | undefined {
+  const { artifactDir, identifier, scanDir, asciiPath } = fixture;
+  const result = resolveUiDesignScreenshots([], artifactDir, identifier);
+  const safePath = result.find(p => p !== asciiPath);
+  const safeBasename = safePath ? path.basename(safePath) : '';
+  const isUnderSafeDir = safePath ? path.dirname(safePath) === path.join(scanDir, '.wf-safe') : false;
+  const isValidShape = result.length === 2 && result.includes(asciiPath)
+    && PRINTABLE_ASCII.test(safeBasename) && isUnderSafeDir;
+  if (!isValidShape) {
+    fail('expected one unchanged ASCII path and one sanitized safe path', JSON.stringify(result));
+    return undefined;
+  }
+  pass(`non-ASCII screenshot sanitized to ASCII-safe path under .wf-safe/: ${safeBasename}`);
+  return safePath;
+}
+
+function checkSafePathContentMatches(safePath: string | undefined, nonAsciiBytes: Buffer): void {
+  if (safePath && fs.readFileSync(safePath).equals(nonAsciiBytes)) {
+    pass('safe-path copy has byte-identical content to the original');
+  } else {
+    fail('safe-path copy content does not match original bytes');
+  }
+}
+
+function checkOriginalNonAsciiFileIntact(fixture: NonAsciiFixture): void {
+  const { nonAsciiPath, nonAsciiBytes } = fixture;
+  const stillExists = fs.existsSync(nonAsciiPath);
+  const bytesMatch = stillExists && fs.readFileSync(nonAsciiPath).equals(nonAsciiBytes);
+  if (stillExists && bytesMatch) {
+    pass('original non-ASCII-named file untouched at its original path with original bytes');
+  } else {
+    fail('original non-ASCII file was modified, renamed, or deleted', `exists=${stillExists}`);
+  }
+}
+
+function checkNoSafeDirForAllAsciiScan(tmpWfHome: string): void {
+  const artifactDir = path.join(tmpWfHome, 'ascii-only-artifacts');
+  const identifier = 'TICKET-ASCII-ONLY';
+  const scanDir = path.join(tmpWfHome, 'ascii-only-artifacts', identifier);
+  fs.mkdirSync(scanDir, { recursive: true });
+  fs.writeFileSync(path.join(scanDir, 'plain-name.png'), Buffer.from([0x89, 0x50]));
+  resolveUiDesignScreenshots([], artifactDir, identifier);
+  if (fs.existsSync(path.join(scanDir, '.wf-safe'))) {
+    fail('.wf-safe/ was created even though every scanned file was already ASCII-named');
+  } else {
+    pass('.wf-safe/ not created when every scanned file is already ASCII-named');
+  }
+}
+
+function checkNonAsciiSanitizationIsIdempotent(fixture: NonAsciiFixture, firstSafePath: string | undefined): void {
+  const { artifactDir, identifier, asciiPath } = fixture;
+  if (!firstSafePath) {
+    fail('skipping idempotency check: first sanitization run did not produce a safe path');
+    return;
+  }
+  const result = resolveUiDesignScreenshots([], artifactDir, identifier);
+  const safePath = result.find(p => p !== asciiPath);
+  if (safePath === firstSafePath) {
+    pass('re-running resolution against the same fixture returns the same safe path');
+  } else {
+    fail('safe path changed between runs', JSON.stringify({ firstSafePath, safePath }));
+  }
+}
+
 type ScanDirFixture = { artifactDir: string; identifier: string; scanDir: string };
 
 function setupScanDir(tmpRoot: string, tmpWfHome: string): ScanDirFixture {
@@ -127,10 +222,29 @@ async function runScenario(tmpRoot: string, tmpWfHome: string): Promise<void> {
   checkSingleArgDirMode(tmpRoot, artifactDir, identifier);
   console.log(chalk.bold.cyan('\nTest 4: single-arg file mode returns exactly that file'));
   checkSingleArgFileMode(scanDir, artifactDir, identifier);
+  runExplicitListAndSanitizationScenario(tmpRoot, scanDir, artifactDir, identifier, tmpWfHome);
+}
+
+function runExplicitListAndSanitizationScenario(
+  tmpRoot: string, scanDir: string, artifactDir: string, identifier: string, tmpWfHome: string,
+): void {
   console.log(chalk.bold.cyan('\nTest 5: multi-arg mode resolves valid paths; unsupported extension skipped with WARN'));
   checkMultiArgMode(scanDir, artifactDir, identifier);
   console.log(chalk.bold.cyan('\nTest 6: missing explicit file throws FileSystemError'));
   checkMissingFileThrows(tmpRoot, artifactDir, identifier);
+  runNonAsciiSanitizationScenario(tmpWfHome);
+}
+
+function runNonAsciiSanitizationScenario(tmpWfHome: string): void {
+  const nonAsciiFixture = setupNonAsciiScanDir(tmpWfHome);
+  console.log(chalk.bold.cyan('\nTest 7: non-ASCII screenshot basename sanitized to a model-safe copy'));
+  const safePath = checkNonAsciiSanitizedShape(nonAsciiFixture);
+  checkSafePathContentMatches(safePath, nonAsciiFixture.nonAsciiBytes);
+  checkOriginalNonAsciiFileIntact(nonAsciiFixture);
+  console.log(chalk.bold.cyan('\nTest 8: no .wf-safe/ created when every scanned file is ASCII-named'));
+  checkNoSafeDirForAllAsciiScan(tmpWfHome);
+  console.log(chalk.bold.cyan('\nTest 9: re-resolving the same non-ASCII fixture is idempotent'));
+  checkNonAsciiSanitizationIsIdempotent(nonAsciiFixture, safePath);
 }
 
 async function main(): Promise<void> {
