@@ -53,6 +53,7 @@ Goal: code explains itself through names, structure, and types.
 - Nest `describe` suites by user outcome only.
 - Prefix mocks with `mock` and pair each with a factory: `mockEvent`, `createMockEvent`.
 - Tests that repeat one body over different values belong in a single `it.each` table; a test earns its own `it` block when it verifies distinct behaviour, not just distinct data.
+- Use the most specific assertion the matcher library offers for what you're checking, not a generic one reconstructed from a derived value: `expect(arr).toHaveLength(0)`, not `expect(arr.length).toBe(0)`. The specific form reports the actual value on failure and reads as intent rather than arithmetic. Use judgement on what counts as "most specific" for the assertion at hand — the matcher library's own docs are the tiebreaker.
 
 ## Naming
 Goal: casing tells the reader how a constant behaves.
