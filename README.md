@@ -134,6 +134,7 @@ What each line does:
 
 This only tests the binary. The full steps below also test the installer and the checksum check.
 
+Wrapped: `yarn release:dry-run` runs steps 1 through 4 below in one go, for your machine's own OS/arch. Use it as the normal pre-publish check. Run the steps by hand only when you need to repeat one in isolation, or to cover the optional Docker step.
 
 1. Build the binary:
 
@@ -222,6 +223,18 @@ yarn test:manual sea-binary-agent-sdk-requires-claude-on-path.smoke
 ```
 
 ### Publish a release
+
+Checklist:
+
+- Working tree is clean (`git status`).
+- `yarn smoke:binary` passes on a fresh `yarn build:sea`. This compares the binary's live `--help` output against the committed reference copy at `scripts/sea/golden/help.txt`. A failing diff there does not mean the binary is broken — it means a command's description text changed in `src/commands/` since the reference copy was last generated, so the reference copy is out of date. Fix it by rebuilding (`yarn build:sea`), writing the new output over the reference file with `env -i PATH=/usr/bin:/bin HOME="$(mktemp -d)" dist-bundle/wf --help > scripts/sea/golden/help.txt`, reviewing the diff to confirm only the expected wording changed, then committing `scripts/sea/golden/help.txt` by itself before re-running `yarn smoke:binary`.
+- `yarn test`, `yarn typecheck`, and `yarn lint` all pass.
+- `yarn release:dry-run` passes locally. It runs the tests, typecheck, lint, binary build, and smoke test, then packs and installs a tarball for your own machine's OS/arch and runs the installer's idempotency, bad-checksum, and unsupported-architecture checks against it — the same checks as CI's `build` and `verify-install` jobs, minus the other three OS/arch targets and the bare `ubuntu:22.04` container check.
+- A dry run of the Release workflow (step 2 below) is green on all four `build` and `verify-install` jobs. This is the one CI runs across all targets; run it after the local dry run passes, before pushing a real tag.
+- You know which version command you need: `yarn release` (promote to stable or continue a sequence), `yarn release --prerelease rc` (cut another candidate), or `yarn release --release-as X.Y.Z` (force a specific version).
+- If you are re-publishing a fix under an existing tag instead of cutting a new one, re-point the tag with `git tag -f vX.Y.Z HEAD` and push it with `git push origin vX.Y.Z --force` — not `--follow-tags`, which only pushes new tags and silently skips one that already exists on origin.
+- After pushing, the Actions run finishes green and the release page shows the right pre-release flag and all four tarballs plus `SHA256SUMS` and `install.sh`.
+- The installed binary reports the expected version (`wf issue:cowsay`).
 
 The release workflow is in `.github/workflows/release.yml`. It has three jobs:
 

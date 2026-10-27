@@ -57,6 +57,7 @@
     "build:sea": "yarn build && ts-node -r tsconfig-paths/register scripts/sea/build-bundle.ts && sh scripts/sea/build-binary.sh",
     "release": "commit-and-tag-version",
     "release:local": "sh scripts/sea/release-local.sh",
+    "release:dry-run": "sh scripts/sea/dry-run.sh",
     "smoke:binary": "sh scripts/sea/smoke-binary.sh dist-bundle/wf"
   },
   "dependencies": {
