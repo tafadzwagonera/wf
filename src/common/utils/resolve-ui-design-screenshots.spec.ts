@@ -13,6 +13,8 @@ jest.mock('node:fs', () => ({
   readdirSync: jest.fn(),
   statSync: jest.fn(),
   existsSync: jest.fn(),
+  mkdirSync: jest.fn(),
+  copyFileSync: jest.fn(),
 }));
 
 jest.mock('../logger/log-file-writer');
@@ -22,6 +24,8 @@ import * as fs from 'node:fs';
 const mockReaddirSync = fs.readdirSync as jest.MockedFunction<typeof fs.readdirSync>;
 const mockStatSync = fs.statSync as jest.MockedFunction<typeof fs.statSync>;
 const mockExistsSync = fs.existsSync as jest.MockedFunction<typeof fs.existsSync>;
+const mockMkdirSync = fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>;
+const mockCopyFileSync = fs.copyFileSync as jest.MockedFunction<typeof fs.copyFileSync>;
 const mockAppendToLogFile = appendToLogFile as jest.MockedFunction<typeof appendToLogFile>;
 
 const REPO_BASE_DIR = '/workspace/myrepo';
@@ -30,6 +34,8 @@ const IDENTIFIER = 'ABC-123';
 
 afterEach(() => {
   jest.restoreAllMocks();
+  mockMkdirSync.mockClear();
+  mockCopyFileSync.mockClear();
 });
 
 describe('resolveUiDesignScreenshots no-arg mode', () => {
@@ -99,5 +105,41 @@ describe('resolveUiDesignScreenshots file-list mode', () => {
 
     expect(result).toEqual([]);
     expect(mockAppendToLogFile).toHaveBeenCalledWith('WARN', expect.stringContaining('.pdf'), expect.any(String));
+  });
+});
+
+describe('resolveUiDesignScreenshots model-safe paths', () => {
+  const macosName = 'Screenshot 2026-10-16 at 4.55.50\u202Fpm.png';
+
+  it('copies a file whose name has non-ASCII characters to an ASCII-only path and returns that path', () => {
+    mockReaddirSync.mockReturnValue([macosName, 'plain name.png'] as any);
+
+    const result = resolveUiDesignScreenshots([], REPO_BASE_DIR, IDENTIFIER);
+
+    const original = path.join(ARTIFACT_DIR, IDENTIFIER, macosName);
+    expect(mockCopyFileSync).toHaveBeenCalledTimes(1);
+    expect(mockCopyFileSync.mock.calls[0]?.[0]).toBe(original);
+    const safePath = mockCopyFileSync.mock.calls[0]?.[1] as string;
+    expect(safePath).toMatch(/^[\x20-\x7E]+$/);
+    expect(path.dirname(safePath)).toBe(path.join(ARTIFACT_DIR, IDENTIFIER, '.wf-safe'));
+    expect(path.extname(safePath)).toBe('.png');
+    expect(mockMkdirSync).toHaveBeenCalledWith(path.dirname(safePath), { recursive: true });
+    expect(result).toEqual([safePath, path.join(ARTIFACT_DIR, IDENTIFIER, 'plain name.png')]);
+  });
+
+  it('gives distinct safe paths to names that sanitise to the same text', () => {
+    mockReaddirSync.mockReturnValue(['a\u202Fb.png', 'a\u00A0b.png'] as any);
+
+    const [first, second] = resolveUiDesignScreenshots([], REPO_BASE_DIR, IDENTIFIER);
+
+    expect(first).not.toBe(second);
+  });
+
+  it('does not copy ASCII-named files', () => {
+    mockReaddirSync.mockReturnValue(['a.png'] as any);
+
+    resolveUiDesignScreenshots([], REPO_BASE_DIR, IDENTIFIER);
+
+    expect(mockCopyFileSync).not.toHaveBeenCalled();
   });
 });
