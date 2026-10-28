@@ -123,6 +123,7 @@ export const wfDesignConformanceConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     maxScreenshots: z.number().int().positive().optional(),
+    stallWindow: z.number().int().min(1).optional(),
     provider: wfAiProviderNameSchema.optional(),
     model: z.string().min(1).optional(),
     backend: wfBackendModeSchema.optional(),

@@ -46,6 +46,38 @@ export const mergeDesignConformanceConfig = (
   cfg: DesignConformanceConfig | undefined, requested?: boolean,
 ): DesignConformanceConfig | undefined => (requested ? { ...cfg, enabled: true } : cfg);
 
+export const findingKey = (finding: DesignConformanceFinding): string =>
+  `${finding.screenshot}::${finding.area.trim().toLowerCase()}`;
+
+export const diffPendingFindings = (
+  previous: DesignConformanceFinding[], current: DesignConformanceFinding[],
+): DesignConformanceFinding[] => {
+  const previousKeys = new Set(previous.map(findingKey));
+  return current.filter(finding => previousKeys.has(findingKey(finding)));
+};
+
+const fixPromptFooter = [
+  '',
+  'Fix only the deviations listed above and do not regress areas that already match the screenshots.',
+  'Compare against the attached screenshots; do not invent exact values (pixels, colours, spacing) beyond what they show.',
+  'After all edits are complete, run each verification command exactly as written.',
+];
+
+export const buildDesignConformanceFixPrompt = (
+  args: { pending: DesignConformanceFinding[]; round: number; stallWindow?: number },
+): string => {
+  const { pending, round, stallWindow } = args;
+  const stallTag = stallWindow === undefined ? '' : ` (stall window: ${stallWindow})`;
+  const header = `Design conformance round ${round}${stallTag}: the implementation still deviates from the attached design screenshots.`;
+  const lines = pending.flatMap(finding => [
+    `Screenshot: ${path.basename(finding.screenshot)}`,
+    `Area: ${finding.area}`,
+    `Deviation: ${finding.deviation}`,
+    '',
+  ]);
+  return [header, '', ...lines, ...fixPromptFooter].join('\n');
+};
+
 type CheckRun = { prompt: string; target: ConformanceTarget; repoDir?: string };
 
 const visionProviders: WfAiProviderName[] = ['anthropic', 'openai'];

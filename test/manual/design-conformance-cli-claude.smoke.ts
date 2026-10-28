@@ -58,7 +58,7 @@ const verifyOutcome = ({ check, scenario, stub }: SmokeContext, output: string):
 
 void runSmoke({
   prefix: 'wf-dc-cli-claude-',
-  stage: { designConformance: { enabled: true, backend: 'cli', provider: 'anthropic', model } },
+  stage: { designConformance: { enabled: true, backend: 'cli', provider: 'anthropic', model, stallWindow: 1 } },
   verify: async context => {
     const { exitCode, output } = await runImplementAsync(context.scenario, context.stub.baseUrl);
     context.check(exitCode === 0, 'run exits 0', output.slice(-800));

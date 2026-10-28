@@ -92,7 +92,7 @@ const fakeClaudeSource = `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
 if (process.argv[2] === '--version') { console.log('2.1.219 (Claude Code)'); process.exit(0); }
-const { invocationLog, implementCountFile, heroFinding } = JSON.parse(fs.readFileSync(path.join(__dirname, 'scenario.json'), 'utf8'));
+const { invocationLog, implementCountFile, conformanceCountFile, resolveHeroOnCall, heroFinding } = JSON.parse(fs.readFileSync(path.join(__dirname, 'scenario.json'), 'utf8'));
 const stdin = fs.readFileSync(0, 'utf8');
 const fullPrompt = process.argv.slice(2).join('\\n') + '\\n' + stdin;
 fs.appendFileSync(invocationLog, JSON.stringify({ cli: 'claude', argv: process.argv.slice(2), stdin }) + '\\n');
@@ -109,7 +109,11 @@ if (schemaArg.includes('"steps"') && !schemaArg.includes('"approved"')) {
   const review = { summary: 'Looks good', issues: [], suggestions: [], approved: true };
   emit({ type: 'result', subtype: 'success', is_error: false, result: '', structured_output: review, session_id: 'review', num_turns: 1 });
 } else if (fullPrompt.includes('You are given one design screenshot')) {
-  const findings = fullPrompt.includes('hero.png') ? [heroFinding] : [];
+  const isHero = fullPrompt.includes('hero.png');
+  if (isHero) fs.appendFileSync(conformanceCountFile, 'x');
+  const heroCalls = isHero ? fs.readFileSync(conformanceCountFile, 'utf8').length : 0;
+  const resolved = resolveHeroOnCall !== undefined && heroCalls >= resolveHeroOnCall;
+  const findings = isHero && !resolved ? [heroFinding] : [];
   emit({ type: 'result', subtype: 'success', is_error: false, result: '', structured_output: { findings }, session_id: 'dc', num_turns: 1 });
 } else {
   fs.appendFileSync(implementCountFile, 'x');
@@ -167,11 +171,12 @@ const addScreenshotsToPlan = (planPath: string, screenshots: Scenario['screensho
   fs.writeFileSync(planPath, JSON.stringify({ ...plan, uiDesignScreenshots: [screenshots.hero, screenshots.card] }));
 };
 
-const installFakeClis = (harness: ImplementHarness): string => {
+const installFakeClis = (harness: ImplementHarness, resolveHeroOnCall?: number): string => {
   const invocationLog = path.join(harness.tempRoot, 'invocations.log');
   fs.writeFileSync(invocationLog, '');
   fs.writeFileSync(path.join(harness.binDir, 'scenario.json'), JSON.stringify({
     invocationLog, heroFinding, implementCountFile: path.join(harness.tempRoot, 'implement-count.txt'),
+    conformanceCountFile: path.join(harness.tempRoot, 'conformance-count.txt'), resolveHeroOnCall,
   }));
   for (const [name, source] of [['claude', fakeClaudeSource], ['codex', fakeCodexSource]] as const) {
     fs.writeFileSync(path.join(harness.binDir, name), source, { mode: 0o755 });
@@ -181,12 +186,13 @@ const installFakeClis = (harness: ImplementHarness): string => {
 
 export const createScenario = (
   prefix: string, implementStage: Record<string, unknown>, extraAi: Array<Record<string, unknown>> = [],
+  resolveHeroOnCall?: number,
 ): Scenario => {
   const harness = setupImplementHarness(prefix, 'noop', ['src/a.ts']);
   const screenshotDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}shots-`));
   const screenshots = writeScreenshots(screenshotDir);
   addScreenshotsToPlan(harness.planPath, screenshots);
-  const scenario = { harness, screenshotDir, screenshots, invocationLog: installFakeClis(harness) };
+  const scenario = { harness, screenshotDir, screenshots, invocationLog: installFakeClis(harness, resolveHeroOnCall) };
   writeImplementConfig(scenario, implementStage, extraAi);
   return scenario;
 };
@@ -203,6 +209,7 @@ export const resetRepoForRerun = (scenario: Scenario): void => {
   fs.mkdirSync(path.join(harness.homeDir, '.wf', 'state'), { recursive: true });
   fs.writeFileSync(path.join(harness.repoDir, 'src', 'a.ts'), 'export {};\n');
   fs.rmSync(path.join(harness.tempRoot, 'implement-count.txt'), { force: true });
+  fs.rmSync(path.join(harness.tempRoot, 'conformance-count.txt'), { force: true });
   fs.writeFileSync(scenario.invocationLog, '');
 };
 
@@ -301,6 +308,7 @@ export type SmokeOptions = {
   prefix: string;
   stage: Record<string, unknown>;
   extraAi?: Array<Record<string, unknown>>;
+  resolveHeroOnCall?: number;
   verify: (context: SmokeContext) => Promise<void>;
 };
 
@@ -309,7 +317,7 @@ export const runSmoke = async (options: SmokeOptions): Promise<void> => {
   const { counts, pass, fail } = createReporter();
   const check: SmokeContext['check'] = (ok, label, detail) => (ok ? pass(label) : fail(label, detail));
   const stub = await startStubServer();
-  const scenario = createScenario(options.prefix, options.stage, options.extraAi);
+  const scenario = createScenario(options.prefix, options.stage, options.extraAi, options.resolveHeroOnCall);
   try {
     await options.verify({ scenario, stub, check });
   } finally {

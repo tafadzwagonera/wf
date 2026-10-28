@@ -49,7 +49,7 @@ const verifyOutcome = ({ check, scenario, stub }: SmokeContext, output: string):
 
 void runSmoke({
   prefix: 'wf-dc-cli-codex-',
-  stage: { designConformance: { enabled: true, backend: 'cli', provider: 'openai', model: 'gpt-5.6-luna' } },
+  stage: { designConformance: { enabled: true, backend: 'cli', provider: 'openai', model: 'gpt-5.6-luna', stallWindow: 1 } },
   extraAi: [{ provider: 'openai', model: 'gpt-5.6-luna', apiKey: 'test-key' }],
   verify: async context => {
     const { exitCode, output } = await runImplementAsync(context.scenario, context.stub.baseUrl);

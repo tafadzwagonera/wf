@@ -177,6 +177,7 @@ const stageExtraCases: FieldCase[] = [
   stageExtra('implement', 'planStepVerification.backend', 'standard'),
   stageExtra('implement', 'designConformance.enabled', true),
   stageExtra('implement', 'designConformance.maxScreenshots', 6),
+  stageExtra('implement', 'designConformance.stallWindow', 4),
   stageExtra('implement', 'designConformance.provider', 'anthropic'),
   stageExtra('implement', 'designConformance.model', 'claude-design-sentinel'),
   stageExtra('implement', 'designConformance.backend', 'cli'),

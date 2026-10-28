@@ -3,8 +3,9 @@
  *
  * Run: nr test:manual design-conformance-config-validation.smoke.ts
  *
- * Scenario: issue:implement is started with wf.config.js variants. A provider without a model, an unknown backend
- * and an unknown key must each fail loudly before any CLI runs; a valid provider, model and backend must load.
+ * Scenario: issue:implement is started with wf.config.js variants. A provider without a model, an unknown backend,
+ * an unknown key and a non-positive-integer stallWindow must each fail loudly before any CLI runs;
+ * a valid provider, model and backend must load.
  *
  * Verify:
  *   1. Each invalid variant exits 1 and names designConformance and the offending field.
@@ -23,7 +24,9 @@ import {
 const invalid = [
   { name: 'provider without model', value: { enabled: true, provider: 'openai' }, expected: 'designConformance.model' },
   { name: 'unknown backend', value: { enabled: true, backend: 'sdk' }, expected: 'backend' },
-  { name: 'unknown key', value: { enabled: true, stallWindow: 3 }, expected: 'stallWindow' },
+  { name: 'unknown key', value: { enabled: true, unknownKnob: 3 }, expected: 'unknownKnob' },
+  { name: 'zero stallWindow', value: { enabled: true, stallWindow: 0 }, expected: 'stallWindow' },
+  { name: 'fractional stallWindow', value: { enabled: true, stallWindow: 1.5 }, expected: 'stallWindow' },
 ];
 
 const verifyInvalid = async (context: SmokeContext, testCase: typeof invalid[number]): Promise<void> => {
@@ -39,7 +42,7 @@ const verifyInvalid = async (context: SmokeContext, testCase: typeof invalid[num
 };
 
 const verifyValid = async ({ check, scenario, stub }: SmokeContext): Promise<void> => {
-  const value = { enabled: true, backend: 'cli', provider: 'anthropic', model: 'claude-haiku-4-5-20251001' };
+  const value = { enabled: true, backend: 'cli', provider: 'anthropic', model: 'claude-haiku-4-5-20251001', stallWindow: 4 };
   writeImplementConfig(scenario, { designConformance: value });
   const { output } = await runImplementAsync(scenario, stub.baseUrl);
   check(!output.includes('Invalid wf config'), 'valid provider, model and backend load without a config error', output.slice(-800));

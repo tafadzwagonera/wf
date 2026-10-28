@@ -60,7 +60,7 @@ const verifyRunFile = ({ check, scenario }: SmokeContext): void => {
 
 void runSmoke({
   prefix: 'wf-dc-standard-',
-  stage: { designConformance: { enabled: true, backend: 'standard', provider: 'anthropic', model: sentinelModel } },
+  stage: { designConformance: { enabled: true, backend: 'standard', provider: 'anthropic', model: sentinelModel, stallWindow: 1 } },
   verify: async context => {
     const { exitCode, output } = await runImplementAsync(context.scenario, context.stub.baseUrl);
     verifyOutput(context, output, exitCode);

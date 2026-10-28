@@ -33,7 +33,12 @@ import {
 } from '../common/utils/implement-verification';
 import { splitDiffIntoFileSections } from '../common/utils/commit-diff-stat';
 import type { DesignConformanceFinding } from '../common/types/design-conformance.types';
-import { UiDesignScreenshotConformanceService, mergeDesignConformanceConfig } from './ui-design-screenshot-conformance.service';
+import {
+  UiDesignScreenshotConformanceService,
+  buildDesignConformanceFixPrompt,
+  diffPendingFindings,
+  mergeDesignConformanceConfig,
+} from './ui-design-screenshot-conformance.service';
 import { getWfStateDir } from '../common/utils/wf-paths';
 import { detectRepoConventions, formatRepoConventionsPromptSection } from '../common/utils/detect-repo-conventions';
 import { resolveCommitPolicy, formatCommitPolicyPromptSection, type CommitPolicy } from '../common/utils/implement-commit-policy';
@@ -316,7 +321,7 @@ export class ImplementerAgent {
     const { result } = args;
     const ledger = createPlanProblemLedger(result.type === 'implementation' ? result.planProblems ?? [] : []);
     const verified = await this.applyPlanStepVerification({ ...args, ledger });
-    await this.runDesignConformanceCheck(args);
+    await this.runDesignConformanceCheck({ ...args, result: verified });
     return this.finalizePlanProblems(verified, ledger);
   }
 
@@ -328,15 +333,78 @@ export class ImplementerAgent {
     if (!paths?.length) return this.logDesignConformanceSkipped('the plan artifact lists no uiDesignScreenshots');
     if (args.result.type !== 'implementation') return;
     try {
-      const findings = await this.designConformanceService.check({
-        paths, requested, repoDir: args.options.repoDir, ...await this.collectConformanceDiff(args, paths.length),
-      });
+      const findings = await this.runDesignConformanceLoop(args, cfg);
       this.reportDesignConformance(findings);
     } catch (error) {
       const cause = error instanceof Error ? error.message : String(error);
       console.log(chalk.yellow(`  [design-check] check failed: ${cause}`));
       appendToLogFile('WARN', `design-check.unexpected cause=${cause}`, 'design-check');
     }
+  }
+
+  private async runDesignConformanceLoop(
+    args: Omit<PlanStepVerificationArgs, 'ledger'>, cfg: NonNullable<WfImplementStageConfig['designConformance']>,
+  ): Promise<DesignConformanceFinding[]> {
+    const stallWindow = cfg.stallWindow ?? DEFAULT_STALL_WINDOW;
+    const pendingHistory: number[] = [];
+    let sessionId = this.implementationSessionId(args.result);
+    let previous: DesignConformanceFinding[] | undefined;
+    for (let round = 1; ; round++) {
+      const findings = await this.checkConformanceRound(args, round);
+      if (!findings) return previous ?? [];
+      const pending = previous ? diffPendingFindings(previous, findings) : findings;
+      previous = findings;
+      this.logDesignConformancePending(pending.length, round);
+      const stalled = this.isDesignConformanceStalled(pendingHistory, pending.length, stallWindow);
+      if (pending.length === 0 || stalled || !sessionId) return findings;
+      sessionId = await this.resumeForDesignFix(args, { pending, round, stallWindow }, sessionId);
+      if (!sessionId) return findings;
+    }
+  }
+
+  private implementationSessionId(result: ImplementerResult): string | undefined {
+    return result.type === 'implementation' ? result.sessionId : undefined;
+  }
+
+  private logDesignConformancePending(count: number, round: number): void {
+    appendToLogFile('INFO', `design-check.round.pending count=${count} round=${round}`, 'design-check');
+  }
+
+  private async resumeForDesignFix(
+    args: Omit<PlanStepVerificationArgs, 'ledger'>,
+    promptArgs: Parameters<typeof buildDesignConformanceFixPrompt>[0], sessionId: string,
+  ): Promise<string | undefined> {
+    const prompt = buildDesignConformanceFixPrompt(promptArgs);
+    const fix = await this.runVerificationFixRound(
+      args.ticket, args.scopedPlan, args.options, args.resolved, prompt, sessionId,
+    );
+    return fix.sessionId;
+  }
+
+  private async checkConformanceRound(
+    args: Omit<PlanStepVerificationArgs, 'ledger'>, round: number,
+  ): Promise<DesignConformanceFinding[] | undefined> {
+    const paths = this.latestUiDesignScreenshotPaths ?? [];
+    const service = this.designConformanceService;
+    if (!service) return [];
+    appendToLogFile('INFO', `design-check.round.start round=${round}`, 'design-check');
+    try {
+      return await service.check({
+        paths, requested: args.options.designConformanceRequested, repoDir: args.options.repoDir,
+        ...await this.collectConformanceDiff(args, paths.length),
+      });
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      console.log(chalk.yellow(`  [design-check] round ${round} failed: ${cause}`));
+      appendToLogFile('WARN', `design-check.round.failed round=${round} cause=${cause}`, 'design-check');
+      return undefined;
+    }
+  }
+
+  private isDesignConformanceStalled(history: number[], pendingCount: number, window: number): boolean {
+    history.push(pendingCount);
+    if (history.length > window) history.shift();
+    return history.length === window && history[window - 1] >= history[0];
   }
 
   private loadDesignConformanceConfig(requested: boolean | undefined) {

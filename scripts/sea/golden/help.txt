@@ -434,9 +434,15 @@ Commands:
                          the Anthropic Agent SDK with the screenshot directory
                          readable; the OpenAI agent backend cannot read images,
                          so it is skipped with a warning, as is any provider
-                         other than anthropic or openai. designConformance
-                         accepts only enabled, maxScreenshots, provider, model,
-                         and backend.
+                         other than anthropic or openai. When the check reports
+                         deviations it starts fix rounds that resume the
+                         implement session with the still-pending deviations
+                         (matched by screenshot and area) and re-checks,
+                         stopping when none remain or the pending count stops
+                         shrinking over designConformance.stallWindow rounds
+                         (default: 3; 1 runs the check without any fix round).
+                         designConformance accepts only enabled, maxScreenshots,
+                         stallWindow, provider, model, and backend.
   issue:plan              Plan ticket implementation from a local artifact or
                          repo-scoped custom artifact. If a local artifact is not
                          found, the command will attempt to fetch it from the

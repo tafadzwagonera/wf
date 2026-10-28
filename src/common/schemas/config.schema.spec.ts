@@ -1,6 +1,7 @@
 import {
   normalizedImplementStageConfigSchema,
   wfConfigSchema,
+  wfDesignConformanceConfigSchema,
   wfImplementStageConfigSchema,
   wfReviewStageConfigSchema,
   normalizedReviewStageConfigSchema,
@@ -203,6 +204,14 @@ describe('designConformance config', () => {
     expect(parsed.designConformance).toEqual({});
   });
 
+  it('accepts a positive integer stallWindow', () => {
+    expect(wfDesignConformanceConfigSchema.parse({ stallWindow: 2 })).toEqual({ stallWindow: 2 });
+  });
+
+  it.each([0, 1.5])('rejects stallWindow %s', stallWindow => {
+    expect(wfDesignConformanceConfigSchema.safeParse({ stallWindow }).success).toBe(false);
+  });
+
   it('accepts maxScreenshots, provider, model and backend', () => {
     const parsed = wfImplementStageConfigSchema.parse({
       provider: 'anthropic',
@@ -242,7 +251,7 @@ describe('designConformance config', () => {
       wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { backend: 'sdk' } }),
     ).toThrow();
     expect(() =>
-      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { stallWindow: 3 } }),
+      wfImplementStageConfigSchema.parse({ provider: 'anthropic', designConformance: { unknownKnob: 3 } }),
     ).toThrow();
   });
 

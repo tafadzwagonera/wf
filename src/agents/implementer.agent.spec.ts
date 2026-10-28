@@ -2983,6 +2983,182 @@ describe('ImplementerAgent', () => {
       });
     });
 
+    describe('design conformance fix rounds', () => {
+      const heroFinding = { screenshot: '/designs/a.png', area: 'Hero CTA', deviation: 'Label is lowercase' };
+      const navFinding = { screenshot: '/designs/a.png', area: 'Nav bar', deviation: 'Search icon missing' };
+      const diffText = 'diff --git a/src/example.ts b/src/example.ts\n+change\n';
+
+      afterEach(() => jest.restoreAllMocks());
+
+      const expectedCheckArgs = {
+        paths: ['/designs/a.png'], repoDir: '/tmp/repo-a', diff: diffText, changedFiles: ['src/example.ts'],
+      };
+
+      type LoopSetup = {
+        rounds: Array<unknown[] | Error>;
+        stallWindow?: number;
+        adapterSessionId?: string;
+        verifiedSessionId?: string;
+        failDiffOnRound?: number;
+      };
+
+      const runLoop = async (setup: LoopSetup) => {
+        setupWithChanges();
+        (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {
+          if (key === 'stages.implement.designConformance') {
+            return { enabled: true, ...(setup.stallWindow && { stallWindow: setup.stallWindow }) };
+          }
+          if (key === 'stages.implement.provider') return 'anthropic';
+          if (key === 'git.branchPrefixMapping') return { feature: 'feature', fix: 'bugfix', investigate: 'chore' };
+          return fallback;
+        });
+        const mockCheck = jest.fn();
+        for (const round of setup.rounds) {
+          if (round instanceof Error) mockCheck.mockRejectedValueOnce(round);
+          else mockCheck.mockResolvedValueOnce(round);
+        }
+        mockCheck.mockResolvedValue([]);
+        const internals = agent as unknown as Record<string, unknown>;
+        internals.designConformanceService = { check: mockCheck };
+        internals.uiDesignScreenshotsStageService = {
+          resolveIfEnabled: jest.fn().mockResolvedValue({ screenshots: [], paths: ['/designs/a.png'] }),
+        };
+        const mockDiff = jest.spyOn(
+          agent as unknown as { collectConformanceDiff: (...diffArgs: unknown[]) => Promise<unknown> },
+          'collectConformanceDiff',
+        ).mockImplementation(async () => {
+          if (mockDiff.mock.calls.length === setup.failDiffOnRound) throw new Error('reset failed');
+          return { diff: diffText, changedFiles: ['src/example.ts'] };
+        });
+        planStepVerificationService.run.mockResolvedValue({
+          sessionId: setup.verifiedSessionId, summary: undefined, extraPassCount: 0,
+        });
+        jest.spyOn(AnthropicAgentAdapter.prototype, 'generateAndVerify').mockResolvedValue({
+          sessionId: setup.adapterSessionId, verificationOutcomes: [],
+        });
+        const mockFixRound = jest.spyOn(
+          agent as unknown as { runVerificationFixRound: (...fixArgs: unknown[]) => Promise<unknown> },
+          'runVerificationFixRound',
+        ).mockResolvedValue({ sessionId: 'sess-fix', passCount: 0, planProblems: [] });
+        const mockPersist = jest.spyOn(implementVerification, 'appendDesignConformanceToRunFile')
+          .mockReturnValue(undefined as never);
+
+        await agent.execute(
+          ticketArtifact,
+          buildPlan({ affectedFiles: ['repo-a/src/example.ts'], steps: [{ description: 'Update source file' }] }),
+          { trackerName: 'jira', repoDir: '/tmp/repo-a', silent: true },
+        );
+        return { mockCheck, mockFixRound, mockPersist, mockDiff };
+      };
+
+      type LoopMocks = Awaited<ReturnType<typeof runLoop>>;
+
+      const expectChecks = ({ mockCheck, mockDiff }: LoopMocks, rounds: number, diffCalls = rounds): void => {
+        expect(mockCheck).toHaveBeenCalledTimes(rounds);
+        for (let round = 1; round <= rounds; round++) {
+          expect(mockCheck).toHaveBeenNthCalledWith(round, expectedCheckArgs);
+        }
+        expect(mockDiff).toHaveBeenCalledTimes(diffCalls);
+        for (const [diffArgs, screenshotCount] of mockDiff.mock.calls) {
+          expect(diffArgs).toEqual(expect.objectContaining({ options: expect.objectContaining({ repoDir: '/tmp/repo-a' }) }));
+          expect(screenshotCount).toBe(1);
+        }
+      };
+
+      const expectFixRoundSession = ({ mockFixRound }: LoopMocks, callIndex: number, sessionId: string): string => {
+        const [, , options, , prompt, resumedSessionId] = mockFixRound.mock.calls[callIndex];
+        expect(options).toEqual(expect.objectContaining({ repoDir: '/tmp/repo-a' }));
+        expect(resumedSessionId).toBe(sessionId);
+        return String(prompt);
+      };
+
+      it('runs one fix round with the round-1 deviation and reports nothing once resolved', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding], []], adapterSessionId: 'sess-1', verifiedSessionId: 'sess-1',
+        });
+
+        expectChecks(mocks, 2);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(1);
+        expect(expectFixRoundSession(mocks, 0, 'sess-1')).toContain('Label is lowercase');
+        expect(mocks.mockPersist).not.toHaveBeenCalled();
+      });
+
+      it('stops after stallWindow rounds without progress and reports only the final findings', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding], [heroFinding]],
+          stallWindow: 2, adapterSessionId: 'sess-1', verifiedSessionId: 'sess-1',
+        });
+
+        expectChecks(mocks, 2);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(1);
+        const prompt = expectFixRoundSession(mocks, 0, 'sess-1');
+        expect(prompt).toContain('stall window: 2');
+        expect(prompt).toContain('Label is lowercase');
+        expect(mocks.mockPersist).toHaveBeenCalledTimes(1);
+        expect(mocks.mockPersist).toHaveBeenCalledWith(expect.any(String), [heroFinding]);
+      });
+
+      it('sends only the still-pending finding to the next fix round', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding, navFinding], [navFinding], []], adapterSessionId: 'sess-1', verifiedSessionId: 'sess-1',
+        });
+
+        expectChecks(mocks, 3);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(2);
+        const firstPrompt = expectFixRoundSession(mocks, 0, 'sess-1');
+        expect(firstPrompt).toContain('Label is lowercase');
+        expect(firstPrompt).toContain('Search icon missing');
+        const secondPrompt = expectFixRoundSession(mocks, 1, 'sess-fix');
+        expect(secondPrompt).toContain('Search icon missing');
+        expect(secondPrompt).not.toContain('Label is lowercase');
+        expect(mocks.mockPersist).not.toHaveBeenCalled();
+      });
+
+      it('reports a finding first raised in the final round instead of dropping it', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding], [navFinding]], adapterSessionId: 'sess-1', verifiedSessionId: 'sess-1',
+        });
+
+        expectChecks(mocks, 2);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(1);
+        expect(mocks.mockPersist).toHaveBeenCalledTimes(1);
+        expect(mocks.mockPersist).toHaveBeenCalledWith(expect.any(String), [navFinding]);
+      });
+
+      it('resumes the fix round from the post-verification session id', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding], []], adapterSessionId: 'sess-pre', verifiedSessionId: 'sess-verified',
+        });
+
+        expectChecks(mocks, 2);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(1);
+        expectFixRoundSession(mocks, 0, 'sess-verified');
+        expect(mocks.mockPersist).not.toHaveBeenCalled();
+      });
+
+      it('reports round 1 findings once when the round 2 diff collection fails', async () => {
+        const mocks = await runLoop({
+          rounds: [[heroFinding]], failDiffOnRound: 2,
+          adapterSessionId: 'sess-1', verifiedSessionId: 'sess-1',
+        });
+
+        expectChecks(mocks, 1, 2);
+        expect(mocks.mockFixRound).toHaveBeenCalledTimes(1);
+        expect(expectFixRoundSession(mocks, 0, 'sess-1')).toContain('Label is lowercase');
+        expect(mocks.mockPersist).toHaveBeenCalledTimes(1);
+        expect(mocks.mockPersist).toHaveBeenCalledWith(expect.any(String), [heroFinding]);
+      });
+
+      it('skips fix rounds and reports round 1 findings when there is no session id', async () => {
+        const mocks = await runLoop({ rounds: [[heroFinding]] });
+
+        expectChecks(mocks, 1);
+        expect(mocks.mockFixRound).not.toHaveBeenCalled();
+        expect(mocks.mockPersist).toHaveBeenCalledTimes(1);
+        expect(mocks.mockPersist).toHaveBeenCalledWith(expect.any(String), [heroFinding]);
+      });
+    });
+
     it('threads configured mode and assessor target to verification', async () => {
       setupWithChanges();
       (configService.get as jest.Mock).mockImplementation((key: string, fallback?: unknown) => {

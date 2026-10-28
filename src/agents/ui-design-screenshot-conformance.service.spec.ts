@@ -2,7 +2,13 @@ import { ConfigService } from '@nestjs/config';
 import { AiService } from '../integrations/ai/ai.service';
 import type { StageAgentService } from '../integrations/ai/stage-agent.service';
 import { UiDesignScreenshotsStageService } from '../review/ui-design-screenshots-stage.service';
-import { UiDesignScreenshotConformanceService, mergeDesignConformanceConfig } from './ui-design-screenshot-conformance.service';
+import {
+  UiDesignScreenshotConformanceService,
+  buildDesignConformanceFixPrompt,
+  diffPendingFindings,
+  findingKey,
+  mergeDesignConformanceConfig,
+} from './ui-design-screenshot-conformance.service';
 
 type MockConfig = {
   enabled?: boolean;
@@ -445,5 +451,44 @@ describe('UiDesignScreenshotConformanceService', () => {
     expect(prompts[0].length).toBeLessThan(hugeDiff.length);
     expect(prompts[0]).toContain('evidence gap');
     expect(prompts[0]).toBe(prompts[1]);
+  });
+});
+
+describe('design conformance fix-round helpers', () => {
+  const heroFinding = { screenshot: '/d/hero.png', area: 'Hero CTA', deviation: 'Button label is lowercase' };
+  const navFinding = { screenshot: '/d/nav.png', area: 'Nav bar', deviation: 'Missing search icon' };
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('builds a finding key from screenshot and normalised area', () => {
+    expect(findingKey({ ...heroFinding, area: '  Hero CTA ' })).toBe('/d/hero.png::hero cta');
+  });
+
+  it('keeps current findings whose key existed in the previous round', () => {
+    const reworded = { ...heroFinding, deviation: 'CTA text should be capitalised' };
+
+    const pending = diffPendingFindings([heroFinding, navFinding], [reworded, { ...navFinding, area: 'Footer' }]);
+
+    expect(pending).toEqual([reworded]);
+  });
+
+  it('returns no pending findings when the previous round was empty', () => {
+    expect(diffPendingFindings([], [heroFinding])).toEqual([]);
+  });
+
+  it('builds a fix prompt listing only the pending findings with round and stall window', () => {
+    const prompt = buildDesignConformanceFixPrompt({ pending: [heroFinding], round: 2, stallWindow: 3 });
+
+    expect(prompt).toContain('round 2');
+    expect(prompt).toContain('stall window: 3');
+    expect(prompt).toContain('hero.png');
+    expect(prompt).toContain('Hero CTA');
+    expect(prompt).toContain('Button label is lowercase');
+    expect(prompt).toContain('Fix only the deviations listed');
+    expect(prompt).toContain('do not regress');
+    expect(prompt).toContain('do not invent exact values');
+    expect(prompt).not.toContain(navFinding.deviation);
   });
 });

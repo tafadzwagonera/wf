@@ -77,7 +77,7 @@ const verifyFlagOutput = (output: string, stub: StubServer): void => {
 };
 
 const verifyFlagFallbacks = async (stub: StubServer): Promise<void> => {
-  await withScenario({ model: implementModel }, async scenario => {
+  await withScenario({ model: implementModel, designConformance: { stallWindow: 1 } }, async scenario => {
     const { exitCode, output } = await runIssueAsync(scenario, stub.baseUrl, screenshotArgs(scenario));
     check(exitCode === 0, 'flag, no config: run exits 0', output.slice(-1200));
     verifyFlagCalls(scenario);
@@ -94,7 +94,7 @@ const verifyNoFlag = async (stub: StubServer): Promise<void> => {
   });
 };
 
-const overrides = { backend: 'standard', provider: 'anthropic', model: sentinelModel };
+const overrides = { backend: 'standard', provider: 'anthropic', model: sentinelModel, stallWindow: 1 };
 
 const verifyDisabledWithoutFlag = async (stub: StubServer): Promise<void> => {
   await withScenario({ designConformance: { enabled: false, ...overrides } }, async scenario => {
@@ -120,7 +120,8 @@ const verifyFlagOverridesEnabled = async (stub: StubServer): Promise<void> => {
 };
 
 const verifyPartialBlock = async (stub: StubServer): Promise<void> => {
-  await withScenario({ model: implementModel, designConformance: { maxScreenshots: 1 } }, async scenario => {
+  const stage = { model: implementModel, designConformance: { maxScreenshots: 1, stallWindow: 1 } };
+  await withScenario(stage, async scenario => {
     const { exitCode, output } = await runIssueAsync(scenario, stub.baseUrl, screenshotArgs(scenario));
     const calls = conformanceInvocations(scenario, 'claude');
     check(exitCode === 0, 'flag + partial block: run exits 0', output.slice(-1200));
@@ -167,7 +168,7 @@ const verifyFromImplementWithoutStoredScreenshots = async (stub: StubServer): Pr
 
 const verifyConfigWinsWithoutFlag = async (stub: StubServer, enabled: boolean): Promise<void> => {
   const label = `no flag + enabled: ${enabled}, --from implement`;
-  const stage = { model: implementModel, designConformance: { enabled } };
+  const stage = { model: implementModel, designConformance: { enabled, stallWindow: 1 } };
   await withScenario(stage, async scenario => {
     await runIssueAsync(scenario, stub.baseUrl, screenshotArgs(scenario), { from: 'plan', to: 'plan' });
     const { exitCode, output } = await runIssueAsync(scenario, stub.baseUrl, [], { from: 'implement', to: 'implement' });
