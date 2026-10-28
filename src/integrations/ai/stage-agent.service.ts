@@ -269,9 +269,9 @@ const readToolResultText = (content: unknown): string => {
 
 const formatAnthropicToolResultBlock = (block: Record<string, unknown>, label: string): string[] => {
   if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') return [];
+  if (block.is_error !== true) return [];
   const text = readToolResultText(block.content).trim();
   if (text === '') return [];
-  if (block.is_error !== true) return [`  [${label}] Tool completed`];
   return [`  [${label}] Tool failed: ${truncateCodexText(text, 60)}`];
 };
 

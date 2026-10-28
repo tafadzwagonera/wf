@@ -2357,7 +2357,6 @@ describe('StageAgentService', () => {
       expect(onProgress.mock.calls).toEqual([
         ['  [claude-cli] Running: Bash(yarn build)'],
         ['  [claude-cli] Running: Read(src/a.ts)'],
-        ['  [claude-cli] Tool completed'],
         ['  [claude-cli] Tool failed: no such file'],
       ]);
     });
@@ -2436,7 +2435,6 @@ describe('StageAgentService', () => {
       expect(onProgress.mock.calls).toEqual([
         ['  [claude-agent-sdk] Running: Bash(yarn build)'],
         ['  [claude-agent-sdk] Running: Read(src/a.ts)'],
-        ['  [claude-agent-sdk] Tool completed'],
         ['  [claude-agent-sdk] Tool failed: no such file'],
       ]);
     });
