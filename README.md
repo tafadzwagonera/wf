@@ -1655,75 +1655,75 @@ The orchestrator command (`wf issue`) chains stages together, passing artifacts 
 
 ```
 ## Call Stack: wf issue --ui-design-screenshots — from the CLI flag to the implementer option
-executeRepoImplementation(ticketArtifact, planArtifact, repo, repos, options, ...)   // issue.command.ts:1662
-  ├── buildImplementerOptions(repo, repos, options, isMultiRepo, sessionContext, planArtifact)   // issue.command.ts:1565
-  │     └── ...designConformanceOption(options)                     // issue.command.ts:1581 → :107
-  │           └── isUiDesignScreenshotsRequested(options)           // issue.command.ts:104
-  │                 └── options.uiDesignScreenshots !== undefined && !== false   // bare flag → true, files → string[]
-  │           → { designConformanceRequested: true }                // spread only when requested
-  └── agents.implementer.execute(ticketArtifact, planArtifact, implOpts)   // issue.command.ts:1670
-        └── ImplementerAgent.runDesignConformanceCheck(args)        // implementer.agent.ts:324 (below)
+executeRepoImplementation(ticketArtifact, planArtifact, repo, repos, options, ...)              // issue.command.ts:1662
+  ├── buildImplementerOptions(repo, repos, options, isMultiRepo, sessionContext, planArtifact)  // issue.command.ts:1565
+  │     └── ...designConformanceOption(options)                                                 // issue.command.ts:1581 → :107
+  │           └── isUiDesignScreenshotsRequested(options)                                       // issue.command.ts:104
+  │                 └── options.uiDesignScreenshots !== undefined && !== false                  // bare flag → true, files → string[]
+  │           → { designConformanceRequested: true }                                            // spread only when requested
+  └── agents.implementer.execute(ticketArtifact, planArtifact, implOpts)                        // issue.command.ts:1670
+        └── ImplementerAgent.runDesignConformanceCheck(args)                                    // implementer.agent.ts:324 (below)
 ```
 
 The implementer captures the screenshot paths once, then runs the check after plan-step verification and reports the result:
 
 ```
 ## Call Stack: ImplementerAgent.execute(...) — screenshots from the plan to the advisory report
-execute(ticketArtifact, planArtifact, options)                      // implementer.agent.ts:293
-  ├── resetRunCounters()                                            // implementer.agent.ts:382
-  │     └── latestUiDesignScreenshotPaths = undefined               // implementer.agent.ts:386
-  ├── uiDesignScreenshotsStageService.resolveIfEnabled({ artifactPath })  // implementer.agent.ts:927
-  │     └── encodeFromPaths(paths)                                  // ui-design-screenshots-stage.service.ts:30
-  │           └── file missing → console + log warning, file skipped  // ui-design-screenshots-stage.service.ts:34
-  │     latestUiDesignScreenshotPaths = existing paths              // implementer.agent.ts:931
-  └── verifyAndFinalize(args)                                       // implementer.agent.ts:316
-        ├── applyPlanStepVerification(...)                          // implementer.agent.ts:319
-        ├── runDesignConformanceCheck(args)                         // implementer.agent.ts:320 → :324
-        │     ├── requested = options.designConformanceRequested     // implementer.agent.ts:326
-        │     ├── cfg = loadDesignConformanceConfig(requested)       // implementer.agent.ts:327 → :343 (config file merged with the flag)
-        │     ├── !designConformanceService || !cfg?.enabled → return (silent)   // implementer.agent.ts:328
-        │     ├── no paths → logDesignConformanceSkipped(reason)    // implementer.agent.ts:329 → :350
-        │     ├── result.type !== 'implementation' → return (silent)   // implementer.agent.ts:330
-        │     ├── collectConformanceDiff(args, paths.length)        // implementer.agent.ts:355
-        │     │     └── gitService.getDiffFromRef(baseline.sha ?? 'HEAD')   // git.service.ts:406
+execute(ticketArtifact, planArtifact, options)                                                       // implementer.agent.ts:293
+  ├── resetRunCounters()                                                                             // implementer.agent.ts:382
+  │     └── latestUiDesignScreenshotPaths = undefined                                                // implementer.agent.ts:386
+  ├── uiDesignScreenshotsStageService.resolveIfEnabled({ artifactPath })                             // implementer.agent.ts:927
+  │     └── encodeFromPaths(paths)                                                                   // ui-design-screenshots-stage.service.ts:30
+  │           └── file missing → console + log warning, file skipped                                 // ui-design-screenshots-stage.service.ts:34
+  │     latestUiDesignScreenshotPaths = existing paths                                               // implementer.agent.ts:931
+  └── verifyAndFinalize(args)                                                                        // implementer.agent.ts:316
+        ├── applyPlanStepVerification(...)                                                           // implementer.agent.ts:319
+        ├── runDesignConformanceCheck(args)                                                          // implementer.agent.ts:320 → :324
+        │     ├── requested = options.designConformanceRequested                                     // implementer.agent.ts:326
+        │     ├── cfg = loadDesignConformanceConfig(requested)                                       // implementer.agent.ts:327 → :343 (config file merged with the flag)
+        │     ├── !designConformanceService || !cfg?.enabled → return (silent)                       // implementer.agent.ts:328
+        │     ├── no paths → logDesignConformanceSkipped(reason)                                     // implementer.agent.ts:329 → :350
+        │     ├── result.type !== 'implementation' → return (silent)                                 // implementer.agent.ts:330
+        │     ├── collectConformanceDiff(args, paths.length)                                         // implementer.agent.ts:355
+        │     │     └── gitService.getDiffFromRef(baseline.sha ?? 'HEAD')                            // git.service.ts:406
         │     ├── designConformanceService.check({ paths, diff, changedFiles, repoDir, requested })  // implementer.agent.ts:332
-        │     ├── reportDesignConformance(findings)                 // implementer.agent.ts:335 → :364
-        │     │     ├── findings.length === 0 → return (silent)     // implementer.agent.ts:365
-        │     │     ├── console: "Design conformance (advisory):"   // implementer.agent.ts:366-369
-        │     │     └── appendDesignConformanceToRunFile(path, findings)  // implementer.agent.ts:375 → implement-verification.ts:121
-        │     │           └── no run path | write error → WARN log only   // implementer.agent.ts:371 / :378
-        │     └── catch → "[design-check] check failed" + WARN log  // implementer.agent.ts:336-340
-        └── finalizePlanProblems(verified, ledger)                  // implementer.agent.ts:321
+        │     ├── reportDesignConformance(findings)                                                  // implementer.agent.ts:335 → :364
+        │     │     ├── findings.length === 0 → return (silent)                                      // implementer.agent.ts:365
+        │     │     ├── console: "Design conformance (advisory):"                                    // implementer.agent.ts:366-369
+        │     │     └── appendDesignConformanceToRunFile(path, findings)                             // implementer.agent.ts:375 → implement-verification.ts:121
+        │     │           └── no run path | write error → WARN log only                              // implementer.agent.ts:371 / :378
+        │     └── catch → "[design-check] check failed" + WARN log                                   // implementer.agent.ts:336-340
+        └── finalizePlanProblems(verified, ledger)                                                   // implementer.agent.ts:321
 ```
 
 Inside the service, the target is resolved and gated before any screenshot is sent, then each screenshot is checked in order:
 
 ```
 ## Call Stack: UiDesignScreenshotConformanceService.check(...) — target resolution through the model reply
-check({ paths, diff, changedFiles, repoDir, requested })            // ui-design-screenshot-conformance.service.ts:92
-  ├── cfg = loadConfig(requested)                                   // ui-design-screenshot-conformance.service.ts:94 → :107
-  │     └── mergeDesignConformanceConfig(cfg, requested) → requested ? { ...cfg, enabled: true } : cfg   // :45
-  ├── !cfg?.enabled || no paths → []                                // ui-design-screenshot-conformance.service.ts:95
-  ├── resolveTarget(cfg)                                            // ui-design-screenshot-conformance.service.ts:96 → :113
-  │     ├── provider = cfg.provider ?? (cfg.model ? stages.implement.provider : undefined)  // :115
-  │     └── backend = cfg.backend ?? stages.implement.backend       // :116
-  ├── resolveSkipReason(diff, target)                               // ui-design-screenshot-conformance.service.ts:97 → :127
-  │     ├── provider ∉ { anthropic, openai }                        // :129-131
-  │     ├── backend 'agent' + provider 'openai'                     // :132-134
-  │     ├── stage backend without a stage agent                     // :135-137
-  │     └── empty diff                                              // :138 — any reason → warn + [] (:98-101)
-  ├── selectScreenshots(paths, maxScreenshots)                      // ui-design-screenshot-conformance.service.ts:102 → :141
-  ├── buildPrompt(sliceHeadTail(diff, 80_000), changedFiles)        // ui-design-screenshot-conformance.service.ts:103
-  └── checkSequentially(screenshots, { prompt, target, repoDir })   // ui-design-screenshot-conformance.service.ts:104 → :148
-        └── for each screenshot: "[design-check] i/N <file>"        // ui-design-screenshot-conformance.service.ts:152-153
-              └── checkOne(screenshot, run)                         // ui-design-screenshot-conformance.service.ts:173
-                    ├── withTimeout(requestReply(...), 120_000)     // ui-design-screenshot-conformance.service.ts:175
-                    │     └── requestReply(screenshot, run)         // ui-design-screenshot-conformance.service.ts:159
-                    │           ├── standard | no stage agent → aiService.execute(buildRequest(...))   // :162
-                    │           │     └── tryStageBackendExecute → null (request.context is set)       // ai.service.ts:1079
-                    │           └── cli | agent → stageAgentService.runScreenshotPrompt({ ... })       // :165
-                    ├── designConformanceResponseSchema.parse(parseJsonResponse(...))   // ui-design-screenshot-conformance.service.ts:176
-                    └── catch → warn "check failed for <path>" → []  // ui-design-screenshot-conformance.service.ts:179
+check({ paths, diff, changedFiles, repoDir, requested })                                                // ui-design-screenshot-conformance.service.ts:92
+  ├── cfg = loadConfig(requested)                                                                       // ui-design-screenshot-conformance.service.ts:94 → :107
+  │     └── mergeDesignConformanceConfig(cfg, requested) → requested ? { ...cfg, enabled: true } : cfg  // :45
+  ├── !cfg?.enabled || no paths → []                                                                    // ui-design-screenshot-conformance.service.ts:95
+  ├── resolveTarget(cfg)                                                                                // ui-design-screenshot-conformance.service.ts:96 → :113
+  │     ├── provider = cfg.provider ?? (cfg.model ? stages.implement.provider : undefined)              // :115
+  │     └── backend = cfg.backend ?? stages.implement.backend                                           // :116
+  ├── resolveSkipReason(diff, target)                                                                   // ui-design-screenshot-conformance.service.ts:97 → :127
+  │     ├── provider ∉ { anthropic, openai }                                                            // :129-131
+  │     ├── backend 'agent' + provider 'openai'                                                         // :132-134
+  │     ├── stage backend without a stage agent                                                         // :135-137
+  │     └── empty diff                                                                                  // :138 — any reason → warn + [] (:98-101)
+  ├── selectScreenshots(paths, maxScreenshots)                                                          // ui-design-screenshot-conformance.service.ts:102 → :141
+  ├── buildPrompt(sliceHeadTail(diff, 80_000), changedFiles)                                            // ui-design-screenshot-conformance.service.ts:103
+  └── checkSequentially(screenshots, { prompt, target, repoDir })                                       // ui-design-screenshot-conformance.service.ts:104 → :148
+        └── for each screenshot: "[design-check] i/N <file>"                                            // ui-design-screenshot-conformance.service.ts:152-153
+              └── checkOne(screenshot, run)                                                             // ui-design-screenshot-conformance.service.ts:173
+                    ├── withTimeout(requestReply(...), 120_000)                                         // ui-design-screenshot-conformance.service.ts:175
+                    │     └── requestReply(screenshot, run)                                             // ui-design-screenshot-conformance.service.ts:159
+                    │           ├── standard | no stage agent → aiService.execute(buildRequest(...))    // :162
+                    │           │     └── tryStageBackendExecute → null (request.context is set)        // ai.service.ts:1079
+                    │           └── cli | agent → stageAgentService.runScreenshotPrompt({ ... })        // :165
+                    ├── designConformanceResponseSchema.parse(parseJsonResponse(...))                   // ui-design-screenshot-conformance.service.ts:176
+                    └── catch → warn "check failed for <path>" → []                                     // ui-design-screenshot-conformance.service.ts:179
 ```
 
 The `cli` and `agent` backends reuse the stage prompt pipeline with provider, backend and model overrides:
@@ -1731,21 +1731,21 @@ The `cli` and `agent` backends reuse the stage prompt pipeline with provider, ba
 ```
 ## Call Stack: StageAgentService.runScreenshotPrompt(...) — backend and provider overrides
 runScreenshotPrompt({ prompt, screenshots, backendOverride, providerOverride, modelOverride, repoDir })  // stage-agent.service.ts:1469
-  ├── assertScreenshotTargetCanReadImages(params)                   // stage-agent.service.ts:1472 → :1477
-  │     └── agent + openai → ConfigurationError                     // stage-agent.service.ts:1483-1485
-  └── runStagePrompt({ ...params, stage: 'implement' })             // stage-agent.service.ts:1489
-        ├── providerOverride + unavailable model → rethrow, no fallback model  // stage-agent.service.ts:1495
-        └── runStagePromptOnce → dispatchToBackend(params)          // stage-agent.service.ts:1455 → :1550
-              ├── backend = backendOverride ?? stage backend        // stage-agent.service.ts:1551
-              ├── 'cli' → dispatchCliStagePrompt                    // stage-agent.service.ts:1552
-              │     ├── anthropic → runCliStagePrompt               // stage-agent.service.ts:1797
-              │     │     └── buildCliArgs → appendScreenshotDirs   // claude-cli-runner.ts:254 → :239  (--add-dir)
-              │     └── openai → runCodexCliStagePrompt             // stage-agent.service.ts:1997
-              │           └── buildCodexPrompt → paths section appended to the prompt  // stage-agent.service.ts:1981
-              └── 'agent' → appendAgentSdkScreenshotPaths(prompt, screenshots)  // stage-agent.service.ts:1553
-                    ├── anthropic → runAnthropicStagePrompt         // stage-agent.service.ts:1565
-                    │     └── readDirs = resolveScreenshotReadDirs(screenshots)  // stage-agent.service.ts:1575 → :1581 (logged)
-                    └── openai → runOpenAiStagePrompt (unreachable here)  // stage-agent.service.ts:1606
+  ├── assertScreenshotTargetCanReadImages(params)                                                        // stage-agent.service.ts:1472 → :1477
+  │     └── agent + openai → ConfigurationError                                                          // stage-agent.service.ts:1483-1485
+  └── runStagePrompt({ ...params, stage: 'implement' })                                                  // stage-agent.service.ts:1489
+        ├── providerOverride + unavailable model → rethrow, no fallback model                            // stage-agent.service.ts:1495
+        └── runStagePromptOnce → dispatchToBackend(params)                                               // stage-agent.service.ts:1455 → :1550
+              ├── backend = backendOverride ?? stage backend                                             // stage-agent.service.ts:1551
+              ├── 'cli' → dispatchCliStagePrompt                                                         // stage-agent.service.ts:1552
+              │     ├── anthropic → runCliStagePrompt                                                    // stage-agent.service.ts:1797
+              │     │     └── buildCliArgs → appendScreenshotDirs                                        // claude-cli-runner.ts:254 → :239  (--add-dir)
+              │     └── openai → runCodexCliStagePrompt                                                  // stage-agent.service.ts:1997
+              │           └── buildCodexPrompt → paths section appended to the prompt                    // stage-agent.service.ts:1981
+              └── 'agent' → appendAgentSdkScreenshotPaths(prompt, screenshots)                           // stage-agent.service.ts:1553
+                    ├── anthropic → runAnthropicStagePrompt                                              // stage-agent.service.ts:1565
+                    │     └── readDirs = resolveScreenshotReadDirs(screenshots)                          // stage-agent.service.ts:1575 → :1581 (logged)
+                    └── openai → runOpenAiStagePrompt (unreachable here)                                 // stage-agent.service.ts:1606
 ```
 
 #### State Transitions
@@ -1828,6 +1828,118 @@ graph TD
     Git --> State
     AI --> State
 ```
+
+### Model Routing
+
+There are two independent routing layers. The implement stage first picks a *backend* (CLI vs. agent-SDK, per provider) in `implementer.agent.ts`, then separately picks a *model tier* (mechanical vs. default) in `shared-routing.ts` based on plan complexity and configured thresholds. Everything else goes through the generic `LlmAdapterFactory`, which resolves provider → adapter and logs pre/post call.
+
+#### Call Stacks
+
+```bash
+## Call Stack: executeBackendAdapter(ctx) during implement stage
+executeBackendAdapter(ticket, planArtifact, options, resolved)            // src/agents/implementer.agent.ts:1003
+  └── resolveImplementBackendSelection()                                  // src/agents/implementer.agent.ts:1010
+        └── reads stages.implement.provider (fallback: ai.provider)       // implementer.agent.ts:1477-1478
+        └── reads stages.implement.backend (default: 'agent')             // implementer.agent.ts:1479
+        └── if backend === 'cli':
+              └── resolveCliBackend(provider)                             // implementer.agent.ts:1484
+                    └── 'anthropic' → 'claude-cli'                        // implementer.agent.ts:1490
+                    └── 'openai' → 'codex-cli'                            // implementer.agent.ts:1489
+        └── else:
+              └── resolveAgentBackend(provider)                           // implementer.agent.ts:1485
+                    └── 'anthropic' → 'anthropic-agent'                   // implementer.agent.ts:1497
+                    └── 'openai' → 'openai-agent'                         // implementer.agent.ts:1498
+  └── createAdapter(backendSelection)                                     // implementer.agent.ts:1502
+        └── switch backendSelection.selected:
+              ├── 'claude-cli' → new ClaudeCliAdapter(configService)      // implementer.agent.ts:1504
+              ├── 'codex-cli' → new CodexCliAdapter(configService)        // implementer.agent.ts:1505
+              ├── 'openai-agent' → new OpenAIAgentAdapter(configService)  // implementer.agent.ts:1506
+              └── default → new AnthropicAgentAdapter(configService)      // implementer.agent.ts:1507
+  └── adapter.generateAndVerify({...})                                    // implementer.agent.ts:1015
+```
+
+```json
+{
+  "ImplementBackendSelection": {
+    "configured": "anthropic-agent | openai-agent | claude-cli | codex-cli",
+    "selected": "anthropic-agent | openai-agent | claude-cli | codex-cli",
+    "provider": "string"
+  },
+  "ConfigFieldsRead": {
+    "stages.implement.provider": "string",
+    "ai.provider": "string (fallback, default: 'anthropic')",
+    "stages.implement.backend": "string (default: 'agent')"
+  }
+}
+```
+
+```bash
+## Call Stack: resolveModelRouting(task)
+resolveModelRouting(params: ModelRoutingParams)                               // shared-routing.ts:168
+  └── routing === 'default' | 'mechanical' → return early                     // shared-routing.ts:172-173
+  └── configService.get('stages.implement.modelRoutingThresholds')            // shared-routing.ts:174-175
+  └── detectMechanicalTask(plan, thresholds)                                  // shared-routing.ts:176
+        └── countTargetedWrites(plan)                                         // shared-routing.ts:111
+        └── plan.steps.length check                                           // shared-routing.ts:112
+        └── complexity === 'low' → mechanical                                 // shared-routing.ts:113
+        └── detectThresholdRouting(plan, thresholds, filesCount, stepsCount)  // shared-routing.ts:114
+              └── maxTargetedWritesForDefault vs filesCount                   // shared-routing.ts:86-88
+              └── maxPlanStepsForDefault vs stepsCount                        // shared-routing.ts:89-91
+        └── complexity === 'high' → not mechanical                            // shared-routing.ts:116
+        └── detectPatternRouting(planStepDescriptions)                        // shared-routing.ts:119
+              └── matchMechanicalKeyword(steps)                               // shared-routing.ts:96-97
+  └── buildRoutingResult(autoModel, defaultModel, ...)                        // shared-routing.ts:179
+```
+
+```json
+{
+  "ModelRouting": "auto | default | mechanical",
+  "ModelRoutingResult": {
+    "model": "string (e.g., 'haiku', 'sonnet')",
+    "defaultModel": "string",
+    "logMessage": "string"
+  },
+  "WfImplementStageModelRoutingThresholdsConfig": {
+    "maxTargetedWritesForDefault": "number (e.g., 10)",
+    "maxPlanStepsForDefault": "number (e.g., 20)"
+  }
+}
+```
+
+```bash
+## Call Stack: LlmAdapterFactory.buildRoutingAdapter('anthropic')
+buildRoutingAdapter(adapters)                             // llm-adapter.factory.ts:63
+  ├── execute(request: AIRequest)                         // llm-adapter.factory.ts:64
+  │     ├── getAdapter(request.provider, adapters)        // llm-adapter.factory.ts:65 → AnthropicAdapter
+  │     ├── adapter.execute(request)                      // anthropic.adapter.ts:280
+  │     └── logLlmCall(request.stage, response)           // llm-adapter.factory.ts:51, post-call
+  └── executeWithHistory(request: AIConversationRequest)  // llm-adapter.factory.ts:69
+        ├── getAdapter(request.provider, adapters)        // llm-adapter.factory.ts:70 → AnthropicAdapter
+        ├── adapter.executeWithHistory(request)           // anthropic.adapter.ts:294
+        └── logLlmCall(request.stage, response)           // llm-adapter.factory.ts:51, post-call
+```
+
+```json
+{
+  "AIResponse": {
+    "content": "string",
+    "provider": "string",
+    "model": "string",
+    "usage": { "inputTokens": "number", "outputTokens": "number" },
+    "costUsd": "number | undefined"
+  },
+  "LogLlmCallFields": {
+    "stage": "request.stage ?? 'none'",
+    "provider": "response.provider ?? 'unknown'",
+    "model": "response.model ?? 'unknown'",
+    "billing": "api-key"
+  }
+}
+```
+
+Line references were traced against the source as of commit `aad8f19e`; treat them as orientation, not as a contract.
+
+This repo's own `wf.config.ts` leaves `stages.implement.modelRoutingThresholds` unset — both `maxTargetedWritesForDefault` and `maxPlanStepsForDefault` are `undefined`. Each threshold check in `detectThresholdRouting` (`shared-routing.ts:86-90`) is guarded by `thresholds?.<field> !== undefined`, so with no config neither one fires; `detectMechanicalTask` falls back entirely to the complexity/pattern heuristics (plan complexity `'low'`/`'high'`, file-to-step ratio, mechanical keyword matching) instead of the numeric limits.
 
 ### Project Structure
 
