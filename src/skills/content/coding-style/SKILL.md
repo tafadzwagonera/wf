@@ -1,6 +1,10 @@
 ---
 name: coding-style
-description: Team coding style — naming, control flow, types, documentation. Use when writing, editing, or reviewing code.
+description: >-
+  Team coding style — naming, control flow, types, documentation. Use before writing or editing any
+  source file (.ts, .tsx, .js, .vue, or similar) in an interactive session, and before reviewing a
+  diff or PR — always before the first Edit/Write of this session, not only when a style question
+  comes up.
 ---
 
 **Category:** Convention skill.

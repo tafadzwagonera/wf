@@ -1,6 +1,9 @@
 ---
 name: test-driven-development
-description: Test-driven development methodology grounded in wf's verification pipeline.
+description: >-
+  Test-driven development methodology grounded in wf's verification pipeline. Use before
+  implementing any new behavior, bug fix, or feature in an interactive session — write the failing
+  test first, not only when the user explicitly says "TDD" or "write tests first".
 ---
 
 **Category:** Methodology skill.
