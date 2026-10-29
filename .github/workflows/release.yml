@@ -64,7 +64,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wf-${{ matrix.target }}
           path: out/
@@ -88,7 +88,7 @@ jobs:
       VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dispatch' }}
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: wf-${{ matrix.target }}
           path: artifact
@@ -139,7 +139,7 @@ jobs:
       contents: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: wf-*
           path: artifacts
