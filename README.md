@@ -32,6 +32,7 @@ A **NestJS-based CLI** that orchestrates the `issue:*` pipeline — fetch, plan,
 - [Key Design Decisions](#key-design-decisions)
   - [Artifact Resolution Rules](#artifact-resolution-rules)
   - [Design Conformance Check](#design-conformance-check)
+  - [JSON Parsing Tactics in Plan and Review Stages](#json-parsing-tactics-in-plan-and-review-stages)
   - [Session Forking Workflow](#session-forking-workflow)
   - [Skill Loading](#skill-loading)
 - [Development](#development)
@@ -1827,6 +1828,99 @@ graph TD
     Platforms --> State
     Git --> State
     AI --> State
+```
+
+### JSON Parsing Tactics in Plan and Review Stages
+
+The plan and review stages ask the model to return a JSON object, but the raw response can arrive wrapped in prose, Markdown code fences, or with excess closing braces from a hallucinated nesting level. `ai.service.ts` handles this with a layered extraction-and-repair chain (`buildJsonCandidates` → `parseJsonResponse`) rather than a single `JSON.parse`, and a separate schema-validation retry loop (`runValidationRetryLoop`) that gives the model a bounded number of chances to fix a response that parses as JSON but fails the Zod schema. The retry loop detects when corrections stop improving — a local condition it calls "stalled" — and gives up rather than looping forever; this is unrelated to the `'stall'` `AiProviderErrorCategory` used elsewhere for CLI inactivity (`app.error.ts:74`), which this loop never throws. This is distinct from `json-converter.ts`, which parses on-disk ticket artifacts with a plain `JSON.parse` + `class-validator` check — no fence-stripping or brace repair — because a file written to disk by wf never has an LLM's formatting quirks.
+
+#### Call Stacks
+
+```bash
+## Call Stack: generatePlan(ticket) — Plan Stage
+generatePlan(ticketContent, options)                                                     // plan-stage.service.ts:91
+  └── generatePlanAttempt(ctx, feedback?)                                                // plan-stage.service.ts:546
+        └── aiService.generatePlan(action, issueContent, context)                        // ai.service.ts:1100
+              └── retryOnUnusableResponse(executePlanPrompt, requirePlanJsonContent, limit)
+                    └── parsePlanResponse(response)                                      // ai.service.ts:1361
+                          └── parseJsonResponse<PlanModelOutput>(content)                // ai.service.ts:283
+                                └── buildJsonCandidates(content)                         // ai.service.ts:265
+                                      ├── stripCodeFences(trimmed)                       // ai.service.ts:111
+                                      ├── repairExtraBrace(stripped)                     // ai.service.ts:253
+                                      │     ├── detectBraceFailurePos(content)           // ai.service.ts:212
+                                      │     └── tryBraceRemovals(content, failPos)       // ai.service.ts:231
+                                      ├── extractOutermostJsonObject(stripped)           // ai.service.ts:195
+                                      ├── extractFirstJsonObject(stripped)               // ai.service.ts:167
+                                      │     ├── findFirstBrace(content)                  // ai.service.ts:154
+                                      │     └── advanceJsonStringState(...)              // ai.service.ts:128
+                                      └── extractFirstJsonObject(trimmed)                // ai.service.ts:273 (fallback over untrimmed text)
+
+## Parse-error recovery branch (plan)
+plan-stage.service.ts:127 recoverPlanFromParseError(error, sessionId)
+  └── aiService.validatePlanJson(error.details.response)                                 // ai.service.ts:1425
+        └── parsePlanValidationContent(content)                                          // ai.service.ts:1444
+              └── parseJsonResponse(...) → buildJsonCandidates(...)                      // same chain as above
+
+## Call Stack: performReview(diff, ...) — Review Stage
+performReview(diff, guidelines, options)                                                 // review-stage.service.ts:244
+  └── aiService.reviewCode(diff, guidelines, onProgress)                                 // ai.service.ts:1162
+        └── validateReviewJson(requireReviewResponseContent(response), diff, maxTokens)  // ai.service.ts:1408
+              └── parseAndProcessReviewContent(content, diff)                            // ai.service.ts:1438
+                    └── codeReviewSchema.parse(parseJsonResponse<CodeReview>(content))   // ai.service.ts:1439
+                          └── buildJsonCandidates(content)                               // ai.service.ts:265 (same chain)
+
+## Parse-error recovery branch (review)
+review-stage.service.ts:275 recoverReviewFromValidation(error, diff)
+  └── aiService.validateReviewJson(error.details.response, diff)                         // ai.service.ts:1408
+```
+
+```bash
+## Call Stack: validatePlanJson(rawJson) / validateReviewJson(rawJson, diff) — schema-validation retry loop
+retryValidationParsing(rawJson, parseFn, stage, systemPrompt, maxTokens)                                    // ai.service.ts:1501
+  └── runValidationRetryLoop({ rawJson, parseFn, evaluateCorrection, requestCorrection, failureMessage })   // ai.service.ts:787
+        for attempt in 0..VALIDATION_RETRY_LIMIT(=2):                                                       // ai.service.ts:758, 790
+          └── parseFn(content)                                                                              // ai.service.ts:792 — throws ZodError on bad schema
+          └── evaluateValidationCorrection(error, attempt, previousErrorCount)                              // ai.service.ts:1491 (via 794)
+                └── errorCount = error.issues.length                                                        // ai.service.ts:1495
+                └── stalled = attempt > 0 && errorCount >= previousErrorCount                               // ai.service.ts:1496
+                └── if (stalled || attempt >= 2) return null                                                // ai.service.ts:1497 → breaks loop (795)
+                └── else return { zodErrors, errorCount }                                                   // ai.service.ts:1498
+          └── previousErrorCount = errorCount; content = await requestCorrection(content, zodErrors)        // ai.service.ts:796-797
+                └── requestValidationCorrection → executeValidationCorrection → this.execute({...}, stage)  // ai.service.ts:1450,1457,1478
+  └── on break: throw AiProviderError(failureMessage, { response: content }, true, 'parse')                 // ai.service.ts:800
+```
+
+A concrete walk through `buildJsonCandidates` when the response has one excess closing brace:
+
+```json
+buildJsonCandidates("{\"title\":\"x\"},}") {
+  trimmed: "{\"title\":\"x\"},}",
+  stripped: "{\"title\":\"x\"},}",
+  repairExtraBrace: {
+    failPos: 14,                              // detectBraceFailurePos:212, JSON.parse error position
+    tryBraceRemovals_candidates: ["{\"title\":\"x\"},"],   // still invalid (trailing comma)
+    result: null                              // ai.service.ts:244, no candidate parses
+  },
+  candidates_ordered: [
+    "{\"title\":\"x\"},}",      // [0] stripped — invalid
+    null,                        // [1] repairExtraBrace — filtered out
+    "{\"title\":\"x\"}",        // [2] extractOutermostJsonObject (first "{" .. last "}") — valid
+    "{\"title\":\"x\"}",        // [3] extractFirstJsonObject — valid
+  ],
+  parseJsonResponse_result: { title: "x" }      // first candidate JSON.parse succeeds on
+}
+```
+
+A concrete walk through the validation retry loop when the Zod error count goes 5 → 3 → 3 (stalls on the third attempt):
+
+```json
+// attempt 0: first failure
+{ attempt: 0, previousErrorCount: Infinity, errorCount: 5, stalled: "0>0 && 5>=Inf → false", action: "retry, previousErrorCount=5" }
+// attempt 1: improved
+{ attempt: 1, previousErrorCount: 5, errorCount: 3, stalled: "1>0 && 3>=5 → false", action: "retry, previousErrorCount=3" }
+// attempt 2: plateaued — stalled
+{ attempt: 2, previousErrorCount: 3, errorCount: 3, stalled: "2>0 && 3>=3 → true",
+  action: "evaluateCorrection returns null → loop breaks (1495-1497) → throw AiProviderError('...could not be corrected', { response: content }, true, 'parse')  // ai.service.ts:800" }
 ```
 
 ### Model Routing
