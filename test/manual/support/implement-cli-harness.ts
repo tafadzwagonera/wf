@@ -33,9 +33,12 @@ export type ImplementHarness = {
   planPath: string;
   countFile: string;
   promptDir: string;
+  envReportFile: string;
 };
 
 export type RunResult = { exitCode: number | null; output: string };
+
+export type EnvReportEntry = { hasAnthropicApiKey: boolean; hasPath: boolean };
 
 const fakeClaudeSource = `#!/usr/bin/env node
 const fs = require('node:fs');
@@ -45,7 +48,10 @@ if (process.argv[2] === '--version') {
   console.log('2.1.219 (Claude Code)');
   process.exit(0);
 }
-const { mode, countFile, promptDir } = JSON.parse(fs.readFileSync(path.join(here, 'scenario.json'), 'utf8'));
+const { mode, countFile, promptDir, envReportFile } = JSON.parse(fs.readFileSync(path.join(here, 'scenario.json'), 'utf8'));
+fs.appendFileSync(envReportFile, JSON.stringify({
+  hasAnthropicApiKey: Boolean(process.env.ANTHROPIC_API_KEY), hasPath: Boolean(process.env.PATH),
+}) + '\\n');
 fs.appendFileSync(countFile, 'x\\n');
 const n = fs.readFileSync(countFile, 'utf8').split('\\n').filter(Boolean).length;
 const stdin = fs.readFileSync(0, 'utf8');
@@ -226,25 +232,29 @@ const homeStateDirs = (homeDir: string): string[] => [
   path.join(homeDir, '.wf', 'state'),
 ];
 
+const buildLayoutPaths = (tempRoot: string): Omit<ImplementHarness, 'planPath'> => ({
+  tempRoot,
+  repoDir: path.join(tempRoot, 'repo'),
+  binDir: path.join(tempRoot, 'bin'),
+  homeDir: path.join(tempRoot, 'home'),
+  promptDir: path.join(tempRoot, 'prompts'),
+  countFile: path.join(tempRoot, 'spawn-count.txt'),
+  envReportFile: path.join(tempRoot, 'env-report.log'),
+});
+
 const createLayout = (tempRoot: string): Omit<ImplementHarness, 'planPath'> => {
-  const layout = {
-    tempRoot,
-    repoDir: path.join(tempRoot, 'repo'),
-    binDir: path.join(tempRoot, 'bin'),
-    homeDir: path.join(tempRoot, 'home'),
-    promptDir: path.join(tempRoot, 'prompts'),
-    countFile: path.join(tempRoot, 'spawn-count.txt'),
-  };
+  const layout = buildLayoutPaths(tempRoot);
   for (const dir of [layout.repoDir, layout.binDir, layout.promptDir, ...homeStateDirs(layout.homeDir)]) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(layout.countFile, '');
+  fs.writeFileSync(layout.envReportFile, '');
   return layout;
 };
 
 const installFakeClaude = (layout: Omit<ImplementHarness, 'planPath'>, mode: FakeClaudeMode): void => {
-  const { binDir, countFile, promptDir } = layout;
-  fs.writeFileSync(path.join(binDir, 'scenario.json'), JSON.stringify({ mode, countFile, promptDir }));
+  const { binDir, countFile, promptDir, envReportFile } = layout;
+  fs.writeFileSync(path.join(binDir, 'scenario.json'), JSON.stringify({ mode, countFile, promptDir, envReportFile }));
   fs.writeFileSync(path.join(binDir, 'claude'), fakeClaudeSource, { mode: 0o755 });
 };
 
@@ -283,6 +293,9 @@ export const readPrompt = (harness: ImplementHarness, callNumber: number): strin
   const promptPath = path.join(harness.promptDir, `${callNumber}.txt`);
   return fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf-8') : '';
 };
+
+export const readEnvReport = (harness: ImplementHarness): EnvReportEntry[] =>
+  fs.readFileSync(harness.envReportFile, 'utf-8').split('\n').filter(Boolean).map(line => JSON.parse(line));
 
 export const cleanupHarness = (harness: ImplementHarness): void => {
   fs.rmSync(harness.tempRoot, { recursive: true, force: true });

@@ -444,6 +444,7 @@ describe('claude-cli-runner', () => {
 
     afterEach(() => {
       mockProcessKill.mockRestore();
+      restoreEnv();
     });
 
     it('spawns the child detached so it leads its own process group', async () => {
@@ -478,6 +479,21 @@ describe('claude-cli-runner', () => {
         expect.any(Array),
         expect.objectContaining({ env: expect.objectContaining({ WF_MANAGED_SESSION: '1' }) })
       );
+    });
+
+    it('strips ANTHROPIC_API_KEY from the spawned child env so headless mode bills the authenticated account', async () => {
+      withEnv({ ANTHROPIC_API_KEY: 'sk-ant-leaked' });
+      const child = createMockChildProcess();
+      mockSpawn.mockReturnValue(child as any);
+
+      const gen = spawnCli(['-p'], '/repo', 'test', undefined, 5000);
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      const spawnEnv: Record<string, string> = mockSpawn.mock.calls[0][2].env as Record<string, string>;
+      expect(spawnEnv.ANTHROPIC_API_KEY).toBeUndefined();
     });
 
     it('prepends the git shim dir to PATH in the spawned child env', async () => {

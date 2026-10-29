@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildGitShimEnvOverrides } from '../../../common/utils/git-shim-path';
+import { stripProviderAuthEnv } from '../../../common/utils/strip-provider-auth-env';
 import { extractRuntimeAsset, isSeaRuntime } from '../../../common/utils/runtime-assets';
 import { formatUiDesignScreenshotPathsPromptSection } from '../prompt-fragments';
 import type { UiDesignScreenshot } from '../../../common/types/ui-design-screenshot';
@@ -323,7 +324,7 @@ const spawnChild = (params: SpawnChildParams): { child: ReturnType<typeof spawn>
   const mergedEnv = { ...process.env, ...params.env };
   const child = spawn('claude', params.args, {
     cwd: params.cwd,
-    env: { ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' },
+    env: stripProviderAuthEnv({ ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' }),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });

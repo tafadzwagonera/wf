@@ -2,6 +2,7 @@ import { ChildProcess, execSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { AiProviderError, ConfigurationError, ExecutionError } from '../../../common/utils/errors';
 import { buildGitShimEnvOverrides } from '../../../common/utils/git-shim-path';
+import { stripProviderAuthEnv } from '../../../common/utils/strip-provider-auth-env';
 import { signalProcessTree } from '../../../common/utils/signal-process-tree';
 import { registerSigintHandler } from '../../../common/utils/sigint-registry';
 import { type BoundedStderr, createBoundedStderr } from '../../../common/utils/bounded-stderr';
@@ -240,7 +241,7 @@ const spawnCodexProcess = (args: string[], cwd: string,
   const mergedEnv = { ...process.env, ...env };
   const child = spawn('codex', args, {
     cwd,
-    env: { ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' },
+    env: stripProviderAuthEnv({ ...mergedEnv, ...buildGitShimEnvOverrides(mergedEnv), WF_MANAGED_SESSION: '1' }),
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });

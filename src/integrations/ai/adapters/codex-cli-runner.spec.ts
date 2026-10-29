@@ -404,6 +404,21 @@ describe('codex-cli-runner', () => {
       );
     });
 
+    it('strips OPENAI_API_KEY from the spawned child env so headless mode bills the authenticated account', async () => {
+      withEnv({ OPENAI_API_KEY: 'sk-openai-leaked' });
+      const child = createMockCodexProcess();
+      mockSpawn.mockReturnValue(child as never);
+
+      const gen = spawnCodex(['exec'], '/repo', 'test');
+      child.stdout.push(null);
+      for await (const _msg of gen) {
+        // drain
+      }
+
+      const spawnEnv: Record<string, string> = mockSpawn.mock.calls[0][2].env as Record<string, string>;
+      expect(spawnEnv.OPENAI_API_KEY).toBeUndefined();
+    });
+
     it('prepends the git shim dir to PATH in the spawned child env', async () => {
       const child = createMockCodexProcess();
       mockSpawn.mockReturnValue(child as never);
