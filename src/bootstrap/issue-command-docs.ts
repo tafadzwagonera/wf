@@ -14,7 +14,7 @@ export const ISSUE_COMMAND_DOC_NAMES = [
 const generatedBlockStart = (commandName: string): string => `<!-- BEGIN GENERATED COMMAND DOCS: ${commandName} -->`;
 const generatedBlockEnd = (commandName: string): string => `<!-- END GENERATED COMMAND DOCS: ${commandName} -->`;
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (value: string): string => value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
 const renderExamples = (entry: CommandHelpEntry): string => {
   if (!entry.examples?.length) {
@@ -44,7 +44,8 @@ const renderOptions = (entry: CommandHelpEntry): string => {
   const lines = ['**Options:**', '', '| Flag | Description |', '| ---- | ----------- |'];
 
   for (const option of entry.options) {
-    lines.push(`| \`${option.flags}\` | ${option.description.replaceAll('|', '\\|')} |`);
+    const escapedDescription = option.description.replaceAll('|', String.raw`\|`);
+    lines.push(`| \`${option.flags}\` | ${escapedDescription} |`);
   }
 
   return lines.join('\n');
@@ -58,7 +59,7 @@ export const renderGeneratedCommandDocs = (commandName: string, entry: CommandHe
   return [generatedBlockStart(commandName), sections, generatedBlockEnd(commandName)].join('\n');
 };
 
-const getHeadingLine = (entry: CommandHelpEntry): string => `#### \`${entry.usage.replace(/ \[options\]$/, '')}\``;
+const getHeadingLine = (entry: CommandHelpEntry): string => `#### \`${entry.usage.replace(/ \[options]$/, '')}\``;
 
 const insertGeneratedBlockAfterHeading = (
   readmeContent: string,
