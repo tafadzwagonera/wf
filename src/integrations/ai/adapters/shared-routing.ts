@@ -83,10 +83,10 @@ const detectThresholdRouting = (
   stepsCount: number
 ): string | undefined => {
   if (plan.estimatedComplexity !== 'medium' && plan.estimatedComplexity !== 'high') return undefined;
-  if (thresholds?.maxTargetedWritesForDefault !== undefined && filesCount > thresholds.maxTargetedWritesForDefault) {
+  if (thresholds?.maxTargetedWritesForDefault && filesCount > thresholds.maxTargetedWritesForDefault) {
     return `targeted writes threshold exceeded: ${filesCount} targeted writes > ${thresholds.maxTargetedWritesForDefault}`;
   }
-  if (thresholds?.maxPlanStepsForDefault !== undefined && stepsCount > thresholds.maxPlanStepsForDefault) {
+  if (thresholds?.maxPlanStepsForDefault && stepsCount > thresholds.maxPlanStepsForDefault) {
     return `plan steps threshold exceeded: ${stepsCount} steps > ${thresholds.maxPlanStepsForDefault}`;
   }
   return undefined;
