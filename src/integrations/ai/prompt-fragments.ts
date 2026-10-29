@@ -9,7 +9,7 @@ export const headlessPipelineInstruction
     + 'or offers of further work.';
 
 export const implementerSearchRule = 'For a rename or terminology migration, search with a broad case-insensitive '
-  + 'substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\\boldterm\\b/) — the latter misses '
+  + String.raw`substring search (e.g. /oldterm/i), not a word-boundary-only pattern (e.g. /\boldterm\b/) — the latter misses `
   + 'kebab-case identifiers (old-term-thing), capitalized prose (OldTerm), and other non-word-boundary forms that are '
   + 'still real occurrences of the term being migrated. Run this search across the whole repository, including '
   + 'docs/specs directories, not only the source directories the plan happened to list.';
@@ -163,7 +163,13 @@ export const reviewInstructions = `   Review principles — apply judgment to ea
 2. Surface issues by severity (error, warning, info) — flag what matters, skip noise
    For each issue also estimate "risk": the probability (0 to 1) that the issue manifests in reality.
    The tool computes the verdict from risk-adjusted severity (severity weighted by risk), so report
-   honest severity and risk separately — do not pre-discount severity for unlikely issues
+   honest severity and risk separately — do not pre-discount severity for unlikely issues.
+   Still report documentation issues — code comments, README.md, and Markdown specs — but
+   exclude them from risk-weighted severity: give them a severity without a risk score, so
+   the verdict calculation leaves them untouched. Scope risk-weighted severity (severity plus
+   risk together) to code-related issues: compile-time and runtime behavior, configuration
+   changes, infrastructure changes, and other issues affecting customer-facing features or
+   developer tooling
 3. Assess trace confidence honestly: evidence-based when you can follow the path,
    best-effort when partially visible, unavailable when opaque
 4. Walk the changed code path as a concrete call stack using real identifiers from the diff
