@@ -214,6 +214,12 @@ describe('codeIssueSchema', () => {
       expect(result.origin).toBe('comment-policy');
     });
 
+    it('accepts "documentation"', () => {
+      const result = codeIssueSchema.parse({ severity: 'warning', message: 'msg', origin: 'documentation' });
+
+      expect(result.origin).toBe('documentation');
+    });
+
     it('treats missing origin as undefined', () => {
       const result = codeIssueSchema.parse({ severity: 'info', message: 'msg' });
 

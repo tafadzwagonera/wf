@@ -98,6 +98,18 @@ describe('buildReviewPrompt', () => {
     expect(parsed.issues.some((issue: { risk?: number }) => issue.risk === undefined)).toBe(true);
   });
 
+  it('instructs the model to tag documentation issues with origin "documentation" so they never block approval', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('"origin": "documentation"');
+    expect(prompt).toContain('can never block approval');
+    const schemaLineStart = prompt.indexOf('{"summary"');
+    const schemaLineEnd = prompt.indexOf('\n', schemaLineStart);
+    const parsed = JSON.parse(prompt.substring(schemaLineStart, schemaLineEnd));
+    const documentationIssue = parsed.issues.find((issue: { origin?: string }) => issue.origin === 'documentation');
+    expect(documentationIssue).toBeDefined();
+    expect(documentationIssue.risk).toBeUndefined();
+  });
+
   it('orders code changes, numbered guidelines, instructions, trace guidance, sub-agent guidance and schema', () => {
     const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
     const positions = [

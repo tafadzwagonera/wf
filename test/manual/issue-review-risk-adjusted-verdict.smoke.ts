@@ -15,7 +15,10 @@
  *   2. An error issue with risk 0.9 (still error) forces `approved: false`
  *      even though the model returned `approved: true`
  *   3. An error issue with no risk keeps blocking approval (risk defaults to 1)
- *   4. Each run exits 0 and persists a parseable review JSON artifact
+ *   4. An error issue tagged `origin: "documentation"` with no risk never blocks
+ *      approval, regardless of severity — documentation findings stay reported
+ *      but are excluded from the approve/reject decision entirely
+ *   5. Each run exits 0 and persists a parseable review JSON artifact
  *
  * Wire up: real temp git repo with one committed file and one uncommitted
  * added line; `wf.config.js` in the repo selects the anthropic provider with
@@ -51,6 +54,7 @@ type Paths = {
 type Scenario = {
   name: string;
   risk: number | undefined;
+  origin: 'documentation' | undefined;
   expectedApproved: boolean;
 };
 
@@ -58,9 +62,13 @@ const projectRoot = path.resolve(__dirname, '../..');
 const distMainPath = path.join(projectRoot, 'dist', 'main.js');
 
 const scenarios: Scenario[] = [
-  { name: 'error demoted by risk 0.5 stays approved', risk: 0.5, expectedApproved: true },
-  { name: 'error retained at risk 0.9 blocks approval', risk: 0.9, expectedApproved: false },
-  { name: 'error without risk blocks approval', risk: undefined, expectedApproved: false },
+  { name: 'error demoted by risk 0.5 stays approved', risk: 0.5, origin: undefined, expectedApproved: true },
+  { name: 'error retained at risk 0.9 blocks approval', risk: 0.9, origin: undefined, expectedApproved: false },
+  { name: 'error without risk blocks approval', risk: undefined, origin: undefined, expectedApproved: false },
+  {
+    name: 'documentation-origin error never blocks approval', risk: undefined, origin: 'documentation',
+    expectedApproved: true,
+  },
 ];
 
 const { counts, pass, fail } = createReporter();
@@ -70,18 +78,19 @@ const writeExecutable = (filePath: string, content: string): void => {
   fs.chmodSync(filePath, 0o755);
 };
 
-const buildReviewJson = (risk: number | undefined): string =>
+const buildScenarioIssue = (risk: number | undefined, origin: 'documentation' | undefined): Record<string, unknown> => ({
+  file: 'src.ts',
+  line: 3,
+  message: 'Unguarded parse on the added line',
+  severity: 'error',
+  ...(risk === undefined ? {} : { risk }),
+  ...(origin === undefined ? {} : { origin }),
+});
+
+const buildReviewJson = (risk: number | undefined, origin: 'documentation' | undefined): string =>
   JSON.stringify({
     summary: 'One risky-looking issue found',
-    issues: [
-      {
-        file: 'src.ts',
-        line: 3,
-        message: 'Unguarded parse on the added line',
-        severity: 'error',
-        ...(risk === undefined ? {} : { risk }),
-      },
-    ],
+    issues: [buildScenarioIssue(risk, origin)],
     suggestions: [],
     approved: true,
   });
@@ -174,24 +183,30 @@ function runCommand(cwd: string, outputPath: string, env: NodeJS.ProcessEnv): Sp
   };
 }
 
-function readSavedReview(outputPath: string): { approved?: boolean; risk?: number } | null {
+type SavedReview = { approved?: boolean; risk?: number; origin?: string };
+
+function readSavedReview(outputPath: string): SavedReview | null {
   if (!fs.existsSync(outputPath)) return null;
   const saved = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
   const review = Array.isArray(saved) ? saved[0]?.review : saved?.review;
   if (!review) return null;
-  return { approved: review.approved, risk: review.issues?.[0]?.risk };
+  return { approved: review.approved, risk: review.issues?.[0]?.risk, origin: review.issues?.[0]?.origin };
 }
 
-function assertSavedReview(scenario: Scenario, saved: { approved?: boolean; risk?: number }): void {
-  if (saved.approved !== scenario.expectedApproved) {
-    fail(`${scenario.name}: approved should be ${scenario.expectedApproved}`, JSON.stringify(saved));
+const findMismatch = (scenario: Scenario, saved: SavedReview): string | null => {
+  if (saved.approved !== scenario.expectedApproved) return `approved should be ${scenario.expectedApproved}`;
+  if (saved.risk !== scenario.risk) return `issue risk should round-trip as ${scenario.risk}`;
+  if (saved.origin !== scenario.origin) return `issue origin should round-trip as ${scenario.origin}`;
+  return null;
+};
+
+function assertSavedReview(scenario: Scenario, saved: SavedReview): void {
+  const mismatch = findMismatch(scenario, saved);
+  if (mismatch) {
+    fail(`${scenario.name}: ${mismatch}`, JSON.stringify(saved));
     return;
   }
-  if (saved.risk !== scenario.risk) {
-    fail(`${scenario.name}: issue risk should round-trip as ${scenario.risk}`, JSON.stringify(saved));
-    return;
-  }
-  pass(`${scenario.name} (approved=${saved.approved}, risk=${saved.risk})`);
+  pass(`${scenario.name} (approved=${saved.approved}, risk=${saved.risk}, origin=${saved.origin})`);
 }
 
 function checkScenario(scenario: Scenario, result: SpawnResult, outputPath: string): void {
@@ -209,7 +224,7 @@ function checkScenario(scenario: Scenario, result: SpawnResult, outputPath: stri
 }
 
 function runScenario(scenario: Scenario, index: number, tempRoot: string, paths: Paths): void {
-  fs.writeFileSync(paths.responsePath, buildReviewJson(scenario.risk), 'utf-8');
+  fs.writeFileSync(paths.responsePath, buildReviewJson(scenario.risk, scenario.origin), 'utf-8');
   const outputPath = path.join(tempRoot, `review-output-${index}.json`);
   const result = runCommand(paths.repoDir, outputPath, buildEnv(paths.homeDir, paths.binDir));
   checkScenario(scenario, result, outputPath);

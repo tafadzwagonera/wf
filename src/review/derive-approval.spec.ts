@@ -86,6 +86,46 @@ describe('deriveApproval', () => {
     });
   });
 
+  describe('documentation-origin issues', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('returns true when a documentation-origin issue is error severity with no risk', () => {
+      const issues = [
+        {
+          severity: 'error' as const, message: 'Comment restates the code', file: 'src/test.ts', line: 1,
+          origin: 'documentation' as const,
+        },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(true);
+    });
+
+    it('returns true when a comment-policy-origin issue is error severity', () => {
+      const issues = [
+        {
+          severity: 'error' as const, message: '[comment-policy] Newly added comment requires human approval.',
+          file: 'src/test.ts', line: 1, origin: 'comment-policy' as const,
+        },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(true);
+    });
+
+    it('still blocks on an unrelated error issue alongside an error-severity documentation issue', () => {
+      const issues = [
+        {
+          severity: 'error' as const, message: 'Comment restates the code', file: 'src/test.ts', line: 1,
+          origin: 'documentation' as const,
+        },
+        { severity: 'error' as const, message: 'Critical issue', file: 'src/test.ts', line: 2 },
+      ];
+      const result = deriveApproval(issues, true);
+      expect(result).toBe(false);
+    });
+  });
+
   describe('model approval value handling', () => {
     afterEach(() => {
       jest.restoreAllMocks();

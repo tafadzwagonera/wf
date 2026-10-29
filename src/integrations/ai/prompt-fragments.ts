@@ -167,9 +167,12 @@ export const reviewInstructions = `   Review principles — apply judgment to ea
    Still report documentation issues — code comments, README.md, and Markdown specs — but
    never attach a risk score to them: they carry no probability of runtime or compile-time
    failure, so report severity alone and omit the "risk" field entirely from the JSON for
-   that issue. Reserve "risk" for code-related issues: compile-time and runtime behavior,
-   configuration changes, infrastructure changes, and other issues affecting customer-facing
-   features or developer tooling
+   that issue. Also set "origin": "documentation" on it — the tool uses this tag to keep
+   documentation findings out of the approve/reject decision, so a documentation issue
+   can never block approval regardless of the severity you give it. Reserve "risk" for
+   code-related issues: compile-time and runtime behavior, configuration changes,
+   infrastructure changes, and other issues affecting customer-facing features or
+   developer tooling
 3. Assess trace confidence honestly: evidence-based when you can follow the path,
    best-effort when partially visible, unavailable when opaque
 4. Walk the changed code path as a concrete call stack using real identifiers from the diff
@@ -207,7 +210,7 @@ export const reviewSubAgentGuidance = `   Sub-agent delegation — apply when a 
      read-only tools.`;
 
 export const reviewOutputSchema = `Return ONLY a valid JSON object. Reference:
-{"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","risk":0.8,"message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","risk":0.4,"message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","risk":0.2,"message":"Log message change loses diagnostic value."},{"severity":"warning","message":"New comment restates the code instead of explaining a non-obvious constraint.","file":"src/service.ts","line":55}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":[{"name":"dep","value":"Dep { ... }"}],"changes":[{"name":"dep","before":"old","after":"new"}],"children":[{"frame":"Helper.transform(input)","captured":[],"changes":[{"name":"result","before":null,"after":"transformed"}],"children":[]}]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
+{"summary":"Rename display label from X to Y across all user-facing text.","issues":[{"severity":"warning","risk":0.8,"message":"Missing JSDoc block on new private method.","file":"src/service.ts","line":42,"suggestion":"Add a minimal JSDoc block."},{"severity":"info","risk":0.4,"message":"Unused import spans multiple lines.","file":"src/utils.ts","line":10,"endLine":14},{"severity":"info","risk":0.2,"message":"Log message change loses diagnostic value."},{"severity":"warning","origin":"documentation","message":"New comment restates the code instead of explaining a non-obvious constraint.","file":"src/service.ts","line":55}],"traceProvenance":"evidence-based","callStack":[{"frame":"Service.method(params)","children":[{"frame":"Helper.transform(input)","children":[]}]}],"stateTransition":{"from":"entry-frame","to":"exit-frame","steps":[{"frame":"Service.method(params)","captured":[{"name":"dep","value":"Dep { ... }"}],"changes":[{"name":"dep","before":"old","after":"new"}],"children":[{"frame":"Helper.transform(input)","captured":[],"changes":[{"name":"result","before":null,"after":"transformed"}],"children":[]}]}]},"suggestions":["Extract predicate into a named helper for readability."],"approved":true}
 
 Prefer an absolute line number. Degrade to a line range (line + endLine) when the issue spans multiple lines. Omit line and endLine entirely when the issue cannot be pinned to specific lines.
 When an optional field has no value, omit it from the JSON entirely. Do not use null.
