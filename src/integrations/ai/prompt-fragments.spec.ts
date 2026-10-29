@@ -88,6 +88,16 @@ describe('buildReviewPrompt', () => {
     expect(parsed.issues.some((issue: { risk?: number }) => typeof issue.risk === 'number')).toBe(true);
   });
 
+  it('instructs the model to omit risk entirely for documentation issues and shows a risk-less example', () => {
+    const prompt = buildReviewPrompt({ diff: 'DIFF', guidelines: [] });
+    expect(prompt).toContain('never attach a risk score to them');
+    expect(prompt).toContain('omit the "risk" field entirely');
+    const schemaLineStart = prompt.indexOf('{"summary"');
+    const schemaLineEnd = prompt.indexOf('\n', schemaLineStart);
+    const parsed = JSON.parse(prompt.substring(schemaLineStart, schemaLineEnd));
+    expect(parsed.issues.some((issue: { risk?: number }) => issue.risk === undefined)).toBe(true);
+  });
+
   it('orders code changes, numbered guidelines, instructions, trace guidance, sub-agent guidance and schema', () => {
     const result = buildReviewPrompt({ diff: 'DIFF', guidelines: ['a'] });
     const positions = [
